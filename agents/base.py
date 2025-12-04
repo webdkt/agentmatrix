@@ -4,20 +4,43 @@ from core.message import Email
 from core.session import TaskSession
 from core.events import AgentEvent
 
+import traceback
+from dataclasses import asdict
+
 class BaseAgent:
-    def __init__(self, name: str, backend, post_office=None):
+    def __init__(self, name, description, instructions, backend, profile_data=None):
         self.name = name
+        self.description = description
+        self.instructions = instructions
         self.backend = backend
-        self.post_office = post_office
+        self.profile_data = profile_data or {}
+        self.config = {}
         
+        # 标准组件
         self.inbox = asyncio.Queue()
-        
-        # === 状态管理核心 ===
+        #self.sessions = {}
         self.sessions: Dict[str, TaskSession] = {} # Key: Original Msg ID
         self.reply_mapping: Dict[str, str] = {}    # Key: Outgoing Msg ID -> Value: Session ID
         
         # 事件回调 (Server 注入)
         self.event_callback: Optional[Callable] = None
+    
+    def get_introduction(self):
+        """
+        生成给其他 Agent 看的说明书 (Protocol Description)
+        这是之前 AgentManifest.to_prompt() 的逻辑
+        """
+        
+        return (
+            f"--- Agent: {self.name} ---\n"
+            f"Description: {self.description}\n"
+            f"Instruction: {self.instructions}\n"
+            f"--------------------------\n"
+        )
+    
+    def configure(self, config: dict):
+        """允许子类覆盖此方法来处理 config 字段"""
+        self.config = config
 
     async def emit(self, event_type, content, payload=None):
         """
@@ -45,10 +68,13 @@ class BaseAgent:
         await self.emit("SYSTEM", f"{self.name} 启动")
         while True:
             email = await self.inbox.get()
+            self.current_processing_msg = email 
             try:
                 await self.process_email(email)
+                self.current_processing_msg = None 
             except Exception as e:
                 print(f"Error in {self.name}: {e}")
+                traceback.print_exc()
             finally:
                 self.inbox.task_done()
 
@@ -143,3 +169,53 @@ class BaseAgent:
             "sessions": active_sessions_data,  # 详细上下文
             "waiting_map": waiting_for         # 依赖关系
         }
+    
+    def dump_state(self) -> Dict:
+        """生成当前 Agent 的完整快照"""
+        
+        # 1. 提取收件箱里所有未读邮件
+        # Queue 没法直接序列化，得把东西取出来变成 List
+        inbox_content = []
+        while not self.inbox.empty():
+            email = self.inbox.get_nowait()
+            inbox_content.append(asdict(email)) # Email 也需要 to_dict
+            self.inbox.task_done()
+        
+        # 2. 提取 Session
+        sessions_dump = {k: v.to_dict() for k, v in self.sessions.items()}
+
+        # 额外检查：如果保存时正在处理某封信，把它塞回 Inbox 的头部！
+        # 这样下次启动时，Agent 会重新处理这封信，相当于“断点重试”
+        if self.current_processing_msg:
+             inbox_content.insert(0, asdict(self.current_processing_msg))
+
+        return {
+            "name": self.name,
+            "inbox": inbox_content,
+            "sessions": sessions_dump,
+            "reply_mapping": self.reply_mapping,
+            # 如果是 Planner，它会有额外的 project_state，
+            # 可以通过 hasattr 检查或者子类覆盖 dump_state
+            "extra_state": getattr(self, "project_state", None) 
+        }
+
+    def load_state(self, snapshot: Dict):
+        """从快照恢复现场"""
+        # 1. 恢复收件箱
+        for email_dict in snapshot["inbox"]:
+            # 假设 Email 类有 from_dict
+            email = Email(**email_dict)
+            self.inbox.put_nowait(email)
+            
+        # 2. 恢复 Sessions
+        self.sessions = {
+            k: TaskSession.from_dict(v) 
+            for k, v in snapshot["sessions"].items()
+        }
+        
+        # 3. 恢复路由表
+        self.reply_mapping = snapshot["reply_mapping"]
+        
+        # 4. 恢复额外状态 (Planner)
+        if snapshot.get("extra_state"):
+            self.project_state = snapshot["extra_state"]

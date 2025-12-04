@@ -3,12 +3,12 @@ import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from core.loader import AgentLoader
 
 
 
 from agents.post_office import PostOffice
-from agents.worker import WorkerAgent
-from agents.secretary import SecretaryAgent
+
 from backends.mock_llm import MockLLM
 from core.message import Email
 
@@ -21,19 +21,19 @@ db = post_office.db
 
 mock_backend = MockLLM()
 
-secretary = SecretaryAgent("Secretary", mock_backend)
-planner = WorkerAgent("Planner", mock_backend)
-coder = WorkerAgent("Coder", mock_backend)
+
+# 2. 初始化 Loader
+loader = AgentLoader(backend_llm=mock_backend, backend_slm=mock_backend)
+
+# 3. 魔法发生的地方：自动加载所有 Agent
+agents = loader.load_all("./profiles")
 
 active_websockets = []
 
 # === 生命周期 ===
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. 注册
-    post_office.register(secretary)
-    post_office.register(planner)
-    post_office.register(coder)
+    
     
     # 2. 注入事件回调 (让 Agent 能通过 WS 说话)
     async def global_event_handler(event):
@@ -46,18 +46,13 @@ async def lifespan(app: FastAPI):
                 await ws.send_text(msg)
             except:
                 pass
-
-    secretary.event_callback = global_event_handler
-    planner.event_callback = global_event_handler
-    coder.event_callback = global_event_handler
-
-    # 3. 启动后台任务
-    tasks = [
-        asyncio.create_task(post_office.run()),
-        asyncio.create_task(secretary.run()),
-        asyncio.create_task(planner.run()),
-        asyncio.create_task(coder.run())
-    ]
+    tasks = []
+    # 4. 注册到邮局
+    for agent in agents:
+        agent.event_callback = global_event_handler
+        post_office.register(agent)
+        # 并启动它
+        tasks.append(asyncio.create_task(agent.run()))
     
     yield
     

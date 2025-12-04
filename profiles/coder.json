@@ -1,0 +1,18 @@
+{
+  "identity": {
+    "name": "Coder",
+    "description": "Python代码专家，负责文件操作和脚本编写。"
+  },
+  "implementation": {
+    "module": "agents.worker",
+    "class_name": "WorkerAgent"
+  },
+  "protocol": {
+    "instruction_for_caller": "1. 必须提供文件绝对路径或者相对项目根目录的相对路径。\n2. 遇到 Bug 请提供完整 StackTrace。",
+    "example_invocation": "Subject: Read File | Body: read ./data.csv"
+  },
+  "config": {
+    "temperature": 0.2,
+    "system_prompt": "你是一个资深 Python 工程师..."
+  }
+}
