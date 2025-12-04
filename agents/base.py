@@ -8,13 +8,16 @@ import traceback
 from dataclasses import asdict
 
 class BaseAgent:
-    def __init__(self, name, description, instructions, backend, profile_data=None):
-        self.name = name
-        self.description = description
-        self.instructions = instructions
-        self.backend = backend
-        self.profile_data = profile_data or {}
-        self.config = {}
+    def __init__(self, profile):
+        self.name = profile["name"]
+        self.description = profile["description"]
+        self.instructions = profile["instructions"]
+        self.system_prompt = profile["system_prompt"]
+        self.profile = profile
+        self.instruction_to_caller = profile["instruction_to_caller"]
+        self.backend = profile["backend_model"]
+        
+
         
         # 标准组件
         self.inbox = asyncio.Queue()
@@ -39,9 +42,18 @@ class BaseAgent:
         )
     
     def configure(self, config: dict):
-        """允许子类覆盖此方法来处理 config 字段"""
-        self.config = config
-
+        #用config 来配置agent
+        if 'description' in config:
+            self.description = config['description']    
+        if 'instructions' in config:
+            self.instructions = config['instructions']
+        if 'system_prompt' in config:
+            self.system_prompt = config['system_prompt']
+        if 'instruction_to_caller' in config:
+            self.instruction_to_caller = config['instruction_to_caller']
+        #use config to update self.profile
+        self.profile = {**self.profile, **config}
+        
     async def emit(self, event_type, content, payload=None):
         """
         发送事件到注册的事件回调函数

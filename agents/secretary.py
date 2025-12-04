@@ -3,6 +3,11 @@ from agents.base import BaseAgent
 from tools.basic import TOOL_MAP
 
 class SecretaryAgent(BaseAgent):
+    def __init__(self, profile,project_context ):
+        super().__init__(profile)
+        self.project = project_context
+
+
     async def step(self, session):
         await self.emit("THINKING", "正在解析指令...")
         
@@ -29,3 +34,26 @@ class SecretaryAgent(BaseAgent):
             
         except Exception as e:
              await self.send_email(session.original_sender, "Error", str(e), session, expect_reply=False)
+
+
+    def read_file(self, file_path):
+        # 1. 安全检查 & 路径转换
+        try:
+            safe_path = self.project.resolve_path(file_path)
+        except PermissionError as e:
+            return f"Error: {str(e)}"
+
+        # 2. 执行操作
+        try:
+            with open(safe_path, 'r') as f:
+                return f.read()
+        except FileNotFoundError:
+            return "Error: File not found."
+
+    def list_files(self, sub_dir="."):
+        # 列出文件时，Agent 看到的应该是相对路径
+        safe_path = self.project.resolve_path(sub_dir)
+        files = []
+        for p in Path(safe_path).glob("*"):
+            files.append(p.name) # 或者 p.relative_to(self.project.root)
+        return str(files)

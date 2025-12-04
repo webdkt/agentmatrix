@@ -16,8 +16,12 @@ class AgentLoader:
             profile = json.load(f)
 
         # 1. 解析实现类信息
-        module_name = profile["implementation"]["module"]
-        class_name = profile["implementation"]["class_name"]
+        module_name = profile["module"]
+        class_name = profile["class_name"]
+
+        #remove module_name and class_name from profile
+        del profile["module"]
+        del profile["class_name"]
 
         # 2. 动态导入 (Reflection)
         try:
@@ -27,24 +31,11 @@ class AgentLoader:
             raise ImportError(f"无法加载 Agent 类: {module_name}.{class_name}. 错误: {e}")
 
         # 3. 准备初始化参数
-        # 基础参数 (所有 Agent 都有的)
-        base_args = {
-            "name": profile["identity"]["name"],
-            "description": profile["identity"]["description"],
-            "instructions": profile["protocol"].get("instruction_for_caller", ""),
-            "profile_data": profile # 把原始配置也传进去，以防子类需要其他字段
-        }
-
-        # 4. 注入后端依赖 (根据 Agent 类型决定注入 LLM 还是 SLM)
-        # 这里是一个简单的策略，你也可以在 json 里配置 "backend_type": "llm"
-        if "Secretary" in class_name or "PostOffice" in class_name:
-            base_args["backend"] = self.slm
-        else:
-            base_args["backend"] = self.llm
+        
 
         # 5. 实例化
         # 这里的关键是：Agent 的 __init__ 必须能接收这些参数
-        agent_instance = agent_class(**base_args)
+        agent_instance = agent_class(profile)
         
         # 6. 处理额外的 config (如果有专门的 set_config 方法)
         if hasattr(agent_instance, "configure"):

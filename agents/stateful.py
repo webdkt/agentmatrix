@@ -2,8 +2,8 @@ from agents.base import BaseAgent
 from core.session import TaskSession
 import json
 class StatefulAgent(BaseAgent):
-    def __init__(self, name, backend):
-        super().__init__(name, backend)
+    def __init__(self, profile):
+        super().__init__(profile)
         # 这就是那个“动态文档”，可以是 JSON，也可以是 Markdown
         self.project_state = {
             "objective": "",
