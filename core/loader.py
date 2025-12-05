@@ -1,4 +1,4 @@
-import json
+import yaml
 import importlib
 import os
 from typing import List, Any
@@ -13,7 +13,7 @@ class AgentLoader:
     def load_from_file(self, file_path: str) -> Any:
         """从 JSON 文件加载并实例化一个 Agent"""
         with open(file_path, 'r', encoding='utf-8') as f:
-            profile = json.load(f)
+            profile = yaml.safe_load(f)
 
         # 1. 解析实现类信息
         module_name = profile["module"]
@@ -46,7 +46,7 @@ class AgentLoader:
     def load_all(self, profiles_dir: str) -> List[Any]:
         agents = []
         for filename in os.listdir(profiles_dir):
-            if filename.endswith(".json"):
+            if filename.endswith(".yml"):
                 full_path = os.path.join(profiles_dir, filename)
                 print(f"Loading agent from {filename}...")
                 agents.append(self.load_from_file(full_path))

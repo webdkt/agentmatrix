@@ -11,7 +11,7 @@ class BaseAgent:
     def __init__(self, profile):
         self.name = profile["name"]
         self.description = profile["description"]
-        self.instructions = profile["instructions"]
+        
         self.system_prompt = profile["system_prompt"]
         self.profile = profile
         self.instruction_to_caller = profile["instruction_to_caller"]
@@ -27,6 +27,7 @@ class BaseAgent:
         
         # 事件回调 (Server 注入)
         self.event_callback: Optional[Callable] = None
+        print(f"Agent {self.name} 初始化完成")
     
     def get_introduction(self):
         """

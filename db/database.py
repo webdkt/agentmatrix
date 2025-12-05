@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 
 class AgentDB:
-    def __init__(self, db_path="agents.db"):
+    def __init__(self, db_path):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.create_tables()
 

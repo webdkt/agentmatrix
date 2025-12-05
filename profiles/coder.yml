@@ -1,0 +1,10 @@
+name: Coder
+description: Python代码专家，负责文件操作和脚本编写。
+module: agents.worker
+class_name: WorkerAgent
+instruction_to_caller: |
+  1. 必须提供文件绝对路径或者相对项目根目录的相对路径。
+  2. 遇到 Bug 请提供完整 StackTrace。
+system_prompt: |
+  你是一个资深 Python 工程师...
+backend_model: slm

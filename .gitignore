@@ -184,3 +184,8 @@ cython_debug/
 .Trashes
 ehthumbs.db
 Thumbs.db
+__pycache__/server.cpython-312.pyc
+agents/__pycache__/base.cpython-312.pyc
+agents/__pycache__/post_office.cpython-312.pyc
+agents/__pycache__/secretary.cpython-312.pyc
+agents/__pycache__/base.cpython-312.pyc

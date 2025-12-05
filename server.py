@@ -5,28 +5,14 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from core.loader import AgentLoader
 
-
+from core.runtime import AgentMatrix
 
 from agents.post_office import PostOffice
 
 from backends.mock_llm import MockLLM
 from core.message import Email
 
-# === 全局实例 ===
-post_office = PostOffice()
-
-# 全局数据库实例 (从 post_office 访问)
-db = post_office.db 
-
-
-mock_backend = MockLLM()
-
-
-# 2. 初始化 Loader
-loader = AgentLoader(backend_llm=mock_backend, backend_slm=mock_backend)
-
-# 3. 魔法发生的地方：自动加载所有 Agent
-agents = loader.load_all("./profiles")
+agentMatrix = None
 
 active_websockets = []
 
@@ -46,17 +32,13 @@ async def lifespan(app: FastAPI):
                 await ws.send_text(msg)
             except:
                 pass
-    tasks = []
-    # 4. 注册到邮局
-    for agent in agents:
-        agent.event_callback = global_event_handler
-        post_office.register(agent)
-        # 并启动它
-        tasks.append(asyncio.create_task(agent.run()))
+
+    agentMatrix = AgentMatrix(agent_profile_path="./profiles",  event_call_back=global_event_handler)
+    agentMatrix.load_matrix('Samples/TestWorkspace')
     
     yield
     
-    for t in tasks: t.cancel()
+    agentMatrix.save_matrix()
     
 
 app = FastAPI(lifespan=lifespan)
@@ -80,7 +62,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     subject="New Project",
                     body=prompt # 包含 "start_task"
                 )
-                await post_office.dispatch(email)
+                await agentMatrix.post_office.dispatch(email)
                 await websocket.send_text(json.dumps({"type": "SYSTEM", "msg": "Task Submitted"}))
                 
     except WebSocketDisconnect:

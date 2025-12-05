@@ -3,9 +3,9 @@ from agents.base import BaseAgent
 from tools.basic import TOOL_MAP
 
 class SecretaryAgent(BaseAgent):
-    def __init__(self, profile,project_context ):
+    def __init__(self, profile ):
         super().__init__(profile)
-        self.project = project_context
+        
 
 
     async def step(self, session):
