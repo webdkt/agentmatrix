@@ -1,4 +1,10 @@
 fastapi
 uvicorn
 websockets
-yaml
+pyyaml
+dotenv
+requests
+aioconsole
+aiohttp
+Jinja2
+libtmux

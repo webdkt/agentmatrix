@@ -1,0 +1,4 @@
+name: Sample Company
+rules: |
+  - name: "Sample Rule"
+

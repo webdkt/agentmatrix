@@ -9,6 +9,7 @@ class TaskSession:
     history: List[Dict]      # 对话历史
     status: str = "RUNNING"  # RUNNING, WAITING
 
+
     def to_dict(self):
         return asdict(self)
 

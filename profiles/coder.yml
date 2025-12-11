@@ -7,4 +7,7 @@ instruction_to_caller: |
   2. 遇到 Bug 请提供完整 StackTrace。
 system_prompt: |
   你是一个资深 Python 工程师...
-backend_model: slm
+backend_model: default_slm
+
+
+

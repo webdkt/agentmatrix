@@ -1,17 +1,17 @@
 # runtime.py 或 snapshot_manager.py
 import json
-from agents.base import BaseAgent
-from typing import List
+
 from datetime import datetime
 from core.message import Email
 from dataclasses import asdict
 from core.loader import AgentLoader
 import asyncio
 import os
+import logging
 
 from agents.post_office import PostOffice
 
-from backends.mock_llm import MockLLM
+
 from core.message import Email
 
 
@@ -35,24 +35,24 @@ from core.message import Email
 
 '''
 async def default_event_printer(event):
-    print(event)
+    pass
+    #self.logger.info(event)
 
 class AgentMatrix:
     def __init__(self, agent_profile_path="./profiles", event_call_back = default_event_printer):
         # === 全局实例 ===
         self.post_office = None
         self.event_call_back = event_call_back
-        self.backend_llm = MockLLM()
-        self.backend_slm = MockLLM()
-        self.post_office_task = None
 
+        self.post_office_task = None
+        self.agent_profile_path= agent_profile_path
 
         # 2. 初始化 Loader
-        self.loader = AgentLoader(backend_llm=self.backend_llm, backend_slm=self.backend_slm)
+        self.loader = AgentLoader(agent_profile_path)
 
-        # 3. 魔法发生的地方：自动加载所有 Agent
-        self.agents = self.loader.load_all(agent_profile_path)
-        for agent in self.agents:
+        # 3. 自动加载所有 Agent
+        self.agents = self.loader.load_all()
+        for agent in self.agents.values():
             agent.event_call_back = event_call_back
                 
         
@@ -61,14 +61,26 @@ class AgentMatrix:
         self.running_agent_tasks = []
         self.running = False
         self.matrix_path = None
+        self.logger = logging.getLogger("AgentMatrix")
+        self.logger.setLevel(logging.DEBUG)
     
-        
+    def json_serializer(self,obj):
+        """JSON serializer for objects not serializable by default json code"""
+        try:
+            if isinstance(obj, (datetime,)):
+                return obj.isoformat()
+            # 尝试获取对象的详细信息
+            obj_info = f"Type: {type(obj)}, Value: {str(obj)[:100]}, Dir: {[attr for attr in dir(obj) if not attr.startswith('_')][:5]}"
+            raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable\nObject info: {obj_info}")
+        except Exception as e:
+            raise TypeError(f"Error serializing object: {str(e)}\nObject info: {obj_info}")
 
 
 
-    def save_matrix(self):
+
+    async def save_matrix(self):
         """一键休眠"""
-        print(">>> 正在冻结世界...")
+        self.logger.info(">>> 正在冻结世界...")
         self.post_office.pause()
         # 2. 取消所有正在运行的agent任务
         for task in self.running_agent_tasks:
@@ -82,7 +94,8 @@ class AgentMatrix:
         if self.post_office_task:
             self.post_office_task.cancel()
             try:
-                asyncio.get_event_loop().run_until_complete(self.post_office_task)
+                await self.post_office_task
+                #asyncio.get_event_loop().run_until_complete(self.post_office_task)
             except asyncio.CancelledError:
                 pass
             self.post_office_task = None
@@ -94,7 +107,7 @@ class AgentMatrix:
         }
 
         # 1. 冻结所有 Agent
-        for agent in self.agents:
+        for agent in self.agents.values():
             world_state["agents"][agent.name] = agent.dump_state()
 
         # 2. 冻结邮局 (如果有还在路由的信)
@@ -107,40 +120,54 @@ class AgentMatrix:
         world_state["post_office"] = po_queue
         filepath = os.path.join(self.matrix_path, ".matrix", "matrix_snapshot.json")
         # 3. 写入磁盘
-        with open(filepath, "w", encoding='utf-8') as f:
-            json.dump(world_state, f, indent=2, ensure_ascii=False)
+        try:
+            with open(filepath, "w", encoding='utf-8') as f:
+                json.dump(world_state, f, indent=2, ensure_ascii=False, default=self.json_serializer)
+        except TypeError as e:
+            self.logger.error(f"JSON序列化错误: {str(e)}")
+            # 打印world_state的结构，帮助定位问题
+            self.logger.debug("World state structure:")
+            self.logger.debug(world_state)
+            raise
             
-        print(f">>> 世界已保存至 {filepath}")
+        self.logger.info(f">>> 世界已保存至 {filepath}")
         # 9. 清理资源
         self.running = False
 
     def load_matrix(self, matrix_path):
         
         """一键复活"""
-        print(f">>> 正在从 {matrix_path} 恢复世界...")
+        self.logger.info(f">>> 正在从 {matrix_path} 恢复世界...")
         self.matrix_path = matrix_path
         matrix_snapshot_path = os.path.join(matrix_path,".matrix" , "matrix_snapshot.json")
         os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
         
         try:
             with open(matrix_snapshot_path, "r", encoding='utf-8') as f:
-                world_state = json.load(f)
+                content = f.read().strip()
+                if not content:  # 文件为空
+                    self.logger.info(f">>> {matrix_snapshot_path} 为空，创建新的世界状态...")
+                    world_state = {}
+                    with open(matrix_snapshot_path, "w", encoding='utf-8') as f:
+                        json.dump(world_state, f, ensure_ascii=False, indent=2)
+                else:
+                    world_state = json.loads(content)  # 使用 json.loads 而不是 json.load
         except FileNotFoundError:
-            print(f">>> 未找到 {matrix_snapshot_path}，创建新的世界状态...")
+            self.logger.info(f">>> 未找到 {matrix_snapshot_path}，创建新的世界状态...")
             world_state = {}
             with open(matrix_snapshot_path, "w", encoding='utf-8') as f:
                 json.dump(world_state, f, ensure_ascii=False, indent=2)
 
         # 1. 恢复 Agent 状态
         if world_state and "agents" in world_state:
-            for agent in self.agents:
-                if agent.name in world_state["agents"]:
 
+            for agent in self.agents.values():
+                if agent.name in world_state["agents"]:
                     agent_data = world_state["agents"][agent.name]
                     agent.load_state(agent_data)
-                    print(f">>> 恢复 Agent {agent.name} 状态成功！" )
+                    self.logger.info(f">>> 恢复 Agent {agent.name} 状态成功！" )
         else:
-            print(">>> 未找到 Agent 状态.")
+            self.logger.info(">>> 未找到 Agent 状态.")
             
 
         
@@ -152,9 +179,70 @@ class AgentMatrix:
 
         self.running_agent_tasks =[]
         # 3. 注册到邮局
-        for agent in self.agents:
+        for agent in self.agents.values():
+            agent.workspace_root = matrix_path #设置root path
             self.post_office.register(agent)
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
+        
+        
+
+        # 4 注入prompt, 如果prompt 模版没找到，就unregister from post office
+
+
+
+        prompts_path = os.path.join(self.agent_profile_path, "prompts")
+        prompts = {}
+        for prompt_txt in os.listdir(prompts_path):
+            
+            if prompt_txt.endswith(".txt"):
+                self.logger.debug(f">>> 加载Prompt模板 {prompt_txt}...")
+                with open(os.path.join(prompts_path, prompt_txt), "r", encoding='utf-8') as f:
+                    prompts[prompt_txt[:-4]] = f.read()
+
+        
+        self.logger.debug(prompts)
+        for agent in self.agents.values():
+            template_name = "base"
+            if 'prompt_template' in agent.profile:
+                template_name = agent.profile['prompt_template']
+            self.logger.debug(f">>> {agent.name} 使用Prompt模板 {template_name}...")
+            if template_name in prompts:
+                prompt = prompts[template_name]
+                prompt =prompt.replace("{{ name }}", agent.name)
+                prompt =prompt.replace("{{ description }}", agent.description)
+                prompt =prompt.replace("{{ system_prompt }}", agent.system_prompt)
+                yellow_page = self.post_office.yellow_page_exclude_me(agent.name)
+                prompt =prompt.replace("{{ yellow_page }}", yellow_page)
+                capabilities_menu = agent.get_capabilities_summary()
+                prompt = prompt.replace("{{ capabilities }}", capabilities_menu)
+                self.logger.debug(f">>> {agent.name} prompts 是：\n{prompt}" )
+                agent.system_prompt = prompt
+                tool_manifest = agent._generate_tools_prompt()
+                import textwrap
+                p = textwrap.dedent(f"""
+                    You are the Interface Manager (Cerebellum). Your job is to convert User Intent into a Function Call JSON.
+                    
+                    [Available Tools]:
+                    {tool_manifest}
+                    
+                    [Instructions]:
+                    1. Identify the tool the user wants to use.
+                    2. Check if ALL required parameters for that tool are present in the Intent/Status.
+                    3. DECISION:
+                    - If READY: Output JSON `{{ "status": "READY", "action_json": {{ "action": "name", "params": {{...}} }} }}`
+                    - If MISSING PARAM: Output JSON `{{ "status": "ASK", "question": "What is the value for [param_name]?" }}`
+                    - If AMBIGUOUS: Output JSON `{{ "status": "ASK", "question": "whatever need to be clarified" }}`
+                    - If Not fesible: Output JSON `{{ "status": "NOT_FEASIBLE", "reason": "No matching tool found." }}`
+                    
+                    Output ONLY valid JSON.
+                    """)
+                self.logger.debug(f">>> {agent.name} 小脑system prompt 是：\n{p}" )
+
+            else:
+                self.post_office.unregister(agent)
+                self.logger.info(f">>> {agent.name} 未找到Prompt模板 {template_name}，跳过注册.")
+
+
 
 
         
@@ -165,7 +253,9 @@ class AgentMatrix:
             for email_dict in world_state["post_office"]:
                 self.post_office.queue.put_nowait(Email(**email_dict))
         else:
-            print(">>> 未找到 PostOffice 状态.")
+            self.logger.info(">>> 未找到 PostOffice 状态.")
         
         self.running = True
-        print(">>> 世界已恢复，系统继续运行！")
+        self.logger.info(">>> 世界已恢复，系统继续运行！")
+        yellow_page = self.post_office.yellow_page()
+        self.logger.info(f">>> 当前世界中的 Agent 有：\n{yellow_page}")

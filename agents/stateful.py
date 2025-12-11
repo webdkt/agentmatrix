@@ -27,13 +27,13 @@ class StatefulAgent(BaseAgent):
         
         输出: 仅输出更新后的 JSON 状态。
         """
-        new_state_json = await self.backend.chat(self.name, [{"role": "user", "content": update_prompt}])
+        new_state_json = await self.brain.think(self.name, [{"role": "user", "content": update_prompt}])
         
         # 更新内存
         try:
             self.project_state = json.loads(new_state_json)
             # 存入数据库快照，方便回溯
-            self.save_state_snapshot() 
+            #self.save_state_snapshot() 
         except:
             print("State update failed")
 
@@ -48,7 +48,7 @@ class StatefulAgent(BaseAgent):
         
         输出: [Action: EMAIL] ...
         """
-        response = await self.backend.chat(self.name, [{"role": "user", "content": action_prompt}])
+        response = await self.brain.think(self.name, [{"role": "user", "content": action_prompt}])
         
         # ... 解析 response 并发信 (同 WorkerAgent) ...
         

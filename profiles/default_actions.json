@@ -1,0 +1,23 @@
+[
+  {
+    "name": "SEND_EMAIL",
+    "type": "ASYNC",
+    "description": "发送邮件给其他 Agent。当任务需要协作时使用。要写清楚发给谁，主题和正文内容，",
+    "parameters": {
+      "to": "目标 Agent 的名字 (string)",
+      "subject": "邮件主题 (string)",
+      "body": "邮件正文 (string)"
+    }
+  },
+  {
+    "name": "CONCLUDE_SESSION",
+    "type": "TERMINAL",
+    "description": "完成本次对话处理，发送一封总结性的邮件",
+    "parameters": {
+      
+       "to": "目标 Agent 的名字 (string)",
+      "subject": "[Work Summary] + 邮件主题 (string)",
+      "body": "邮件正文 (string), 应该详细清楚的总结本次工作的情况，不遗漏任何关键信息"
+    }
+  }
+]

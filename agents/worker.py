@@ -5,7 +5,7 @@ class WorkerAgent(BaseAgent):
         await self.emit("THINKING", "正在思考...")
         
         # 调用 Mock LLM
-        response = await self.backend.chat(self.name, session.history)
+        response = await self.brain.think(self.name, session.history)
         
         # 简单的协议解析 (Action Protocol)
         # 格式: [Action: EMAIL] To: X | Subject: Y | Body: Z

@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    agentMatrix.save_matrix()
+    await agentMatrix.save_matrix()
     
 
 app = FastAPI(lifespan=lifespan)
