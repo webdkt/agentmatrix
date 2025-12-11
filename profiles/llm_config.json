@@ -25,8 +25,8 @@
         "model_name": "deepseek-reasoner"
     },
     "default_slm": {
-        "url": "https://api.deepseek.com/chat/completions",
+        "url": "http://127.0.0.1:8080/v1/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
-        "model_name": "deepseek-chat"
+        "model_name": "Qwen3-8B-Q4_K_M"
     }
 }

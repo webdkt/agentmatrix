@@ -5,5 +5,5 @@ class_name: StatefulAgent
 instruction_to_caller: |
   直接发送自然语言指令。
 system_prompt: |
-  你是一个资深项目经理，擅长
+  你是一个资深项目经理,擅长分解复杂任务并生成清晰的计划。
 backend_model: default_llm

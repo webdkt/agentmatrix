@@ -4,10 +4,11 @@ import os
 import time
 import platform
 import subprocess
-from core.action import register_action, ActionType
+
 import time
 import random
 import logging
+from core.action import register_action
 
 logging.getLogger('libtmux').setLevel(logging.WARNING)
 class TerminalSkillMixin:
@@ -36,7 +37,7 @@ class TerminalSkillMixin:
         session = self._get_session(session_name)
         return session.windows[0].panes[0]
 
-    @register_action("初始化并弹出一个可见的终端窗口。只需调用一次。", ActionType.SYNC, param_infos={
+    @register_action("初始化并弹出一个可见的终端窗口。只需调用一次。", param_infos={
         "session_name": "会话名称，默认为 matrix_coder"
     })
     async def launch_terminal_window(self, session_name="matrix_coder"):
@@ -75,7 +76,7 @@ class TerminalSkillMixin:
         except Exception as e:
             return f"Error launching window: {str(e)}"
 
-    @register_action("向终端发送命令或文本（如启动 claude 或回答 y/n）。", ActionType.SYNC, param_infos={
+    @register_action("向终端发送命令或文本（如启动 claude 或回答 y/n）。", param_infos={
         "command": "要输入的文本",
         "press_enter": "是否在末尾加回车，默认为 True"
     })
@@ -103,7 +104,7 @@ class TerminalSkillMixin:
 
   
 
-    @register_action("查看终端屏幕的当前内容（截图）。", ActionType.SYNC, param_infos={
+    @register_action("查看终端屏幕的当前内容（截图）。", param_infos={
         "lines": "读取最近多少行，默认 20"
     })
     async def read_terminal_screen(self, lines: int = 20):

@@ -3,7 +3,7 @@ from typing import Dict, Optional, Callable, List
 from core.message import Email
 from core.session import TaskSession
 from core.events import AgentEvent
-from core.action import register_action, ActionType
+from core.action import register_action
 import traceback
 from dataclasses import asdict
 import inspect
@@ -67,7 +67,6 @@ class BaseAgent(FileSkillMixin):
                 
                 # 1. 提取基础信息
                 desc = method._action_desc
-                act_type = method._action_type
                 param_infos = method._action_param_infos
                 
                 
@@ -76,7 +75,6 @@ class BaseAgent(FileSkillMixin):
                 self.actions_meta[name] = {
                     "action": name,
                     "description": desc,
-                    "type": act_type,
                     "params": param_infos 
                 }
 
@@ -199,14 +197,9 @@ class BaseAgent(FileSkillMixin):
             temp_messages = session.history.copy()
             
             # 2. 注入 System Prompt，告诉 Brain 现在是在回答小脑的质询
-            query_content = (
-                "=== INTERNAL QUERY ===\n"
-                f"Question: {question}\n"
-                "----------------------\n"
-                "(Please answer this question directly based on conversation history so I can proceed with the action.)"
-            )
             
-            temp_messages.append({"role": "user", "content": query_content})
+            
+            temp_messages.append({"role": "user", "content": f"[INTERNAL QUERY]  {question} "})
             
             # 3. Brain 思考
             response = await self.brain.think(temp_messages)
@@ -220,7 +213,20 @@ class BaseAgent(FileSkillMixin):
             
             intention = await self.brain.think(context)
             intention = intention['reply']
-            self.logger.debug(f"{self.name} had a idea: \n{intention}")
+            
+            loop = asyncio.get_running_loop()
+            # 把同步的 logger.debug 扔到线程池执行
+            await loop.run_in_executor(None, self.logger.debug, (f"{self.name} had a idea: \n{intention}"))
+
+            action_signal = None  
+            #check if there's [ACTION SIGNAL] format in intention
+            if "[ACTION SIGNAL]:" in intention:
+                action_signal = intention.split("[ACTION SIGNAL]:",1)[1].strip()
+            else:
+                # 没有遵守格式，强制要求重写
+                self._add_brain_intention_to_history(intention)
+                self._add_question_to_brain("Action signal should begin with  `[ACTION SIGNAL]:`")
+                continue
             
             
             
@@ -230,16 +236,17 @@ class BaseAgent(FileSkillMixin):
             contacts = "\n".join(contacts)
 
             action_json = await self.cerebellum.negotiate(
-                initial_intent=intention, 
+                initial_intent=action_signal, 
                 tools_manifest=manifest_str,
                 contacts = contacts,
                 brain_callback=ask_brain_clarification
             )
             
-            self.logger.debug(f"{self.name} will do action: \n{action_json}")
+            
             
             
             action_name = action_json.get("action")
+            self.logger.debug(f"{self.name} will do action: \n{action_name}")
             params = action_json.get("params", {})
 
             
@@ -256,34 +263,24 @@ class BaseAgent(FileSkillMixin):
             try:
                 # === 真正的调用 self.send_email(...) ===
                 self._add_brain_intention_to_history(intention) #真正执行，才记录之前输出的意图，可能立刻SYNC回答，也可能就等邮件来，也可能出错，告诉他错误是什么
-                result = await method(**params)
+                
                 
                 # 获取动作类型
-                act_type = method._action_type
                 
-                if act_type == ActionType.SYNC:
-                    
+                
+                if action_name != "rest_n_wait":
+                    result = await method(**params)
                     self.logger.debug(f"{self.name} did action: \n{result}")
                     # 同步动作：把结果喂回给 Brain，继续循环
                     self._add_body_feedback_to_history(action_name, result)
                     #self.logger.debug(f"{self.current_session.history[:-2]}")
                     continue 
                     
-                elif act_type == ActionType.ASYNC:
-                    # 异步动作：任务挂起，退出循环
-                    
-                    self.logger.debug(f"{self.name} did action, will wait for result")
+                else:
+                    self.logger.debug(f"{self.name} will rest and wait")
                     self.status = "WAITING" #wait for email reply
                     break
-                    
-                elif act_type == ActionType.TERMINAL:
-                    self.status = "WAITING"
-                    # 终结动作：任务完成，退出循环
-                    #clean up session
-                    self.current_session.history=[]
-                    del self.sessions[email.id]
-                    break
-                    
+                                        
             except Exception as e:
                 # 执行报错：把 Python 异常喂回给 Brain
                 # Brain 看到报错后，可能会决定 "google search error" 或者 "ask coder"
@@ -316,7 +313,7 @@ class BaseAgent(FileSkillMixin):
         
         # 注入用户/同事的邮件
         
-        content =  "=== INCOMING MAIL ===\n"
+        content =  "[INCOMING MAIL]\n"
         content+= f"From: {email.sender}\n"
         content+= f"Subject: {email.subject}\n"
         content+= textwrap.dedent(f"""Body: 
@@ -328,13 +325,13 @@ class BaseAgent(FileSkillMixin):
     def _add_body_feedback_to_history(self, action_name,  result):
         session = self.current_session
         # 把动作执行结果反馈给 LLM
-        msg_body =  "==== [BODY FEEDBACK] ====\n"
+        msg_body =  "[BODY FEEDBACK]\n"
         msg_body +=f"Action: '{action_name}'\n"
         msg_body +=textwrap.dedent(f"""Result: 
             {result}
         """)
 
-        session.history.append({"role": "tool", "content": msg_body})
+        session.history.append({"role": "user", "content": msg_body})
 
     
 
@@ -345,13 +342,8 @@ class BaseAgent(FileSkillMixin):
 
     def _add_question_to_brain(self, question):
         session = self.current_session
-        query_content = (
-            "=== INTERNAL QUERY ===\n"
-            f"Question: {question}\n"
-            "----------------------\n"
-            "(Please answer this question directly based on conversation history so I can proceed with the action.)"
-        )
-        session.history.append({"role": "tool", "content": query_content})
+        
+        session.history.append({"role": "user", "content": f"[INTERNAL QUERY]: {question}\n"})
 
 
 
@@ -364,14 +356,21 @@ class BaseAgent(FileSkillMixin):
         return session.history
 
     
-
+    @register_action(
+        "休息一下，工作做完了，或者需要等待回信才能继续", 
+        param_infos={
+            
+        }
+    )
+    async def rest_n_wait(self):
+        # 什么都不做，直接返回
+        pass
     
 
     
 
     @register_action(
         "发邮件。如果 intent 中没有明确指定 subject，可以只提供 to 和 body，我会自动生成 subject。", 
-        ActionType.ASYNC, 
         param_infos={
             "to": "收件人 (e.g. 'User', 'Planner', 'Coder')",
             "body": "邮件内容",
@@ -406,6 +405,7 @@ class BaseAgent(FileSkillMixin):
 
         await self.post_office.dispatch(msg)
         self.reply_mapping[msg.id] = self.current_session.session_id
+        return f"Email sent to {to}"
 
     
 

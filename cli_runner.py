@@ -2,7 +2,8 @@
 import asyncio
 from core.runtime import AgentMatrix
 from core.message import Email
-
+import logging
+logger = logging.getLogger('CLI_Runner')
 # 1. 定义：收到信时干什么？-> 打印出来
 async def print_to_console(email: Email):
     f = f"""
@@ -12,8 +13,10 @@ async def print_to_console(email: Email):
         MsgID: {email.id}
         >> 请输入回复 (格式: To_Agent: Content) 或 'exit':"
     """
+    loop = asyncio.get_running_loop()
 
-    await asyncio.to_thread(print, f)
+    await loop.run_in_executor(None, logger.debug, f)
+
 
 def global_event_handler(event):
     print(f"🔔 事件触发: {event}")

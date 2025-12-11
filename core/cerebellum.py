@@ -2,6 +2,7 @@
 import json
 import textwrap
 import logging
+import asyncio
 class Cerebellum:
     def __init__(self, backend_client):
         self.backend = backend_client
@@ -53,7 +54,7 @@ class Cerebellum:
         ]
         
         
-        self.logger.debug(f"收到初始意图：{initial_intent[100:]}")
+        
         #print(f"准备分析大脑意图：{initial_intent}")
         
         max_turns = 5 # 防止两个模型在那儿没完没了地聊天
@@ -65,8 +66,16 @@ class Cerebellum:
             
             # 小脑进行推理（这里用 fast model）
             response = await self.backend.think(messages=negotiation_history)
-            self.logger.debug(f"小脑思考：{response['reasoning'].replace('\n','')}")
-            self.logger.debug(f"小脑回复：{response['reply'].replace('\n','')}")
+            reasoning_str= response['reasoning']
+            reply_str= response['reply']
+            
+            loop = asyncio.get_running_loop()
+            # 把同步的 logger.debug 扔到线程池执行
+            await loop.run_in_executor(None, self.logger.debug, f"小脑思考：{reasoning_str}")
+            await loop.run_in_executor(None, self.logger.debug, f"小脑回复：{reply_str}")
+
+
+
             raw_content = response['reply'].replace("```json", "").replace("```", "").strip()
             
             try:

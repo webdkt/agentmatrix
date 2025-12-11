@@ -1,7 +1,8 @@
 # skills/filesystem.py
 import os
 import shutil
-from core.action import register_action, ActionType
+from core.action import register_action
+
 
 class FileSkillMixin:
     """
@@ -26,7 +27,7 @@ class FileSkillMixin:
         
         return full_path
 
-    @register_action("列出当前工作区的文件。用于查看有哪些文件可用。", ActionType.SYNC, param_infos={
+    @register_action("列出当前工作区的文件。用于查看有哪些文件可用。", param_infos={
         "directory": "子目录名称，默认为空字符串表示根目录"
     })
     async def list_files(self, directory: str = ""):
@@ -47,7 +48,7 @@ class FileSkillMixin:
         except Exception as e:
             return f"Error listing files: {str(e)}"
 
-    @register_action("读取文件内容。注意：只读取文本文件。", ActionType.SYNC, param_infos={
+    @register_action("读取文件内容。注意：只读取文本文件。",  param_infos={
         "filename": "文件名 (相对路径)"
     })
     async def read_file(self, filename: str):
@@ -69,7 +70,7 @@ class FileSkillMixin:
         except Exception as e:
             return f"Error reading file: {str(e)}"
 
-    @register_action("写入内容到文件。如果文件存在则覆盖。", ActionType.SYNC, param_infos={
+    @register_action("写入内容到文件。如果文件存在则覆盖。", param_infos={
         "filename": "文件名 (相对路径)",
         "content": "要写入的文本内容"
     })

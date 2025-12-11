@@ -1,23 +1,19 @@
 from enum import Enum
 from dataclasses import dataclass
 from typing import Any, Dict
+import json
 
-class ActionType(Enum):
-    SYNC = "SYNC"
-    ASYNC = "ASYNC"
-    TERMINAL = "TERMINAL"
+
 
 @dataclass
 class ActionMetadata:
     name: str
-    description: str
-    type: ActionType
+    description: str    
     # 存储生成的 JSON Schema，给 SLM 看
     json_schema: Dict[str, Any] 
 
 def register_action(
     description: str, 
-    type: ActionType = ActionType.SYNC,
     param_infos: Dict[str, str] = None 
 ):
     """
@@ -32,7 +28,6 @@ def register_action(
     def decorator(func):
         func._is_action = True
         func._action_desc = description
-        func._action_type = type
         func._action_param_infos = param_infos
         return func
     return decorator
@@ -40,7 +35,6 @@ def register_action(
 @dataclass
 class ActionDef:
     name: str
-    type: ActionType
     description: str
     parameters: Dict[str, str]
 
@@ -48,7 +42,6 @@ class ActionDef:
     def from_dict(cls, data: Dict[str, Any]):
         return cls(
             name=data["name"],
-            type=data["type"],
             description=data["description"],
             parameters=data.get("parameters", {})
         )
