@@ -47,6 +47,9 @@ class TerminalSkillMixin:
         """
         # 1. 确保 Session 存在
         self._get_session(session_name)
+
+        # 转换为绝对路径
+        workspace_root = os.path.abspath(self.workspace_root)
         
         system = platform.system()
         cmd = ""
@@ -57,7 +60,7 @@ class TerminalSkillMixin:
                 # 这是一个比较 hacky 但有效的方法
                 script = f'''
                 tell application "Terminal"
-                    do script "cd {self.workspace_root} && tmux attach -t {session_name}"
+                    do script "cd {workspace_root} && tmux attach -t {session_name}"
                     activate
                 end tell
                 '''
@@ -67,7 +70,7 @@ class TerminalSkillMixin:
             elif system == "Linux":
                 # 尝试 gnome-terminal (Ubuntu/Debian)
                 # 如果是其他发行版需要调整
-                subprocess.Popen(["gnome-terminal", "--", "bash", "-c", f"cd {self.workspace_root} && exec tmux attach -t {session_name}"])
+                subprocess.Popen(["gnome-terminal", "--", "bash", "-c", f"cd {workspace_root} && exec tmux attach -t {session_name}"])
                 return f"Success: Linux Terminal launched attached to '{session_name}'."
             
             else:
