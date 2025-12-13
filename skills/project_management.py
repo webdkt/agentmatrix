@@ -24,7 +24,7 @@ class ProjectManagementMixin:
         if not self.workspace_root:
             return
 
-        archive_dir = os.path.join(self.workspace_root, "logs", "archives")
+        archive_dir = os.path.join(self.workspace_root, self.name, "logs", "archives")
         os.makedirs(archive_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -36,17 +36,18 @@ class ProjectManagementMixin:
             f.write(f"=== BOARD STATE ===\n{self.project_board}\n")
             f.write("=== CONVERSATION HISTORY ===\n")
             for msg in old_history:
-                role = msg.get('role', 'unknown')
-                content = msg.get('content', '')
-                f.write(f"[{role}]: {content}\n{'-'*20}\n")
+                role = msg.get('role','')
+                content = msg.get('content','')
+                if role and content:
+                    f.write(f"[{role}]: {content}\n{'-'*20}\n")
         
         if hasattr(self, 'logger'):
             self.logger.info(f"Old memory archived to {filename}")
 
     @register_action(
-        "【核心能力】更新项目看板并重置记忆。当一个阶段结束时调用。这将归档旧的对话，只保留：1.最初的用户指令；2.最新的项目看板。",
+        "阶段总结，更新项目看板,Markdown格式。项目状态发生重要变化后或者处理了比较多封邮件后需要阶段性的总结。要保留所有关键信息",
         param_infos={
-            "summary": "最新的全局项目状态总结（Markdown格式）。",
+            "summary": "最新的全局项目状态总结",
         }
     )
     async def update_board(self, summary: str):
@@ -70,15 +71,13 @@ class ProjectManagementMixin:
         # 用 System 角色更像“上帝视角的旁白”，用 Assistant 角色更像“我自己的笔记”。
         # 这里推荐用 System 格式，以此区隔于普通的对话。
         board_msg = {
-            "role": "system", 
+            "role": "assistant", 
             "content": textwrap.dedent(f"""
-                [MEMORY COMPRESSED]
-                The previous conversation details have been archived.
+                Latest project status
                 
                 ### 📌 CURRENT PROJECT BOARD
                 {self.project_board}
                 
-                (Based on the above status, determine the next step.)
             """)
         }
         
@@ -92,7 +91,7 @@ class ProjectManagementMixin:
         
         # 5. 返回结果
         # 这个返回值会被 BaseAgent 追加到 history 的末尾，成为新的激活信号
-        return "Board updated successfully. Ready for next move."
+        return "Project status reviewed."
     
 
 
