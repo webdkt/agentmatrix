@@ -401,7 +401,8 @@ class BaseAgent(FileSkillMixin):
             recipient=to,
             subject=subject,
             body=body,
-            in_reply_to=in_reply_to
+            in_reply_to=in_reply_to,
+            user_session_id=session.user_session_id
         )
         
         
