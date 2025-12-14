@@ -8,7 +8,9 @@ from core.loader import AgentLoader
 import asyncio
 import os
 import logging
-
+import chromadb
+from chromadb.utils import embedding_functions
+from chromadb.config import Settings
 from agents.post_office import PostOffice
 
 
@@ -63,7 +65,11 @@ class AgentMatrix:
         self.matrix_path = None
         self.logger = logging.getLogger("AgentMatrix")
         self.logger.setLevel(logging.DEBUG)
-    
+        self.logger.info(">>> 初始化向量数据库...")
+        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="BAAI/bge-large-zh-v1.5")
+        self.logger.info(">>> 向量数据库初始化完成.")
+        self.vector_db = None
+        self.notebook_collection = None
     def json_serializer(self,obj):
         """JSON serializer for objects not serializable by default json code"""
         try:
@@ -141,7 +147,10 @@ class AgentMatrix:
         self.matrix_path = matrix_path
         matrix_snapshot_path = os.path.join(matrix_path,".matrix" , "matrix_snapshot.json")
         os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
-        
+        #加载向量数据库
+        self.vector_db = chromadb.Client(Settings(
+            persist_directory=os.path.join(self.matrix_path, ".matrix", "chroma_db")
+        ))
         try:
             with open(matrix_snapshot_path, "r", encoding='utf-8') as f:
                 content = f.read().strip()
@@ -168,6 +177,15 @@ class AgentMatrix:
                     self.logger.info(f">>> 恢复 Agent {agent.name} 状态成功！" )
         else:
             self.logger.info(">>> 未找到 Agent 状态.")
+
+        
+        
+        
+        # 3. 获取全局唯一的 Collection (笔记本)
+        self.notebook_collection = self.vector_db.get_or_create_collection(
+            name="matrix_notebook",
+            embedding_function=self.embedding_function
+        )
             
 
         
@@ -182,6 +200,9 @@ class AgentMatrix:
         for agent in self.agents.values():
             agent.workspace_root = matrix_path #设置root path
             self.post_office.register(agent)
+            if hasattr(agent, 'notebook_collection'):
+                agent.notebook_collection = self.notebook_collection
+
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
         
         
@@ -217,26 +238,7 @@ class AgentMatrix:
                 prompt = prompt.replace("{{ capabilities }}", capabilities_menu)
                 self.logger.debug(f">>> {agent.name} prompts 是：\n{prompt}" )
                 agent.system_prompt = prompt
-                tool_manifest = agent._generate_tools_prompt()
-                import textwrap
-                p = textwrap.dedent(f"""
-                    You are the Interface Manager (Cerebellum). Your job is to convert User Intent into a Function Call JSON.
-                    
-                    [Available Tools]:
-                    {tool_manifest}
-                    
-                    [Instructions]:
-                    1. Identify the tool the user wants to use.
-                    2. Check if ALL required parameters for that tool are present in the Intent/Status.
-                    3. DECISION:
-                    - If READY: Output JSON `{{ "status": "READY", "action_json": {{ "action": "name", "params": {{...}} }} }}`
-                    - If MISSING PARAM: Output JSON `{{ "status": "ASK", "question": "What is the value for [param_name]?" }}`
-                    - If AMBIGUOUS: Output JSON `{{ "status": "ASK", "question": "whatever need to be clarified" }}`
-                    - If Not fesible: Output JSON `{{ "status": "NOT_FEASIBLE", "reason": "No matching tool found." }}`
-                    
-                    Output ONLY valid JSON.
-                    """)
-                self.logger.debug(f">>> {agent.name} 小脑system prompt 是：\n{p}" )
+                
 
             else:
                 self.post_office.unregister(agent)

@@ -8,6 +8,7 @@ class TaskSession:
     original_sender: str     # 谁派的活
     history: List[Dict]      # 对话历史
     status: str = "RUNNING"  # RUNNING, WAITING
+    user_session_id: str = None  # 关联的用户会话 ID
 
 
     def to_dict(self):

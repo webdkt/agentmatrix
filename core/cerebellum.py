@@ -69,10 +69,10 @@ class Cerebellum:
             reasoning_str= response['reasoning']
             reply_str= response['reply']
             
-            loop = asyncio.get_running_loop()
+            #loop = asyncio.get_running_loop()
             # 把同步的 logger.debug 扔到线程池执行
-            await loop.run_in_executor(None, self.logger.debug, f"小脑思考：{reasoning_str}")
-            await loop.run_in_executor(None, self.logger.debug, f"小脑回复：{reply_str}")
+            #await loop.run_in_executor(None, self.logger.debug, f"小脑思考：{reasoning_str}")
+            #await loop.run_in_executor(None, self.logger.debug, f"小脑回复：{reply_str}")
 
 
 

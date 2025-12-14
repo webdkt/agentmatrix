@@ -9,8 +9,8 @@ class PostOffice:
     def __init__(self, matrix_path):
         self.directory = {}
         self.queue = asyncio.Queue()
-        db_file_path = os.path.join(matrix_path,".matrix" , "matrix.db")
-        self.db = AgentDB(db_file_path) # 初始化数据库连接
+        email_db_path = os.path.join(matrix_path,".matrix" , "matrix_mails.db")
+        self.email_db = AgentDB(email_db_path) # 初始化数据库连接
         self._paused = False
         self.logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class PostOffice:
         self._paused = False
 
     async def dispatch(self, email):
-        self.db.log_email(email)
+        self.email_db.log_email(email)
         self.logger.debug(f"Sending email from {email.sender} to {email.recipient} ") 
         await self.queue.put(email)
         self.logger.debug("Mail delivered")

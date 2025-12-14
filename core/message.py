@@ -12,6 +12,7 @@ class Email:
     in_reply_to: Optional[str] = None  # 核心：引用链
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.now)
+    user_session_id: Optional[str] = None  # 用于区分不同用户会话
     
     def __repr__(self):
         reply_mark = f" (Re: {self.in_reply_to[:8]})" if self.in_reply_to else ""

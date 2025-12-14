@@ -3,8 +3,12 @@ import asyncio
 from core.runtime import AgentMatrix
 from core.message import Email
 import logging
+import uuid
 logger = logging.getLogger('CLI_Runner')
 # 1. 定义：收到信时干什么？-> 打印出来
+
+mail_id_sender_map = {}  # 记录邮件 ID 到发送者的映射
+
 async def print_to_console(email: Email):
     f = f"""
     📨 [New Mail] From {email.sender}: "
@@ -13,6 +17,7 @@ async def print_to_console(email: Email):
         MsgID: {email.id}
         >> 请输入回复 (格式: To_Agent: Content) 或 'exit':"
     """
+    mail_id_sender_map[email.id] = email.sender  # 记录映射
     loop = asyncio.get_running_loop()
 
     await loop.run_in_executor(None, logger.debug, f)
@@ -40,7 +45,7 @@ async def main():
     
     import sys
     from aioconsole import ainput # pip install aioconsole
-
+    user_session_id = str(uuid.uuid4())
     while True:
         try:
             user_input = await ainput(">> ") # 异步等待输入
@@ -48,11 +53,37 @@ async def main():
             if user_input.lower() == "exit":
                 await matrix.save_matrix()
                 break
+
+            if user_input.lower() == "new session":
+                user_session_id = str(uuid.uuid4())
+                await asyncio.to_thread(print, f"✅ 新会话开始 ID: {user_session_id}")
+                continue
+
+            if user_input.lower().startswith("reply:"):
+                parts = user_input.split(":")
+                if len(parts) < 3:
+                    await asyncio.to_thread(print, "❌ 回复格式错误，请使用 'reply: MsgID: Content'")
+                    continue
+                reply_to_id = parts[1].strip()
+                content = ":".join(parts[2:]).strip()
+                if reply_to_id not in mail_id_sender_map:
+                    await asyncio.to_thread(print, f"❌ 未找到消息 ID: {reply_to_id}")
+                    continue
+                target = mail_id_sender_map[reply_to_id]
+                await matrix.agents["User"].speak(
+                    user_session_id=user_session_id,
+                    to=target,
+                    subject=f"Re: 回复您的消息 {reply_to_id}",
+                    content=content,
+                    reply_to_id=reply_to_id
+                )
+                continue
+
                 
             if ":" in user_input:
                 target, content = user_input.split(":", 1)
                 # 5. 调用 UserProxy 说话
-                await matrix.agents["User"].speak(target.strip(), content.strip())
+                await matrix.agents["User"].speak(user_session_id, target.strip(), content.strip())
             else:
                 await asyncio.to_thread(print,"❌ 格式错误，请使用 'Target: Content'")
                 

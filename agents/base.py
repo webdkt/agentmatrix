@@ -45,6 +45,7 @@ class BaseAgent(FileSkillMixin):
         self.actions_map = {} # name -> method
         self.actions_meta = {} # name -> metadata (给小脑看)
         self.current_session = None
+        self.current_user_session_id = None
 
 
 
@@ -179,6 +180,7 @@ class BaseAgent(FileSkillMixin):
         # 1. Session Management (Routing)
         session = self._resolve_session(email)
         self.current_session = session
+        self.current_user_session_id = session.user_session_id
         #print(f"Prcessing email from {email.sender} , {email.subject}")
         self.logger.debug(f"Processing email from {email.sender} , {email.subject}")
         
@@ -300,7 +302,8 @@ class BaseAgent(FileSkillMixin):
             session_id=email.id,
             original_sender=email.sender,
             history=[],
-            status="RUNNING"
+            status="RUNNING",
+            user_session_id=email.user_session_id
         )
         self.sessions[email.id] = session
         return session
@@ -370,7 +373,7 @@ class BaseAgent(FileSkillMixin):
     
 
     @register_action(
-        "发邮件。如果 intent 中没有明确指定 subject，可以只提供 to 和 body，我会自动生成 subject。", 
+        "发邮件。如果 intent 中没有明确指定 subject，可以只提供 to 和 body，系统会自动生成 subject。", 
         param_infos={
             "to": "收件人 (e.g. 'User', 'Planner', 'Coder')",
             "body": "邮件内容",

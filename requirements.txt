@@ -8,3 +8,5 @@ aioconsole
 aiohttp
 Jinja2
 libtmux
+chromadb
+sentence_transformers
