@@ -1,7 +1,7 @@
 from agents.base import BaseAgent
 from core.message import Email
 from typing import Callable, Awaitable, Optional
-import logging
+
 import uuid
 
 # 定义一个回调函数的类型：接收一封邮件，返回 None (异步)
@@ -11,7 +11,7 @@ class UserProxyAgent(BaseAgent):
     def __init__(self, profile) :
         super().__init__(profile)
         self.on_mail_received = None
-        self.logger = logging.getLogger(self.name)
+        
     
     def set_mail_handler(self, on_mail_received: OnMailReceived):
         self.on_mail_received = on_mail_received

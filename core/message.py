@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from datetime import datetime
+import textwrap
 
 @dataclass
 class Email:
@@ -17,3 +18,15 @@ class Email:
     def __repr__(self):
         reply_mark = f" (Re: {self.in_reply_to[:8]})" if self.in_reply_to else ""
         return f"<Email {self.id[:8]} From:{self.sender} To:{self.recipient}{reply_mark}>"
+
+    def __str__(self):
+        return textwrap.dedent(f"""
+            ==== Mail  ====
+            From: {self.sender}
+            To: {self.recipient}
+            Subject: {self.subject}
+            Date: {self.timestamp}   
+
+            {self.body}
+            =======================
+        """)

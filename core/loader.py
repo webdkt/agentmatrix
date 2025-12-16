@@ -6,10 +6,10 @@ from dotenv import load_dotenv
 import json
 from backends.llm_client import LLMClient
 from core.cerebellum import Cerebellum 
-from core.action import ActionDef
+from core.log_util import AutoLoggerMixin
 
 
-class AgentLoader:
+class AgentLoader(AutoLoggerMixin):
     def __init__(self, profile_path):
         # Loader 持有运行时需要的公共资源 (如 LLM 客户端)
         # 这样实例化 Agent 时可以注入进去
@@ -45,16 +45,17 @@ class AgentLoader:
                 if os.getenv(api_key) is not None:
                     config["API_KEY"] = os.getenv(api_key)
 
-        # 3. 加载 Default Actions
-        default_actions_file = os.path.join(profile_path, "default_actions.json")
-        self.default_actions = []
-        if os.path.exists(default_actions_file):
-            with open(default_actions_file, 'r', encoding='utf-8') as f:
-                actions_data = json.load(f)
-                self.default_actions = [ActionDef.from_dict(d) for d in actions_data]
-            print(f"Loader: Loaded {len(self.default_actions)} default actions.")
-        else:
-            print("Loader Warning: default_actions.json not found.")
+
+        prompts_path = os.path.join(self.profile_path, "prompts")
+        self.prompts = {}
+        for prompt_txt in os.listdir(prompts_path):
+            
+            if prompt_txt.endswith(".txt"):
+                self.logger.info(f">>> 加载Prompt模板 {prompt_txt}...")
+                with open(os.path.join(prompts_path, prompt_txt), "r", encoding='utf-8') as f:
+                    self.prompts[prompt_txt[:-4]] = f.read()
+
+        self.logger.info(self.prompts)
 
         
         
@@ -63,6 +64,7 @@ class AgentLoader:
 
     def load_from_file(self, file_path: str) -> Any:
         """从 JSON 文件加载并实例化一个 Agent"""
+        self.logger.info(f">>> 加载Agent配置文件 {file_path}...")
         with open(file_path, 'r', encoding='utf-8') as f:
             profile = yaml.safe_load(f)
 
@@ -81,6 +83,16 @@ class AgentLoader:
         except (ImportError, AttributeError) as e:
             raise ImportError(f"无法加载 Agent 类: {module_name}.{class_name}. 错误: {e}")
 
+        # 注入 prompt template, 默认是"base"
+        if "prompte_template" not in profile:
+            profile["prompt_template"] = "base"
+        prompt_template_name = profile.get("prompt_template")
+        self.logger.info(f">>> 加载Prompt模板 {prompt_template_name}...")
+        if prompt_template_name in self.prompts:
+            prompt = self.prompts[prompt_template_name]
+            profile["full_prompt"] = prompt
+        else:
+            raise ValueError(f"加载Agent {file_path} 失败，Prompt 模板 {prompt_template_name} 未找到。")
 
         # 3. 实例化
         agent_instance = agent_class(profile.copy())
@@ -105,7 +117,7 @@ class AgentLoader:
             print(f"[{agent_instance.name}] Using system default SLM.")
         
         # 注入小脑
-        agent_instance.cerebellum = Cerebellum(slm_client)
+        agent_instance.cerebellum = Cerebellum(slm_client, agent_instance.name)
 
     
         

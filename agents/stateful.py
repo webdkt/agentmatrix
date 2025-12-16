@@ -7,4 +7,4 @@ class StatefulAgent(BaseAgent, ProjectManagementMixin, NotebookMixin):
         super().__init__(profile)
         # 这就是那个“动态文档”，可以是 JSON，也可以是 Markdown
         self.project_board = None
-        self.notebook_collection = None
+        self.vector_db = None

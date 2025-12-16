@@ -10,14 +10,21 @@ import inspect
 import json
 import textwrap
 from skills.filesystem import FileSkillMixin
+from core.log_util import AutoLoggerMixin
 import logging
 
-class BaseAgent(FileSkillMixin):
+class BaseAgent(FileSkillMixin,AutoLoggerMixin):
+    _log_from_attr = "name" # 日志名字来自 self.name 属性
+
+    _custom_log_level = logging.DEBUG 
     def __init__(self, profile):
         self.name = profile["name"]
         self.description = profile["description"]
-        
-        self.system_prompt = profile["system_prompt"]
+        self.prompt_template = profile.get("prompt_template", "base")
+        self.full_prompt = profile["full_prompt"] 
+        # full_prompt是 prompte loaded from prompate_template, 
+        # 后面会和system_prompt合并，然后再替换其他变量生成最终的system prompt
+        self.system_prompt = profile["system_prompt"] #system_prompt is actually persona prompt
         self.profile = profile
         self.instruction_to_caller = profile["instruction_to_caller"]
         self.backend_model = profile.get("backend_model", "default_llm")
@@ -40,25 +47,18 @@ class BaseAgent(FileSkillMixin):
         self.reply_mapping: Dict[str, str] = {}    # Key: Outgoing Msg ID -> Value: Session ID
         
         # 事件回调 (Server 注入)
-        self.event_callback: Optional[Callable] = None
+        self.async_event_callback: Optional[Callable] = None
 
         self.actions_map = {} # name -> method
         self.actions_meta = {} # name -> metadata (给小脑看)
         self.current_session = None
         self.current_user_session_id = None
 
-
-
         self._scan_methods()
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        self.logger = logging.getLogger(self.name)
-        
-
         
         self.logger.info(f"Agent {self.name} 初始化完成")
+        
+
         
 
     def _scan_methods(self):
@@ -78,6 +78,20 @@ class BaseAgent(FileSkillMixin):
                     "description": desc,
                     "params": param_infos 
                 }
+
+    def get_prompt(self):
+        """生成给 LLM 的完整 Prompt"""
+        prompt = self.full_prompt
+        prompt =prompt.replace("{{ name }}", self.name)
+        prompt =prompt.replace("{{ description }}", self.description)
+        prompt =prompt.replace("{{ system_prompt }}", self.system_prompt)
+        yellow_page = self.post_office.yellow_page_exclude_me(self.name)
+        prompt =prompt.replace("{{ yellow_page }}", yellow_page)
+        capabilities_menu = self.get_capabilities_summary()
+        prompt = prompt.replace("{{ capabilities }}", capabilities_menu)
+        return prompt
+
+        
 
     def get_capabilities_summary(self) -> str:
         """
@@ -147,11 +161,11 @@ class BaseAgent(FileSkillMixin):
             无显式抛出异常
         """
         # 检查是否存在事件回调函数
-        if self.event_callback:
+        if self.async_event_callback:
             # 创建新的事件对象，包含事件类型、发送者名称、内容和附加数据
             event = AgentEvent(event_type, self.name,self.status, content, payload)
             # 异步调用事件回调函数，将事件对象传递过去
-            await self.event_callback(event)
+            await self.async_event_callback(event)
 
 
 
@@ -178,11 +192,13 @@ class BaseAgent(FileSkillMixin):
 
     async def process_email(self, email: Email):
         # 1. Session Management (Routing)
+        self.logger.debug(f"New Email")
+        self.logger.debug(str(email))
         session = self._resolve_session(email)
         self.current_session = session
         self.current_user_session_id = session.user_session_id
         #print(f"Prcessing email from {email.sender} , {email.subject}")
-        self.logger.debug(f"Processing email from {email.sender} , {email.subject}")
+        
         
         # 2. Add incoming message to history (Input)
         self._add_message_to_history(email)
@@ -214,11 +230,11 @@ class BaseAgent(FileSkillMixin):
             context = self._get_llm_context(session)
             
             intention = await self.brain.think(context)
+            self.logger.debug(intention)
+            
             intention = intention['reply']
             
-            loop = asyncio.get_running_loop()
-            # 把同步的 logger.debug 扔到线程池执行
-            await loop.run_in_executor(None, self.logger.debug, (f"{self.name} had a idea: \n{intention}"))
+            
 
             action_signal = None  
             #check if there's [ACTION SIGNAL] format in intention
@@ -258,7 +274,8 @@ class BaseAgent(FileSkillMixin):
             if not method:
                 # 幻觉处理：Brain 编造了一个不存在的动作
                 self._add_brain_intention_to_history(intention)
-                await ask_brain_clarification(f"Don't understand your intent, doesn't match any of our capabilities, please explain again.")
+                self._add_body_feedback_to_history("Body is tired, need to take a break") #希望Brain会选择“Take a Break"!
+                self.logger.error(f"Tried to do an unknown action: {action_name}")
                 continue
 
             # 5. 执行方法 (Execution)
@@ -312,7 +329,7 @@ class BaseAgent(FileSkillMixin):
         # 如果是新 Session，注入 System Prompt
         session = self.current_session
         if len(session.history) == 0:
-            session.history.append({"role": "system", "content": self.system_prompt})
+            session.history.append({"role": "system", "content": self.get_prompt()})
         
         # 注入用户/同事的邮件
         
@@ -368,12 +385,23 @@ class BaseAgent(FileSkillMixin):
     async def rest_n_wait(self):
         # 什么都不做，直接返回
         pass
+
+    @register_action(
+        "Take a break，让身体恢复一下", 
+        param_infos={
+            
+        }
+    )
+    async def take_a_break(self):
+        # 什么都不做，直接返回
+        await asyncio.sleep(60)
+        return "Return from Break"
     
 
     
 
     @register_action(
-        "发邮件。如果 intent 中没有明确指定 subject，可以只提供 to 和 body，系统会自动生成 subject。", 
+        "发邮件给同事，这是和其他人沟通的唯一方式", 
         param_infos={
             "to": "收件人 (e.g. 'User', 'Planner', 'Coder')",
             "body": "邮件内容",

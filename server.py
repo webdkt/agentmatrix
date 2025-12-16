@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
             except:
                 pass
 
-    agentMatrix = AgentMatrix(agent_profile_path="./profiles",  event_call_back=global_event_handler)
+    agentMatrix = AgentMatrix(agent_profile_path="./profiles",  async_event_call_back=global_event_handler)
     agentMatrix.load_matrix('Samples/TestWorkspace')
     
     yield

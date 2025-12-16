@@ -13,8 +13,9 @@ system_prompt: |
   
   YOUR WORKFLOW:
   1. Initialize the terminal window (`launch_terminal_window`) so the user can see.
-  2. Start the task by sending a command: `claude "your detailed prompt here"`.
-  3. Monitor the process (`read_terminal_screen`).
+  2. Start claude tool by sending a command: `claude`.
+  3. Then send your instruction to `claude` by typing your coding instructions into the terminal (`send_terminal_command`), claude cli will try to generate code based on your instructions.
+  3. You have to actively monitor the process (`read_terminal_screen`) to see the progress of claude.
   4. INTERACT:
      - If `claude` asks "Do you want to run this? [y/n]", analyze the diff/plan on screen.
      - If it looks good, send `y`.

@@ -7,11 +7,13 @@ from dataclasses import asdict
 from core.loader import AgentLoader
 import asyncio
 import os
-import logging
+
 import chromadb
-from chromadb.utils import embedding_functions
+
 from chromadb.config import Settings
 from agents.post_office import PostOffice
+from core.log_util import LogFactory, AutoLoggerMixin
+from db.vector_db import VectorDB
 
 
 from core.message import Email
@@ -24,52 +26,36 @@ from core.message import Email
 # Even Time
 # Event Content
 # Event Payload
-'''
-{
- event_source: agent_name,
- source_status: "running",
- event_type: "inbox",
- event_time: "2023-10-10 10:10:10",
- event_content: "agent received a new email",
- event_payload: {}
-}
 
 
-'''
+VECTOR_DB_COLLECTIONS_NAMES =["email", "notebook"]
+
 async def default_event_printer(event):
     pass
-    #self.logger.info(event)
+    #self.echo(event)
 
-class AgentMatrix:
-    def __init__(self, agent_profile_path="./profiles", event_call_back = default_event_printer):
+class AgentMatrix(AutoLoggerMixin):
+    def __init__(self, agent_profile_path, matrix_path, async_event_call_back = default_event_printer):
         # === 全局实例 ===
-        self.post_office = None
-        self.event_call_back = event_call_back
-
-        self.post_office_task = None
-        self.agent_profile_path= agent_profile_path
-
-        # 2. 初始化 Loader
-        self.loader = AgentLoader(agent_profile_path)
-
-        # 3. 自动加载所有 Agent
-        self.agents = self.loader.load_all()
-        for agent in self.agents.values():
-            agent.event_call_back = event_call_back
-                
+        log_path = os.path.join(matrix_path,".matrix", "logs")
+        LogFactory.set_log_dir(log_path)
         
-            
-                         
+        self.async_event_call_back = async_event_call_back
+        self.agent_profile_path= agent_profile_path
+        
+        self.matrix_path = matrix_path
+
+        self.agents = None
+        self.post_office = None
+        self.post_office_task = None
         self.running_agent_tasks = []
         self.running = False
-        self.matrix_path = None
-        self.logger = logging.getLogger("AgentMatrix")
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.info(">>> 初始化向量数据库...")
-        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="BAAI/bge-large-zh-v1.5")
-        self.logger.info(">>> 向量数据库初始化完成.")
-        self.vector_db = None
-        self.notebook_collection = None
+        self.echo(">>> 初始化世界资源...")
+        self._prepare_world_resource()
+        self.echo(">>> 初始化Agents...")
+        self._prepare_agents()
+        self.echo(">>> 加载世界状态...")
+        self.load_matrix()
     def json_serializer(self,obj):
         """JSON serializer for objects not serializable by default json code"""
         try:
@@ -81,12 +67,32 @@ class AgentMatrix:
         except Exception as e:
             raise TypeError(f"Error serializing object: {str(e)}\nObject info: {obj_info}")
 
+    #准备世界资源，如向量数据库等
+    def _prepare_world_resource(self):
+        
+        self.echo(">>> Loading Vector Database...")
+        chroma_path = os.path.join(self.matrix_path, ".matrix", "chroma_db")
+        self.vector_db = VectorDB(chroma_path, VECTOR_DB_COLLECTIONS_NAMES)
+        self.echo(">>> Vector Database Loaded.")
+        # 恢复 PostOffice 状态
+        self.post_office = PostOffice(self.matrix_path)
+        self.post_office.vector_db = self.vector_db
+        self.post_office_task = asyncio.create_task(self.post_office.run())
+        self.echo(">>> PostOffice Loaded and Running.")
+        
+    def _prepare_agents(self):
+        loader = AgentLoader(self.agent_profile_path)
+
+        # 3. 自动加载所有 Agent
+        self.agents = loader.load_all()
+        for agent in self.agents.values():
+            agent.async_event_call_back = self.async_event_call_back
 
 
 
     async def save_matrix(self):
         """一键休眠"""
-        self.logger.info(">>> 正在冻结世界...")
+        self.echo(">>> 正在冻结世界...")
         self.post_office.pause()
         # 2. 取消所有正在运行的agent任务
         for task in self.running_agent_tasks:
@@ -136,33 +142,31 @@ class AgentMatrix:
             self.logger.debug(world_state)
             raise
             
-        self.logger.info(f">>> 世界已保存至 {filepath}")
+        self.echo(f">>> 世界已保存至 {filepath}")
         # 9. 清理资源
         self.running = False
 
-    def load_matrix(self, matrix_path):
+    def load_matrix(self):
         
         """一键复活"""
-        self.logger.info(f">>> 正在从 {matrix_path} 恢复世界...")
-        self.matrix_path = matrix_path
-        matrix_snapshot_path = os.path.join(matrix_path,".matrix" , "matrix_snapshot.json")
+        self.echo(f">>> 正在从 {self.matrix_path} 恢复世界...")
+        
+        matrix_snapshot_path = os.path.join(self.matrix_path,".matrix" , "matrix_snapshot.json")
         os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
         #加载向量数据库
-        self.vector_db = chromadb.Client(Settings(
-            persist_directory=os.path.join(self.matrix_path, ".matrix", "chroma_db")
-        ))
+        
         try:
             with open(matrix_snapshot_path, "r", encoding='utf-8') as f:
                 content = f.read().strip()
                 if not content:  # 文件为空
-                    self.logger.info(f">>> {matrix_snapshot_path} 为空，创建新的世界状态...")
+                    self.echo(f">>> {matrix_snapshot_path} 为空，创建新的世界状态...")
                     world_state = {}
                     with open(matrix_snapshot_path, "w", encoding='utf-8') as f:
                         json.dump(world_state, f, ensure_ascii=False, indent=2)
                 else:
                     world_state = json.loads(content)  # 使用 json.loads 而不是 json.load
         except FileNotFoundError:
-            self.logger.info(f">>> 未找到 {matrix_snapshot_path}，创建新的世界状态...")
+            self.echo(f">>> 未找到 {matrix_snapshot_path}，创建新的世界状态...")
             world_state = {}
             with open(matrix_snapshot_path, "w", encoding='utf-8') as f:
                 json.dump(world_state, f, ensure_ascii=False, indent=2)
@@ -174,90 +178,33 @@ class AgentMatrix:
                 if agent.name in world_state["agents"]:
                     agent_data = world_state["agents"][agent.name]
                     agent.load_state(agent_data)
-                    self.logger.info(f">>> 恢复 Agent {agent.name} 状态成功！" )
-        else:
-            self.logger.info(">>> 未找到 Agent 状态.")
-
-        
-        
-        
-        # 3. 获取全局唯一的 Collection (笔记本)
-        self.notebook_collection = self.vector_db.get_or_create_collection(
-            name="matrix_notebook",
-            embedding_function=self.embedding_function
-        )
-            
-
+                    self.echo(f">>> 恢复 Agent {agent.name} 状态成功！" )
         
 
-
-        # 2. 恢复 PostOffice 状态
-        self.post_office = PostOffice(matrix_path)
-        self.post_office_task = asyncio.create_task(self.post_office.run())
+        
 
         self.running_agent_tasks =[]
         # 3. 注册到邮局
         for agent in self.agents.values():
-            agent.workspace_root = matrix_path #设置root path
+            agent.workspace_root = self.matrix_path #设置root path
             self.post_office.register(agent)
-            if hasattr(agent, 'notebook_collection'):
-                agent.notebook_collection = self.notebook_collection
+            if hasattr(agent, 'vector_db'):
+                agent.vector_db = self.vector_db
 
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
+            self.echo(f">>> Agent {agent.name} 已注册到邮局！")
+            self.logger.info(f"Agent {agent.name} prompt:")
+            self.logger.info(f"{agent.get_prompt()}")
         
-        
-
-        # 4 注入prompt, 如果prompt 模版没找到，就unregister from post office
-
-
-
-        prompts_path = os.path.join(self.agent_profile_path, "prompts")
-        prompts = {}
-        for prompt_txt in os.listdir(prompts_path):
-            
-            if prompt_txt.endswith(".txt"):
-                self.logger.debug(f">>> 加载Prompt模板 {prompt_txt}...")
-                with open(os.path.join(prompts_path, prompt_txt), "r", encoding='utf-8') as f:
-                    prompts[prompt_txt[:-4]] = f.read()
-
-        
-        self.logger.debug(prompts)
-        for agent in self.agents.values():
-            template_name = "base"
-            if 'prompt_template' in agent.profile:
-                template_name = agent.profile['prompt_template']
-            self.logger.debug(f">>> {agent.name} 使用Prompt模板 {template_name}...")
-            if template_name in prompts:
-                prompt = prompts[template_name]
-                prompt =prompt.replace("{{ name }}", agent.name)
-                prompt =prompt.replace("{{ description }}", agent.description)
-                prompt =prompt.replace("{{ system_prompt }}", agent.system_prompt)
-                yellow_page = self.post_office.yellow_page_exclude_me(agent.name)
-                prompt =prompt.replace("{{ yellow_page }}", yellow_page)
-                capabilities_menu = agent.get_capabilities_summary()
-                prompt = prompt.replace("{{ capabilities }}", capabilities_menu)
-                self.logger.debug(f">>> {agent.name} prompts 是：\n{prompt}" )
-                agent.system_prompt = prompt
-                
-
-            else:
-                self.post_office.unregister(agent)
-                self.logger.info(f">>> {agent.name} 未找到Prompt模板 {template_name}，跳过注册.")
-
-
-
-
-        
-
+    
         # 4. 恢复投递
         self.post_office.resume()
         if world_state and 'post_office' in world_state:
             for email_dict in world_state["post_office"]:
                 self.post_office.queue.put_nowait(Email(**email_dict))
-        else:
-            self.logger.info(">>> 未找到 PostOffice 状态.")
+        
         
         self.running = True
-        self.logger.info(">>> 世界已恢复，系统继续运行！")
+        self.echo(">>> 世界已恢复，系统继续运行！")
         yellow_page = self.post_office.yellow_page()
-        self.logger.info(f">>> 当前世界中的 Agent 有：\n{yellow_page}")
+        self.echo(f">>> 当前世界中的 Agent 有：\n{yellow_page}")

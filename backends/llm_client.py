@@ -3,8 +3,12 @@ import json
 import traceback
 from typing import Dict, Any, Optional
 import aiohttp
+from core.log_util import AutoLoggerMixin
+import logging
 
-class LLMClient:
+class LLMClient(AutoLoggerMixin):
+
+    _custom_log_level = logging.DEBUG
     def __init__(self, url: str, api_key: str,model_name: str):
         """
         初始化LLM客户端
@@ -24,6 +28,7 @@ class LLMClient:
     async def think(self, messages: list[dict[str, str]], **kwargs) -> Dict[str, str]:
         #print(f'{self.model_name} thinking about: ')
         #print(messages[-1])
+        #self.echo(f"{self.model_name} 正在思考...")
         return await self.async_stream_think(messages, **kwargs)
 
     def no_stream_think(self, messages: list[dict[str, str]], **kwargs) -> Dict[str, str]:
@@ -76,6 +81,8 @@ class LLMClient:
         except KeyError as e:
             raise Exception(f"API响应格式错误，缺少必要字段: {str(e)}")
         except Exception as e:
+            self.logger.exception("未知错误")
+            self.logger.debug(messages)
             raise Exception(f"未知错误: {str(e)}")
 
     def stream_think(self, messages: list[dict[str, str]], **kwargs) -> Dict[str, str]:
@@ -180,7 +187,7 @@ class LLMClient:
         """
         异步流式调用大模型API，实时打印响应内容（使用 aiohttp）
         """
-        print_flag= False
+        
         try:
             data = {
                 "messages": messages,
@@ -191,8 +198,7 @@ class LLMClient:
 
             final_reasoning_content = ""
             final_content = ""
-            think_started = False
-            content_started = False
+            
             buffer = ""
 
             timeout = aiohttp.ClientTimeout(total=120)
@@ -228,19 +234,9 @@ class LLMClient:
                                     content = delta.get("content", "")
 
                                     if reasoning_content:
-                                        if print_flag:
-                                            if not think_started:
-                                                print("Reasoning: ")
-                                                think_started = True
-                                            print(reasoning_content, end="", flush=True)
                                         final_reasoning_content += reasoning_content
 
                                     if content:
-                                        if print_flag:
-                                            if not content_started:
-                                                print("Content: ")
-                                                content_started = True
-                                            print(content, end="", flush=True)
                                         final_content += content
 
             #print()  # 确保换行

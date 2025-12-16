@@ -7,10 +7,10 @@ import subprocess
 
 import time
 import random
-import logging
+from core.log_util import AutoLoggerMixin
 from core.action import register_action
 
-logging.getLogger('libtmux').setLevel(logging.WARNING)
+
 class TerminalSkillMixin:
     """
     赋予 Agent 操作 Tmux 终端的能力。

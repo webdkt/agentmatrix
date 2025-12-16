@@ -19,17 +19,27 @@
         "API_KEY": "GLM_API_KEY",
         "model_name": "glm-4.6"
     },
+    "default_llm_deepseek": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-reasoner"
+    },
     "default_llm": {
         "url": "https://api.deepseek.com/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "deepseek-reasoner"
+    },
+    "default_slm": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-chat"
     },
     "default_slm2": {
         "url": "http://127.0.0.1:8080/v1/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "Qwen3-8B-Q4_K_M"
     },
-    "default_slm": {
+    "default_slm3": {
         "url": "https://api.deepseek.com/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "deepseek-chat"

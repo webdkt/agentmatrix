@@ -1,17 +1,16 @@
 # core/cerebellum.py
 import json
 import textwrap
+from core.log_util import AutoLoggerMixin
 import logging
-import asyncio
-class Cerebellum:
-    def __init__(self, backend_client):
+class Cerebellum(AutoLoggerMixin):
+    _log_from_attr = "log_name"  # 日志名字来自 self.log_name 属性
+    _custom_log_level = logging.DEBUG
+    def __init__(self, backend_client, agent_name):
         self.backend = backend_client
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        self.logger = logging.getLogger('Cerebellum')
+        self.agent_name = agent_name
+        self.log_name = f"{agent_name}(Cerebellum)"
+        
         
 
     async def negotiate(self, initial_intent: str, tools_manifest: str, contacts,  brain_callback) -> dict:
@@ -53,7 +52,7 @@ class Cerebellum:
                 {"role": "user", "content": initial_intent}
         ]
         
-        
+        self.logger.debug(f"开始谈判：{initial_intent}")
         
         #print(f"准备分析大脑意图：{initial_intent}")
         
@@ -71,8 +70,8 @@ class Cerebellum:
             
             #loop = asyncio.get_running_loop()
             # 把同步的 logger.debug 扔到线程池执行
-            #await loop.run_in_executor(None, self.logger.debug, f"小脑思考：{reasoning_str}")
-            #await loop.run_in_executor(None, self.logger.debug, f"小脑回复：{reply_str}")
+            self.logger.debug(f"小脑思考：{reasoning_str}")
+            self.logger.debug(f"小脑回复：{reply_str}")
 
 
 

@@ -1,8 +1,9 @@
 import sqlite3
 import json
 from datetime import datetime
+from core.log_util import AutoLoggerMixin
 
-class AgentDB:
+class AgentMailDB(AutoLoggerMixin):
     def __init__(self, db_path):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.create_tables()
@@ -19,6 +20,7 @@ class AgentDB:
                 subject TEXT,
                 body TEXT,
                 in_reply_to TEXT,
+                user_session_id TEXT,
                 metadata TEXT -- 存 JSON 格式的附件或其他信息
             )
         ''')
@@ -29,7 +31,7 @@ class AgentDB:
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT OR IGNORE INTO emails 
-            (id, timestamp, sender, recipient, subject, body, in_reply_to, metadata)
+            (id, timestamp, sender, recipient, subject, body, in_reply_to,user_session_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             email.id,
@@ -39,7 +41,7 @@ class AgentDB:
             email.subject,
             email.body,
             email.in_reply_to,
-            json.dumps({}) # metadata
+            email.user_session_id
         ))
         self.conn.commit()
 
@@ -53,3 +55,25 @@ class AgentDB:
         ''', (agent_name, agent_name, limit))
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def get_mails_by_range(self, agent_name, user_session_id, start=0, end=1):
+        """查询某个Agent的指定日期范围的邮件
+        Args:
+            agent_name: Agent名称
+            start: 起始索引（0表示最新邮件）
+            end: 结束索引
+        Returns:
+            指定范围内的邮件列表
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT * FROM emails 
+            WHERE user_session_id = ? and (recipient = ? OR sender = ?)
+            ORDER BY timestamp DESC 
+            LIMIT ? OFFSET ?
+        ''', (user_session_id, agent_name, agent_name, end - start + 1, start))
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        
+
+        

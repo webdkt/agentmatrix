@@ -45,7 +45,7 @@ class ProjectManagementMixin:
             self.logger.info(f"Old memory archived to {filename}")
 
     @register_action(
-        "阶段总结，更新项目看板,Markdown格式。项目状态发生重要变化后或者处理了比较多封邮件后需要阶段性的总结。要保留所有关键信息",
+        "阶段总结，更新项目看板,Markdown格式。项目状态发生重要变化后或者处理了比较多封邮件后需要阶段性的总结。保留所有关键信息",
         param_infos={
             "summary": "最新的全局项目状态总结",
         }
