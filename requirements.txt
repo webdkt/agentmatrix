@@ -10,3 +10,7 @@ Jinja2
 libtmux
 chromadb
 sentence_transformers
+trafilatura
+curl_cffi
+beautifulsoup4
+python-slugify

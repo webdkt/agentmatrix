@@ -81,7 +81,7 @@ class PostOffice(AutoLoggerMixin):
         self.email_db.log_email(email)
         self.vector_db.add_documents("email", [str(email)], 
             metadatas={"created_at": email.timestamp,
-                       "sendor": email.sendor,
+                       "sender": email.sender,
                        "recipient": email.recipient,
                        "user_session_id": email.user_session_id
                 }, 
