@@ -4,7 +4,7 @@ import os
 import json
 import textwrap
 import logging
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse,unquote
 from bs4 import BeautifulSoup
 from curl_cffi.requests import AsyncSession
 import trafilatura
@@ -12,8 +12,10 @@ from slugify import slugify
 from core.action import register_action
 from skills.search_tool import SmartSearcherMixin
 import random
-from urllib.parse import unquote
+
 import re
+
+
 
 
 # === 1. 共享上下文对象 ===
@@ -79,6 +81,10 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
     }
 
     _custom_log_level = logging.DEBUG
+
+
+
+    
 
     async def _judge_content_relevance(self, text: str, query: str, context) -> str:
         """
@@ -200,20 +206,28 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
             valid_href_set = {href for _, href in batch}
             
             # 构建 Prompt 文本
-            batch_str = "\n".join([f"- {href} (Content: {text})" for text, href in batch])
+            
+            batch_str = "\n".join([f"- [{text}] ({href})" for text, href in batch])
             
             prompt = textwrap.dedent(f"""
-                Mission: Researching "{query}".
+                Research Goal: "{query}"
                 
-                Candidate Links:
+                You are a navigation engine for a research crawler.
+                Below are links found on the current page.
+                
+                Task: Select links that seem highly likely to lead to content RELEVANT to the Research Goal.
+                
+                Candidates:
                 {batch_str}
                 
-                Task: output the URLs from the list above that are most likely to contain valuable information (PDFs, Articles, Documentation).
+                Selection Criteria:
+                1. **Semantic Match**: The link text must suggest the content is about the Research Goal.
+                2. **Format Agnostic**: Select BOTH relevant Webpages (Articles/Blogs) and Files (PDFs/Reports).
+                3. **Negative Constraint**: Do NOT select a link just because it is a PDF. 
                 
-                Rules:
-                1. Output ONLY the URLs. One per line.
-                2. Do NOT output bullet points or explanations.
-                3. If none are relevant, output "NONE".
+                Output:
+                List the URLs of the selected links only. One per line.
+                If none are relevant, output "NONE".
             """)
             
             try:
@@ -301,14 +315,21 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
     async def _recursive_explore(self, session, url: str, context: MissionContext, purpose: str, save_dir: str):
         # A. 熔断检查
         #self.logger.info(f"🔎 [Active: {url}] Exploring...")
-        if not context.is_active() or url in context.visited:
-            self.logger.info(f"🛑 [{url}] Already visited or mission terminated.")
+        if not context.is_active() :
+            self.logger.info(f"🛑 [{url}] Mission terminated.")
+            return
+        if url in context.visited:
+            self.logger.info(f"🛑 [{url}] Already visited.")
             return
         
         
         context.visited.add(url)
         
-        
+        headers = {
+                    "Referer": "https://www.bing.com/", # 假装从 Bing 点过来的
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+                }
 
         try:
             # B. 访问 (执行)
@@ -327,7 +348,7 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
                         # stream=True 意味着只要连上并拿到 Header 就算成功，不会等 body 下载完
                         # timeout=60 对文件下载更友好
                         await asyncio.sleep(random.uniform(0.4, 2.5)) # 避免请求过快被封 IP
-                        resp = await session.get(url, allow_redirects=True, timeout=60, stream=True)
+                        resp = await session.get(url, headers=headers, allow_redirects=True, timeout=60, stream=True)
                         if resp.status_code == 200:
                             break # 成功拿到响应头，跳出重试循环
                     except Exception as e:
@@ -406,7 +427,7 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
                     save_path = os.path.join(save_dir, fname)
                     
                     # 构造文件头部元数据
-                    header = f"# {title}\n> Source: {final_url}\n> Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    header = f"# {title}\n> Source: {final_url}\n "
                     
                     # 根据类型写入不同的 Tag
                     if action == "save_summary":
@@ -455,7 +476,8 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
             tasks = []
             for target_url in targets:
                 # 递归！
-                tasks.append(self._recursive_explore(session, target_url, context, purpose, save_dir))
+                async with context.sem:
+                    tasks.append(self._recursive_explore(session, target_url, context, purpose, save_dir))
             
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -472,11 +494,10 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
             "topic": "保存文件夹",
             "domain": "研究领域，优先从以下选择一个: 'STEM', 'HUMANITIES', 'BUSINESS'，如果都不匹配，使用 'GENERAL' ",
             "seed_urls": "可选，种子URL列表 (如果有)",
-            "max_steps": "可选，最大访问页面数 (默认 1000)",
             "timeout": "可选最大耗时分钟 (默认 30)"
         }
     )
-    async def research_crawler(self, search_phrase, purpose: str, topic: str, domain: str="STEM", seed_urls: list = None, max_steps: int = 1000, timeout: int = 30):
+    async def research_crawler(self, search_phrase, purpose: str, topic: str, domain: str="STEM", seed_urls: list = None, timeout: int = 30):
         domain = domain.upper()
         search_phrase_in_chinese = self._is_chinese_query(search_phrase)
         purpose_in_chinese = self._is_chinese_query(purpose)
@@ -497,6 +518,8 @@ class RecursiveCrawlerMixin(SmartSearcherMixin):
             search_res = await self._smart_search_entry(search_phrase, limit=20)
             if isinstance(search_res, str): return search_res
             seed_urls = [item['href'] for item in search_res]
+        if isinstance(seed_urls, str): seed_urls = [seed_urls]
+
 
         # 启动并发递归
         async with AsyncSession(impersonate="chrome") as session:

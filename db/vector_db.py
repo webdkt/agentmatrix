@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 from contextlib import asynccontextmanager
 from core.log_util import AutoLoggerMixin
 from chromadb.utils import embedding_functions
+import os
 
 # ==========================================
 # 1. 手写一个 Async ReadWriteLock (写优先)
@@ -91,6 +92,8 @@ class VectorDB(AutoLoggerMixin):
             # --- 关键组件：读写锁 ---
             self.rw_lock = AsyncReadWriteLock()
             self.echo(">>> Loading Embedding Function...")
+            os.environ["HF_HUB_OFFLINE"] = "1"  # 完全离线模式
+            os.environ["TRANSFORMERS_OFFLINE"] = "1"  # transformers 库离线模式
             self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="BAAI/bge-large-zh-v1.5")
             self.echo(">>> Embedding Function Loaded.")
             # --- 预加载 Collections ---

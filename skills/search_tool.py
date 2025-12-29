@@ -4,8 +4,49 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from curl_cffi.requests import AsyncSession
 import xml.etree.ElementTree as ET # 用于解析 ArXiv API
+from urllib.parse import parse_qs, urlparse
+import base64
 
 class SmartSearcherMixin:
+    def _clean_bing_url(self, url: str) -> str:
+        """
+        [上策] 本地解码 Bing 的跳转链接，彻底绕过 403 和网络请求。
+        """
+        if "bing.com/ck/a" not in url:
+            return url
+            
+        try:
+            parsed = urlparse(url)
+            query = parse_qs(parsed.query)
+            # 获取加密的 u 参数
+            u_param = query.get('u', [''])[0]
+            
+            if not u_param:
+                return url
+            
+            # Bing 的编码逻辑通常是: "a1" + Base64
+            # 1. 去掉 "a1" 前缀
+            if u_param.startswith('a1'):
+                u_param = u_param[2:]
+            
+            # 2. 补全 Base64 padding (长度必须是 4 的倍数)
+            padding = len(u_param) % 4
+            if padding > 0:
+                u_param += '=' * (4 - padding)
+            
+            # 3. Base64 解码
+            # 注意：Bing 使用的是 URL-safe Base64
+            decoded_bytes = base64.urlsafe_b64decode(u_param)
+            real_url = decoded_bytes.decode('utf-8')
+            
+            self.logger.info(f"🔓 Decoded Bing URL: {real_url}")
+            return real_url
+            
+        except Exception as e:
+            self.logger.warning(f"Bing URL decode failed: {e}. Fallback to direct request.")
+            # 解码失败时，返回原 URL，尝试后续的 Plan B
+            return url
+
     def _is_chinese_query(self, text: str) -> bool:
         """
         [Helper] 检测 query 是否包含中文字符。
@@ -95,20 +136,38 @@ class SmartSearcherMixin:
             return []
 
     # === 2. Bing Search (Fallback, 中国直连) ===
-    async def _search_bing(self, session, query, limit=10):
+    async def _search_bing(self, session, query, limit=20):
         """
         [Easy Mode] 优化版 Bing 搜索。
         强制使用国际版参数，防止被重定向到国内版。
         """
-        base_url = "https://www.bing.com/search"
+        base_url = "https://cn.bing.com/search"
         # 1. 基础配置：强制连接 US 服务器以获取完整的索引库 (Global Index)
         # 'cc=US' 主要是为了物理层面告诉 Bing "我想要国际版的库"，防止被重定向到阉割版
+
+        # 你可以在这里把不喜欢的内容农场全部加进去
+        blacklist = [
+            "zhihu.com",           # 知乎主站
+            "zhuanlan.zhihu.com",  # 知乎专栏
+            "csdn.net",            # CSDN (很多搬运/付费可见，质量不稳定)
+            "baidu.com",           # 屏蔽百度知道、贴吧、文库等
+            "bilibili.com",        # 屏蔽视频站（因为爬虫处理不了视频）
+            "sohu.com",            # 搜狐号（很多营销号）
+            "baijiahao.baidu.com"  # 百家号
+            "zhidao.baidu.com"
+        ]
+        
+        # 构造屏蔽字符串: " -site:zhihu.com -site:csdn.net ..."
+        exclusion_str = " " + " ".join([f"-site:{domain}" for domain in blacklist])
+        
+        # === 2. 注入到 Query 中 ===
+        tuned_query = query + exclusion_str
+
         params = {
-            "q": query, 
-            "count": str(limit + 5),
-            "cc": "US" 
+            "q": tuned_query, 
         }
         
+        '''
         # 2. 语言自适应：根据 Query 决定“市场偏好”
         if self._is_chinese_query(query):
             self.logger.info(f"🇨🇳 Detected Chinese Query: '{query}'. Tuning for Chinese results.")
@@ -121,7 +180,7 @@ class SmartSearcherMixin:
             self.logger.info(f"🇺🇸 Detected Non-Chinese Query: '{query}'. Tuning for Global/English results.")
             params["setlang"] = "en"
             params["setmkt"] = "en-US" # 英文搜索时，强制 US 市场结果质量最高
-
+        '''
         try:
             # 必须带 Header，否则 Bing 可能会根据 IP 强行锁定语言
             headers = {
@@ -129,8 +188,13 @@ class SmartSearcherMixin:
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8" if self._is_chinese_query(query) else "en-US,en;q=0.9"
             }
             
-            resp = await session.get(base_url, params=params, headers=headers, timeout=10)
-            if resp.status_code != 200: return []
+            #resp = await session.get(base_url, params=params, headers=headers, timeout=10)
+            resp = await session.get(base_url, params=params, timeout=10)
+
+            if resp.status_code != 200: 
+                self.logger.warning(f"Bing Search Error: {resp.status_code}")
+                self.logger.warning(f"Response Headers: {resp.headers}")
+                return []
 
             soup = BeautifulSoup(resp.content, "lxml")
             results = []
@@ -140,10 +204,12 @@ class SmartSearcherMixin:
                 try:
                     h2 = item.select_one("h2 a")
                     if not h2: continue
+                    raw_href = h2['href']
+                    clean_href = self._clean_bing_url(raw_href)
                     
                     results.append({
                         "title": h2.get_text(),
-                        "href": h2['href'],
+                        "href": clean_href, # 存入清洗后的 URL
                         "body": item.select_one(".b_caption p").get_text() if item.select_one(".b_caption p") else "",
                         "source": "Bing"
                     })
@@ -253,12 +319,12 @@ class SmartSearcherMixin:
             return []
 
     # === 4. 智能路由入口 ===
-    async def _smart_search_entry(self, query: str, limit: int = 10, domain: str = "STEM"):
+    async def _smart_search_entry(self, query: str, limit: int = 20, domain: str = "STEM"):
         """
         [Master Controller] 智能决定走哪条路。
         """
         # 检测代理
-        proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("ALL_PROXY")
+        proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("ALL_PROXY") or os.environ.get("http_proxy") or os.environ.get("https_proxy") or os.environ.get("all_proxy")
         has_proxy = proxy is not None and len(proxy) > 0
         is_chinese = self._is_chinese_query(query)
         should_search_arxiv = (domain == "STEM") and (not is_chinese)

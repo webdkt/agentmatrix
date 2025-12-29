@@ -303,6 +303,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             except Exception as e:
                 # 执行报错：把 Python 异常喂回给 Brain
                 # Brain 看到报错后，可能会决定 "google search error" 或者 "ask coder"
+                self.logger.exception("Body执行错误")
                 self._add_body_feedback_to_history(action_name, f"Something wrong happened : {e}")
                 continue
 
@@ -342,14 +343,18 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         
         session.history.append({"role": "user", "content": content})
 
-    def _add_body_feedback_to_history(self, action_name,  result):
+    def _add_body_feedback_to_history(self, action_name,  result=None):
         session = self.current_session
         # 把动作执行结果反馈给 LLM
         msg_body =  "[BODY FEEDBACK]\n"
-        msg_body +=f"Action: '{action_name}'\n"
-        msg_body +=textwrap.dedent(f"""Result: 
-            {result}
-        """)
+        if result:
+        
+            msg_body +=f"Action: '{action_name}'\n"
+            msg_body +=textwrap.dedent(f"""Result: 
+                {result}
+            """)
+        else:
+            msg_body +=f" '{action_name}'\n"
 
         session.history.append({"role": "user", "content": msg_body})
 

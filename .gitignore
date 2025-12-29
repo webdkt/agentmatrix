@@ -185,4 +185,4 @@ cython_debug/
 ehthumbs.db
 Thumbs.db
 Samples/
-
+test/profile

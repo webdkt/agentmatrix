@@ -108,6 +108,7 @@ class AgentLoader(AutoLoggerMixin):
         
         if cerebellum_config:
             # A. 如果 Agent 定义了自己的小脑模型
+            print(cerebellum_config)
             slm_model = cerebellum_config.get("backend_model", "default_slm")
             slm_client = self._create_llm_client(slm_model)
             print(f"[{agent_instance.name}] Using custom SLM: {slm_model}")

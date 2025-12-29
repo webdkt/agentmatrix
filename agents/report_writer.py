@@ -1,13 +1,13 @@
 from agents.base import BaseAgent
-from skills.data_crawler import DigitalInternCrawlerMixin
+from skills.report_writer import ReportWriterSkillMixin
 import asyncio
 import logging
 
-class DataCrawler(BaseAgent, DigitalInternCrawlerMixin):
+class ReportWriter(BaseAgent, ReportWriterSkillMixin):
     _custom_log_level = logging.DEBUG
     def __init__(self, profile ):
         super().__init__(profile)
-        self.browser_adapter = None
+        self.research_state = None
         #self.sem = asyncio.Semaphore(5)
         
 

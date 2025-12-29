@@ -43,5 +43,17 @@
         "url": "https://api.deepseek.com/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "deepseek-chat"
+    },
+    "mimo":{
+        "url":"https://api.xiaomimimo.com/v1/chat/completions",
+        "API_KEY":"MIMO_API_KEY",
+        "model_name":"mimo-v2-flash"
+    },
+    "gemini-3-pro":{
+        "url":"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+        "API_KEY":"GEMINI_API_KEY",
+        "model_name":"gemini-2.5-pro"
     }
+    
+    
 }

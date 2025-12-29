@@ -11,6 +11,7 @@ libtmux
 chromadb
 sentence_transformers
 trafilatura
-curl_cffi
+DrissionPage
 beautifulsoup4
-python-slugify
+marker-pdf
+PyMuPDF
