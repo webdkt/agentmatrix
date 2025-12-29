@@ -140,12 +140,12 @@ class ReportWriterSkillMixin:
         state = ResearchState(main_subject=main_subject, main_purpose= main_purpose, input_dir=src_dir, output_dir=output_dir)
 
         # Phase 0: 先验生成
-        blueprint = await self._phase0_theorist(state)
-        return blueprint
-        '''
+        await self._phase0_theorist(state)
+        
+        
         # Phase 1: 侦察与校准
         state = await self._phase1_scout(state, src_dir)
-
+        '''
         # Phase 2: 全量迭代
         state = await self._phase2_execution_loop(state, src_dir)
 
@@ -173,10 +173,10 @@ class ReportWriterSkillMixin:
         **研究动机/目标**: 
             {main_purpose}
         """
-        blueprint = await self.ask_ai(user_input, sys_prompt)
+        state.blueprint = await self.ask_ai(user_input, sys_prompt)
 
 
-        return blueprint
+        return state.blueprint
         
         
 
