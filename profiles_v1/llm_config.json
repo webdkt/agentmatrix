@@ -1,0 +1,59 @@
+{
+    "gpt-3.5": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "API_KEY": "your-gpt-3.5-api-key  or env var name",
+        "model_name": "gpt-3.5-turbo"
+    },
+    "gpt-4": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "API_KEY": "your-gpt-4-api-key  or env var name",
+        "model_name": "gpt-4"
+    },
+    "claude": {
+        "url": "https://api.anthropic.com/v1/messages",
+        "API_KEY": "your-claude-api-key or env var name",
+        "model_name": "claude-v1.3-100k"
+    },
+    "glm": {
+        "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "API_KEY": "GLM_API_KEY",
+        "model_name": "glm-4.6"
+    },
+    "default_llm_deepseek": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-reasoner"
+    },
+    "default_llm": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-reasoner"
+    },
+    "default_slm": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-chat"
+    },
+    "default_slm2": {
+        "url": "http://127.0.0.1:8080/v1/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "Qwen3-8B-Q4_K_M"
+    },
+    "default_slm3": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-chat"
+    },
+    "mimo":{
+        "url":"https://api.xiaomimimo.com/v1/chat/completions",
+        "API_KEY":"MIMO_API_KEY",
+        "model_name":"mimo-v2-flash"
+    },
+    "gemini-3-pro":{
+        "url":"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+        "API_KEY":"GEMINI_API_KEY",
+        "model_name":"gemini-2.5-pro"
+    }
+    
+    
+}

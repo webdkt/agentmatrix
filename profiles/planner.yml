@@ -1,7 +1,19 @@
 name: Planner
 description: 一个计划者，能够根据用户的指令生成计划。
-module: agents.stateful
-class_name: StatefulAgent
+module: agents.base
+class_name: BaseAgent
+
+# 动态 Mixin 组合
+mixins:
+  - skills.filesystem.FileSkillMixin
+  - skills.project_management.ProjectManagementMixin
+  - skills.notebook.NotebookMixin
+
+# 属性初始化
+attribute_initializations:
+  project_board: null
+  vector_db: null
+
 instruction_to_caller: |
   直接发送自然语言指令。
 system_prompt: |

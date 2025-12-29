@@ -1,0 +1,11 @@
+name: Mark
+description: 分析师
+module: agents.report_writer
+class_name: ReportWriter
+instruction_to_caller: |
+  告诉我想写什么报告
+system_prompt: |
+  你是一个资深的分析师，可以根据客户要求撰写报告
+backend_model: default_llm
+cerebellum:
+  backend_model: mimo

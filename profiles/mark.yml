@@ -1,7 +1,21 @@
 name: Mark
 description: 分析师
-module: agents.report_writer
-class_name: ReportWriter
+module: agents.base
+class_name: BaseAgent
+
+# 动态 Mixin 组合
+mixins:
+  - skills.filesystem.FileSkillMixin
+  - skills.report_writer.ReportWriterSkillMixin
+
+# 属性初始化
+attribute_initializations:
+  research_state: null
+
+# 类属性设置
+class_attributes:
+  _custom_log_level: 10  # logging.DEBUG
+
 instruction_to_caller: |
   告诉我想写什么报告
 system_prompt: |
