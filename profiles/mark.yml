@@ -1,25 +1,26 @@
 name: Mark
-description: 分析师
+description: 网络搜索实习生
 module: agents.base
 class_name: BaseAgent
 
 # 动态 Mixin 组合
 mixins:
+  - skills.web_searcher.WebSearcherMixin
   - skills.filesystem.FileSkillMixin
-  - skills.report_writer.ReportWriterSkillMixin
+#  - skills.report_writer.ReportWriterSkillMixin
 
 # 属性初始化
 attribute_initializations:
-  research_state: null
+  browser: null
 
 # 类属性设置
 class_attributes:
   _custom_log_level: 10  # logging.DEBUG
 
 instruction_to_caller: |
-  告诉我想写什么报告
+  想搜索了解什么问题
 system_prompt: |
-  你是一个资深的分析师，可以根据客户要求撰写报告
-backend_model: default_llm
+  你是一个网络搜索助手，请根据用户的问题进行搜索并返回结果
+backend_model: mimo
 cerebellum:
   backend_model: mimo

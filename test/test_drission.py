@@ -145,7 +145,7 @@ async def test_basic_functionality():
 
         print("\n3. Navigating to https://www.bing.com (International version)...")
         # Navigate to www.bing.com - this will test our adapter's navigation capability
-        '''
+        
         interaction_report = await adapter.navigate(current_tab, "https://www.bing.com")
         print(f"✓ Navigation completed. URL changed: {interaction_report.is_url_changed}")
         #tab = await adapter.get_tab()
@@ -180,12 +180,12 @@ async def test_basic_functionality():
             print("\n❌ No search results were extracted")
 
         #打开第一个结果：
-        # print("\n6. Opening first search result...")
-        #first_link = search_results[0]['element']
-        #pe = DrissionPageElement(first_link)
-        #navi_result = await adapter.click_and_observe(current_tab, pe)
-        #print(navi_result)
-        '''
+        print("\n6. Opening first search result...")
+        first_link = search_results[0]['element']
+        pe = DrissionPageElement(first_link)
+        navi_result = await adapter.click_and_observe(current_tab, pe)
+        print(navi_result)
+        
         print("Opening page")
         await adapter.navigate(current_tab, 'https://www.sohu.com/a/917113354_122485359')
         print("Wait for stablization")

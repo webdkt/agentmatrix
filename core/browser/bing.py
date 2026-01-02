@@ -91,25 +91,118 @@ async def extract_search_results(adapter, tab):
 
     return results
 
-async def search_bing(adapter, tab, query):
+async def search_bing(adapter, tab, query, max_pages=5, page=None):
+    """
+    Perform a Bing search and extract results from multiple pages.
+
+    Args:
+        adapter: DrissionPageAdapter instance
+        tab: Current browser tab handle
+        query: Search query string
+        max_pages: Maximum number of pages to extract (default: 5)
+        page: Specific page to extract (default: None). If specified, only returns results from that page.
+
+    Returns:
+        List of dictionaries containing title, url, and snippet for each search result
+    """
+    print(f"\n=== Bing Search: {query} (max pages: {max_pages}) ===")
+
+    # Navigate to Bing
+    print("1. Navigating to Bing...")
     interaction_report = await adapter.navigate(tab, "https://www.bing.com")
     print(f"✓ Navigation completed. URL changed: {interaction_report.is_url_changed}")
-    #tab = await adapter.get_tab()
+
+    # Wait a moment for page to load
+    import time
+    time.sleep(2)
+
+    # Check for International button and click if present
     intl_btn = tab.ele("@id=est_en")
     if intl_btn:
         print("   Found International button. Clicking...")
         intl_btn.click()
-    
+        time.sleep(1)  # Wait for the page to update after clicking intl button
 
-
-    await adapter.type_text(tab, "@@tag()=input@@name=q",f"{query}\n", True)
+    # Type search query and submit
+    print("2. Typing search query...")
+    await adapter.type_text(tab, "@@tag()=input@@name=q", f"{query}\n", True)
+    print("✓ Search query submitted")
 
     # Stabilize the search results page
-    print("\n4. Stabilizing search results page...")
+    print("\n3. Stabilizing search results page...")
     stabilization_success = await adapter.stabilize(tab)
     print(f"✓ Stabilization completed: {stabilization_success}")
 
-    # Extract search results
-    search_results = await extract_search_results(adapter, tab)
+    # If page is specified, only extract that specific page
+    if page is not None:
+        print(f"\n=== Extracting page {page} only ===")
 
-    return search_results
+        # Navigate to the specified page
+        target_page = page
+        while target_page > 1:
+            try:
+                next_page_selector = f'css:a[aria-label=\'Page {target_page}\']'
+                print(f"Looking for Page {target_page}...")
+                next_page_link = tab.ele(next_page_selector, timeout=2)
+
+                if next_page_link:
+                    print(f"✓ Found Page {target_page}, clicking...")
+                    next_page_link.click()
+                    time.sleep(2)
+                    await adapter.stabilize(tab)
+                    target_page -= 1
+                else:
+                    print(f"✗ Page {page} not found")
+                    return []
+            except Exception as e:
+                print(f"✗ Error navigating to page {page}: {e}")
+                return []
+
+        # Extract results from the specified page
+        print(f"\n=== Processing page {page} ===")
+        page_results = await extract_search_results(adapter, tab)
+        print(f"\n=== Total results collected: {len(page_results)} ===")
+        return page_results
+
+    # Extract search results from multiple pages (original logic)
+    all_results = []
+    current_page = 1
+
+    while current_page <= max_pages:
+        print(f"\n=== Processing page {current_page} ===")
+
+        # Extract results from current page
+        page_results = await extract_search_results(adapter, tab)
+        all_results.extend(page_results)
+
+        # Check if we should continue to next page
+        if current_page < max_pages:
+            # Look for next page link using aria-label='Page X'
+            next_page_num = current_page + 1
+            next_page_selector = f'css:a[aria-label=\'Page {next_page_num}\']'
+
+            try:
+                print(f"\nLooking for next page (Page {next_page_num})...")
+                next_page_link = tab.ele(next_page_selector, timeout=2)
+
+                if next_page_link:
+                    print(f"✓ Found next page link, clicking...")
+                    next_page_link.click()
+                    time.sleep(2)  # Wait for page to load
+
+                    # Stabilize after page change
+                    await adapter.stabilize(tab)
+                    current_page += 1
+                else:
+                    print(f"✓ No more pages available")
+                    break
+
+            except Exception as e:
+                print(f"✓ No more pages available or error finding next page: {e}")
+                break
+        else:
+            print(f"\n✓ Reached maximum page limit ({max_pages})")
+            break
+
+    print(f"\n=== Total results collected: {len(all_results)} ===")
+    return all_results

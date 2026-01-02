@@ -12,6 +12,7 @@ import textwrap
 from skills.filesystem import FileSkillMixin
 from core.log_util import AutoLoggerMixin
 import logging
+from pathlib import Path
 
 class BaseAgent(FileSkillMixin,AutoLoggerMixin):
     _log_from_attr = "name" # 日志名字来自 self.name 属性
@@ -76,8 +77,48 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                 self.actions_meta[name] = {
                     "action": name,
                     "description": desc,
-                    "params": param_infos 
+                    "params": param_infos
                 }
+
+    @property
+    def current_private_workspace(self) -> Path:
+        """
+        获取当前 session 的个人工作目录（如果不存在则自动创建）
+
+        Returns:
+            Path: 个人工作目录路径，格式为 workspace_root / user_session_id / agents / agent_name
+        """
+        if not self.workspace_root:
+            #raise ValueError("workspace_root is not set")
+            return None
+
+        user_session_id = self.current_user_session_id or "default"
+        workspace = Path(self.workspace_root) / user_session_id / "agents" / self.name
+
+        # 如果目录不存在，创建目录
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        return workspace
+
+    @property
+    def current_shared_workspace(self) -> Path:
+        """
+        获取当前 session 的共享工作目录（如果不存在则自动创建）
+
+        Returns:
+            Path: 共享工作目录路径，格式为 workspace_root / user_session_id / shared
+        """
+        if not self.workspace_root:
+            #raise ValueError("workspace_root is not set")
+            return None
+
+        user_session_id = self.current_user_session_id or "default"
+        workspace = Path(self.workspace_root) / user_session_id / "shared"
+
+        # 如果目录不存在，创建目录
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        return workspace
 
     def get_prompt(self):
         """生成给 LLM 的完整 Prompt"""
@@ -273,17 +314,12 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             method = self.actions_map.get(action_name)
             if not method:
                 # 幻觉处理：Brain 编造了一个不存在的动作
-                self._add_brain_intention_to_history(intention)
-                self._add_body_feedback_to_history("Body is tired, need to take a break") #希望Brain会选择“Take a Break"!
+                self._add_intention_feedback_to_history(intention, "Body is tired, need to take a break") #希望Brain会选择“Take a Break"!
                 self.logger.error(f"Tried to do an unknown action: {action_name}")
                 continue
 
             # 5. 执行方法 (Execution)
             try:
-                # === 真正的调用 self.send_email(...) ===
-                self._add_brain_intention_to_history(intention) #真正执行，才记录之前输出的意图，可能立刻SYNC回答，也可能就等邮件来，也可能出错，告诉他错误是什么
-                
-                
                 # 获取动作类型
                 
                 
@@ -291,11 +327,13 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                     result = await method(**params)
                     self.logger.debug(f"{self.name} did action: \n{result}")
                     # 同步动作：把结果喂回给 Brain，继续循环
-                    self._add_body_feedback_to_history(action_name, result)
+                    self._add_intention_feedback_to_history(intention, action_name, result)
                     #self.logger.debug(f"{self.current_session.history[:-2]}")
                     continue 
                     
                 else:
+                    #如果大脑输出了 rest_n_wait 的意图，我们就结束本次循环了，不用回答了，只要记录下它最后说的
+                    self._add_brain_intention_to_history(intention)
                     self.logger.debug(f"{self.name} will rest and wait")
                     self.status = "WAITING" #wait for email reply
                     break
@@ -304,7 +342,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                 # 执行报错：把 Python 异常喂回给 Brain
                 # Brain 看到报错后，可能会决定 "google search error" 或者 "ask coder"
                 self.logger.exception("Body执行错误")
-                self._add_body_feedback_to_history(action_name, f"Something wrong happened : {e}")
+                self._add_intention_feedback_to_history(intention, action_name, f"Something wrong happened : {e}")
                 continue
 
     
@@ -343,7 +381,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         
         session.history.append({"role": "user", "content": content})
 
-    def _add_body_feedback_to_history(self, action_name,  result=None):
+    def _add_intention_feedback_to_history(self, intention, action_name,  result=None):
         session = self.current_session
         # 把动作执行结果反馈给 LLM
         msg_body =  "[BODY FEEDBACK]\n"
@@ -355,7 +393,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             """)
         else:
             msg_body +=f" '{action_name}'\n"
-
+        session.history.append({"role": "assistant", "content": intention})
         session.history.append({"role": "user", "content": msg_body})
 
     

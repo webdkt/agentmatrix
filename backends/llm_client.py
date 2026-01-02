@@ -1,7 +1,7 @@
 import requests
 import json
 import traceback
-from typing import Dict, Any, Optional
+from typing import Dict, Union, List
 import aiohttp
 from core.log_util import AutoLoggerMixin
 import logging
@@ -30,8 +30,10 @@ class LLMClient(AutoLoggerMixin):
         }
 
 
-    async def think(self, messages: list[dict[str, str]], **kwargs) -> Dict[str, str]:
-        
+    async def think(self, messages:  Union[str, List[Dict[str, str]]], **kwargs) -> Dict[str, str]:
+        if isinstance(messages, str):
+            #如果messages 是string,就包装成open ai chat messages 的格式
+            messages =[{"role": "user", "content": messages}]
         if "googleapis.com" in self.url or "gemini" in self.model_name.lower():
             return await self._async_stream_think_gemini(messages, **kwargs)
         return await self.async_stream_think(messages, **kwargs)

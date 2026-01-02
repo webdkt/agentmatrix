@@ -1,8 +1,8 @@
 #You should always have one USER agent
 name: User
 description: Master of world
-module: agents.base
-class_name: BaseAgent
+module: agents.user_proxy
+class_name: UserProxyAgent
 
 # 动态 Mixin 组合
 mixins:

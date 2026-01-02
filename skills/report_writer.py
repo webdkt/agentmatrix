@@ -3,6 +3,10 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, AsyncIterator, Optional
 import fitz  # PyMuPDF
+# 正确的 Marker 导入方式
+from marker.models import load_all_models
+from marker.convert import convert_single_pdf
+
 
 import torch
 import textwrap
@@ -25,92 +29,9 @@ class ResearchState:
 
 
 class ReportWriterSkillMixin:
-    def convert_pdf_to_markdown(pdf_path: str, start_page: int = None, end_page: int = None):
-        """
-        使用 Marker 将 PDF 文件中指定页码范围的内容转换为 Markdown。
 
-        如果不指定开始和结束页，默认转换整个文档。
 
-        Args:
-            pdf_path (str): 输入 PDF 文件的完整路径。
-            start_page (int, optional): 转换的起始页码 (从 1 开始计数)。默认为 None (第一页)。
-            end_page (int, optional): 转换的结束页码 (包含此页)。默认为 None (最后一页)。
-        """
-        # --- 1. 验证输入并设置路径 ---
-        pdf_file = Path(pdf_path)
-        if not pdf_file.is_file():
-            self.logger.error(f"错误：文件不存在于 {pdf_path}")
-            return
-        
-        # --- 2. 使用 PyMuPDF 处理页面范围 ---
-        temp_pdf_path = None
-        pdf_to_process = str(pdf_file)
 
-        try:
-            doc = fitz.open(pdf_file)
-            total_pages = doc.page_count
-            
-            # 确定实际要处理的页面范围
-            # 如果用户未指定，则默认为整个文档
-            actual_start = start_page if start_page is not None else 1
-            actual_end = end_page if end_page is not None else total_pages
-            actual_end = min(actual_end, total_pages)  # 确保结束页码不超过总页数
-            
-            # 验证页码范围的有效性
-            if not (1 <= actual_start <= actual_end <= total_pages):
-                self.logger.debug(f"错误：无效的页码范围。开始页: {actual_start}, 结束页: {actual_end}, 总页数: {total_pages}")
-                doc.close()
-                return
-            
-            # 如果用户指定的不是整个文档，则创建一个包含指定页面的临时 PDF
-            is_full_document = (actual_start == 1 and actual_end == total_pages)
-            if not is_full_document:
-                #self.logger.debug(f"正在从PDF中提取第 {actual_start} 页到 {actual_end} 页...")
-                temp_pdf = fitz.open()
-                # PyMuPDF 的页面索引是从 0 开始的
-                temp_pdf.insert_pdf(doc, from_page=actual_start - 1, to_page=actual_end - 1)
-                
-                temp_pdf_path = output_path / f"{pdf_file.stem}_pages_{actual_start}-{actual_end}_temp.pdf"
-                temp_pdf.save(str(temp_pdf_path))
-                temp_pdf.close()
-                pdf_to_process = str(temp_pdf_path)
-                #self.logger.debug(f"已创建临时PDF文件: {temp_pdf_path}")
-            
-            doc.close()
-
-            # --- 3. 加载并运行 Marker ---
-            # 检查可用的设备 (MPS, CUDA, or CPU)
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-            self.logger.debug(f"正在使用 {device.upper()} 设备加载 Marker 模型...")
-
-            model_lst, lang_processor_map, ocr_processor_map = marker_pdf.load_all_models()
-            
-            self.logger.debug(f"正在将 '{Path(pdf_to_process).name}' 转换为 Markdown...")
-            full_text, out_meta = marker_pdf.convert_single_pdf(pdf_to_process, model_lst, 
-                                                                lang_processor_map=lang_processor_map,
-                                                                ocr_processor_map=ocr_processor_map,
-                                                                device=device)
-            
-            
-            
-            return full_text
-                
-            
-
-        except Exception as e:
-            self.logger.exception(f"发生错误: {e}")
-            
-        finally:
-            # --- 5. 清理临时文件 ---
-            if temp_pdf_path and Path(temp_pdf_path).exists():
-                Path(temp_pdf_path).unlink()
-                self.logger.debug(f"已删除临时文件: {temp_pdf_path}")
-    
     async def ask_ai(self, prompt:str, sys_prompt:str = None) -> str:
         messages =[]
         if sys_prompt:

@@ -118,7 +118,7 @@ async def extract_search_results(adapter, tab):
     return results
 
 
-async def search_google(adapter, tab, query, max_pages=5):
+async def search_google(adapter, tab, query, max_pages=5, page=None):
     """
     Perform a Google search and extract results from multiple pages.
 
@@ -127,6 +127,7 @@ async def search_google(adapter, tab, query, max_pages=5):
         tab: Current browser tab handle
         query: Search query string
         max_pages: Maximum number of pages to extract (default: 5)
+        page: Specific page to extract (default: None). If specified, only returns results from that page.
 
     Returns:
         List of dictionaries containing title, url, and snippet for each search result
@@ -154,7 +155,38 @@ async def search_google(adapter, tab, query, max_pages=5):
     stabilization_success = await adapter.stabilize(tab)
     print(f"✓ Stabilization completed: {stabilization_success}")
 
-    # Extract search results from multiple pages
+    # If page is specified, only extract that specific page
+    if page is not None:
+        print(f"\n=== Extracting page {page} only ===")
+
+        # Navigate to the specified page
+        target_page = page
+        while target_page > 1:
+            try:
+                next_page_selector = f'css:a[aria-label="Page {target_page}"]'
+                print(f"Looking for Page {target_page}...")
+                next_page_link = tab.ele(next_page_selector, timeout=2)
+
+                if next_page_link:
+                    print(f"✓ Found Page {target_page}, clicking...")
+                    next_page_link.click()
+                    time.sleep(2)
+                    await adapter.stabilize(tab)
+                    target_page -= 1
+                else:
+                    print(f"✗ Page {page} not found")
+                    return []
+            except Exception as e:
+                print(f"✗ Error navigating to page {page}: {e}")
+                return []
+
+        # Extract results from the specified page
+        print(f"\n=== Processing page {page} ===")
+        page_results = await extract_search_results(adapter, tab)
+        print(f"\n=== Total results collected: {len(page_results)} ===")
+        return page_results
+
+    # Extract search results from multiple pages (original logic)
     all_results = []
     current_page = 1
 
