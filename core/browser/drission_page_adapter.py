@@ -9,7 +9,7 @@ from typing import List, Optional, Any, Union
 import time
 import os
 import hashlib
-import requests
+
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse, unquote
@@ -94,7 +94,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         Args:
             headless: 是否以无头模式启动浏览器
         """
-        os.environ["no_proxy"] = "localhost,127.0.0.1" 
+        os.environ["no_proxy"] = "localhost,127.0.0.1"
         co = ChromiumOptions().set_user_data_path(self.profile_path)
 
         # 配置下载路径
@@ -104,14 +104,15 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         if headless:
             co.headless()
 
-        # 创建浏览器实例
-        self.browser = ChromiumPage(addr_or_opts=co)
+        # 在线程池中创建浏览器实例
+        self.browser = await asyncio.to_thread(ChromiumPage, addr_or_opts=co)
 
     async def close(self):
         """关闭浏览器进程并清理资源"""
         if self.browser:
             try:
-                self.browser.quit()
+                # 在线程池中关闭浏览器
+                await asyncio.to_thread(self.browser.quit)
             except Exception:
                 # 忽略关闭时的异常
                 self.logger.exception("Error closing browser")
@@ -143,7 +144,8 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         if not self.browser:
             raise RuntimeError("Browser not started. Call start() first.")
 
-        return self.browser.latest_tab
+        # 在线程池中获取标签页
+        return await asyncio.to_thread(lambda: self.browser.latest_tab)
 
     def get_tab_url(self, tab):
         return tab.url
@@ -168,13 +170,13 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             # 记录导航前的URL
             old_url = tab.url if hasattr(tab, 'url') else ""
 
-            
 
-            # 导航到指定URL - DrissionPage 使用 get() 方法
-            tab.get(url)
 
-            # 等待页面加载完成 - 简单等待，实际实现可能需要更复杂的等待逻辑
-            time.sleep(2)  # 等待页面加载
+            # 在线程池中执行导航
+            await asyncio.to_thread(tab.get, url)
+
+            # 使用异步睡眠
+            await asyncio.sleep(2)  # 等待页面加载
 
             # 检查URL是否改变
             new_url = tab.url if hasattr(tab, 'url') else ""
@@ -240,7 +242,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         try:
             # DrissionPage 的 wait.load_start() 有时会卡住，不如直接 wait.doc_loaded()
             # 设置较短超时，因为我们后面有滚动循环
-            tab.wait.doc_loaded(timeout=35)
+            await asyncio.to_thread(tab.wait.doc_loaded, timeout=35)
         except Exception:
             pass # 超时也继续，有些页面 JS 加载永远不 finish
         try:
@@ -252,31 +254,31 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             # 我们不仅要到底，还要确保中间的内容都被触发加载 (Lazy Load)
             start_time = time.time()
             max_duration = 45 # 45秒足够了
-            
+
             # 记录上次高度和指纹，双重校验
-            last_height = tab.run_js("return document.body.scrollHeight;")
-            no_change_count = 0 
-            
+            last_height = await asyncio.to_thread(tab.run_js, "return document.body.scrollHeight;")
+            no_change_count = 0
+
             # 分段滚动策略：不像人类那样慢慢滑，直接分段跳跃
             # 每次向下滚动一屏的高度
-            viewport_height = tab.run_js("return window.innerHeight;")
+            viewport_height = await asyncio.to_thread(tab.run_js, "return window.innerHeight;")
             current_scroll_y = 0
 
             while time.time() - start_time < max_duration:
                 # 向下滚动一屏
                 current_scroll_y += viewport_height
-                tab.scroll(current_scroll_y) 
-                
+                await asyncio.to_thread(tab.scroll, current_scroll_y)
+
                 # 稍微等待内容渲染
                 await asyncio.sleep(0.8)
 
                 # 检查弹窗 (滚动可能触发新的弹窗)
                 await self._handle_popups(tab)
-                
+
                 # 检查是否到底
-                new_height = tab.run_js("return document.body.scrollHeight;")
-                current_pos = tab.run_js("return window.scrollY + window.innerHeight;")
-                
+                new_height = await asyncio.to_thread(tab.run_js, "return document.body.scrollHeight;")
+                current_pos = await asyncio.to_thread(tab.run_js, "return window.scrollY + window.innerHeight;")
+
                 # 如果当前位置已经接近页面总高度 (允许 50px 误差)
                 if current_pos >= new_height - 50:
                     # 再次确认高度是否真的不再增长了 (有些无限加载需要等一会)
@@ -287,11 +289,11 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                     else:
                         no_change_count = 0 # 高度变了，重置计数
                         last_height = new_height
-                
+
             # 4. 回到顶部
-            tab.scroll.to_top()
+            await asyncio.to_thread(tab.scroll.to_top)
             await asyncio.sleep(0.5)
-            
+
             self.logger.info("✅ Page stabilized.")
             return True
         except Exception as e:
@@ -329,23 +331,24 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         
         try:
             for selector in common_popup_close_selectors:
-                # 查找可见的元素
-                eles = tab.eles(selector,timeout=2)
+                # 在线程池中查找可见的元素
+                eles = await asyncio.to_thread(tab.eles, selector, timeout=2)
                 for ele in eles:
-                    # 关键：检查是否可见
-                    if ele.states.is_displayed:
-                        # 检查文本是否匹配“拒绝”或“关闭”或“同意”
-                        txt = ele.text.lower()
+                    # 在线程池中检查是否可见
+                    is_displayed = await asyncio.to_thread(lambda: ele.states.is_displayed)
+                    if is_displayed:
+                        # 在线程池中检查文本是否匹配"拒绝"或"关闭"或"同意"
+                        txt = await asyncio.to_thread(lambda: ele.text.lower())
                         # 如果是 Cookie 区域的按钮，通常点第一个可见的就行（大概率是 Accept）
                         if 'cookie' in selector or 'consent' in selector:
-                            ele.click(by_js=True) # 用 JS 点更稳，不会被遮挡
+                            await asyncio.to_thread(ele.click, by_js=True) # 用 JS 点更稳，不会被遮挡
                             self.logger.info(f"Clicked cookie consent: {txt}")
                             await asyncio.sleep(0.5)
                             return True
-                        
+
                         # 如果是关闭按钮
                         if any(k in txt for k in close_keywords) or not txt: # 有些关闭按钮没字，只有X
-                            ele.click(by_js=True)
+                            await asyncio.to_thread(ele.click, by_js=True)
                             self.logger.info(f"Clicked popup close: {selector}")
                             await asyncio.sleep(0.5)
                             return True
@@ -374,8 +377,8 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             return await self._get_static_asset_snapshot(tab, url, title, content_type)
 
         # 3. HTML 正文提取 (核心逻辑)
-        # 获取当前渲染后的 HTML (包含 JS 执行后的结果)
-        raw_html = tab.html
+        # 在线程池中获取当前渲染后的 HTML (包含 JS 执行后的结果)
+        raw_html = await asyncio.to_thread(lambda: tab.html)
 
         # A. 尝试使用 Trafilatura 提取高质量 Markdown
         # include_links=True: 保留正文里的链接，这对小脑判断"是否有价值的引用"很有用
@@ -391,7 +394,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         # B. 备选方案 (Fallback)
         if not extracted_text or len(extracted_text) < 50:
             self.logger.info(f"Trafilatura extraction failed or too short for {url}, falling back to simple cleaning.")
-            extracted_text = self._fallback_text_extraction(tab)
+            extracted_text = await self._fallback_text_extraction(tab)
 
         # 4. 最终组装
         # 可以在这里加一个 Token 截断，比如保留前 15000 字符，
@@ -434,10 +437,12 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
  
 
 
-            # 1. 获取 MIME Type
+            # 1. 在线程池中获取 MIME Type
             # 这里的 timeout 要极短，因为如果页面还在加载，我们不希望卡住，
             # 但通常 contentType 是 header 返回后就有的
-            content_type = tab.run_js("return document.contentType;", timeout=1)
+            content_type = await asyncio.to_thread(
+                lambda: tab.run_js("return document.contentType;", timeout=1)
+            )
             content_type = content_type.lower() if content_type else ""
 
             # 2. 判定逻辑
@@ -465,7 +470,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
     
 
-    def _fallback_text_extraction(self, tab: TabHandle) -> str:
+    async def _fallback_text_extraction(self, tab: TabHandle) -> str:
         """
         当智能提取失败时，使用 DrissionPage 暴力提取可见文本。
         并做简单的清洗。
@@ -473,11 +478,11 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         # 移除 script, style 等无关标签
         # DrissionPage 的 .text 属性其实已经处理了大部分，但我们可以更彻底一点
         try:
-            # 获取 body 元素
-            body = tab.ele('tag:body')
+            # 在线程池中获取 body 元素
+            body = await asyncio.to_thread(tab.ele, 'tag:body')
 
-            # 这里的 text 获取的是 "innerText"，即用户可见的文本
-            raw_text = body.text
+            # 在线程池中获取文本，这里的 text 获取的是 "innerText"，即用户可见的文本
+            raw_text = await asyncio.to_thread(lambda: body.text)
 
             # 简单的后处理：去除连续空行
             lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
@@ -485,12 +490,36 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         except Exception as e:
             return f"[Error extracting text: {e}]"
 
-    def _detect_asset_subtype(self, url: str) -> str:
+    async def _detect_asset_subtype(self, tab: TabHandle, url: str) -> str:
         """
-        通过 URL 判断静态资源的子类型。
+        判断静态资源的子类型。
+        优先使用 content_type 判断（参考 analyze_page_type），回退到 URL 后缀。
         """
         url_lower = url.lower()
 
+        # 0. 特殊情况：Chrome PDF viewer 扩展
+        # URL 格式：chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html?...
+        if 'chrome-extension://' in url_lower and 'pdf' in url_lower:
+            return 'pdf'
+
+        # 1. 优先从 content_type 判断（更可靠）
+        try:
+            content_type = await asyncio.to_thread(tab.run_js, "return document.contentType;", timeout=1)
+            content_type = content_type.lower() if content_type else ""
+
+            if "application/pdf" in content_type:
+                return 'pdf'
+            elif "application/json" in content_type or "text/json" in content_type:
+                return 'json'
+            elif "text/xml" in content_type or "application/xml" in content_type:
+                return 'xml'
+            elif "image/" in content_type:
+                return 'image'
+        except Exception:
+            # JS 执行失败，回退到 URL 判断
+            pass
+
+        # 2. 回退到 URL 后缀判断
         if url_lower.endswith('.pdf'):
             return 'pdf'
         elif url_lower.endswith('.json'):
@@ -500,15 +529,14 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         elif any(url_lower.endswith(ext) for ext in ['.txt', '.log', '.md']):
             return 'text'
         else:
-            # 尝试从 content-type 判断（如果有）
-            # 这里简化处理，默认为 text
+            # 默认为 text
             return 'text'
 
     async def _get_static_asset_snapshot(self, tab: TabHandle, url: str, title: str, content_type: PageType) -> PageSnapshot:
         """
         处理静态资源的 snapshot。
         """
-        subtype = self._detect_asset_subtype(url)
+        subtype = await self._detect_asset_subtype(tab, url)
 
         self.logger.info(f"Creating snapshot for static asset: {subtype} - {url}")
 
@@ -523,47 +551,129 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
     async def _snapshot_pdf_browser(self, tab: TabHandle, url: str, title: str, content_type: PageType) -> PageSnapshot:
         """
-        使用浏览器提取 PDF 文本。
-        Chrome 的 PDF viewer 会将 PDF 渲染为 DOM，可以直接提取文本。
+        使用专业的 PDF 解析工具提取 PDF 内容。
+
+        流程：
+        1. 下载 PDF 文件到本地
+        2. 使用 marker 库转换为 Markdown（动态长度策略）
+        3. 清理临时文件
+
+        动态长度策略：
+        - 先转换前 5 页
+        - 如果长度 ≤ 100,000 字符，继续转换剩余页面
+        - 当总长度超过 10,000 字符时停止
         """
+        pdf_path = None
         try:
-            # 通过 JavaScript 提取 PDF 文本
-            text = tab.run_js("return document.body.innerText || ''")
+            self.logger.info(f"Extracting PDF content from: {url}")
 
-            # 清理和格式化
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            cleaned_text = "\n".join(lines)
+            # 1. 下载 PDF 文件到本地
+            pdf_path = await self.save_static_asset(tab)
 
-            # 限制在 5K 字符
-            max_length = 5000
-            if len(cleaned_text) > max_length:
-                cleaned_text = cleaned_text[:max_length] + "\n\n... (truncated)"
+            if not pdf_path:
+                self.logger.error("Failed to save PDF file")
+                return PageSnapshot(
+                    url=url,
+                    title=title,
+                    content_type=content_type,
+                    main_text="[PDF Document] (Failed to download)",
+                    raw_html=""
+                )
 
-            return PageSnapshot(
-                url=url,
-                title=title,
-                content_type=content_type,
-                main_text=f"[PDF Document]\n\n{cleaned_text}",
-                raw_html=""
-            )
+            # 2. 导入 pdf_to_markdown
+            from skills.report_writer_utils import pdf_to_markdown
+            import pymupdf # PyMuPDF，用于获取 PDF 页数
+
+            # 3. 获取 PDF 总页数
+            try:
+                self.logger.debug(f"Opening {pdf_path}")
+                doc = pymupdf.open(pdf_path)
+                total_pages = len(doc)
+                doc.close()
+                self.logger.info(f"PDF total pages: {total_pages}")
+            except Exception as e:
+                self.logger.exception(f"Failed to get PDF page count: {e}")
+                # 可能是加密或损坏的 PDF，返回空
+                return PageSnapshot(
+                    url=url,
+                    title=title,
+                    content_type=content_type,
+                    main_text="[PDF Document] (Encrypted or corrupted)",
+                    raw_html=""
+                )
+
+            # 4. 动态长度转换策略
+            try:
+                # 先转换前 5 页
+                initial_end = min(5, total_pages)
+                markdown_text = pdf_to_markdown(pdf_path, start_page=1, end_page=initial_end)
+                self.logger.info(f"Initial conversion (pages 1-{initial_end}): {len(markdown_text)} chars")
+
+                # 如果长度 ≤ 100,000 字符，继续转换剩余页面
+                if len(markdown_text) <= 100000:
+                    current_page = initial_end + 1
+
+                    while current_page <= total_pages and len(markdown_text) <= 10000:
+                        # 逐页转换
+                        page_text = pdf_to_markdown(pdf_path, start_page=current_page, end_page=current_page)
+                        markdown_text += "\n\n" + page_text
+                        self.logger.debug(f"Added page {current_page}: total {len(markdown_text)} chars")
+                        current_page += 1
+
+                    # 如果在 10,000 字符限制内仍有未转换页面，一次性转换剩余所有
+                    if current_page <= total_pages and len(markdown_text) <= 10000:
+                        remaining_text = pdf_to_markdown(pdf_path, start_page=current_page, end_page=total_pages)
+                        markdown_text += "\n\n" + remaining_text
+                        self.logger.info(f"Converted remaining pages: final total {len(markdown_text)} chars")
+
+                self.logger.info(f"PDF converted to Markdown: {len(markdown_text)} chars")
+
+                return PageSnapshot(
+                    url=url,
+                    title=title,
+                    content_type=content_type,
+                    main_text=f"[PDF Document]\n\n{markdown_text}",
+                    raw_html=""
+                )
+
+            except Exception as e:
+                self.logger.exception(f"Failed to convert PDF to Markdown: {e}")
+                # 转换失败（可能是加密 PDF），返回空内容不报错
+                return PageSnapshot(
+                    url=url,
+                    title=title,
+                    content_type=content_type,
+                    main_text="[PDF Document] (Encrypted or conversion failed)",
+                    raw_html=""
+                )
 
         except Exception as e:
-            self.logger.exception(f"Failed to extract PDF text: {e}")
+            self.logger.exception(f"Failed to extract PDF content: {e}")
             return PageSnapshot(
                 url=url,
                 title=title,
                 content_type=content_type,
-                main_text="[PDF Document] (Text extraction failed)",
+                main_text="[PDF Document] (Extraction failed)",
                 raw_html=""
             )
+
+        finally:
+            # 4. 清理临时 PDF 文件
+            if pdf_path and os.path.exists(pdf_path):
+                try:
+                    os.unlink(pdf_path)
+                    self.logger.info(f"Cleaned up temporary PDF: {pdf_path}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to cleanup PDF file: {e}")
 
     async def _snapshot_json(self, tab: TabHandle, url: str, title: str, content_type: PageType) -> PageSnapshot:
         """
         提取并格式化 JSON。
         """
         try:
-            # 获取原始文本
-            text = tab.ele('tag:body').text.strip()
+            # 在线程池中获取原始文本
+            body = await asyncio.to_thread(tab.ele, 'tag:body')
+            text = await asyncio.to_thread(lambda: body.text.strip())
 
             # 尝试解析并格式化
             try:
@@ -612,8 +722,9 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         提取并格式化 XML。
         """
         try:
-            # 获取原始文本
-            text = tab.ele('tag:body').text.strip()
+            # 在线程池中获取原始文本
+            body = await asyncio.to_thread(tab.ele, 'tag:body')
+            text = await asyncio.to_thread(lambda: body.text.strip())
 
             # 限制在 5K
             max_length = 5000
@@ -643,8 +754,9 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         处理纯文本文件。
         """
         try:
-            # 获取文本
-            text = tab.ele('tag:body').text.strip()
+            # 在线程池中获取文本
+            body = await asyncio.to_thread(tab.ele, 'tag:body')
+            text = await asyncio.to_thread(lambda: body.text.strip())
 
             # 限制在 5K
             max_length = 5000
@@ -721,10 +833,14 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 # 文本类型：直接提取 body 文本
                 await self._save_text_asset(tab, file_path)
             else:
-                
-                tab.download(url, file_path)
+                # 在线程池中使用 tab.download 下载二进制类型
+                # 注意：第二个参数是目录路径，不是完整文件路径
+                res = await asyncio.to_thread(tab.download, url, save_dir)
+                status, file_path = res
                 #await self._save_binary_asset(url, file_path)
 
+            # 转换为绝对路径，确保后续调用能正确找到文件
+            file_path = os.path.abspath(file_path)
             self.logger.info(f"Static asset saved to: {file_path}")
             return file_path
 
@@ -772,14 +888,14 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         保存文本类型的资源。
         """
         try:
-            # 提取 body 文本
-            body = tab.ele('tag:body')
+            # 在线程池中提取 body 文本
+            body = await asyncio.to_thread(tab.ele, 'tag:body')
             if not body:
                 raise ValueError("No body element found")
 
-            text_content = body.text
+            text_content = await asyncio.to_thread(lambda: body.text)
 
-            # 写入文件
+            # 写入文件（保持同步，按照用户要求）
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(text_content)
 
@@ -789,31 +905,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             self.logger.exception(f"Failed to save text asset: {e}")
             raise
 
-    async def _save_binary_asset(self, url: str, file_path: str):
-        """
-        使用 requests 下载二进制资源。
-        """
-        try:
-            # 使用 requests 下载
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-
-            response = requests.get(url, headers=headers, timeout=30, stream=True)
-            response.raise_for_status()
-
-            # 写入文件
-            with open(file_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-
-            file_size = os.path.getsize(file_path)
-            self.logger.info(f"Binary asset saved: {file_path} ({file_size} bytes)")
-
-        except Exception as e:
-            self.logger.exception(f"Failed to save binary asset: {e}")
-            raise
+    
 
     # --- Scouting & Interaction (侦察与交互) ---
     async def scan_elements(self, tab: TabHandle) :
@@ -857,11 +949,11 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         
         raw_elements = []
         try:
-            # 2. 批量获取元素 (DrissionPage 的 eles 方法)
+            # 2. 在线程池中批量获取元素 (DrissionPage 的 eles 方法)
             # timeout 设短点，找不到就算了
             for css_selector in [selector1, selector2, selector3]:
                 self.logger.debug(f"Checking: {css_selector}")
-                elements = tab.eles(css_selector, timeout=2)
+                elements = await asyncio.to_thread(tab.eles, css_selector, timeout=2)
                 self.logger.debug(f"Found {len(elements)} elements")
                 raw_elements.extend(elements)
             #raw_elements = list(set(raw_elements))  # 去重
@@ -885,19 +977,22 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         for ele in raw_elements:
             if count > max_scan_count:
                 break
-                
+
             try:
-                # --- 快速过滤 (无网络交互) ---
-                tag = ele.tag
+                # --- 在线程池中快速过滤 (无网络交互) ---
+                tag = await asyncio.to_thread(lambda: ele.tag)
                 # 获取文本，如果没有可见文本，尝试获取 title 或 aria-label
                 # DrissionPage 的 .text 获取的是可见文本，这步其实隐含了可见性检查的一部分，但有些隐藏元素也有 text
-                text = ele.text.strip()
-                
+                text = await asyncio.to_thread(lambda: ele.text.strip())
+
                 # 补充文本源 (针对图标按钮)
                 if not text:
-                    text = ele.attr('aria-label') or ele.attr('title') or ele.attr('alt') or ""
+                    aria_label = await asyncio.to_thread(lambda: ele.attr('aria-label'))
+                    title_attr = await asyncio.to_thread(lambda: ele.attr('title'))
+                    alt_attr = await asyncio.to_thread(lambda: ele.attr('alt'))
+                    text = aria_label or title_attr or alt_attr or ""
                     text = text.strip()
-                
+
                 # 如果还是没字，跳过 (除非是 input image)
                 if not text and tag != 'input':
                     continue
@@ -921,28 +1016,30 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 if should_skip:
                     continue
 
-                # --- 慢速过滤 (网络交互) ---
+                # --- 在线程池中进行慢速过滤 (网络交互) ---
                 # 检查可见性 (is_displayed 内部会 check visibility, display, opacity)
                 # 还要检查尺寸，防止 1x1 的跟踪点
-                if not ele.states.is_displayed:
+                is_displayed = await asyncio.to_thread(lambda: ele.states.is_displayed)
+                if not is_displayed:
                     continue
-                
-                rect = ele.rect
+
+                rect = await asyncio.to_thread(lambda: ele.rect)
                 if rect.size[0] < 5 or rect.size[1] < 5: # 忽略极小元素
                     continue
 
                 # --- 分类处理 ---
-                
+
                 # A. 链接 (Links) -> 需去重
-                if tag == 'a' or ele.attr('role') == 'link':
-                    href = ele.attr('href')
-                    
+                role = await asyncio.to_thread(lambda: ele.attr('role'))
+                if tag == 'a' or role == 'link':
+                    href = await asyncio.to_thread(lambda: ele.attr('href'))
+
                     if not href or len(href) < 2 or href.startswith('#'):
                         continue
-                        
+
                     # 绝对路径化 (DrissionPage 拿到的 href 通常已经是绝对路径，或者是 property)
                     # 如果不是，可以在这里做 urljoin，但 DrissionPage 的 .link 属性通常是好的
-                    full_url = ele.link 
+                    full_url = await asyncio.to_thread(lambda: ele.link)
                     if not full_url: continue
 
                     # 去重逻辑：保留描述最长的
@@ -952,13 +1049,13 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                             seen_links[full_url] = text # 更新为更长文本的
                     else:
                         seen_links[full_url] = text
-                
+
                 # B. 按钮 (Buttons) -> 直接添加到 button_elements
                 else:
                     # 按钮不需要 URL 去重，因为不同的按钮可能有不同的副作用
                     # 构造返回对象
                     button_elements[text] = DrissionPageElement(ele)
-                    
+
                     count += 1
 
             except Exception:
@@ -1001,7 +1098,8 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         # 快速计算指纹 (IO开销微乎其微)
         # 加上 title，防止 body 为空的情况
         try:
-            raw_text = f"{tab.title}|{tab.ele('body', timeout=0.1).text}" 
+            body_text = await asyncio.to_thread(lambda: tab.ele('body', timeout=0.1).text)
+            raw_text = f"{tab.title}|{body_text}"
             old_fingerprint = hashlib.md5(raw_text.encode('utf-8')).hexdigest()
         except:
             old_fingerprint = ""
@@ -1010,7 +1108,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
         # 点击元素
         try:
-            target_element.click()
+            await asyncio.to_thread(target_element.click)
         except Exception as e:
             self.logger.exception(f"Click failed for element: {element}")
             #但不管有啥错，我们继续
@@ -1031,7 +1129,8 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             # 检查是否有新标签页出现
             if has_new_tab:
                 # 获取新出现的标签页
-                new_tabs = self.browser.get_tabs()[old_tab_count:]
+                all_tabs = await asyncio.to_thread(self.browser.get_tabs)
+                new_tabs = all_tabs[old_tab_count:]
 
             # B. 检查当前页面变化
             
@@ -1059,7 +1158,8 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             # 这时候，可能是dom ready，也可能是超时了，不要紧，直接比较text指纹
 
             try:
-                new_text = f"{tab.title}|{tab.ele('body', timeout=0.1).text}"
+                new_body_text = await asyncio.to_thread(lambda: tab.ele('body', timeout=0.1).text)
+                new_text = f"{tab.title}|{new_body_text}"
                 new_fingerprint = hashlib.md5(new_text.encode('utf-8')).hexdigest()
                 if old_fingerprint != new_fingerprint:
                     is_dom_changed = True
@@ -1102,12 +1202,12 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         """
         if not tab:
             tab = await self.get_tab()
-        ele = tab.ele(selector)
+        ele = await asyncio.to_thread(tab.ele, selector)
         if ele:
-            ele.click()
+            await asyncio.to_thread(ele.click)
             await asyncio.sleep(random.uniform(0.1,0.3) )
-            ele.input(vals=text,clear=clear_existing)
-            return True 
+            await asyncio.to_thread(ele.input, vals=text, clear=clear_existing)
+            return True
         return False
 
     async def press_key(self, tab: TabHandle, key: Union[KeyAction, str]) -> InteractionReport:
@@ -1143,21 +1243,21 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
         try:
             if direction == "bottom":
-                # 滚动到页面底部
-                tab.scroll.to_bottom()
+                # 在线程池中滚动到页面底部
+                await asyncio.to_thread(tab.scroll.to_bottom)
             elif direction == "top":
-                # 滚动到页面顶部
-                tab.scroll.to_top()
+                # 在线程池中滚动到页面顶部
+                await asyncio.to_thread(tab.scroll.to_top)
             elif direction == "down":
                 # 向下滚动指定像素
                 if distance <= 0:
                     distance = 500  # 默认向下滚动500像素
-                tab.scroll.down(distance)
+                await asyncio.to_thread(tab.scroll.down, distance)
             elif direction == "up":
                 # 向上滚动指定像素
                 if distance <= 0:
                     distance = 500  # 默认向上滚动500像素
-                tab.scroll.up(distance)
+                await asyncio.to_thread(tab.scroll.up, distance)
             else:
                 self.logger.warning(f"Unsupported scroll direction: {direction}")
                 return False
@@ -1188,8 +1288,8 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         if not tab:
             tab = await self.get_tab()
 
-        # 使用 DrissionPage 的 ele 方法查找元素
-        chromium_element = tab.ele(selector)
+        # 在线程池中使用 DrissionPage 的 ele 方法查找元素
+        chromium_element = await asyncio.to_thread(tab.ele, selector)
 
         # 如果找不到元素，DrissionPage 会抛出异常，这里我们让它自然抛出
         return DrissionPageElement(chromium_element)
