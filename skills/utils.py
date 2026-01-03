@@ -1,4 +1,5 @@
-def sanitize_filename(self, name: str, max_length: int = 200) -> str:
+import re
+def sanitize_filename(name: str, max_length: int = 200) -> str:
         """
         清洗字符串，使其可以作为合法的文件名/目录名，同时保留中文。
         

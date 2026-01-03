@@ -16,7 +16,7 @@ from core.browser.browser_adapter import (
     BrowserAdapter, TabHandle, PageElement, InteractionReport, PageSnapshot, PageType
 )
 # 引入公共数据结构
-from core.browser.browser_common import TabSession
+from core.browser.browser_common import TabSession, BaseCrawlerContext
 # 引入具体的 Adapter 实现
 from core.browser.drission_page_adapter import DrissionPageAdapter
 from core.action import register_action
@@ -34,40 +34,42 @@ class ContentVerdict(Enum):
     RELEVANT_INDEX = auto()     # 索引页/列表页 -> 不值得总结，但值得挖掘链接
     HIGH_VALUE = auto()         # 高价值内容 -> 总结并保存
 
-@dataclass
-class MissionContext:
+class MissionContext(BaseCrawlerContext):
     """
     全局任务上下文 (Global Memory)
     跨越所有递归层级共享的数据。
     """
-    purpose: str
-    save_dir: str
-    deadline: float
 
-    # 历史记录 (去重用)
-    visited_urls: Set[str] = field(default_factory=set)
-    interaction_history: Set[str] = field(default_factory=set) # "URL|ButtonText"
-
-    # 已评估过的链接和按钮（避免重复调用 LLM）
-    assessed_links: Set[str] = field(default_factory=set)
-    assessed_buttons: Set[str] = field(default_factory=set)  # "URL|ButtonText"
-
-    # 成果库
-    knowledge_base: List[Dict] = field(default_factory=list)
-
-    # 黑名单 (不可配置的硬规则)
-    blacklist: Set[str] = field(default_factory=lambda: {
-        "facebook.com", "twitter.com", "instagram.com", "taobao.com",
-        "jd.com", "amazon.com", "signin", "login", "signup"
-    })
-
-    # SQLite 数据库连接
-    _db_conn: Optional[sqlite3.Connection] = field(default=None, init=False, repr=False)
-
-    def __post_init__(self):
-        """初始化后自动调用，设置 SQLite 数据库"""
+    def __init__(self, purpose: str, save_dir: str, deadline: float):
+        super().__init__(deadline)
+        self.purpose = purpose
+        self.save_dir = save_dir
+        self.knowledge_base: List[Dict] = []
+        self._db_conn: Optional[sqlite3.Connection] = None
         self._init_database()
         self._load_assessed_history()
+
+    def mark_link_assessed(self, url: str):
+        """标记链接为已评估（内存 + 数据库）"""
+        super().mark_link_assessed(url)
+        if url not in self.assessed_links:
+            self._db_conn.execute(
+                "INSERT OR IGNORE INTO assessed_links (url) VALUES (?)",
+                (url,)
+            )
+            self._db_conn.commit()
+
+    def mark_buttons_assessed(self, url: str, button_texts: List[str]):
+        """批量标记按钮为已评估（内存 + 数据库）"""
+        super().mark_buttons_assessed(url, button_texts)
+        for button_text in button_texts:
+            key = f"{url}|{button_text}"
+            if key not in self.assessed_buttons:
+                self._db_conn.execute(
+                    "INSERT OR IGNORE INTO assessed_buttons (button_key) VALUES (?)",
+                    (key,)
+                )
+        self._db_conn.commit()
 
     def _init_database(self):
         """初始化 SQLite 数据库"""
@@ -101,56 +103,6 @@ class MissionContext:
         # 加载已评估的按钮
         cursor = self._db_conn.execute("SELECT button_key FROM assessed_buttons")
         self.assessed_buttons = {row[0] for row in cursor}
-
-    def is_time_up(self) -> bool:
-        return time.time() > self.deadline
-
-    def mark_visited(self, url: str):
-        self.visited_urls.add(url)
-
-    def has_visited(self, url: str) -> bool:
-        # 简单去除末尾斜杠和参数进行比较可能更稳健，这里先做精确匹配
-        return url in self.visited_urls
-
-    def mark_interacted(self, url: str, button_text: str):
-        key = f"{url}|{button_text}"
-        self.interaction_history.add(key)
-
-    def has_interacted(self, url: str, button_text: str) -> bool:
-        key = f"{url}|{button_text}"
-        return key in self.interaction_history
-
-    def mark_link_assessed(self, url: str):
-        """标记链接为已评估"""
-        if url not in self.assessed_links:
-            self.assessed_links.add(url)
-            self._db_conn.execute(
-                "INSERT OR IGNORE INTO assessed_links (url) VALUES (?)",
-                (url,)
-            )
-            self._db_conn.commit()
-
-    def has_link_assessed(self, url: str) -> bool:
-        """检查链接是否已评估过"""
-        return url in self.assessed_links
-
-    def mark_buttons_assessed(self, url: str, button_texts: List[str]):
-        """批量标记按钮为已评估"""
-        timestamp = time.time()
-        for button_text in button_texts:
-            key = f"{url}|{button_text}"
-            if key not in self.assessed_buttons:
-                self.assessed_buttons.add(key)
-                self._db_conn.execute(
-                    "INSERT OR IGNORE INTO assessed_buttons (button_key) VALUES (?)",
-                    (key,)
-                )
-        self._db_conn.commit()
-
-    def has_button_assessed(self, url: str, button_text: str) -> bool:
-        """检查按钮是否已评估过"""
-        key = f"{url}|{button_text}"
-        return key in self.assessed_buttons
 
     def cleanup(self):
         """清理资源，关闭数据库连接"""

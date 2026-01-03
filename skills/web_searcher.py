@@ -13,7 +13,7 @@ from core.browser.bing import search_bing
 from core.browser.browser_adapter import (
     BrowserAdapter, TabHandle, PageElement, PageSnapshot, PageType
 )
-from core.browser.browser_common import TabSession
+from core.browser.browser_common import TabSession, BaseCrawlerContext
 from core.browser.drission_page_adapter import DrissionPageAdapter
 from core.action import register_action
 
@@ -183,71 +183,19 @@ Try again."""
 # 1. 状态与上下文定义
 # ==========================================
 
-@dataclass
-class WebSearcherContext:
+class WebSearcherContext(BaseCrawlerContext):
     """
     Web 搜索任务上下文
     用于回答问题的搜索任务，带有"小本本"机制记录有用信息
     """
-    question: str
-    deadline: float
 
-    # 小本本 - 记录积累的有用信息
-    notebook: str = ""
-
-    # 分段配置
-    chunk_threshold: int = 5000          # 分段阈值（字符数）
-    temp_file_dir: Optional[str] = None # 临时文件保存目录（调试用）
-
-    # 历史记录（去重用）
-    visited_urls: Set[str] = field(default_factory=set)
-    interaction_history: Set[str] = field(default_factory=set)  # "URL|ButtonText"
-
-    # 已评估过的链接和按钮（避免重复调用 LLM）
-    assessed_links: Set[str] = field(default_factory=set)
-    assessed_buttons: Set[str] = field(default_factory=set)  # "URL|ButtonText"
-
-    # 黑名单
-    blacklist: Set[str] = field(default_factory=lambda: {
-        "facebook.com", "twitter.com", "instagram.com", "taobao.com",
-        "jd.com", "amazon.com", "signin", "login", "signup"
-    })
-
-    def is_time_up(self) -> bool:
-        return time.time() > self.deadline
-
-    def mark_visited(self, url: str):
-        self.visited_urls.add(url)
-
-    def has_visited(self, url: str) -> bool:
-        return url in self.visited_urls
-
-    def mark_interacted(self, url: str, button_text: str):
-        key = f"{url}|{button_text}"
-        self.interaction_history.add(key)
-
-    def has_interacted(self, url: str, button_text: str) -> bool:
-        key = f"{url}|{button_text}"
-        return key in self.interaction_history
-
-    def mark_link_assessed(self, url: str):
-        """标记链接为已评估"""
-        self.assessed_links.add(url)
-
-    def has_link_assessed(self, url: str) -> bool:
-        """检查链接是否已评估过"""
-        return url in self.assessed_links
-
-    def mark_buttons_assessed(self, url: str, button_texts: List[str]):
-        """批量标记按钮为已评估"""
-        for button_text in button_texts:
-            key = f"{url}|{button_text}"
-            self.assessed_buttons.add(key)
-
-    def has_button_assessed(self, url: str, button_text: str) -> bool:
-        """检查按钮是否已评估过"""
-        key = f"{url}|{button_text}"
-        return key in self.assessed_buttons
+    def __init__(self, purpose: str, deadline: float, chunk_threshold: int = 5000,
+                 temp_file_dir: Optional[str] = None):
+        super().__init__(deadline)
+        self.purpose = purpose  # 改名：question -> purpose
+        self.notebook = ""
+        self.chunk_threshold = chunk_threshold
+        self.temp_file_dir = temp_file_dir
 
     def add_to_notebook(self, info: str):
         """添加信息到小本本"""
@@ -269,16 +217,16 @@ class WebSearcherMixin:
     @register_action(
         "针对一个问题上网搜索答案，提供要解决的问题和（可选）搜索关键字词",
         param_infos={
-            "question": "要回答的问题",
+            "purpose": "要回答的问题（或研究目标）",
             "search_phrase": "可选，初始搜索关键词",
             "max_time": "可选，最大搜索分钟，默认20",
             "max_search_pages": "可选，最大搜索页数（默认5）",
-            
+
         }
     )
     async def web_search(
         self,
-        question: str,
+        purpose: str,
         search_phrase: str = None,
         max_time: int = 20,
         max_search_pages: int = 5,
@@ -288,7 +236,7 @@ class WebSearcherMixin:
         [Entry Point] 上网搜索回答问题（流式处理版本）
 
         Args:
-            question: 要回答的问题
+            purpose: 要回答的问题（或研究目标）
             search_phrase: 初始搜索关键词
             max_time: 最大搜索时间（分钟）
             max_search_pages: 最大搜索页数（默认5）
@@ -302,7 +250,7 @@ class WebSearcherMixin:
 
         if not search_phrase:
             resp = await self.brain.think(f"""
-            现在我们要研究个新问题：{question}，打算上网搜索一下，需要你设计一下最合适的关键词或者关键字组合。输出的时候可以先简单解释一下这么设计的理由，但是最后一行必须是也只能是要搜索的内容（也就是输入到搜索引擎搜索栏的内容）。例如你认为应该搜索“Keyword"，那么最后一行就只能是"Keyword"
+            现在我们要研究个新问题：{purpose}，打算上网搜索一下，需要你设计一下最合适的关键词或者关键字组合。输出的时候可以先简单解释一下这么设计的理由，但是最后一行必须是也只能是要搜索的内容（也就是输入到搜索引擎搜索栏的内容）。例如你认为应该搜索"Keyword"，那么最后一行就只能是"Keyword"
             """)
             reply = resp['reply']
             #get last line of reply
@@ -310,8 +258,8 @@ class WebSearcherMixin:
                 search_phrase = reply.split('\n')[-1].strip()
         #如果还是有问题,我们直接搜索问题：
         if not search_phrase:
-            search_phrase = question
-        self.logger.info(f"🔍 准备搜索: {search_phrase}")            
+            search_phrase = purpose
+        self.logger.info(f"🔍 准备搜索: {search_phrase}")
 
         self.browser = DrissionPageAdapter(
             profile_path=profile_path,
@@ -319,13 +267,13 @@ class WebSearcherMixin:
         )
 
         ctx = WebSearcherContext(
-            question=question,
+            purpose=purpose,
             deadline=time.time() + int(max_time) * 60,
             chunk_threshold=chunk_threshold,
             temp_file_dir=temp_file_dir
         )
 
-        self.logger.info(f"🔍 Web Search Start: {question}")
+        self.logger.info(f"🔍 Web Search Start: {purpose}")
         self.logger.info(f"🔍 Initial search phrase: {search_phrase}")
         self.logger.info(f"🔍 Max search pages: {max_search_pages}")
 
@@ -519,7 +467,7 @@ class WebSearcherMixin:
 
         # 使用 prompt 模板
         initial_prompt = WebSearcherPrompts.CHAPTER_SELECTION.format(
-            question=ctx.question,
+            question=ctx.purpose,
             toc_list=toc_list
         )
 
@@ -754,7 +702,7 @@ class WebSearcherMixin:
             {
                 "role": "user",
                 "content": WebSearcherPrompts.BATCH_PROCESSING.format(
-                    question=ctx.question,
+                    question=ctx.purpose,
                     doc_title=doc_title,
                     current_batch=current_batch,
                     total_batches=total_batches,
@@ -1199,7 +1147,7 @@ class WebSearcherMixin:
 
             prompt = f"""
             [Question]
-            {ctx.question}
+            {ctx.purpose}
 
             [Current Page Context]
             {page_summary}
@@ -1295,7 +1243,7 @@ class WebSearcherMixin:
         options_str += "0. [None of these are useful]"
 
         prompt = f"""
-You are evaluating buttons to answer: "{ctx.question}"
+You are evaluating buttons to answer: "{ctx.purpose}"
 
 [Page Context]
 {page_summary}
