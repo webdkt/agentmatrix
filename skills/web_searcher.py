@@ -13,6 +13,7 @@ from core.browser.bing import search_bing
 from core.browser.browser_adapter import (
     BrowserAdapter, TabHandle, PageElement, PageSnapshot, PageType
 )
+from core.browser.browser_common import TabSession
 from core.browser.drission_page_adapter import DrissionPageAdapter
 from core.action import register_action
 
@@ -253,15 +254,6 @@ class WebSearcherContext:
         if info:
             timestamp = time.strftime("%H:%M:%S")
             self.notebook += f"\n\n[{timestamp}] {info}\n"
-
-
-@dataclass
-class TabSession:
-    """物理标签页上下文"""
-    handle: TabHandle
-    current_url: str = ""
-    depth: int = 0
-    pending_link_queue: Deque[str] = field(default_factory=deque)
 
 
 # ==========================================
@@ -1045,7 +1037,7 @@ class WebSearcherMixin:
 
                 # 获取完整 Markdown 并流式处理
                 markdown = await self._get_full_page_markdown(session.handle, ctx)
-                answer = await self._stream_process_markdown(markdown, ctx)
+                answer = await self._stream_process_markdown(markdown, ctx,final_url)
 
                 if answer:
                     return answer  # 找到答案，直接返回
@@ -1065,7 +1057,7 @@ class WebSearcherMixin:
 
                         # 2. 获取完整 Markdown 并流式处理
                         markdown = await self._get_full_page_markdown(session.handle, ctx)
-                        answer = await self._stream_process_markdown(markdown, ctx)
+                        answer = await self._stream_process_markdown(markdown, ctx,final_url)
 
                         # 3. 如果找到答案，直接返回
                         if answer:

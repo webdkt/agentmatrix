@@ -15,12 +15,14 @@ from skills.utils import sanitize_filename
 from core.browser.browser_adapter import (
     BrowserAdapter, TabHandle, PageElement, InteractionReport, PageSnapshot, PageType
 )
+# 引入公共数据结构
+from core.browser.browser_common import TabSession
 # 引入具体的 Adapter 实现
 from core.browser.drission_page_adapter import DrissionPageAdapter
 from core.action import register_action
 from slugify import slugify
 
-search_func = search_google
+search_func = search_bing
 
 # ==========================================
 # 1. 状态与上下文定义 (State & Context)
@@ -155,19 +157,6 @@ class MissionContext:
         if self._db_conn:
             self._db_conn.close()
             self._db_conn = None
-
-
-@dataclass
-class TabSession:
-    """
-    物理标签页上下文 (Physical Tab Context)
-    """
-    handle: TabHandle
-    current_url: str = ""
-    depth: int = 0
-    # 待访问链接队列 (FIFO)
-    # 存储的是纯 URL，当当前页面交互做完了，就从这里 pop
-    pending_link_queue: Deque[str] = field(default_factory=deque) 
 
 
 # ==========================================
