@@ -11,7 +11,8 @@ class Cerebellum(AutoLoggerMixin):
         self.agent_name = agent_name
         self.log_name = f"{agent_name}(Cerebellum)"
         
-        
+    async def think(self, messages):
+        return await self.backend.think(messages)
 
     async def negotiate(self, initial_intent: str, tools_manifest: str, contacts,  brain_callback) -> dict:
         """

@@ -275,7 +275,7 @@ class WebSearcherMixin:
     """
 
     @register_action(
-        "上网搜索回答问题，提供要回答的问题和初始搜索关键词",
+        "针对一个问题上网搜索答案，提供要解决的问题和（可选）搜索关键字词",
         param_infos={
             "question": "要回答的问题",
             "search_phrase": "可选，初始搜索关键词",

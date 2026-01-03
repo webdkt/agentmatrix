@@ -9,6 +9,7 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from core.browser.google import search_google
 from core.browser.bing import search_bing
+from skills.utils import sanitize_filename
 
 # 引入之前的 Adapter 定义 (假设在 drission_page_adapter 或 browser_adapter 中)
 from core.browser.browser_adapter import (
@@ -192,43 +193,12 @@ class DigitalInternCrawlerMixin:
     #        download_path=download_path
     #    )
 
-    def sanitize_filename(self, name: str, max_length: int = 200) -> str:
-        """
-        清洗字符串，使其可以作为合法的文件名/目录名，同时保留中文。
-        
-        规则:
-        1. 去除 Windows/Linux 非法字符
-        2. 去除不可见字符 (换行、Tab等)
-        3. 去除首尾的空格和点 (Windows 不喜欢文件名以点或空格结尾)
-        4. 截断长度，防止路径过长
-        """
-        if not name:
-            return "untitled"
-
-        # 1. 替换文件系统非法字符为下划线
-        # Windows非法字符: < > : " / \ | ? *
-        name = re.sub(r'[<>:"/\\|?*]', '_', name)
-
-        # 2. 替换不可见控制字符 (如换行符 \n, \r, \t) 为空格
-        name = "".join(ch if ch.isprintable() else " " for ch in name)
-
-        # 3. 将连续的空格或下划线合并为一个 (美观优化)
-        name = re.sub(r'[\s_]+', '_', name)
-
-        # 4. 去除首尾的空格和点 (Windows文件名不能以点结尾)
-        name = name.strip(' .')
-
-        # 5. 如果清洗后为空 (比如原文件名全是非法字符)，给个默认值
-        if not name:
-            name = "untitled_file"
-
-        # 6. 截断长度 (通常文件系统限制 255 字节，考虑到路径长度，限制在 200 字符比较安全)
-        return name[:max_length]
+    
 
 
 
     @register_action(
-        "上网搜索并下载资料",
+        "为研究做准备，上网搜索并下载相关资料，要提供研究的目标和搜索关键词",
         param_infos={
             "purpose": "研究的具体目标",
             "search_phrase": "在搜索引擎输入的初始关键词",
@@ -241,7 +211,7 @@ class DigitalInternCrawlerMixin:
         [Entry Point] 外部调用的入口
         """
         # 1. 准备环境
-        save_dir = os.path.join(self.workspace_root, "downloads", self.sanitize_filename(topic))
+        save_dir = os.path.join(self.workspace_root, "downloads", sanitize_filename(topic))
 
         os.makedirs(save_dir, exist_ok=True)
 
@@ -641,7 +611,7 @@ class DigitalInternCrawlerMixin:
         
         # === 1. 文件名生成策略 ===
         # 使用 slugify 保证文件名安全，截断防止过长
-        safe_title = self.sanitize_filename(snapshot.title,60)
+        safe_title = sanitize_filename(snapshot.title,60)
         # 加个时间戳防止重名覆盖 (比如两个页面标题一样)
         timestamp_suffix = str(int(time.time()))[-4:] 
         filename = f"{safe_title}_{timestamp_suffix}.md"
