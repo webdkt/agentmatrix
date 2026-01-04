@@ -135,6 +135,51 @@ class DigitalInternCrawlerMixin(CrawlerHelperMixin):
     #        profile_path=profile_path,
     #        download_path=download_path
     #    )
+    @register_action(
+        "下载一个指定的文件，提供文件的 URL以及可选的保存目录",
+        param_infos={
+            "url": "文件的下载链接",
+            "filename": "保存文件的名称",
+            "folder": "（可选）保存目录的名称",
+        }
+    )
+    async def download_file(self, url: str, folder: str=None):
+        if folder is None:
+            folder = os.path.join(self.current_shared_workspace,"downloads")
+        #TODO: folder 要转换为 current_shared_workspace 下的路径, 如果绝对路径超过这个范围，要报错退出
+        profile_path = os.path.join(self.workspace_root ,".matrix", "browser_profile", self.name)
+        
+        self.browser_adapter = DrissionPageAdapter(
+            profile_path=profile_path,
+            download_path=folder
+        )
+        
+        ctx = MissionContext(
+            purpose='download file',
+            save_dir=folder,
+            deadline=time.time() +  60
+        )
+        
+        self.logger.info(f"🚀 Mission Start: Download file {url}")
+        
+        # 2. 启动浏览器
+        await self.browser_adapter.start(headless=False) # 调试模式先开有头
+        
+        try:
+            # 访问url
+            tab = await self.browser_adapter.get_tab()
+            res = await asyncio.to_thread(tab.download, url, folder)
+            status, file_path = res
+            if status == 'success':
+                self.logger.info(f"File downloaded successfully: {file_path}")
+                #todo: 把file_path 转换为完整路径
+                return file_path
+            else:
+                self.logger.error(f"Failed to download file: {file_path}")
+                return 'Failed to Download'
+        except Exception as e:
+            self.logger.exception(e)
+            return f'Failed to Download {e}'
 
     
 
