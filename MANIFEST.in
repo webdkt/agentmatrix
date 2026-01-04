@@ -1,0 +1,68 @@
+# Include essential files
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+
+# Include example scripts
+include src/agentmatrix/cli_runner.py
+
+# Include Python source files from src
+recursive-include src/agentmatrix/agents *.py
+recursive-include src/agentmatrix/core *.py
+recursive-include src/agentmatrix/skills *.py
+recursive-include src/agentmatrix/backends *.py
+recursive-include src/agentmatrix/db *.py
+
+# Include configuration and documentation files
+recursive-include src/agentmatrix/profiles *.yaml *.yml
+exclude src/agentmatrix/profiles/.env
+recursive-include src/agentmatrix/docs *.md *.txt
+
+# Exclude test files and directories
+exclude test/*
+exclude Tests/*
+recursive-exclude test *
+recursive-exclude Tests *
+
+# Exclude sample and workspace directories
+exclude Samples/*
+exclude TestWorkspace/*
+
+# Exclude database files
+exclude *.db
+exclude agents.db
+
+# Exclude environment and configuration files
+exclude .env
+exclude .env.local
+exclude .env.*.local
+
+# Exclude log and download directories
+exclude logs/*
+exclude downloads/*
+
+# Exclude Python cache
+exclude __pycache__
+recursive-exclude __pycache__ *
+exclude *.pyc
+exclude *.pyo
+exclude *.pyd
+
+# Exclude development tools and IDE files
+exclude .vscode/*
+exclude .idea/*
+exclude *.swp
+exclude *.swo
+
+# Exclude version control
+exclude .git/*
+exclude .gitignore
+
+# Exclude project entry scripts (keep cli_runner.py as example)
+exclude main.py
+exclude server.py
+
+# Exclude OS files
+exclude .DS_Store
+exclude Thumbs.db
