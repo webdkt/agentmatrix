@@ -1,69 +1,217 @@
-# AgentMatrix
+# Agent-Matrix
 
-一个以“认知”为中心的自主 Agent 框架。
+A cognition-centric autonomous agent framework with pluggable skills and multi-backend LLM integrations.
 
-### 它是什么？
+## Overview
 
-AgentMatrix 是一个多智能体（Multi-Agent）框架，在这里，Agent 扮演的是独立的“数字员工”。它们通过异步消息（类似邮件）进行协作，而非僵化的 API 调用。
+Agent-Matrix is a multi-agent framework where agents act as independent "digital employees" that collaborate through asynchronous messaging (similar to email) rather than rigid API calls.
 
-这个框架专为构建鲁棒、智能的系统而设计，使其能够像人一样推理、协商并处理模糊性。
+Designed for building robust, intelligent systems that can reason, negotiate, and handle ambiguity like humans do.
 
-### 为什么设计 AgentMatrix？—— 核心理念
+## Core Philosophy
 
-核心理念其实是常识。
+The core philosophy is simple: Many agent frameworks force powerful LLMs to "think" in rigid formats like JSON, which is error-prone and limits their reasoning capabilities.
 
-许多 Agent 框架强迫强大的语言模型（LLM）用 JSON 这样的僵硬格式去“思考”，这不仅容易出错，也限制了它们的推理能力。LLM每一次推理的注意力是有限的，用于“留意JSON格式“的注意力应该越少越好，而且这部分其实很难做好，或者说要做好必然花费许多”心智“和Token（这些心智和Token本来应该用于做好它真正要做的工作）。我有一个假设，即LLM越智能，它应该会越接近人脑的认知方式，而让人在脑子里去数清楚很多的JSON括号并且完美填好，是非常困难的，而且如果花了很多注意力去做好这个“杂技”动作，对真正的任务很可能是负面的作用（想象一下你同时做瞄准射击和深度阅读思考）—— 这个理念来自我的直觉，并无确定证据，但我相信是这样。也许未来的LLM可以全能，但我保持怀疑。
+**Agent-Matrix's approach**: Let LLMs communicate, think, and output in natural language. The brain should focus on reasoning, not JSON conversion.
 
-AgentMatrix的核心理念就是：让LLM用自然语言沟通、思考和输出，大脑尽量不去做JSON转换这样的工作。
+Agent-Matrix solves this with a **Brain + Cerebellum + Body** architecture:
 
-AgentMatrix 用 **大脑** + **小脑** + **Body** 的架构解决了这个问题：
+- 🧠 **Brain (The LLM):** Strategic thinker. Uses natural language for high-level reasoning and intent formation. Like a pilot in a cockpit deciding "where to go" without worrying about switch details.
+- 🧠 **Cerebellum (The SLM):** Precise interface manager. Translates natural language intent into machine-executable commands (JSON). Understands intent and fills in JSON.
+- 💪 **Body**: The Python program that executes functions based on JSON and provides feedback.
 
-*   🧠 **大脑 (The Brain / LLM):** 战略思想家。它是 Agent 的“意识”，负责用自然语言进行高层推理、形成意图。把它想象成一个坐在驾驶舱里的飞行员，他只需要决定“去哪里”，而不用关心具体如何拨动开关。它输出自然语言的**意图**
+When the brain's intent is unclear (e.g., "send email" without specifying recipient), the cerebellum doesn't error or blindly execute. Instead, it **initiates "negotiation"** by sending an internal query back to the brain for clarification. This internal dialogue makes agents exceptionally robust and intelligent.
 
-*    **小脑 (The Cerebellum / SLM):** 严谨的接口管理器。它接收大脑的自然语言意图，并将其精确地翻译成机器可执行的命令（JSON）。它理解意图，填入JSON.
+## Core Concepts
 
-*    **Body** 就是`python`程序体，它负责根据JSON，调用函数，并提供反馈
+- **Agent**: A digital employee with a specific persona and capability list
+- **PostOffice**: Central communication hub for all inter-agent messages
+- **Runtime (the Matrix)**: Execution environment including memory structures and directory layout
+- **Signal**: Information unit in the system - new emails, tool results, or cerebellum queries
+- **Email**: How agents communicate. Email reply chains automatically maintain conversation context
 
-如果大脑的意图不明确（例如，“发邮件”但没说发给谁），小脑不会报错或盲目执行，而是会**发起“谈判”**。它会向大脑发回一个内部提问，寻求澄清。这种内部对话机制，使得 Agent 变得异常鲁棒和智能。而且推荐SLM使用本地部署的小模型，性能足够，而且免费。这其实是一种智能分层的设计。需要高阶智能的任务使用更强的大模型，简单智能任务使用便宜甚至免费的本地模型，可以大大的降低总成本。
+## How It Works: Turn-Based Loop
 
-### 一些核心概念
+An agent's lifecycle is like a turn-based game:
 
-*   **Agent (智能体):** 一个拥有特定角色（Persona）和能力清单的数字员工。
-*   **PostOffice (邮局):** 整个系统的通信中枢，所有 Agent 间的“邮件”都由它派发。
-*   **Runtime (the Matrix):** 一个运行时，可以想像成一个黑客帝国的Matrix，Agent是注入其中的灵魂。它包括内存结构和目录结构
-*   **Signal (信号):** 系统中的信息单元。无论是新邮件、工具执行结果，还是小脑的提问，都会被包装成一个 `Signal`。
-*   **Email**: 邮件。Agent之间通过邮件互相沟通。名字就是他们的邮箱。通过邮件回复关系，系统会自动的维护会话上下文（包括工作目录）
+1. **Awake**: A `Signal` arrives, waking the agent from sleep
+2. **Reasoning**: Brain analyzes signal and history, reasoning in the `THOUGHT` section (internal monologue)
+3. **Decision**: Brain makes a decision and outputs a clear `ACTION SIGNAL`, e.g., "Send Coder an email with code review request"
+4. **Negotiation**: Cerebellum intercepts the instruction
+   - **If clear**: Translate to JSON and let it through
+   - **If unclear**: Pause execution, generate an `[INTERNAL QUERY]` signal back to brain, starting a "sub-turn" for clarification
+5. **Execution**: Agent's "body" executes the cerebellum-validated instruction
+6. **Feedback & Rest**: Action results immediately return as `[BODY FEEDBACK]` signal, triggering next turn. This continues until brain explicitly decides `rest_n_wait` action
 
+See `docs/Design.md` for detailed architecture.
 
-### 运行机制：回合制循环
+## Key Features & Advantages
 
-Agent 的生命周期就像一个回合制游戏：
+- ✅ **Exceptional Robustness**: "Negotiation mechanism" fundamentally eliminates execution failures from format errors or unclear intent
+- 🧠 **Stronger Intelligence**: Decouples "thinking" from "actioning", letting the brain (LLM) do complex reasoning unencumbered by formats
+- 🌐 **True Asynchronous Collaboration**: Message passing through "post office" naturally supports complex, parallel social agent workflows
+- 🧘 **Explicit Will-Driven**: Agents have "free will". Must actively decide when to rest (`rest_n_wait`), making multi-step tasks simple and natural
 
-1.  **唤醒 (Awake):** 一个 `Signal` 到达，Agent 从休眠中被唤醒。
-2.  **推理 (Reasoning):** 大脑分析信号和历史记录，在 `THOUGHT` 部分进行推理。这是它的“内心独白”。
-3.  **决策 (Decision):** 大脑做出决定，并输出一个明确的 `ACTION SIGNAL`，例如：“给 Coder 发邮件，主题是代码审查请求”。
-4.  **谈判 (Negotiation):** 小脑拦截这个指令。
-    *   **如果清晰无误:** 翻译成 JSON 并放行。
-    *   **如果信息不足:** 暂停执行，生成一个 `[INTERNAL QUERY]` 信号发回给大脑，开启一个用于澄清的“子回合”。
-5.  **执行 (Execution):** Agent 的“身体”执行被小脑验证过的指令。
-6.  **反馈与休眠 (Feedback & Rest):** 动作结果会立刻作为 `[BODY FEEDBACK]` 信号发回，触发下一个回合。这个循环会一直持续，直到大脑明确决定执行 `rest_n_wait` 动作，主动进入休眠。
+**The biggest advantage**: Makes workflow design remarkably simple
 
-具体的架构设计，参考 docs/Design.md
+## Trade-offs
 
-### 主要特点与优势
+Everything has trade-offs. This architecture has two potential drawbacks:
 
-*   ✅ **极高的鲁棒性:** “谈判机制”从根本上避免了因指令格式错误或意图模糊导致的执行失败。
-*   🧠 **更强的智能:** 将“思考”与“动作”解耦，让大脑（LLM）可以不受格式束缚地进行复杂的推理。
-*   🌐 **真正的异步协作:** 基于“邮局”的消息传递，天然支持复杂的、并行的社会化 Agent 工作流。
-*   🧘 **显式的意志驱动:** Agent 拥有“自由意志”。它必须主动决定何时休息 (`rest_n_wait`)，这使得执行连续的多步任务变得简单自然。
+1. When brain and cerebellum negotiate clarification, multiple rounds of dialogue may consume more tokens
+2. Fully asynchronous mechanism with email communication means each agent processes emails serially. While beneficial, tasks may sit in queue longer before processing
 
-*   其实最大的优点，在于让许多工作流设计变得非常简单
+However, these aren't major issues. What matters most for agents is intelligence and robustness - autonomously completing work correctly. Taking one hour vs two hours doesn't matter much. And token costs will only decrease long-term. Spending tokens to do things right is worth it.
 
-### Trade Off
+## Installation
 
-任何事情，有得必有失。这个架构设计有两个显著的潜在缺点
+```bash
+pip install agent-matrix
+```
 
-1. 在大小脑需要沟通澄清的时候，可能有多轮对话，可能会带来较多的Token消耗
-2. 整个机制是异步的，Agent通过`Email`来沟通，而每个Agent虽然可以自动的处理多个会话的切换，但只能串行的处理一封封Email。这有它的许多好处，但也可能导致速度较慢。一个任务可能在队列（邮件队列）里躺很久，才被Agent读到然后去处理。
+## Quick Start
 
-但我认为，这不是太大的问题。Agent最重要的是智能和鲁棒性，能够自主的把工作做完，花费一个小时还是二个小时，关系并不大。而Token的消耗，一来长期趋势只会更便宜，二来把事情做对做好才是最重要的。把事情做好，花Token是值得的。
+### Basic Usage
+
+```python
+from agent_matrix import AgentMatrix
+
+# Initialize the framework
+matrix = AgentMatrix(
+    agent_profile_path="profiles",
+    matrix_path="./my_workspace"
+)
+
+# Start the runtime (this will load all agents from profiles)
+await matrix.run()
+```
+
+### Using the CLI Runner (Recommended for First-Time Users)
+
+The package includes `cli_runner.py` as a practical example for interacting with agents:
+
+```python
+# Run the CLI runner
+python cli_runner.py
+```
+
+The CLI runner provides:
+- 📥 Interactive command-line interface
+- 💬 Real-time agent communication
+- 🔄 Multi-session support
+- 📝 Message reply tracking
+
+**Usage Example:**
+```bash
+# Start the CLI
+$ python cli_runner.py
+>>> 系统启动。可以在下面输入指令。
+>>> 例如: Planner: 帮我分析数据
+
+# Send a message to an agent
+>> Planner: 请帮我爬取网页数据
+
+# Start a new session
+>> new session
+✅ 新会话开始 ID: a1b2c3d4-...
+
+# Reply to a specific message
+>> reply: msg-123: 谢谢你的分析
+
+# Exit and save
+>> exit
+```
+
+The CLI runner demonstrates:
+- How to initialize the AgentMatrix framework
+- How to set up event callbacks
+- How to communicate with agents through the User proxy
+- How to handle multi-session conversations
+
+For full source code, see `cli_runner.py` in the package installation directory.
+
+## Project Structure
+
+```
+agent-matrix/
+├── agents/          # Agent implementations
+│   ├── base.py      # Base agent class
+│   └── post_office.py  # Message routing system
+├── core/            # Core framework
+│   ├── runtime.py   # Main runtime
+│   ├── message.py   # Email/Signal definitions
+│   └── browser/     # Browser automation
+├── skills/          # Built-in skills
+│   ├── data_crawler.py    # Web scraping
+│   ├── web_searcher.py    # Web search
+│   └── filesystem.py      # File operations
+├── backends/        # LLM integrations
+├── db/              # Database layer
+├── profiles/        # Agent configurations (YAML)
+└── docs/            # Documentation
+```
+
+## Usage Examples
+
+### Agent Communication
+
+```python
+from agent_matrix import Email
+
+email = Email(
+    sender="researcher",
+    recipient="analyst",
+    subject="Data Analysis Request",
+    body="Please analyze the crawled data...",
+    user_session_id="session_123"
+)
+
+# Send through post office
+await matrix.post_office.dispatch(email)
+```
+
+### Built-in Skills
+
+Agents automatically load skills based on their profiles:
+
+```yaml
+# profiles/analyst.yaml
+name: "analyst"
+description: "Data analysis specialist"
+skills:
+  - filesystem
+  - web_searcher
+```
+
+## Requirements
+
+- Python 3.8 or higher
+- See `requirements.txt` for full dependency list
+
+## License
+
+Apache License 2.0 - see [LICENSE](LICENSE) file for details
+
+## Contributing
+
+Contributions welcome! Please feel free to submit a Pull Request.
+
+## Roadmap
+
+- [ ] Enhanced multi-agent collaboration patterns
+- [ ] More built-in skills
+- [ ] Improved documentation and tutorials
+- [ ] Performance optimizations
+- [ ] Additional backend integrations
+
+## Acknowledgments
+
+- Built with [FastAPI](https://fastapi.tiangolo.com/)
+- Browser automation powered by [DrissionPage](https://drissionpage.cn/)
+- Vector search with [ChromaDB](https://www.trychroma.com/)
+
+---
+
+**Note**: Agent-Matrix is currently in alpha release (v0.1.0). APIs and features may evolve as we develop the framework.
+
+For Chinese documentation, see [readme_zh.md](readme_zh.md)
