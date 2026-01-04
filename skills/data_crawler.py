@@ -17,6 +17,8 @@ from core.browser.browser_adapter import (
 )
 # 引入公共数据结构
 from core.browser.browser_common import TabSession, BaseCrawlerContext
+# 引入爬虫辅助方法
+from skills.crawler_helpers import CrawlerHelperMixin
 # 引入具体的 Adapter 实现
 from core.browser.drission_page_adapter import DrissionPageAdapter
 from core.action import register_action
@@ -115,7 +117,7 @@ class MissionContext(BaseCrawlerContext):
 # 2. 逻辑核心 (Logic Mixin)
 # ==========================================
 
-class DigitalInternCrawlerMixin:
+class DigitalInternCrawlerMixin(CrawlerHelperMixin):
     """
     数字实习生逻辑核心。
     实现了 "Observation -> Thought -> Action" 的递归循环。
@@ -660,117 +662,6 @@ class DigitalInternCrawlerMixin:
             return "[Error: AI Summary Generation Failed]"
 
     import re
-
-    async def _filter_relevant_links(self, candidates, one_line_summary, ctx: MissionContext) -> List[str]:
-        """
-        [Brain] 批量筛选链接。
-        输入：一批候选元素
-        输出：值得访问的 URL 列表
-        策略：Hard Filter (规则) -> Batch LLM Filter (小脑)
-        """
-        # 1. 规则预清洗 (Hard Filter)
-        # 过滤掉明显无关的导航词，节省 Token
-        # 也可以过滤掉已经访问过的 (visited)
-        clean_candidates = {}
-        ignored_keywords = [
-            "login", "signin", "sign up", "register", "password", 
-            "privacy policy", "terms of use", "contact us", "about us", 
-            "customer service", "language", "sitemap", "javascript:", 
-            "mailto:", "tel:", "unsubscribe"
-        ]
-        
-        for link, link_text in candidates.items():
-            # 基础校验
-            if not link or len(link_text) < 2: continue
-            
-            # 黑名单关键词过滤
-            text_lower = link_text.lower()
-            if any(k in text_lower for k in ignored_keywords):
-                continue
-            
-            # 全局去重过滤 (如果已经访问过，就不需要再判断了)
-            if ctx.has_visited(link):
-                continue
-
-            clean_candidates[link]=link_text
-
-        if not clean_candidates:
-            self.logger.debug(f"No clean links found for {ctx.purpose}")
-            return {}
-
-        # 2. 分批调用小脑 (Batch Processing)
-        # 本地模型上下文有限，建议每批 15-20 个链接
-        batch_size = 10
-        selected_urls = []
-        
-        # 预编译正则，提取 http/https 开头的链接
-        # 允许 URL 包含常见字符，遇到换行或引号停止
-        url_pattern = re.compile(r'(https?://[^\s"\'<>]+)')
-        candidates_list = list(clean_candidates.items())
-
-        for i in range(0, len(candidates_list), batch_size):
-            batch = candidates_list[i : i + batch_size]
-            
-            # 构造给 LLM 看的清单
-            # 格式: - [Link Text] (URL)
-            list_str = "\n".join([f"- [{text}] ({url})" for url,text in batch])
-            self.logger.debug(f"Processing batch: {list_str}")
-            
-            # 构造当前批次的“白名单”，用于验证 LLM 的输出
-            # 这样即使 LLM 输出了幻觉 URL，也会被这里拦住
-            batch_url_map = {url.strip(): text for url,text in batch}
-            
-            prompt = f"""
-            Mission: Find links relevant to "{ctx.purpose}".
-            
-            Below is a list of links found on a webpage. 
-            This page is about: {one_line_summary}.
-            Select ONLY the links that are likely to contain information related to the Mission or worth to explore.
-            
-            [Candidates]
-            {list_str}
-            
-            [Instructions]
-            1. Select links that are likely to contain information related to the Mission. Or may lead to information related to the Mission (destinatioin worth explore).
-            2. Ignore links clearly point to non-relavant pages or destinations
-            3. 注意，如果是百度百科这样的网页，上面的链接很多是无关的，要仔细甄别，只选择确定有关的
-            4. OUTPUT FORMAT: Just list the full URLs of the selected links, one per line.
-            """
-
-            try:
-                # 调用小脑
-                resp = await self.cerebellum.backend.think(messages=[{"role": "user", "content": prompt}])
-                raw_reply = resp.get('reply', '')
-                self.logger.debug(f"LLM reply: {raw_reply}")
-                
-                # 3. 正则提取与验证 (Extraction & Validation)
-                found_urls = url_pattern.findall(raw_reply)
-                
-                for raw_url in found_urls:
-                    # 清洗：有些 LLM 喜欢在 URL 后面加句号或逗号
-                    clean_url = raw_url.strip('.,;)]}"\'')
-                    
-                    # 验证：这个 URL 真的在我们的输入批次里吗？
-                    # 1. 精确匹配
-                    if clean_url in batch_url_map:
-                        selected_urls.append(clean_url)
-                    else:
-                        # 2. 容错匹配 (有时 LLM 会截断 URL 参数)
-                        # 如果 batch 里有 https://a.com/b?id=1，LLM 输出了 https://a.com/b
-                        # 我们尝试找“最相似”的，或者直接忽略。为了安全，这里只做精确匹配或简单的包含匹配。
-                        # 考虑到 URL 可能很长，LLM 可能会抄错，我们可以反向查：
-                        # 看看 batch 里有没有哪个 URL 包含了这个 clean_url
-                        for original_url in batch_url_map.keys():
-                            if clean_url in original_url and len(clean_url) > 15: # 长度保护防止匹配到 'http'
-                                selected_urls.append(original_url)
-                                break
-            
-            except Exception as e:
-                self.logger.error(f"Link filtering batch failed: {e}")
-                continue
-        self.logger.debug(f"Selected links: {selected_urls}")
-        # 去重返回
-        return list(set(selected_urls))
 
     async def _choose_best_interaction(
         self,

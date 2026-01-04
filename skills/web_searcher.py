@@ -14,10 +14,11 @@ from core.browser.browser_adapter import (
     BrowserAdapter, TabHandle, PageElement, PageSnapshot, PageType
 )
 from core.browser.browser_common import TabSession, BaseCrawlerContext
+from skills.crawler_helpers import CrawlerHelperMixin
 from core.browser.drission_page_adapter import DrissionPageAdapter
 from core.action import register_action
 
-search_func = search_bing
+search_func = search_google
 
 # ==========================================
 # Prompt 集中管理
@@ -208,7 +209,7 @@ class WebSearcherContext(BaseCrawlerContext):
 # 2. Web Searcher 核心逻辑
 # ==========================================
 
-class WebSearcherMixin:
+class WebSearcherMixin(CrawlerHelperMixin):
     """
     Web 搜索器技能
     用于回答问题的网络搜索
@@ -1103,89 +1104,6 @@ class WebSearcherMixin:
     # ==========================================
     # 3. 小脑决策辅助
     # ==========================================
-
-    async def _filter_relevant_links(
-        self,
-        candidates: Dict[str, str],
-        page_summary: str,
-        ctx: WebSearcherContext
-    ) -> List[str]:
-        """
-        [Brain] 筛选与问题相关的链接
-        复用 data_crawler 的逻辑，但 prompt 针对"回答问题"进行优化
-        """
-        # 1. 规则预过滤
-        ignored_keywords = [
-            "login", "signin", "sign up", "register", "password",
-            "privacy policy", "terms of use", "contact us", "about us",
-            "customer service", "language", "sitemap", "javascript:",
-            "mailto:", "tel:", "unsubscribe"
-        ]
-
-        clean_candidates = {}
-        for link, link_text in candidates.items():
-            if not link or len(link_text) < 2:
-                continue
-            text_lower = link_text.lower()
-            if any(k in text_lower for k in ignored_keywords):
-                continue
-            clean_candidates[link] = link_text
-
-        if not clean_candidates:
-            return []
-
-        # 2. 分批 LLM 过滤
-        batch_size = 10
-        selected_urls = []
-        url_pattern = re.compile(r'(https?://[^\s"\'<>]+)')
-        candidates_list = list(clean_candidates.items())
-
-        for i in range(0, len(candidates_list), batch_size):
-            batch = candidates_list[i:i + batch_size]
-            list_str = "\n".join([f"- [{text}] ({url})" for url, text in batch])
-            batch_url_map = {url.strip(): text for url, text in batch}
-
-            prompt = f"""
-            [Question]
-            {ctx.purpose}
-
-            [Current Page Context]
-            {page_summary}
-
-            [Task]
-            Select links that are likely to contain information relevant to answering the question.
-
-            [Candidate Links]
-            {list_str}
-
-            [Instructions]
-            1. Choose links that may help answer the question
-            2. Ignore clearly irrelevant links
-            3. OUTPUT: List the full URLs, one per line
-            """
-
-            try:
-                resp = await self.cerebellum.backend.think(messages=[{"role": "user", "content": prompt}])
-                raw_reply = resp.get('reply', '')
-
-                found_urls = url_pattern.findall(raw_reply)
-                for raw_url in found_urls:
-                    clean_url = raw_url.strip('.,;)]}"\'')
-
-                    if clean_url in batch_url_map:
-                        selected_urls.append(clean_url)
-                    else:
-                        # 容错匹配
-                        for original_url in batch_url_map.keys():
-                            if clean_url in original_url and len(clean_url) > 15:
-                                selected_urls.append(original_url)
-                                break
-
-            except Exception as e:
-                self.logger.error(f"Link filtering failed: {e}")
-                continue
-
-        return list(set(selected_urls))
 
     async def _choose_best_interaction(
         self,
