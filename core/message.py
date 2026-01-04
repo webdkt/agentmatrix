@@ -28,5 +28,5 @@ class Email:
             Date: {self.timestamp}   
 
             {self.body}
-            =======================
+            ================
         """)

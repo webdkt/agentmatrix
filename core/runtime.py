@@ -67,6 +67,7 @@ class AgentMatrix(AutoLoggerMixin):
         except Exception as e:
             raise TypeError(f"Error serializing object: {str(e)}\nObject info: {obj_info}")
 
+
     #准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
         

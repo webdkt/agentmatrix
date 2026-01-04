@@ -373,11 +373,8 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         # 注入用户/同事的邮件
         
         content =  "[INCOMING MAIL]\n"
-        content+= f"From: {email.sender}\n"
-        content+= f"Subject: {email.subject}\n"
-        content+= textwrap.dedent(f"""Body: 
-            {email.body}
-        """)
+        content+= f"{email}"
+        
         
         session.history.append({"role": "user", "content": content})
 

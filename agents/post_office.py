@@ -1,8 +1,10 @@
 import asyncio
-from typing import Dict
+from typing import Dict, Optional
 from db.database import AgentMailDB
 import os
+import json
 import textwrap
+from pathlib import Path
 from core.message import Email
 from core.log_util import AutoLoggerMixin
 class PostOffice(AutoLoggerMixin):
@@ -13,6 +15,50 @@ class PostOffice(AutoLoggerMixin):
         self.email_db = AgentMailDB(email_db_path) # 初始化数据库连接
         self._paused = False
         self.vector_db = None
+
+        # 初始化 user_sessions 管理
+        self.user_sessions = {}
+        self.user_sessions_file = os.path.join(matrix_path, ".matrix", "user_sessions.json")
+        self._load_user_sessions()
+
+    def _load_user_sessions(self):
+        """从文件加载 user_sessions 数据"""
+        try:
+            file_path = Path(self.user_sessions_file)
+            if file_path.exists():
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    self.user_sessions = json.load(f)
+                self.logger.info(f"Loaded {len(self.user_sessions)} user sessions from {self.user_sessions_file}")
+            else:
+                # 文件不存在，确保目录存在
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                self.user_sessions = {}
+                self.logger.info(f"User sessions file not found. Starting with empty sessions.")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse user sessions file: {e}. Starting with empty sessions.")
+            self.user_sessions = {}
+        except Exception as e:
+            self.logger.exception(f"Error loading user sessions: {e}. Starting with empty sessions.")
+            self.user_sessions = {}
+
+    def _save_user_sessions(self):
+        """保存 user_sessions 数据到文件（使用原子写入）"""
+        try:
+            file_path = Path(self.user_sessions_file)
+            # 确保目录存在
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 使用原子写入：先写临时文件，再重命名
+            temp_file = file_path.with_suffix('.tmp')
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(self.user_sessions, f, ensure_ascii=False, indent=2)
+
+            # 原子重命名
+            temp_file.replace(file_path)
+
+            self.logger.debug(f"Saved {len(self.user_sessions)} user sessions to {self.user_sessions_file}")
+        except Exception as e:
+            self.logger.exception(f"Failed to save user sessions: {e}")
 
 
 
@@ -79,18 +125,33 @@ class PostOffice(AutoLoggerMixin):
 
     async def dispatch(self, email):
         self.email_db.log_email(email)
-        self.vector_db.add_documents("email", [str(email)], 
+        self.vector_db.add_documents("email", [str(email)],
             metadatas={"created_at": email.timestamp,
                        "sender": email.sender,
                        "recipient": email.recipient,
                        "user_session_id": email.user_session_id
-                }, 
+                },
             ids=[email.id]
         )
 
+        # 维护 user_sessions
+        if email.user_session_id:
+            if email.user_session_id not in self.user_sessions:
+                # 新的 session，添加记录
+                self.user_sessions[email.user_session_id] = {
+                    "name": email.subject,
+                    "last_email_time": email.timestamp
+                }
+                self.logger.info(f"New user session created: {email.user_session_id} - {email.subject}")
+            else:
+                # 已存在的 session，更新时间戳
+                self.user_sessions[email.user_session_id]["last_email_time"] = email.timestamp
+                self.logger.debug(f"User session updated: {email.user_session_id}")
 
-        
-        self.logger.debug(f"Sending email from {email.sender} to {email.recipient} ") 
+            # 同步到磁盘
+            self._save_user_sessions()
+
+        self.logger.debug(f"Sending email from {email.sender} to {email.recipient} ")
         await self.queue.put(email)
         self.logger.debug("Mail delivered")
 
@@ -132,3 +193,20 @@ class PostOffice(AutoLoggerMixin):
             )
             emails.append(email)
         return emails
+
+    def get_user_sessions(self, user_session_id: Optional[str] = None) -> Dict:
+        """
+        获取 user_sessions 数据
+
+        Args:
+            user_session_id: 可选，如果提供则返回指定 session 的数据，否则返回所有 sessions
+
+        Returns:
+            如果提供了 user_session_id：返回该 session 的信息字典，不存在则返回 None
+            如果未提供：返回所有 sessions 的副本（避免外部修改）
+        """
+        if user_session_id:
+            return self.user_sessions.get(user_session_id)
+        else:
+            # 返回深拷贝，避免外部修改影响内部数据
+            return json.loads(json.dumps(self.user_sessions))
