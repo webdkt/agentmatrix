@@ -1,0 +1,46 @@
+name: Publish to PyPI
+
+# 触发条件：当你创建一个新的 Release 时触发
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build-n-publish:
+    name: Build and publish to PyPI
+    runs-on: ubuntu-latest
+    
+    #这是关键：允许该 Job 获取 PyPI 的认证令牌
+    permissions:
+      id-token: write 
+
+    # 如果你在 PyPI 设置里填写了 Environment name: pypi，这里要对应
+    environment:
+      name: pypi
+      url: https://pypi.org/p/matrix-for-agents  # (可选) 发布后在 GitHub Action 页面显示的链接
+
+    steps:
+    # 1. 下载你的代码仓库
+    - uses: actions/checkout@v4
+
+    # 2. 安装 Python 环境
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.x"
+
+    # 3. 安装打包工具 build
+    - name: Install pypa/build
+      run: >-
+        python3 -m pip install build --user
+
+    # 4. 开始打包 (生成 dist 文件夹)
+    - name: Build a binary wheel and a source tarball
+      run: python3 -m build
+
+    # 5. 上传到 PyPI (使用官方插件)
+    - name: Publish distribution 📦 to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
