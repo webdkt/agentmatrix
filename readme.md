@@ -66,7 +66,7 @@ However, these aren't major issues. What matters most for agents is intelligence
 ## Installation
 
 ```bash
-pip install agent-matrix
+pip install matrix-for-agents
 ```
 
 ## Quick Start
@@ -78,8 +78,8 @@ from agent_matrix import AgentMatrix
 
 # Initialize the framework
 matrix = AgentMatrix(
-    agent_profile_path="profiles",
-    matrix_path="./my_workspace"
+    agent_profile_path="agent_profile_path",
+    matrix_path="matrix_path"
 )
 
 # Start the runtime (this will load all agents from profiles)
@@ -206,12 +206,12 @@ Contributions welcome! Please feel free to submit a Pull Request.
 
 ## Acknowledgments
 
-- Built with [FastAPI](https://fastapi.tiangolo.com/)
+- Built with [FastAPI](https://fastapi.tiangolo.com/) (Not really used, will use later)
 - Browser automation powered by [DrissionPage](https://drissionpage.cn/)
 - Vector search with [ChromaDB](https://www.trychroma.com/)
 
 ---
 
-**Note**: Agent-Matrix is currently in alpha release (v0.1.0). APIs and features may evolve as we develop the framework.
+**Note**: Agent-Matrix is currently in alpha release (v0.1.2). APIs and features may evolve as we develop the framework.
 
 For Chinese documentation, see [readme_zh.md](readme_zh.md)
