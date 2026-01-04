@@ -7,7 +7,7 @@ from core.action import register_action
 class FileSkillMixin:
     """
     文件系统技能包。
-    需要宿主类 (Agent) 提供 current_private_workspace 和 current_shared_workspace 属性。
+    需要宿主类 (Agent) 提供 private_workspace 和 current_workspace 属性。
     """
 
     def _resolve_path(self, workspace_root: Path, relative_path: str = ".") -> Path:
@@ -56,7 +56,7 @@ class FileSkillMixin:
     async def list_private_file(self, relative_path: str = ".") -> str:
         """列出私有工作区中的文件和目录"""
         try:
-            workspace = self.current_private_workspace
+            workspace = self.private_workspace
             target_dir = self._resolve_path(workspace, relative_path)
 
             if not target_dir.exists():
@@ -81,7 +81,7 @@ class FileSkillMixin:
     async def read_private_file(self, relative_path: str) -> str:
         """读取私有工作区中的文本文件"""
         try:
-            workspace = self.current_private_workspace
+            workspace = self.private_workspace
             file_path = self._resolve_path(workspace, relative_path)
 
             if not file_path.exists():
@@ -112,7 +112,7 @@ class FileSkillMixin:
     async def write_private_file(self, relative_path: str, content: str) -> str:
         """写入内容到私有工作区的文件"""
         try:
-            workspace = self.current_private_workspace
+            workspace = self.private_workspace
             file_path = self._resolve_path(workspace, relative_path)
 
             # 自动创建父目录
@@ -135,7 +135,7 @@ class FileSkillMixin:
     async def list_shared_file(self, relative_path: str = ".") -> str:
         """列出共享工作区中的文件和目录"""
         try:
-            workspace = self.current_shared_workspace
+            workspace = self.current_workspace
             target_dir = self._resolve_path(workspace, relative_path)
 
             if not target_dir.exists():
@@ -160,7 +160,7 @@ class FileSkillMixin:
     async def read_shared_file(self, relative_path: str) -> str:
         """读取共享工作区中的文本文件"""
         try:
-            workspace = self.current_shared_workspace
+            workspace = self.current_workspace
             file_path = self._resolve_path(workspace, relative_path)
 
             if not file_path.exists():
@@ -191,7 +191,7 @@ class FileSkillMixin:
     async def write_shared_file(self, relative_path: str, content: str) -> str:
         """写入内容到共享工作区的文件"""
         try:
-            workspace = self.current_shared_workspace
+            workspace = self.current_workspace
             file_path = self._resolve_path(workspace, relative_path)
 
             # 自动创建父目录

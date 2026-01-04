@@ -1,8 +1,0 @@
-#You should always have one USER agent
-name: User
-description: Master of world
-module: agents.user_proxy
-class_name: UserProxyAgent
-instruction_to_caller: "要精炼不要啰嗦"
-system_prompt: ""
-backend_model: default_llm

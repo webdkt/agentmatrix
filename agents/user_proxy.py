@@ -1,7 +1,7 @@
 from agents.base import BaseAgent
 from core.message import Email
 from typing import Callable, Awaitable, Optional
-
+import datetime
 import uuid
 
 # 定义一个回调函数的类型：接收一封邮件，返回 None (异步)
@@ -46,6 +46,27 @@ class UserProxyAgent(BaseAgent):
         这是给宿主程序调用的方法。
         相当于用户开口说话。
         """
+        if content is None:
+            content = subject
+            subject = None
+
+        if not subject:
+            resp = await self.cerebellum.think(f"""
+            请你根据以下邮件内容生成一个高度扼要的邮件主题。明了的说明事情本质就行，不需要具体细节内容，例如“一个问题”，“下载任务” 等等
+
+            [邮件内容]
+            {content}
+
+            [输出要求]
+            你可以尽量简短的说明思路，但输出的最后一行必须是、也只能是邮件主题本身。例如如果邮件主题是ABC，那么最后一行就是ABC。不多不少，不要增加任何标点符号
+            """)
+            subject = resp['reply'] or ""
+            #取subject 最后一行
+            subject = subject.split("\n")[-1]
+        #给subject 后面加上日期yyyy-mm-dd 
+        
+        subject = subject + " " + datetime.datetime.now().strftime("%Y-%m-%d")
+        subject = subject.strip()
 
 
         email = Email(

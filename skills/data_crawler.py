@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from core.browser.google import search_google
 from core.browser.bing import search_bing
 from skills.utils import sanitize_filename
+from pathlib import Path
+
 
 # 引入之前的 Adapter 定义 (假设在 drission_page_adapter 或 browser_adapter 中)
 from core.browser.browser_adapter import (
@@ -135,8 +137,58 @@ class DigitalInternCrawlerMixin(CrawlerHelperMixin):
     #        profile_path=profile_path,
     #        download_path=download_path
     #    )
+
+    def _resolve_download_folder(self, folder: str) -> Optional[str]:
+        """
+        安全路径解析，确保下载目录在允许的工作空间范围内
+
+        Args:
+            folder: 用户提供的目录路径（可以是相对路径或绝对路径）
+
+        Returns:
+            解析后的绝对路径字符串，如果路径不安全则返回 None
+        """
+        try:
+            workspace_root = Path(self.workspace_root).resolve()
+            folder_path = Path(folder)
+
+            self.logger.debug(f"DEBUG _resolve_download_folder: workspace_root={workspace_root}")
+            self.logger.debug(f"DEBUG _resolve_download_folder: folder_path={folder_path}")
+            self.logger.debug(f"DEBUG _resolve_download_folder: is_absolute={folder_path.is_absolute()}")
+            self.logger.debug(f"DEBUG _resolve_download_folder: current_workspace={Path(self.current_workspace)}")
+
+            # 如果是相对路径，基于 current_workspace 解析
+            if not folder_path.is_absolute():
+                target_path = (Path(self.current_workspace) / folder_path).resolve()
+                self.logger.debug(f"DEBUG _resolve_download_folder: Using relative path logic, target_path={target_path}")
+            else:
+                # 如果是绝对路径，直接使用
+                target_path = folder_path.resolve()
+                self.logger.debug(f"DEBUG _resolve_download_folder: Using absolute path logic, target_path={target_path}")
+
+            # 安全检查：确保目标路径在 workspace_root 内部
+            try:
+                relative = target_path.relative_to(workspace_root)
+                self.logger.debug(f"DEBUG _resolve_download_folder: relative_to workspace_root={relative}")
+            except ValueError:
+                self.logger.error(
+                    f"Security Alert: Download folder is outside workspace. "
+                    f"Requested: {folder}, Resolved: {target_path}, "
+                    f"Allowed root: {workspace_root}"
+                )
+                return None
+
+            # 确保目录存在
+            target_path.mkdir(parents=True, exist_ok=True)
+
+            return str(target_path)
+
+        except Exception as e:
+            self.logger.exception(f"Failed to resolve download folder: {e}")
+            return None
+
     @register_action(
-        "下载一个指定的文件，提供文件的 URL以及可选的保存目录",
+        "下载一个指定的文件，提供文件的 URL,可选指定的保存目录",
         param_infos={
             "url": "文件的下载链接",
             "filename": "保存文件的名称",
@@ -145,35 +197,48 @@ class DigitalInternCrawlerMixin(CrawlerHelperMixin):
     )
     async def download_file(self, url: str, folder: str=None):
         if folder is None:
-            folder = os.path.join(self.current_shared_workspace,"downloads")
-        #TODO: folder 要转换为 current_shared_workspace 下的路径, 如果绝对路径超过这个范围，要报错退出
+            folder = os.path.join(self.current_workspace,"downloads")
+
+        self.logger.debug(f"DEBUG: Initial folder (type {type(folder).__name__}): {folder}")
+
+        # 安全检查：确保 folder 路径在允许的工作空间范围内
+        folder_resolved = self._resolve_download_folder(folder)
+        if not folder_resolved:
+            return "Security Error: Download folder path is outside allowed workspace"
+
+        self.logger.debug(f"DEBUG: Resolved folder: {folder_resolved}")
+        self.logger.debug(f"DEBUG: workspace_root: {self.workspace_root}")
+
         profile_path = os.path.join(self.workspace_root ,".matrix", "browser_profile", self.name)
-        
+
         self.browser_adapter = DrissionPageAdapter(
             profile_path=profile_path,
-            download_path=folder
+            download_path=folder_resolved
         )
-        
+
         ctx = MissionContext(
             purpose='download file',
-            save_dir=folder,
+            save_dir=folder_resolved,
             deadline=time.time() +  60
         )
-        
+
         self.logger.info(f"🚀 Mission Start: Download file {url}")
-        
+
         # 2. 启动浏览器
         await self.browser_adapter.start(headless=False) # 调试模式先开有头
-        
+
         try:
             # 访问url
             tab = await self.browser_adapter.get_tab()
-            res = await asyncio.to_thread(tab.download, url, folder)
+            # 注意：浏览器已经在 DrissionPageAdapter 中设置了 download_path
+            # 所以这里不应该再传第二个参数，否则路径会被拼接两次！
+            res = await asyncio.to_thread(tab.download, url)
             status, file_path = res
             if status == 'success':
                 self.logger.info(f"File downloaded successfully: {file_path}")
-                #todo: 把file_path 转换为完整路径
-                return file_path
+                # 转换为完整路径（绝对路径）
+                full_path = os.path.abspath(file_path)
+                return full_path
             else:
                 self.logger.error(f"Failed to download file: {file_path}")
                 return 'Failed to Download'
@@ -707,200 +772,6 @@ class DigitalInternCrawlerMixin(CrawlerHelperMixin):
             return "[Error: AI Summary Generation Failed]"
 
     import re
-
-    async def _choose_best_interaction(
-        self,
-        candidates: List[Dict],
-        one_line_summary: str,
-        ctx: MissionContext
-    ) -> Optional[PageElement]:
-        """
-        [Brain] 从候选按钮中选择最值得点击的一个。
-        使用串行淘汰机制 + 三级筛选策略：
-        1. Immediate (立即访问): 高度吻合，直接返回
-        2. Potential (潜在相关): 可能相关，放回队列头部继续竞争
-        3. None (无价值): 删除，继续下一组
-
-        Args:
-            candidates: List[Dict] 格式，每个 Dict 是 {button_text: PageElement}
-        """
-        if not candidates:
-            return None
-
-        from collections import deque
-
-        BATCH_SIZE = 10  # 每批评估的数量
-
-        # 转换为列表格式: [(button_text, element), ...]
-        # candidates 是 [{"text1": element1}, {"text2": element2}, ...]
-        all_candidates = []
-        for candidate_dict in candidates:
-            # 每个 dict 只有一个键值对
-            for text, element in candidate_dict.items():
-                all_candidates.append((text, element))
-
-        # 使用 deque 支持高效的头部操作
-        candidate_deque = deque(all_candidates)
-
-        self.logger.info(f"🔍 Sequential filtering started with {len(candidate_deque)} candidates")
-
-        iteration = 0
-        while candidate_deque:
-            iteration += 1
-
-            # 取前 batch_size 个（如果不足则取全部）
-            batch_size = min(BATCH_SIZE, len(candidate_deque))
-            batch = [candidate_deque.popleft() for _ in range(batch_size)]
-
-            self.logger.debug(f"  Iter {iteration}: Evaluating {len(batch)} candidates, {len(candidate_deque)} remaining")
-
-            # 评估这批
-            result = await self._evaluate_batch(batch, one_line_summary, ctx)
-
-            if result["priority"] == "immediate":
-                # 找到最佳匹配，立即返回
-                self.logger.info(f"⚡ Immediate match found: [{result['text']}] | Reason: {result['reason']}")
-                return result["element"]
-
-            elif result["priority"] == "potential":
-                # 将 winner 放回队列头部，参与下一轮竞争
-                winner_tuple = (result["text"], result["element"])
-                if len(candidate_deque)>0:
-                    candidate_deque.appendleft(winner_tuple)
-                    self.logger.debug(f"    Potential: [{result['text']}] → Put back to queue front. Queue size: {len(candidate_deque)}")
-                else:
-                    return result["element"]
-            # else: None，这批全部丢弃，继续下一轮
-
-        # 队列为空，没有找到任何有价值的按钮
-        self.logger.info("❌ Queue exhausted. No worthy buttons found.")
-        return None
-
-    async def _evaluate_batch(
-        self,
-        batch: List[tuple],
-        one_line_summary: str,
-        ctx: MissionContext
-    ) -> Dict[str, Any]:
-        """
-        评估一批候选按钮，返回最佳选择（带优先级）。
-
-        三级筛选策略：
-        1. IMMEDIATE: 高度吻合，应该立即访问（优先级最高）
-        2. POTENTIAL: 可能相关，值得考虑（中等优先级）
-        3. NONE: 都不相关（最低优先级）
-
-        Args:
-            batch: [(button_text, element), ...] 格式的候选列表
-            one_line_summary: 当前页面摘要
-            ctx: 任务上下文
-
-        Returns:
-            {
-                "priority": "immediate" | "potential" | "none",
-                "text": str,
-                "element": PageElement,
-                "reason": str
-            }
-            如果 priority == "none"，text 和 element 为 None
-        """
-        if not batch:
-            return {"priority": "none", "text": None, "element": None, "reason": "Empty batch"}
-
-        # 构造选项字符串
-        options_str = ""
-        for idx, (text, element) in enumerate(batch):
-            options_str += f"{idx + 1}. [{text}]\n"
-
-        # 添加"弃权"选项
-        options_str += "0. [None of these are useful]"
-
-        # 构造 Prompt
-        prompt = f"""
-You are a Research Crawler evaluating buttons for a web crawling mission.
-
-[Mission]
-"{ctx.purpose}"
-
-[Current Page Context]
-{one_line_summary}
-
-[Task]
-Evaluate the buttons below and categorize your choice into THREE levels:
-
-**LEVEL 1 - IMMEDIATE (应立即访问)**
-- Criteria: 按钮描述与 Mission 目标高度匹配，明确指向你需要的核心信息
-- Examples: "Python Tutorial", "Machine Learning Guide", "API Documentation"
-- Action: 选择该按钮，返回 priority="immediate"
-
-**LEVEL 2 - POTENTIAL (可能相关)**
-- Criteria: 按钮可能导向相关内容，但不够明确
-- Examples: "Learn More", "Details", "Next Page", "View Resources"
-- Action: 选择最相关的一个按钮，返回 priority="potential"
-
-**LEVEL 3 - NONE (都不相关)**
-- Criteria: 所有按钮都与 Mission 无关，或是纯导航/社交功能
-- Examples: "Share", "Login", "Home", "Contact Us", generic navigation
-- Action: 返回 choice_id=0, priority="none"
-
-[Options]
-{options_str}
-
-[Output Requirement]
-Return JSON ONLY. Format:
-{{
-    "choice_id": <number 0-{len(batch)}>,
-    "priority": "immediate" | "potential" | "none",
-    "reason": "short explanation (one line)"
-}}
-
-IMPORTANT:
-- If choice_id is 0, set priority="none"
-- If choice_id is 1-{len(batch)}, set priority based on your evaluation
-"""
-
-        try:
-            # 调用小脑
-            resp = await self.cerebellum.backend.think(messages=[{"role": "user", "content": prompt}])
-            raw_reason = resp.get('reasoning',''   )
-            raw_reply = resp.get('reply', '')
-            self.logger.debug(f"Reasong: {raw_reason}")
-            self.logger.debug(f"Reply: {raw_reply}")
-
-            # 解析结果
-            json_str = raw_reply.replace("```json", "").replace("```", "").strip()
-            result = json.loads(json_str)
-
-            choice_id = int(result.get("choice_id", 0))
-            priority = result.get("priority", "none").lower()
-            reason = result.get("reason", "")
-
-            # 验证 priority 值
-            if priority not in ["immediate", "potential", "none"]:
-                priority = "none"
-
-            if choice_id == 0 or priority == "none":
-                self.logger.debug(f"    No worthy button. Reason: {reason}")
-                return {"priority": "none", "text": None, "element": None, "reason": reason}
-
-            # 转换为 0-based index
-            selected_index = choice_id - 1
-
-            if 0 <= selected_index < len(batch):
-                selected_text, selected_element = batch[selected_index]
-                return {
-                    "priority": priority,
-                    "text": selected_text,
-                    "element": selected_element,
-                    "reason": reason
-                }
-            else:
-                self.logger.warning(f"    Invalid choice_id: {choice_id}")
-                return {"priority": "none", "text": None, "element": None, "reason": "Invalid choice"}
-
-        except Exception as e:
-            self.logger.exception(f"    Batch evaluation failed: {e}")
-            return {"priority": "none", "text": None, "element": None, "reason": f"Error: {e}"}
 
     def _generate_final_report(self, ctx: MissionContext) -> str:
         return f"Mission Complete. Found {len(ctx.knowledge_base)} items."

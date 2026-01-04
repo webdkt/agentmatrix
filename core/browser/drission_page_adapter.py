@@ -834,8 +834,9 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 await self._save_text_asset(tab, file_path)
             else:
                 # 在线程池中使用 tab.download 下载二进制类型
-                # 注意：第二个参数是目录路径，不是完整文件路径
-                res = await asyncio.to_thread(tab.download, url, save_dir)
+                # 注意：浏览器已经在启动时设置了 download_path，这里不应该再传路径参数
+                # 否则会导致路径被拼接两次
+                res = await asyncio.to_thread(tab.download, url)
                 status, file_path = res
                 #await self._save_binary_asset(url, file_path)
 

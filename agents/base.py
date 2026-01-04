@@ -101,7 +101,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         return workspace
 
     @property
-    def current_shared_workspace(self) -> Path:
+    def current_workspace(self) -> Path:
         """
         获取当前 session 的共享工作目录（如果不存在则自动创建）
 

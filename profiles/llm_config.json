@@ -29,10 +29,15 @@
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "deepseek-reasoner"
     },
-    "default_slm": {
+    "default_slm_ds": {
         "url": "https://api.deepseek.com/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "deepseek-chat"
+    },
+    "default_slm": {
+        "url":"https://api.xiaomimimo.com/v1/chat/completions",
+        "API_KEY":"MIMO_API_KEY",
+        "model_name":"mimo-v2-flash"
     },
     "default_slm2": {
         "url": "http://127.0.0.1:8080/v1/chat/completions",
