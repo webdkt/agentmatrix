@@ -10,13 +10,13 @@ Designed for building robust, intelligent systems that can reason, negotiate, an
 
 ## Core Philosophy
 
-    The core idea is really just common sense.
+The core idea is really just common sense.
 
-    A lot of Agent frameworks compel powerful LLMs to "think" inside stiff, rigid formats like JSON. This isn't just prone to bugs; it actually stifles their ability to reason. An LLM has a limited attention span for every inference. We should minimize the amount of attention wasted on "watching the JSON syntax." Getting that syntax right takes a lot of "mental energy" and tokens—energy that should be spent on doing the actual work.
+A lot of Agent frameworks compel powerful LLMs to "think" inside stiff, rigid formats like JSON. This isn't just prone to bugs; it actually stifles their ability to reason. An LLM has a limited attention span for every inference. We should minimize the amount of attention wasted on "watching the JSON syntax." Getting that syntax right takes a lot of "mental energy" and tokens—energy that should be spent on doing the actual work.
 
-    I have a theory: the smarter an LLM gets, the more it thinks like a human. Asking a human to count JSON brackets in their head and fill them in perfectly is incredibly hard. I believe forcing an LLM to do this kind of "mental gymnastics" hurts its performance on the main task (it’s like trying to shoot a target while reading a philosophy book). I don't have proof, just my intuition, but I believe this is how it works. Maybe future LLMs will be able to do everything effortlessly, but I doubt it.
+I have a theory: the smarter an LLM gets, the more it thinks like a human. Asking a human to count JSON brackets in their head and fill them in perfectly is incredibly hard. I believe forcing an LLM to do this kind of "mental gymnastics" hurts its performance on the main task (it’s like trying to shoot a target while reading a philosophy book). I don't have proof, just my intuition, but I believe this is how it works. Maybe future LLMs will be able to do everything effortlessly, but I doubt it.
 
-    That is the heart of AgentMatrix: Let the LLM communicate, think, and output in natural language, and keep its brain away from JSON conversion work.
+That is the heart of AgentMatrix: Let the LLM communicate, think, and output in natural language, and keep its brain away from JSON conversion work.
 
 
 Agent-Matrix solves this with a **Brain + Cerebellum + Body** architecture:
@@ -79,7 +79,7 @@ pip install matrix-for-agents
 ### Basic Usage
 
 ```python
-from agent_matrix import AgentMatrix
+from agentmatrix import AgentMatrix
 
 # Initialize the framework
 matrix = AgentMatrix(
@@ -190,7 +190,7 @@ skills:
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.12 or higher
 - See `requirements.txt` for full dependency list
 
 ## License
