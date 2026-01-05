@@ -14,6 +14,15 @@ function app() {
         agents: [],
         files: [],
 
+        // Panel resizing state
+        leftPanelWidth: 280,
+        rightPanelWidth: 280,
+        isResizing: false,
+        resizingEdge: null,
+        startX: 0,
+        startLeftWidth: 0,
+        startRightWidth: 0,
+
         // New email modal state
         showNewEmailModal: false,
         isSendingEmail: false,
@@ -36,6 +45,10 @@ function app() {
 
         // Initialize application
         async init() {
+            // Bind resize methods to maintain 'this' context when called by window events
+            this.onResize = this.onResize.bind(this);
+            this.stopResize = this.stopResize.bind(this);
+
             try {
                 // Check if this is a cold start
                 const status = await API.getConfigStatus();
@@ -183,6 +196,13 @@ function app() {
             }
         },
 
+        // Get avatar name (1-2 characters)
+        getAvatarName(name) {
+            if (!name) return '?';
+            if (name === 'User') return 'U';
+            return name.substring(0, 2).toUpperCase();
+        },
+
         // Select agent from dropdown
         selectAgent(agent) {
             this.newEmail.recipient = agent;
@@ -229,6 +249,56 @@ function app() {
             } finally {
                 this.isSendingEmail = false;
             }
+        },
+
+        // Panel resizing methods
+        startResize(edge, event) {
+            this.isResizing = true;
+            this.resizingEdge = edge;
+            this.startX = event.clientX;
+            this.startLeftWidth = this.leftPanelWidth;
+            this.startRightWidth = this.rightPanelWidth;
+
+            // Add body class for visual feedback
+            document.body.classList.add('is-resizing');
+
+            // Add window-level event listeners
+            window.addEventListener('mousemove', this.onResize);
+            window.addEventListener('mouseup', this.stopResize);
+        },
+
+        onResize(event) {
+            if (!this.isResizing) return;
+
+            const deltaX = event.clientX - this.startX;
+            const minWidth = 200;
+            const maxWidth = 600;
+
+            if (this.resizingEdge === 'left') {
+                // Resize left panel
+                const newWidth = this.startLeftWidth + deltaX;
+                if (newWidth >= minWidth && newWidth <= maxWidth) {
+                    this.leftPanelWidth = newWidth;
+                }
+            } else if (this.resizingEdge === 'right') {
+                // Resize right panel (deltaX is inverted)
+                const newWidth = this.startRightWidth - deltaX;
+                if (newWidth >= minWidth && newWidth <= maxWidth) {
+                    this.rightPanelWidth = newWidth;
+                }
+            }
+        },
+
+        stopResize() {
+            this.isResizing = false;
+            this.resizingEdge = null;
+
+            // Remove body class
+            document.body.classList.remove('is-resizing');
+
+            // Remove window-level event listeners
+            window.removeEventListener('mousemove', this.onResize);
+            window.removeEventListener('mouseup', this.stopResize);
         }
     };
 }
