@@ -28,7 +28,7 @@ def global_event_handler(event):
 
 async def main():
     # 2. 初始化 Matrix
-    matrix = AgentMatrix(agent_profile_path="./profiles", matrix_path='../../Samples/TestWorkspace', async_event_call_back=global_event_handler)
+    matrix = AgentMatrix(agent_profile_path="./profiles", matrix_path='../../Samples/TestWorkspace', async_event_callback=global_event_handler)
     #matrix.load_matrix('Samples/TestWorkspace')
     
     # 3. 挂载回调：把我们的打印函数挂给 UserProxy

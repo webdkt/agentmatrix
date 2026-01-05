@@ -1,0 +1,17 @@
+#You should always have one USER agent
+name: User
+description: Master of world
+module: agentmatrix.agents.user_proxy
+class_name: UserProxyAgent
+
+# 动态 Mixin 组合
+mixins:
+  - skills.filesystem.FileSkillMixin
+
+# 属性初始化
+attribute_initializations:
+  on_mail_received: null
+
+instruction_to_caller: "要精炼不要啰嗦"
+system_prompt: ""
+backend_model: default_llm
