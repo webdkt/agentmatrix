@@ -67,13 +67,29 @@ class AgentMailDB(AutoLoggerMixin):
         """
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT * FROM emails 
+            SELECT * FROM emails
             WHERE user_session_id = ? and (recipient = ? OR sender = ?)
-            ORDER BY timestamp DESC 
+            ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
         ''', (user_session_id, agent_name, agent_name, end - start + 1, start))
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
-        
 
-        
+    def get_user_session_emails(self, user_session_id):
+        """查询某个用户会话中所有与User相关的邮件
+        Args:
+            user_session_id: 用户会话ID
+        Returns:
+            该会话中所有与User相关的邮件列表（按时间升序）
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT * FROM emails
+            WHERE user_session_id = ? AND (sender = 'User' OR recipient = 'User')
+            ORDER BY timestamp ASC
+        ''', (user_session_id,))
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+

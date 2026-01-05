@@ -59,6 +59,10 @@ const API = {
         });
     },
 
+    async getSessionEmails(sessionId) {
+        return this.request(`/api/sessions/${sessionId}/emails`);
+    },
+
     // Agent APIs
     async getAgents() {
         return this.request('/api/agents');
