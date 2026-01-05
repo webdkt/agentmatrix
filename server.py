@@ -420,6 +420,42 @@ async def send_email(session_id: str, request: SendEmailRequest):
     }
 
 
+@app.get("/api/sessions/{session_id}/emails")
+async def get_session_emails(session_id: str):
+    """Get all emails for a specific session"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        # Get emails from PostOffice
+        emails = matrix_runtime.post_office.get_session_emails_for_user(session_id)
+
+        # Convert to dict format for JSON response
+        emails_data = []
+        for email in emails:
+            emails_data.append({
+                "id": email.id,
+                "timestamp": email.timestamp.isoformat() if hasattr(email.timestamp, 'isoformat') else str(email.timestamp),
+                "sender": email.sender,
+                "recipient": email.recipient,
+                "subject": email.subject,
+                "body": email.body,
+                "in_reply_to": email.in_reply_to,
+                "user_session_id": email.user_session_id,
+                "is_from_user": getattr(email, 'is_from_user', False)
+            })
+
+        return {
+            "success": True,
+            "emails": emails_data,
+            "total_count": len(emails_data)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
     """Get a specific session"""

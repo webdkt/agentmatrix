@@ -10,6 +10,7 @@ function app() {
         runtimeStatus: null,
         sessions: [],
         currentSession: null,
+        currentSessionEmails: [],
         agents: [],
         files: [],
 
@@ -139,8 +140,20 @@ function app() {
         },
 
         // Session management
-        selectSession(session) {
+        async selectSession(session) {
             this.currentSession = session;
+            await this.loadSessionEmails(session.session_id);
+        },
+
+        // Load session emails
+        async loadSessionEmails(sessionId) {
+            try {
+                const response = await API.getSessionEmails(sessionId);
+                this.currentSessionEmails = response.emails || [];
+            } catch (error) {
+                console.error('Failed to load session emails:', error);
+                this.currentSessionEmails = [];
+            }
         },
 
         // Format timestamp

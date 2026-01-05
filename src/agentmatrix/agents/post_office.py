@@ -210,3 +210,28 @@ class PostOffice(AutoLoggerMixin):
         else:
             # 返回深拷贝，避免外部修改影响内部数据
             return json.loads(json.dumps(self.user_sessions))
+
+    def get_session_emails_for_user(self, user_session_id):
+        """获取某个用户会话中所有与User相关的邮件
+        Args:
+            user_session_id: 用户会话ID
+        Returns:
+            Email对象列表，每个Email包含额外的 is_from_user 布尔字段
+        """
+        email_records = self.email_db.get_user_session_emails(user_session_id)
+        emails = []
+        for record in email_records:
+            email = Email(
+                id=record['id'],
+                timestamp=record['timestamp'],
+                sender=record['sender'],
+                recipient=record['recipient'],
+                subject=record['subject'],
+                body=record['body'],
+                in_reply_to=record['in_reply_to'],
+                user_session_id=record.get('user_session_id', None)
+            )
+            # Add is_from_user flag
+            email.is_from_user = (email.sender == 'User')
+            emails.append(email)
+        return emails
