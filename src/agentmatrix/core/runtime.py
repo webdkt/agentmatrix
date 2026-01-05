@@ -35,12 +35,12 @@ async def default_event_printer(event):
     #self.echo(event)
 
 class AgentMatrix(AutoLoggerMixin):
-    def __init__(self, agent_profile_path, matrix_path, async_event_call_back = default_event_printer):
+    def __init__(self, agent_profile_path, matrix_path, async_event_callback = default_event_printer):
         # === 全局实例 ===
         log_path = os.path.join(matrix_path,".matrix", "logs")
         LogFactory.set_log_dir(log_path)
         
-        self.async_event_call_back = async_event_call_back
+        self.async_event_callback = async_event_callback
         self.agent_profile_path= agent_profile_path
         
         self.matrix_path = matrix_path
@@ -87,7 +87,7 @@ class AgentMatrix(AutoLoggerMixin):
         # 3. 自动加载所有 Agent
         self.agents = loader.load_all()
         for agent in self.agents.values():
-            agent.async_event_call_back = self.async_event_call_back
+            agent.async_event_callback = self.async_event_callback
 
 
 

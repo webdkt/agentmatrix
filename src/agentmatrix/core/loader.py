@@ -11,17 +11,19 @@ from ..core.log_util import AutoLoggerMixin
 
 
 class AgentLoader(AutoLoggerMixin):
-    def __init__(self, profile_path):
+    def __init__(self, profile_path, llm_config_path=None):
         self.profile_path = profile_path
         env_file = os.path.join(profile_path, ".env")
-        if not os.path.exists(env_file):
-            raise FileNotFoundError(f"环境变量文件不存在: {self.profile_path}")
+        #if not os.path.exists(env_file):
+            #raise FileNotFoundError(f"环境变量文件不存在: {self.profile_path}")
 
-        if not os.access(env_file, os.R_OK):
-            raise PermissionError(f"没有读取文件的权限: {self.profile_path}")
-
-        load_dotenv(env_file)
-        llm_config_file = os.path.join(self.profile_path, "llm_config.json")
+        #if not os.access(env_file, os.R_OK):
+        #    raise PermissionError(f"没有读取文件的权限: {self.profile_path}")
+        if os.path.exists(env_file) and os.access(env_file, os.R_OK):
+            load_dotenv(env_file)
+        
+        llm_config_file = llm_config_path or os.path.join(profile_path, "llm_config.json")
+        #llm_config_file = os.path.join(self.profile_path, "llm_config.json")
 
         with open(llm_config_file, 'r', encoding='utf-8') as f:
             self.llm_config = json.load(f)

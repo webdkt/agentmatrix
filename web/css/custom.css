@@ -1,0 +1,117 @@
+/* Custom CSS for AgentMatrix UI */
+
+/* Scrollbar styling - sleek and modern */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Loading spinner */
+.spinner {
+    border: 3px solid #f1f5f9;
+    border-top: 3px solid #3b82f6;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* File tree styles */
+.file-tree {
+    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+}
+
+.file-tree .folder {
+    cursor: pointer;
+}
+
+.file-tree .file {
+    cursor: pointer;
+}
+
+.file-tree .file:hover {
+    background-color: #f8fafc;
+}
+
+/* Message bubble styles */
+.message-bubble {
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    max-width: 80%;
+}
+
+.message-bubble.sent {
+    background-color: #3b82f6;
+    color: white;
+    margin-left: auto;
+}
+
+.message-bubble.received {
+    background-color: #f1f5f9;
+    color: #1e293b;
+}
+
+/* Tab active state */
+.tab-active {
+    border-bottom: 2px solid #3b82f6;
+    color: #3b82f6;
+}
+
+.tab-inactive {
+    border-bottom: 2px solid transparent;
+    color: #64748b;
+}
+
+.tab-inactive:hover {
+    color: #3b82f6;
+}
+
+/* Modal transition */
+[x-cloak] {
+    display: none !important;
+}
+
+/* Resizable grid handles */
+.resizable-grid > div {
+    position: relative;
+}
+
+.resizable-grid > div::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+}
+
+.resizable-grid > div:hover::after {
+    background: #e2e8f0;
+}
+
+.resizable-grid > div:last-child::after {
+    display: none;
+}

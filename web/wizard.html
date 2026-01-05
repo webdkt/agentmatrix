@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentMatrix Setup Wizard</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
+
+    <!-- Tabler Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+    <div id="wizard" x-data="wizard()" class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-12">
+            <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-600 rounded-full mb-6">
+                <i class="ti ti-robot text-4xl text-white"></i>
+            </div>
+            <h1 class="text-4xl font-bold text-slate-800 mb-2">欢迎使用 AgentMatrix</h1>
+            <p class="text-slate-600 text-lg">让我们开始配置您的智能体矩阵世界</p>
+        </div>
+
+        <!-- Wizard Card -->
+        <div class="max-w-3xl mx-auto bg-white rounded-xl shadow-2xl p-8">
+            <!-- Progress Indicator -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="flex items-center justify-center w-10 h-10 rounded-full bg-blue-600 text-white font-bold" :class="step >= 1 ? 'bg-blue-600' : 'bg-slate-300'">1</div>
+                        <span class="ml-2 font-medium text-slate-700">LLM 配置</span>
+                    </div>
+                    <div class="flex-1 h-1 mx-4 bg-slate-200">
+                        <div class="h-full bg-blue-600 transition-all duration-300" :style="`width: ${step * 50}%`"></div>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold" :class="step >= 2 ? 'bg-blue-600 text-white' : 'bg-slate-300 text-slate-600'">2</div>
+                        <span class="ml-2 font-medium" :class="step >= 2 ? 'text-slate-700' : 'text-slate-400'">完成</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 1: LLM Configuration -->
+            <div x-show="step === 1" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-x-4" x-transition:enter-end="opacity-100 transform translate-x-0">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6">配置大语言模型</h2>
+                <p class="text-slate-600 mb-6">请配置您的大语言模型服务。AgentMatrix 需要至少两个 LLM 配置。</p>
+
+                <!-- Default LLM -->
+                <div class="mb-8">
+                    <h3 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+                        <i class="ti ti-brain mr-2"></i>
+                        默认 LLM (default_llm)
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">API 地址</label>
+                            <input type="url" x-model="config.default_llm.url" placeholder="https://api.openai.com/v1/chat/completions" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">API Key</label>
+                            <input type="password" x-model="config.default_llm.api_key" placeholder="sk-..." class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">模型名称</label>
+                            <input type="text" x-model="config.default_llm.model_name" placeholder="gpt-4" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Default SLM -->
+                <div class="mb-8">
+                    <h3 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+                        <i class="ti ti-brain mr-2"></i>
+                        默认 SLM (default_slm)
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">API 地址</label>
+                            <input type="url" x-model="config.default_slm.url" placeholder="https://api.openai.com/v1/chat/completions" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">API Key</label>
+                            <input type="password" x-model="config.default_slm.api_key" placeholder="sk-..." class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">模型名称</label>
+                            <input type="text" x-model="config.default_slm.model_name" placeholder="gpt-3.5-turbo" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                <div x-show="errorMessage" x-transition class="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                    <div class="flex items-center">
+                        <i class="ti ti-alert-circle mr-2"></i>
+                        <span x-text="errorMessage"></span>
+                    </div>
+                </div>
+
+                <!-- Navigation Buttons -->
+                <div class="flex justify-end">
+                    <button @click="submitConfig()" :disabled="isSubmitting" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition flex items-center">
+                        <span x-show="!isSubmitting">下一步</span>
+                        <span x-show="isSubmitting">提交中...</span>
+                        <i class="ti ti-arrow-right ml-2" x-show="!isSubmitting"></i>
+                        <i class="ti ti-loader animate-spin ml-2" x-show="isSubmitting"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2: Completion -->
+            <div x-show="step === 2" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-x-4" x-transition:enter-end="opacity-100 transform translate-x-0">
+                <div class="text-center py-8">
+                    <div class="inline-flex items-center justify-center w-20 h-20 bg-green-100 rounded-full mb-6">
+                        <i class="ti ti-check text-4xl text-green-600"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-slate-800 mb-4">配置完成！</h2>
+                    <p class="text-slate-600 mb-8">您的 AgentMatrix 已经配置完成。点击下方按钮进入主界面。</p>
+                    <button @click="goToApp()" class="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition inline-flex items-center">
+                        <span>进入 AgentMatrix</span>
+                        <i class="ti ti-arrow-right ml-2"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-8 text-slate-500 text-sm">
+            <p>AgentMatrix v0.1.4 | 需要帮助？访问 <a href="https://github.com/webdkt/agentmatrix" target="_blank" class="text-blue-600 hover:underline">GitHub</a></p>
+        </div>
+    </div>
+
+    <!-- API -->
+    <script src="/static/js/api.js"></script>
+
+    <!-- Wizard Logic -->
+    <script>
+        function wizard() {
+            return {
+                step: 1,
+                isSubmitting: false,
+                errorMessage: '',
+                config: {
+                    default_llm: {
+                        url: 'https://api.deepseek.com/chat/completions',
+                        api_key: '',
+                        model_name: 'deepseek-chat'
+                    },
+                    default_slm: {
+                        url: 'https://api.deepseek.com/chat/completions',
+                        api_key: '',
+                        model_name: 'deepseek-chat'
+                    }
+                },
+
+                async submitConfig() {
+                    // Validate inputs
+                    if (!this.config.default_llm.url || !this.config.default_llm.api_key || !this.config.default_llm.model_name) {
+                        this.errorMessage = '请完整填写 default_llm 的所有字段';
+                        return;
+                    }
+
+                    if (!this.config.default_slm.url || !this.config.default_slm.api_key || !this.config.default_slm.model_name) {
+                        this.errorMessage = '请完整填写 default_slm 的所有字段';
+                        return;
+                    }
+
+                    this.isSubmitting = true;
+                    this.errorMessage = '';
+
+                    try {
+                        await API.saveLLMConfig(this.config);
+                        this.step = 2;
+                    } catch (error) {
+                        this.errorMessage = '保存配置失败：' + error.message;
+                    } finally {
+                        this.isSubmitting = false;
+                    }
+                },
+
+                goToApp() {
+                    window.location.href = '/';
+                }
+            };
+        }
+    </script>
+</body>
+</html>
