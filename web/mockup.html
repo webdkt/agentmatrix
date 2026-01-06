@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentMatrix UI Redesign Mockup</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    <style>
+        /* Custom Design System Styles */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            min-height: 100vh;
+        }
+
+        /* Glassmorphism Effect */
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        .glass-strong {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+
+        /* Reflective Edge */
+        .reflective-edge {
+            position: relative;
+        }
+
+        .reflective-edge::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                rgba(255, 255, 255, 0.8) 50%,
+                transparent 100%);
+        }
+
+        /* Sophisticated Shadow */
+        .shadow-elegant {
+            box-shadow: 0 8px 30px rgb(0, 0, 0, 0.04);
+        }
+
+        .shadow-elegant-lg {
+            box-shadow: 0 12px 40px rgb(0, 0, 0, 0.08);
+        }
+
+        /* Custom Focus Ring */
+        .focus-ring-custom:focus {
+            outline: none;
+            ring: 2px;
+            ring-offset: 2px;
+            --tw-ring-color: rgb(99 102 241 / 0.2);
+        }
+
+        /* Smooth Transitions */
+        .transition-smooth {
+            transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1.0);
+        }
+
+        /* Removed Shimmer Animation - too distracting for production SaaS */
+
+        /* Gradient Text */
+        .gradient-text {
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Empty State */
+        .empty-state {
+            border: 2px dashed #e2e8f0;
+            border-radius: 12px;
+            padding: 48px;
+            text-align: center;
+            background: linear-gradient(135deg,
+                rgba(248, 250, 252, 0.5) 0%,
+                rgba(226, 232, 240, 0.3) 100%);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Typographic Improvements */
+        h1, h2, h3, h4, h5, h6 {
+            letter-spacing: -0.025em;
+        }
+
+        .label-wide {
+            letter-spacing: 0.05em;
+        }
+
+        .tabular-nums-custom {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Button Press Effect */
+        .btn-press:active {
+            transform: scale(0.95);
+        }
+
+        /* Subtle Pattern Background */
+        .pattern-dots {
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body class="p-8">
+    <div class="max-w-7xl mx-auto space-y-8">
+
+        <!-- Header Section -->
+        <div class="text-center space-y-2">
+            <h1 class="text-4xl font-bold text-slate-900 tracking-tight">AgentMatrix UI Redesign</h1>
+            <p class="text-slate-500 text-lg">Mockup - Production SaaS Design System</p>
+        </div>
+
+        <!-- Design Principles Display -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-white rounded-2xl p-6 shadow-elegant border border-slate-200/60 transition-smooth hover:shadow-elegant-lg">
+                <h3 class="text-xl font-semibold text-slate-900 mb-3">✨ 光感与通透感</h3>
+                <ul class="space-y-2 text-slate-600 text-sm">
+                    <li>• 微妙的渐变背景（linear-gradient）</li>
+                    <li>• 玻璃拟态（仅 Sticky Header & Modals）</li>
+                    <li>• 反光边缘（顶部高光边框）</li>
+                    <li>• 固体表面（内容卡片使用纯白背景）</li>
+                </ul>
+            </div>
+
+            <div class="bg-white rounded-2xl p-6 shadow-elegant border border-slate-200/60 transition-smooth hover:shadow-elegant-lg">
+                <h3 class="text-xl font-semibold text-slate-900 mb-3">🎯 触感与层级</h3>
+                <ul class="space-y-2 text-slate-600 text-sm">
+                    <li>• 彩色阴影（shadow-[0_8px_30px_rgb(0,0,0,0.04)]）</li>
+                    <li>• 清晰边框（border border-slate-200/60）</li>
+                    <li>• 交互深度（悬停上浮 + 点击缩放）</li>
+                    <li>• 物理按钮反馈（active:scale-95）</li>
+                </ul>
+            </div>
+
+            <div class="bg-white rounded-2xl p-6 shadow-elegant border border-slate-200/60 transition-smooth hover:shadow-elegant-lg">
+                <h3 class="text-xl font-semibold text-slate-900 mb-3">📝 排版韵律</h3>
+                <ul class="space-y-2 text-slate-600 text-sm">
+                    <li>• 标题使用 tracking-tight (-0.025em)</li>
+                    <li>• 小标签使用 tracking-wide</li>
+                    <li>• 颜色层次：slate-900/700/500</li>
+                    <li>• 数字使用 tabular-nums 对齐</li>
+                </ul>
+            </div>
+
+            <div class="bg-white rounded-2xl p-6 shadow-elegant border border-slate-200/60 transition-smooth hover:shadow-elegant-lg">
+                <h3 class="text-xl font-semibold text-slate-900 mb-3">💎 微精致</h3>
+                <ul class="space-y-2 text-slate-600 text-sm">
+                    <li>• 自定义焦点环（focus:ring-offset-2）</li>
+                    <li>• 平滑过渡（cubic-bezier 缓动）</li>
+                    <li>• 精美空状态（虚线边框 + 图标）</li>
+                    <li>• 所有元素统一过渡时长 200ms</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- UI Components Showcase -->
+        <div class="space-y-6">
+            <h2 class="text-2xl font-semibold text-slate-900 tracking-tight">UI 组件展示</h2>
+
+            <!-- Header Component -->
+            <div class="glass rounded-2xl shadow-elegant-lg reflective-edge overflow-hidden">
+                <div class="border-b border-slate-200/60 px-6 py-4 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shadow-lg">
+                            <i class="ti ti-robot text-blue-600 text-xl"></i>
+                        </div>
+                        <span class="text-xl font-semibold text-slate-900 tracking-tight">AgentMatrix</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button class="px-4 py-2 rounded-lg text-sm font-medium transition-smooth btn-press focus-ring-custom bg-indigo-600 text-white shadow-elegant hover:bg-indigo-700 hover:shadow-elegant-lg hover:-translate-y-0.5">
+                            Master
+                        </button>
+                        <button class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 transition-smooth btn-press focus-ring-custom hover:bg-slate-100 hover:text-slate-900">
+                            World
+                        </button>
+                        <button class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 transition-smooth btn-press focus-ring-custom hover:bg-slate-100 hover:text-slate-900">
+                            Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Layout Mockup -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Session List Panel -->
+                <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 overflow-hidden">
+                    <div class="px-5 py-4 border-b border-slate-200/60 flex items-center justify-between">
+                        <h3 class="font-semibold text-slate-900 tracking-tight">会话列表</h3>
+                        <button class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center transition-smooth btn-press hover:bg-blue-100 focus-ring-custom">
+                            <i class="ti ti-plus"></i>
+                        </button>
+                    </div>
+                    <div class="p-4 space-y-2">
+                        <!-- Session Item - Active -->
+                        <div class="p-4 rounded-xl bg-blue-50 border-2 border-blue-200 cursor-pointer transition-smooth hover:shadow-elegant btn-press">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold shadow-elegant">
+                                        U
+                                    </div>
+                                    <div>
+                                        <div class="font-medium text-slate-900 tracking-tight">项目规划讨论</div>
+                                        <div class="text-xs text-slate-500 label-wide tabular-nums-custom">2 分钟前</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Session Item - Normal -->
+                        <div class="p-4 rounded-xl bg-white border border-slate-200 cursor-pointer transition-smooth hover:bg-slate-50 hover:shadow-elegant btn-press">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-semibold shadow-elegant">
+                                        A
+                                    </div>
+                                    <div>
+                                        <div class="font-medium text-slate-900 tracking-tight">代码审查</div>
+                                        <div class="text-xs text-slate-500 label-wide tabular-nums-custom">1 小时前</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Session Item - Normal -->
+                        <div class="p-4 rounded-xl bg-white border border-slate-200 cursor-pointer transition-smooth hover:bg-slate-50 hover:shadow-elegant btn-press">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-semibold shadow-elegant">
+                                        D
+                                    </div>
+                                    <div>
+                                        <div class="font-medium text-slate-900 tracking-tight">设计评审</div>
+                                        <div class="text-xs text-slate-500 label-wide tabular-nums-custom">昨天</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Conversation Panel -->
+                <div class="lg:col-span-2 bg-white rounded-2xl shadow-elegant border border-slate-200/60 overflow-hidden">
+                    <div class="px-5 py-4 border-b border-slate-200/60">
+                        <h3 class="font-semibold text-slate-900 tracking-tight">对话历史</h3>
+                    </div>
+                    <div class="p-4 space-y-4">
+                        <!-- User Message -->
+                        <div class="flex gap-3">
+                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold shadow-elegant flex-shrink-0">
+                                U
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="font-medium text-slate-900 tracking-tight">User</span>
+                                    <span class="text-xs text-slate-400 label-wide tabular-nums-custom">10:30 AM</span>
+                                </div>
+                                <div class="p-4 rounded-2xl bg-blue-600 text-white shadow-elegant">
+                                    <p class="text-sm leading-relaxed">你好，能帮我规划一下这个项目的架构吗？</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Agent Message -->
+                        <div class="flex gap-3">
+                            <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-semibold shadow-elegant flex-shrink-0">
+                                A
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="font-medium text-slate-900 tracking-tight">Architect Agent</span>
+                                    <span class="text-xs text-slate-400 label-wide tabular-nums-custom">10:31 AM</span>
+                                </div>
+                                <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 shadow-elegant">
+                                    <p class="text-sm leading-relaxed text-slate-700">当然可以！我建议采用微服务架构，包含以下核心组件：</p>
+                                    <ul class="mt-2 space-y-1 text-sm text-slate-600">
+                                        <li>• API Gateway - 统一入口</li>
+                                        <li>• Service Mesh - 服务通信</li>
+                                        <li>• Event Bus - 事件驱动</li>
+                                    </ul>
+                                </div>
+                                <div class="flex gap-2 mt-2">
+                                    <button class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-smooth btn-press focus-ring-custom">
+                                        <i class="ti ti-refresh mr-1"></i>回复
+                                    </button>
+                                    <button class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-smooth btn-press focus-ring-custom">
+                                        <i class="ti ti-share mr-1"></i>转发
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Buttons Showcase -->
+            <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-6">
+                <h3 class="text-xl font-semibold text-slate-900 mb-4 tracking-tight">按钮样式</h3>
+                <div class="flex flex-wrap gap-4">
+                    <button class="px-6 py-3 rounded-xl bg-indigo-600 text-white font-medium shadow-elegant transition-smooth btn-press hover:bg-indigo-700 hover:shadow-elegant-lg hover:-translate-y-0.5 focus-ring-custom">
+                        主要按钮
+                    </button>
+                    <button class="px-6 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-medium shadow-elegant transition-smooth btn-press hover:bg-slate-50 hover:shadow-elegant-lg focus-ring-custom">
+                        次要按钮
+                    </button>
+                    <button class="px-6 py-3 rounded-xl text-slate-600 font-medium transition-smooth btn-press hover:bg-slate-100 focus-ring-custom">
+                        文本按钮
+                    </button>
+                    <button class="px-6 py-3 rounded-xl bg-indigo-600 text-white font-medium shadow-elegant opacity-50 cursor-not-allowed" disabled>
+                        禁用状态
+                    </button>
+                </div>
+            </div>
+
+            <!-- Input Fields Showcase -->
+            <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-6">
+                <h3 class="text-xl font-semibold text-slate-900 mb-4 tracking-tight">输入框样式</h3>
+                <div class="space-y-4 max-w-md">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">用户名</label>
+                        <input type="text" placeholder="请输入用户名"
+                            class="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">API Key</label>
+                        <input type="password" placeholder="请输入 API Key"
+                            class="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">描述</label>
+                        <textarea rows="3" placeholder="请输入描述信息"
+                            class="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty State Showcase -->
+            <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-6">
+                <h3 class="text-xl font-semibold text-slate-900 mb-4 tracking-tight">空状态设计</h3>
+                <div class="empty-state">
+                    <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
+                        <i class="ti ti-folder-open text-3xl text-slate-400"></i>
+                    </div>
+                    <h4 class="text-lg font-semibold text-slate-900 mb-2 tracking-tight">暂无文件</h4>
+                    <p class="text-sm text-slate-500">这个会话还没有关联的文件</p>
+                </div>
+            </div>
+
+            <!-- Cards with Different States -->
+            <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-6">
+                <h3 class="text-xl font-semibold text-slate-900 mb-4 tracking-tight">卡片状态</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="p-5 rounded-xl bg-white border border-slate-200 shadow-elegant transition-smooth hover:shadow-elegant-lg hover:-translate-y-1 cursor-pointer btn-press">
+                        <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center mb-3 shadow-elegant">
+                            <i class="ti ti-robot text-blue-600 text-2xl"></i>
+                        </div>
+                        <h4 class="font-semibold text-slate-900 tracking-tight mb-1">Agent 1</h4>
+                        <p class="text-sm text-slate-600">负责代码生成和审查</p>
+                    </div>
+
+                    <div class="p-5 rounded-xl bg-emerald-50 border-2 border-emerald-300 shadow-elegant transition-smooth hover:shadow-elegant-lg hover:-translate-y-1 cursor-pointer btn-press">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shadow-elegant">
+                                <i class="ti ti-check text-emerald-600 text-2xl"></i>
+                            </div>
+                            <span class="px-2 py-1 rounded-full bg-emerald-600 text-white text-xs font-medium label-wide">运行中</span>
+                        </div>
+                        <h4 class="font-semibold text-slate-900 tracking-tight mb-1">Agent 2</h4>
+                        <p class="text-sm text-slate-600">正在处理任务</p>
+                    </div>
+
+                    <div class="p-5 rounded-xl bg-slate-50 border-2 border-dashed border-slate-300 transition-smooth hover:border-slate-400 cursor-pointer">
+                        <div class="w-12 h-12 mx-auto rounded-xl bg-slate-200 flex items-center justify-center mb-3">
+                            <i class="ti ti-plus text-slate-500 text-2xl"></i>
+                        </div>
+                        <h4 class="font-semibold text-slate-600 text-center tracking-tight mb-1">添加 Agent</h4>
+                        <p class="text-sm text-slate-400 text-center">创建新的智能体</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Typography Showcase -->
+            <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-6">
+                <h3 class="text-xl font-semibold text-slate-900 mb-4 tracking-tight">排版层次</h3>
+                <div class="space-y-4">
+                    <div>
+                        <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Heading 1 - 主要标题</h1>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-semibold text-slate-900 tracking-tight">Heading 2 - 次要标题</h2>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-medium text-slate-900 tracking-tight">Heading 3 - 三级标题</h3>
+                    </div>
+                    <div>
+                        <p class="text-base text-slate-700">正文文本 - 使用 slate-700 颜色，具有良好的可读性。这是普通的段落文本。</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-slate-600">说明文字 - 使用 slate-600 颜色，用于辅助信息。</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 label-wide">CAPTION - 小标签使用 tracking-wide 增加字间距</p>
+                    </div>
+                    <div>
+                        <p class="text-sm font-mono tabular-nums-custom">数字对齐：1234567890 vs 123456789</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wizard Progress -->
+            <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-6">
+                <h3 class="text-xl font-semibold text-slate-900 mb-6 tracking-tight">配置向导进度条</h3>
+                <div class="relative">
+                    <!-- Progress Bar Background -->
+                    <div class="absolute top-5 left-0 right-0 h-1 bg-slate-200 rounded-full"></div>
+                    <!-- Progress Bar Fill -->
+                    <div class="absolute top-5 left-0 h-1 bg-indigo-600 rounded-full transition-all duration-500" style="width: 66%"></div>
+
+                    <!-- Steps -->
+                    <div class="relative flex justify-between">
+                        <!-- Step 1 - Completed -->
+                        <div class="flex flex-col items-center">
+                            <div class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold shadow-elegant mb-2">
+                                <i class="ti ti-check"></i>
+                            </div>
+                            <span class="text-sm font-medium text-slate-900 tracking-tight">用户配置</span>
+                        </div>
+
+                        <!-- Step 2 - In Progress -->
+                        <div class="flex flex-col items-center">
+                            <div class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold shadow-elegant mb-2 ring-4 ring-indigo-100">
+                                2
+                            </div>
+                            <span class="text-sm font-medium text-slate-900 tracking-tight">LLM 配置</span>
+                        </div>
+
+                        <!-- Step 3 - Pending -->
+                        <div class="flex flex-col items-center">
+                            <div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-semibold mb-2">
+                                3
+                            </div>
+                            <span class="text-sm font-medium text-slate-400 tracking-tight">完成</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Color Palette -->
+            <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-6">
+                <h3 class="text-xl font-semibold text-slate-900 mb-4 tracking-tight">配色方案</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="space-y-2">
+                        <div class="h-20 rounded-xl bg-indigo-600 shadow-elegant"></div>
+                        <p class="text-sm font-medium text-slate-900">主色调</p>
+                        <p class="text-xs text-slate-600">indigo-600 (solid)</p>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="h-20 rounded-xl bg-slate-900 shadow-elegant"></div>
+                        <p class="text-sm font-medium text-slate-900">标题文字</p>
+                        <p class="text-xs text-slate-600">slate-900</p>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="h-20 rounded-xl bg-slate-600 shadow-elegant"></div>
+                        <p class="text-sm font-medium text-slate-900">正文文字</p>
+                        <p class="text-xs text-slate-600">slate-600</p>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="h-20 rounded-xl bg-slate-400 shadow-elegant"></div>
+                        <p class="text-sm font-medium text-slate-900">说明文字</p>
+                        <p class="text-xs text-slate-600">slate-400</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Demo -->
+            <div class="glass-strong rounded-2xl shadow-elegant-lg p-8 reflective-edge text-center">
+                <div class="max-w-2xl mx-auto">
+                    <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-blue-50 flex items-center justify-center shadow-elegant-lg">
+                        <i class="ti ti-rocket text-blue-600 text-4xl"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-slate-900 mb-3 tracking-tight">准备好升级了吗？</h2>
+                    <p class="text-slate-600 mb-6">这是优化后的 UI 设计系统 mockup。采用固体表面、微妙图标填充、纯色按钮，专为生产级 SaaS 产品打造。</p>
+                    <div class="flex gap-4 justify-center">
+                        <button class="px-8 py-3 rounded-xl bg-indigo-600 text-white font-medium shadow-elegant transition-smooth btn-press hover:bg-indigo-700 hover:shadow-elegant-lg hover:-translate-y-0.5 focus-ring-custom">
+                            应用到项目
+                        </button>
+                        <button class="px-8 py-3 rounded-xl bg-white/85 border border-slate-200 text-slate-700 font-medium shadow-elegant transition-smooth btn-press hover:bg-white hover:shadow-elegant-lg focus-ring-custom">
+                            继续调整
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center py-8">
+            <p class="text-sm text-slate-400">Mockup created with Tailwind CSS • Production SaaS Design System</p>
+        </div>
+    </div>
+
+    <script>
+        // Add subtle entrance animations
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.glass, .glass-strong');
+            cards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                setTimeout(() => {
+                    card.style.transition = 'all 0.6s cubic-bezier(0.25, 0.1, 0.25, 1.0)';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -26,11 +26,18 @@ const API = {
 
     // Config APIs
     async getConfigStatus() {
-        return this.request('/api/config/status');
+        return this.request('/api/config');
     },
 
     async saveLLMConfig(config) {
         return this.request('/api/config/llm', {
+            method: 'POST',
+            body: JSON.stringify(config)
+        });
+    },
+
+    async completeColdStart(config) {
+        return this.request('/api/config/complete', {
             method: 'POST',
             body: JSON.stringify(config)
         });
