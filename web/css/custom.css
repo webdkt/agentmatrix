@@ -126,3 +126,110 @@ body.is-resizing .resizer {
 .action-btn i {
     font-size: 14px;
 }
+
+/* ========================================
+   Production SaaS Design System Styles
+   ======================================== */
+
+/* Page Background - Subtle Gradient */
+body {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    min-height: 100vh;
+}
+
+/* Glassmorphism - For Sticky Header & Floating Modals Only */
+.glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-strong {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+}
+
+/* Reflective Edge - Top highlight for cards */
+.reflective-edge {
+    position: relative;
+}
+
+.reflective-edge::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.8) 50%,
+        transparent 100%);
+}
+
+/* Sophisticated Shadow System */
+.shadow-elegant {
+    box-shadow: 0 8px 30px rgb(0, 0, 0, 0.04);
+}
+
+.shadow-elegant-lg {
+    box-shadow: 0 12px 40px rgb(0, 0, 0, 0.08);
+}
+
+/* Smooth Transitions - Unified timing */
+.transition-smooth {
+    transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1.0);
+}
+
+/* Button Press Effect - Physical feedback */
+.btn-press:active {
+    transform: scale(0.95);
+}
+
+/* Empty State Design */
+.empty-state {
+    border: 2px dashed #e2e8f0;
+    border-radius: 12px;
+    padding: 48px;
+    text-align: center;
+    background: linear-gradient(135deg,
+        rgba(248, 250, 252, 0.5) 0%,
+        rgba(226, 232, 240, 0.3) 100%);
+}
+
+/* Custom Focus Ring */
+.focus-ring-custom:focus {
+    outline: none;
+    ring: 2px;
+    ring-offset: 2px;
+    --tw-ring-color: rgb(99 102 241 / 0.2);
+}
+
+/* Typographic Improvements */
+h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.025em;
+}
+
+.label-wide {
+    letter-spacing: 0.05em;
+}
+
+.tabular-nums-custom {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Tab Styles - Updated */
+.tab-active {
+    border-bottom: 2px solid #4f46e5;
+    color: #4f46e5;
+}
+
+.tab-inactive {
+    border-bottom: 2px solid transparent;
+    color: #64748b;
+}
+
+.tab-inactive:hover {
+    color: #4f46e5;
+}
