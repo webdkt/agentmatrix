@@ -18,10 +18,10 @@
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/static/css/custom.css">
 </head>
-<body class="bg-slate-50">
+<body>
     <div id="app" x-data="app()" x-show="!isLoading">
         <!-- Loading Screen -->
-        <div x-show="isLoading" class="fixed inset-0 flex items-center justify-center bg-slate-50">
+        <div x-show="isLoading" class="fixed inset-0 flex items-center justify-center">
             <div class="text-center">
                 <div class="spinner mx-auto mb-4"></div>
                 <p class="text-slate-600">Loading AgentMatrix...</p>
@@ -30,26 +30,26 @@
 
         <!-- Main Application (Warm Start) -->
         <div x-show="!isColdStart && !isLoading">
-            <!-- Header with Logo and Tabs -->
-            <header class="bg-white border-b border-slate-200">
+            <!-- Header with Logo and Tabs - Glassmorphism -->
+            <header class="glass border-b border-slate-200/60 reflective-edge">
                 <div class="flex items-center justify-between px-6 py-3">
-                    <!-- Logo -->
+                    <!-- Logo - Subtle Fill -->
                     <div class="flex items-center space-x-3">
-                        <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
-                            <i class="ti ti-robot text-white text-sm"></i>
+                        <div class="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center shadow-elegant">
+                            <i class="ti ti-robot text-blue-600 text-sm"></i>
                         </div>
-                        <h1 class="text-lg font-semibold text-slate-800 tracking-tight">AgentMatrix</h1>
+                        <h1 class="text-lg font-semibold text-slate-900 tracking-tight">AgentMatrix</h1>
                     </div>
 
-                    <!-- Tabs -->
+                    <!-- Tabs - Solid indigo-600 for active -->
                     <nav class="flex items-center space-x-1">
-                        <button @click="switchTab('master')" :class="currentTab === 'master' ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'" class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200">
+                        <button @click="switchTab('master')" :class="currentTab === 'master' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'" class="px-4 py-2 rounded-lg text-sm font-medium transition-smooth btn-press focus-ring-custom">
                             <i class="ti ti-user mr-1.5"></i>Master
                         </button>
-                        <button @click="switchTab('world')" :class="currentTab === 'world' ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'" class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200">
+                        <button @click="switchTab('world')" :class="currentTab === 'world' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'" class="px-4 py-2 rounded-lg text-sm font-medium transition-smooth btn-press focus-ring-custom">
                             <i class="ti ti-world mr-1.5"></i>World
                         </button>
-                        <button @click="switchTab('settings')" :class="currentTab === 'settings' ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'" class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200">
+                        <button @click="switchTab('settings')" :class="currentTab === 'settings' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'" class="px-4 py-2 rounded-lg text-sm font-medium transition-smooth btn-press focus-ring-custom">
                             <i class="ti ti-settings mr-1.5"></i>Settings
                         </button>
                     </nav>
@@ -62,22 +62,22 @@
             <!-- Main Content Area -->
             <main class="h-screen" style="height: calc(100vh - 57px);">
                 <!-- Master User View -->
-                <div x-show="currentTab === 'master'" class="h-full bg-slate-50">
+                <div x-show="currentTab === 'master'" class="h-full">
                     <div class="resizable-grid h-full"
-                         :style="`display: grid; grid-template-columns: ${leftPanelWidth}px 4px 1fr 4px ${rightPanelWidth}px; gap: 0; background-color: #e2e8f0;`">
+                         :style="`display: grid; grid-template-columns: ${leftPanelWidth}px 4px 1fr 4px ${rightPanelWidth}px; gap: 0;`">
                         <!-- Left: Session List -->
-                        <div class="bg-white overflow-hidden flex flex-col">
-                            <div class="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-white">
-                                <h2 class="text-sm font-semibold text-slate-700">Conversations</h2>
-                                <button @click="showNewEmailModal = true" class="px-3 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition shadow-sm text-sm font-medium">
-                                    <i class="ti ti-plus mr-1"></i>New
+                        <div class="bg-white border-r border-slate-200/60 shadow-elegant overflow-hidden flex flex-col">
+                            <div class="px-5 py-4 border-b border-slate-200/60 flex justify-between items-center bg-white">
+                                <h2 class="text-sm font-semibold text-slate-900 tracking-tight">Conversations</h2>
+                                <button @click="showNewEmailModal = true" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center transition-smooth btn-press hover:bg-blue-100 focus-ring-custom shadow-elegant">
+                                    <i class="ti ti-plus text-sm"></i>
                                 </button>
                             </div>
                             <div class="flex-1 overflow-y-auto">
                                 <template x-for="session in sessions" :key="session.session_id">
-                                    <div @click="selectSession(session)" :class="currentSession?.session_id === session.session_id ? 'bg-blue-50' : 'hover:bg-slate-50'" class="px-4 py-3 border-b border-slate-100 cursor-pointer transition">
-                                        <h3 class="text-sm font-medium text-slate-800 truncate" x-text="session.name"></h3>
-                                        <p class="text-xs text-slate-500 mt-0.5" x-text="formatDate(session.last_email_time)"></p>
+                                    <div @click="selectSession(session)" :class="currentSession?.session_id === session.session_id ? 'bg-blue-50 border-l-2 border-l-blue-500' : 'hover:bg-slate-50 border-l-2 border-l-transparent'" class="px-4 py-3 border-b border-slate-100 cursor-pointer transition-smooth">
+                                        <h3 class="text-sm font-medium text-slate-900 truncate tracking-tight" x-text="session.name"></h3>
+                                        <p class="text-xs text-slate-500 mt-0.5 label-wide tabular-nums-custom" x-text="formatDate(session.last_email_time)"></p>
                                     </div>
                                 </template>
                                 <div x-show="sessions.length === 0" class="px-4 py-8 text-center text-slate-400 text-sm">
@@ -90,11 +90,11 @@
                         <div class="resizer" @mousedown.prevent="startResize('left', $event)"></div>
 
                         <!-- Middle: Conversation History -->
-                        <div class="bg-white overflow-hidden flex flex-col">
-                            <div class="px-4 py-3 border-b border-slate-200 bg-white">
-                                <h2 class="text-sm font-semibold text-slate-700">Messages</h2>
+                        <div class="bg-white border-r border-slate-200/60 shadow-elegant overflow-hidden flex flex-col">
+                            <div class="px-5 py-4 border-b border-slate-200/60 bg-white">
+                                <h2 class="text-sm font-semibold text-slate-900 tracking-tight">Messages</h2>
                             </div>
-                            <div class="flex-1 overflow-y-auto p-4 bg-slate-50">
+                            <div class="flex-1 overflow-y-auto p-4 bg-slate-50/50">
                                 <div x-show="!currentSession" class="flex items-center justify-center h-full">
                                     <p class="text-slate-400 text-sm">Select a conversation to view messages</p>
                                 </div>
@@ -103,42 +103,42 @@
                                         <div :class="email.is_from_user ? 'flex-row-reverse' : 'flex-row'" class="flex items-start gap-3">
                                             <!-- Avatar Container -->
                                             <div class="flex flex-col items-center gap-1 flex-shrink-0">
-                                                <!-- Avatar -->
-                                                <div :class="email.is_from_user ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-700'"
-                                                     class="avatar w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold"
+                                                <!-- Avatar - Subtle Fill -->
+                                                <div :class="email.is_from_user ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'"
+                                                     class="avatar w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold shadow-elegant"
                                                      :title="email.sender"
                                                      x-text="getAvatarName(email.sender)"></div>
 
                                                 <!-- Full Name -->
-                                                <div :class="email.is_from_user ? 'text-blue-100' : 'text-slate-500'"
+                                                <div :class="email.is_from_user ? 'text-blue-700' : 'text-emerald-700'"
                                                      class="text-xs truncate w-16 text-center font-medium"
                                                      x-text="email.sender"></div>
                                             </div>
 
                                             <!-- Email Card -->
-                                            <div :class="email.is_from_user ? 'bg-blue-500 text-white' : 'bg-white text-slate-800 border border-slate-200'"
-                                                 class="email-card max-w-2xl shadow-sm">
+                                            <div :class="email.is_from_user ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-800 border border-slate-200'"
+                                                 class="email-card max-w-2xl shadow-elegant transition-smooth">
                                                 <!-- Subject (if exists) -->
                                                 <div x-show="email.subject" class="text-sm font-semibold mb-2" x-text="email.subject"></div>
 
                                                 <!-- Body -->
-                                                <div class="text-sm leading-relaxed whitespace-pre-wrap mb-3" x-text="email.body"></div>
+                                                <div class="text-sm leading-relaxed whitespace-pre-wrap mb-3" :class="email.is_from_user ? '' : 'text-slate-700'" x-text="email.body"></div>
 
                                                 <!-- Divider -->
-                                                <div :class="email.is_from_user ? 'border-blue-400' : 'border-slate-100'" class="border-t mb-2"></div>
+                                                <div :class="email.is_from_user ? 'border-blue-400' : 'border-slate-200'" class="border-t mb-2"></div>
 
                                                 <!-- Bottom Bar -->
                                                 <div class="flex items-center justify-between text-xs">
-                                                    <span :class="email.is_from_user ? 'text-blue-100' : 'text-slate-400'" x-text="formatTime(email.timestamp)"></span>
+                                                    <span :class="email.is_from_user ? 'text-blue-100' : 'text-slate-400'" class="tabular-nums-custom" x-text="formatTime(email.timestamp)"></span>
 
                                                     <!-- Action Buttons (only for received emails) -->
                                                     <div x-show="!email.is_from_user" class="flex gap-2">
                                                         <button class="action-btn" title="回复">
-                                                            <i class="ti ti-reply"></i>
+                                                            <i class="ti ti-refresh"></i>
                                                             <span>回复</span>
                                                         </button>
                                                         <button class="action-btn" title="转发">
-                                                            <i class="ti ti-corner-up-right"></i>
+                                                            <i class="ti ti-share"></i>
                                                             <span>转发</span>
                                                         </button>
                                                     </div>
@@ -157,65 +157,75 @@
                         <div class="resizer" @mousedown.prevent="startResize('right', $event)"></div>
 
                         <!-- Right: File View -->
-                        <div class="bg-white overflow-hidden flex flex-col">
-                            <div class="px-4 py-3 border-b border-slate-200 bg-white">
-                                <h2 class="text-sm font-semibold text-slate-700">Files</h2>
+                        <div class="bg-white border-r border-slate-200/60 shadow-elegant overflow-hidden flex flex-col">
+                            <div class="px-5 py-4 border-b border-slate-200/60 bg-white">
+                                <h2 class="text-sm font-semibold text-slate-900 tracking-tight">Files</h2>
                             </div>
                             <div class="flex-1 overflow-y-auto p-4 file-tree">
-                                <p class="text-slate-400 text-sm text-center py-8">No files</p>
+                                <div class="empty-state">
+                                    <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
+                                        <i class="ti ti-folder-off text-3xl text-slate-400"></i>
+                                    </div>
+                                    <h4 class="text-lg font-semibold text-slate-900 mb-2 tracking-tight">暂无文件</h4>
+                                    <p class="text-sm text-slate-500">这个会话还没有关联的文件</p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- World View -->
-                <div x-show="currentTab === 'world'" class="h-full">
-                    <div class="bg-white rounded-lg shadow p-8 text-center">
-                        <i class="ti ti-world text-6xl text-slate-300 mb-4"></i>
-                        <h2 class="text-xl font-semibold text-slate-800 mb-2">World View</h2>
+                <div x-show="currentTab === 'world'" class="h-full p-8">
+                    <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-8 text-center">
+                        <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
+                            <i class="ti ti-world text-4xl text-slate-400"></i>
+                        </div>
+                        <h2 class="text-xl font-semibold text-slate-900 mb-2 tracking-tight">World View</h2>
                         <p class="text-slate-600">Agent 世界视图即将推出</p>
                     </div>
                 </div>
 
                 <!-- Matrix Settings -->
-                <div x-show="currentTab === 'settings'" class="h-full">
-                    <div class="bg-white rounded-lg shadow p-8 text-center">
-                        <i class="ti ti-settings text-6xl text-slate-300 mb-4"></i>
-                        <h2 class="text-xl font-semibold text-slate-800 mb-2">Matrix Settings</h2>
+                <div x-show="currentTab === 'settings'" class="h-full p-8">
+                    <div class="bg-white rounded-2xl shadow-elegant border border-slate-200/60 p-8 text-center">
+                        <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
+                            <i class="ti ti-settings text-4xl text-slate-400"></i>
+                        </div>
+                        <h2 class="text-xl font-semibold text-slate-900 mb-2 tracking-tight">Matrix Settings</h2>
                         <p class="text-slate-600">配置管理即将推出</p>
                     </div>
                 </div>
             </main>
 
-            <!-- New Email Modal -->
-            <div x-show="showNewEmailModal" class="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-50" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
-                <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
-                    <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                        <h2 class="text-lg font-semibold text-slate-800">New Conversation</h2>
-                        <button @click="showNewEmailModal = false" class="text-slate-400 hover:text-slate-600 transition">
+            <!-- New Email Modal - Strong Glassmorphism -->
+            <div x-show="showNewEmailModal" class="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-2xl z-50" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
+                <div class="bg-white rounded-2xl shadow-elegant-lg w-full max-w-2xl mx-4 overflow-hidden" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
+                    <div class="px-6 py-4 border-b border-slate-200/60 flex justify-between items-center bg-slate-50/50">
+                        <h2 class="text-lg font-semibold text-slate-900 tracking-tight">New Conversation</h2>
+                        <button @click="showNewEmailModal = false" class="text-slate-400 hover:text-slate-600 transition-smooth focus-ring-custom rounded-lg p-1">
                             <i class="ti ti-x text-xl"></i>
                         </button>
                     </div>
                     <div class="p-6 space-y-4">
                         <div class="relative">
-                            <label class="block text-sm font-medium text-slate-700 mb-2">To</label>
-                            <input type="text" x-model="agentSearchQuery" @focus="showAgentDropdown = true" @blur="setTimeout(() => showAgentDropdown = false, 200)" placeholder="Type to filter agents..." class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">To</label>
+                            <input type="text" x-model="agentSearchQuery" @focus="showAgentDropdown = true" @blur="setTimeout(() => showAgentDropdown = false, 200)" placeholder="Type to filter agents..." class="w-full border border-slate-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
                             <!-- Dropdown -->
-                            <div x-show="showAgentDropdown && (filteredAgents.length > 0 || agentSearchQuery)" class="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                            <div x-show="showAgentDropdown && (filteredAgents.length > 0 || agentSearchQuery)" class="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-elegant-lg max-h-40 overflow-y-auto">
                                 <template x-for="agent in filteredAgents" :key="agent">
-                                    <div @click="selectAgent(agent)" class="px-3 py-2 hover:bg-slate-50 cursor-pointer text-sm" x-text="agent"></div>
+                                    <div @click="selectAgent(agent)" class="px-4 py-3 hover:bg-slate-50 cursor-pointer text-sm transition-smooth" x-text="agent"></div>
                                 </template>
-                                <div x-show="filteredAgents.length === 0" class="px-3 py-2 text-slate-400 text-sm">No agents found</div>
+                                <div x-show="filteredAgents.length === 0" class="px-4 py-3 text-slate-400 text-sm">No agents found</div>
                             </div>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2">Message</label>
-                            <textarea x-model="newEmail.body" rows="10" placeholder="Type your message..." class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"></textarea>
+                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">Message</label>
+                            <textarea x-model="newEmail.body" rows="10" placeholder="Type your message..." class="w-full border border-slate-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth resize-none placeholder-slate-400"></textarea>
                         </div>
                     </div>
-                    <div class="px-6 py-4 border-t border-slate-200 flex justify-end space-x-3 bg-slate-50">
-                        <button @click="showNewEmailModal = false" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 transition font-medium">Cancel</button>
-                        <button @click="sendEmail()" :disabled="isSendingEmail || !newEmail.recipient || !newEmail.body" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <div class="px-6 py-4 border-t border-slate-200/60 flex justify-end space-x-3 bg-slate-50/50">
+                        <button @click="showNewEmailModal = false" class="px-6 py-3 border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 transition-smooth btn-press focus-ring-custom font-medium">Cancel</button>
+                        <button @click="sendEmail()" :disabled="isSendingEmail || !newEmail.recipient || !newEmail.body" class="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-smooth btn-press focus-ring-custom font-medium shadow-elegant disabled:opacity-50 disabled:cursor-not-allowed">
                             <span x-show="!isSendingEmail">Send</span>
                             <span x-show="isSendingEmail">Sending...</span>
                         </button>
