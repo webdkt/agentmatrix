@@ -8,13 +8,16 @@ from pathlib import Path
 from ..core.message import Email
 from ..core.log_util import AutoLoggerMixin
 class PostOffice(AutoLoggerMixin):
-    def __init__(self, matrix_path):
+    def __init__(self, matrix_path, user_agent_name: str = "User"):
         self.directory = {}
         self.queue = asyncio.Queue()
         email_db_path = os.path.join(matrix_path,".matrix" , "matrix_mails.db")
         self.email_db = AgentMailDB(email_db_path) # 初始化数据库连接
         self._paused = False
         self.vector_db = None
+
+        # Store user agent name
+        self.user_agent_name = user_agent_name
 
         # 初始化 user_sessions 管理
         self.user_sessions = {}
@@ -218,7 +221,7 @@ class PostOffice(AutoLoggerMixin):
         Returns:
             Email对象列表，每个Email包含额外的 is_from_user 布尔字段
         """
-        email_records = self.email_db.get_user_session_emails(user_session_id)
+        email_records = self.email_db.get_user_session_emails(user_session_id, self.user_agent_name)
         emails = []
         for record in email_records:
             email = Email(
@@ -232,6 +235,6 @@ class PostOffice(AutoLoggerMixin):
                 user_session_id=record.get('user_session_id', None)
             )
             # Add is_from_user flag
-            email.is_from_user = (email.sender == 'User')
+            email.is_from_user = (email.sender == self.user_agent_name)
             emails.append(email)
         return emails

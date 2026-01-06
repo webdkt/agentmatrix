@@ -64,7 +64,7 @@ For every turn, you must output exactly two blocks:
 
 *Study this rhythm. Notice how the Agent stops and waits.*
 
-[INCOMING MAIL] User: Analyze sales.csv.
+[INCOMING MAIL] {{USER_NAME}}: Analyze sales.csv.
 [YOU]:
 THOUGHT: The user wants data analysis. I need to read the file first to know what's inside.
 [ACTION SIGNAL]: Read file 'sales.csv'
@@ -73,13 +73,13 @@ THOUGHT: The user wants data analysis. I need to read the file first to know wha
 [BODY FEEDBACK] File content: "Jan,100; Feb,200..."
 [YOU]:
 THOUGHT: I have the data. Now I need to summarize the trend (Growth) and reply to the user.
-[ACTION SIGNAL]: Reply to User: Sales doubled from Jan to Feb.
+[ACTION SIGNAL]: Reply to {{USER_NAME}}: Sales doubled from Jan to Feb.
 (WAITING...)
 
 [INTERNAL QUERY] Question: Who is the recipient?
 [YOU]:
 THOUGHT: The system missed the recipient. I must clarify based on context.
-[ACTION SIGNAL]: The recipient is 'User'.
+[ACTION SIGNAL]: The recipient is '{{USER_NAME}}'.
 (WAITING...)
 
 ---

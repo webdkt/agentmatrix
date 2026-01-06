@@ -35,15 +35,18 @@ async def default_event_printer(event):
     #self.echo(event)
 
 class AgentMatrix(AutoLoggerMixin):
-    def __init__(self, agent_profile_path, matrix_path, async_event_callback = default_event_printer):
+    def __init__(self, agent_profile_path, matrix_path, async_event_callback = default_event_printer, user_agent_name: str = "User"):
         # === 全局实例 ===
         log_path = os.path.join(matrix_path,".matrix", "logs")
         LogFactory.set_log_dir(log_path)
-        
+
         self.async_event_callback = async_event_callback
         self.agent_profile_path= agent_profile_path
-        
+
         self.matrix_path = matrix_path
+
+        # Store user agent name
+        self.user_agent_name = user_agent_name
 
         self.agents = None
         self.post_office = None
@@ -56,6 +59,10 @@ class AgentMatrix(AutoLoggerMixin):
         self._prepare_agents()
         self.echo(">>> 加载世界状态...")
         self.load_matrix()
+
+    def get_user_agent_name(self) -> str:
+        """Get the configured user agent name"""
+        return self.user_agent_name
     def json_serializer(self,obj):
         """JSON serializer for objects not serializable by default json code"""
         try:
@@ -76,7 +83,7 @@ class AgentMatrix(AutoLoggerMixin):
         self.vector_db = VectorDB(chroma_path, VECTOR_DB_COLLECTIONS_NAMES)
         self.echo(">>> Vector Database Loaded.")
         # 恢复 PostOffice 状态
-        self.post_office = PostOffice(self.matrix_path)
+        self.post_office = PostOffice(self.matrix_path, self.user_agent_name)
         self.post_office.vector_db = self.vector_db
         self.post_office_task = asyncio.create_task(self.post_office.run())
         self.echo(">>> PostOffice Loaded and Running.")

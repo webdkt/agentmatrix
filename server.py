@@ -82,6 +82,13 @@ class LLMConfigsRequest(BaseModel):
     default_slm: LLMConfig
 
 
+class ColdStartConfigRequest(BaseModel):
+    """Complete cold start configuration request model"""
+    user_name: str
+    default_llm: LLMConfig
+    default_slm: LLMConfig
+
+
 class SendEmailRequest(BaseModel):
     """Send email request model"""
     user_session_id: Optional[str] = None  # None = new session, str = existing session
@@ -100,8 +107,27 @@ def check_cold_start(config_path: Path) -> bool:
     return False
 
 
-def create_directory_structure(matrix_world_dir: Path):
-    """创建 Matrix World 目录结构并复制模板"""
+def load_user_agent_name(matrix_world_dir: Path) -> str:
+    """Load user agent name from matrix_world.yml configuration file"""
+    import yaml
+
+    config_path = matrix_world_dir / "matrix_world.yml"
+    if not config_path.exists():
+        print("⚠️  Warning: matrix_world.yml not found, using default 'User'")
+        return "User"
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            user_name = config.get('user_agent_name', 'User')
+            return user_name
+    except Exception as e:
+        print(f"⚠️  Error loading matrix_world.yml: {e}, using default 'User'")
+        return "User"
+
+
+def create_directory_structure(matrix_world_dir: Path, user_name: str):
+    """创建 Matrix World 目录结构并复制模板，并替换 User agent 名称"""
     import shutil
 
     template_dir = Path(__file__).resolve().parent / "web" / "matrix_template"
@@ -114,6 +140,52 @@ def create_directory_structure(matrix_world_dir: Path):
     # 直接复制整个 template 到 Matrix World 根目录
     shutil.copytree(template_dir, matrix_world_dir, dirs_exist_ok=True)
     print(f"✅ Copied matrix template from {template_dir}")
+
+    # 替换 User.yml 中的 {{USER_NAME}} 占位符
+    user_yml_path = matrix_world_dir / "agents" / "User.yml"
+    if user_yml_path.exists():
+        with open(user_yml_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 替换模板变量
+        content = content.replace('{{USER_NAME}}', user_name)
+
+        with open(user_yml_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        print(f"✅ User agent configured with name: {user_name}")
+    else:
+        print(f"⚠️  Warning: {user_yml_path} not found")
+
+    # 替换 base.txt 中的 {{USER_NAME}} 占位符
+    base_txt_path = matrix_world_dir / "agents" / "prompts" / "base.txt"
+    if base_txt_path.exists():
+        with open(base_txt_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 替换模板变量
+        content = content.replace('{{USER_NAME}}', user_name)
+
+        with open(base_txt_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        print(f"✅ Base prompt template updated with user name: {user_name}")
+    else:
+        print(f"⚠️  Warning: {base_txt_path} not found")
+
+
+def create_world_config(matrix_world_dir: Path, user_name: str):
+    """创建 matrix_world.yml 配置文件"""
+    import yaml
+    config = {
+        "user_agent_name": user_name
+    }
+
+    config_path = matrix_world_dir / "matrix_world.yml"
+    with open(config_path, 'w', encoding='utf-8') as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+    print(f"✅ Created world configuration: {config_path}")
 
 
 def save_llm_configs(configs: dict, config_path: Path):
@@ -146,10 +218,17 @@ async def lifespan(app: FastAPI):
     # Check if this is cold start
     is_cold_start = check_cold_start(config['llm_config_path'])
     if is_cold_start:
-        print("❄️  Cold start detected - LLM configuration required")
-        create_directory_structure(config['matrix_world_dir'])
+        print("❄️  Cold start detected - Waiting for user configuration via wizard")
+        # Don't create directory structure here - wait for wizard to complete
+        # Runtime will be initialized after wizard completes configuration
+        yield
+        return
     else:
         print("✅ Configuration found - warm start")
+
+        # Load world configuration to get user_agent_name
+        user_agent_name = load_user_agent_name(config['matrix_world_dir'])
+        print(f"✅ Loaded user agent name: {user_agent_name}")
 
         # Initialize AgentMatrix runtime
         try:
@@ -177,14 +256,26 @@ async def lifespan(app: FastAPI):
             matrix_runtime = AgentMatrix(
                 agent_profile_path=str(config['agents_dir']),
                 matrix_path=str(config['workspace_dir']),
-                async_event_callback=event_callback
+                async_event_callback=event_callback,
+                user_agent_name=user_agent_name
             )
+
+            # Validate User agent exists and has correct name
+            if user_agent_name not in matrix_runtime.agents:
+                raise Exception(f"User agent '{user_agent_name}' not found in loaded agents. Available agents: {list(matrix_runtime.agents.keys())}")
+
+            user_agent = matrix_runtime.agents[user_agent_name]
+            if not hasattr(user_agent, 'set_mail_handler'):
+                raise Exception(f"Agent '{user_agent_name}' is not a UserProxyAgent (missing set_mail_handler method)")
+
+            print(f"✅ User agent validation passed: '{user_agent_name}'")
 
             # Store runtime in app.state for API access
             app.state.matrix = matrix_runtime
 
             # Set up User agent's mail callback to push emails via WebSocket
-            if "User" in matrix_runtime.agents:
+            user_agent_name = matrix_runtime.get_user_agent_name()
+            if user_agent_name in matrix_runtime.agents:
                 async def user_mail_callback(email):
                     """Callback to push User agent's received emails to WebSocket clients"""
                     try:
@@ -218,10 +309,10 @@ async def lifespan(app: FastAPI):
                         print(f"⚠️  Error in user mail callback: {e}")
 
                 # Set the mail handler for User agent
-                matrix_runtime.agents["User"].set_mail_handler(user_mail_callback)
-                print("✅ User agent mail callback configured")
+                matrix_runtime.agents[user_agent_name].set_mail_handler(user_mail_callback)
+                print(f"✅ User agent mail callback configured for '{user_agent_name}'")
             else:
-                print("⚠️  Warning: User agent not found in runtime")
+                print(f"⚠️  Warning: User agent '{user_agent_name}' not found in runtime")
 
             print(f"✅ AgentMatrix runtime initialized successfully")
             print(f"🤖 Loaded agents: {list(matrix_runtime.agents.keys())}")
@@ -336,6 +427,32 @@ async def get_config_status():
     }
 
 
+@app.get("/api/config")
+async def get_config():
+    """Get system configuration including user agent name"""
+    global matrix_runtime
+
+    config = app.state.config
+    is_cold = check_cold_start(config['llm_config_path'])
+
+    response_data = {
+        "configured": not is_cold,
+        "matrix_world_dir": str(config['matrix_world_dir']),
+        "agents_dir": str(config['agents_dir']),
+        "workspace_dir": str(config['workspace_dir'])
+    }
+
+    # Only include user_agent_name if runtime is initialized
+    if matrix_runtime and not is_cold:
+        response_data["user_agent_name"] = matrix_runtime.get_user_agent_name()
+    else:
+        # Try to load from config file even if runtime is not initialized
+        user_agent_name = load_user_agent_name(config['matrix_world_dir'])
+        response_data["user_agent_name"] = user_agent_name
+
+    return response_data
+
+
 @app.post("/api/config/llm")
 async def save_llm_config(configs: LLMConfigsRequest):
     """Save LLM configurations"""
@@ -352,6 +469,34 @@ async def save_llm_config(configs: LLMConfigsRequest):
         return {
             "success": True,
             "message": "LLM configuration saved successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/config/complete")
+async def complete_cold_start(configs: ColdStartConfigRequest):
+    """Complete cold start configuration with user name and LLM configs"""
+    try:
+        config = app.state.config
+
+        # 1. Create directory structure and replace template variables
+        create_directory_structure(config['matrix_world_dir'], configs.user_name)
+
+        # 2. Create world configuration file
+        create_world_config(config['matrix_world_dir'], configs.user_name)
+
+        # 3. Save LLM configurations
+        configs_dict = {
+            "default_llm": configs.default_llm,
+            "default_slm": configs.default_slm
+        }
+        save_llm_configs(configs_dict, config['llm_config_path'])
+
+        return {
+            "success": True,
+            "message": "Cold start configuration completed successfully",
+            "user_name": configs.user_name
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -394,9 +539,10 @@ async def send_email(session_id: str, request: SendEmailRequest):
     if not matrix_runtime:
         raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-    user_agent = matrix_runtime.agents.get("User")
+    user_agent_name = matrix_runtime.get_user_agent_name()
+    user_agent = matrix_runtime.agents.get(user_agent_name)
     if not user_agent:
-        raise HTTPException(status_code=404, detail="User agent not found")
+        raise HTTPException(status_code=404, detail=f"User agent '{user_agent_name}' not found")
 
     # Generate new session_id if None
     user_session_id = request.user_session_id

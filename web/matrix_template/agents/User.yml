@@ -1,5 +1,5 @@
 #You should always have one USER agent
-name: User
+name: {{USER_NAME}}
 description: Master of world
 module: agentmatrix.agents.user_proxy
 class_name: UserProxyAgent

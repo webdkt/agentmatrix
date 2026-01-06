@@ -4,6 +4,9 @@ from agentmatrix import AgentMatrix
 from agentmatrix import Email
 import logging
 import uuid
+from pathlib import Path
+import yaml
+
 logger = logging.getLogger('CLI_Runner')
 # 1. 定义：收到信时干什么？-> 打印出来
 
@@ -26,13 +29,39 @@ async def print_to_console(email: Email):
 def global_event_handler(event):
     print(f"🔔 事件触发: {event}")
 
+
+def load_user_agent_name_from_config(matrix_path: str) -> str:
+    """Load user agent name from matrix_world.yml configuration file"""
+    config_path = Path(matrix_path) / "matrix_world.yml"
+    if not config_path.exists():
+        print("⚠️  Warning: matrix_world.yml not found, using default 'User'")
+        return "User"
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            user_name = config.get('user_agent_name', 'User')
+            return user_name
+    except Exception as e:
+        print(f"⚠️  Error loading matrix_world.yml: {e}, using default 'User'")
+        return "User"
+
+
 async def main():
     # 2. 初始化 Matrix
-    matrix = AgentMatrix(agent_profile_path="./profiles", matrix_path='../../Samples/TestWorkspace', async_event_callback=global_event_handler)
+    matrix_path = '../../Samples/TestWorkspace'
+    user_agent_name = load_user_agent_name_from_config(matrix_path)
+
+    matrix = AgentMatrix(
+        agent_profile_path="./profiles",
+        matrix_path=matrix_path,
+        async_event_callback=global_event_handler,
+        user_agent_name=user_agent_name
+    )
     #matrix.load_matrix('Samples/TestWorkspace')
-    
+
     # 3. 挂载回调：把我们的打印函数挂给 UserProxy
-    matrix.agents["User"].on_mail_received = print_to_console
+    matrix.agents[user_agent_name].on_mail_received = print_to_console
     
     await asyncio.to_thread(print, ">>> 系统启动。可以在下面输入指令。")
     await asyncio.to_thread(print, ">>> 例如: Planner: 帮我分析数据")
@@ -70,7 +99,8 @@ async def main():
                     await asyncio.to_thread(print, f"❌ 未找到消息 ID: {reply_to_id}")
                     continue
                 target = mail_id_sender_map[reply_to_id]
-                await matrix.agents["User"].speak(
+                user_agent_name = matrix.get_user_agent_name()
+                await matrix.agents[user_agent_name].speak(
                     user_session_id=user_session_id,
                     to=target,
                     subject=f"Re: 回复您的消息 {reply_to_id}",
@@ -79,11 +109,12 @@ async def main():
                 )
                 continue
 
-                
+
             if ":" in user_input:
                 target, content = user_input.split(":", 1)
                 # 5. 调用 UserProxy 说话
-                await matrix.agents["User"].speak(user_session_id, target.strip(), content.strip())
+                user_agent_name = matrix.get_user_agent_name()
+                await matrix.agents[user_agent_name].speak(user_session_id, target.strip(), content.strip())
             else:
                 await asyncio.to_thread(print,"❌ 格式错误，请使用 'Target: Content'")
                 
