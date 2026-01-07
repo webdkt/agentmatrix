@@ -568,5 +568,85 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             self.project_state = snapshot["extra_state"]
 
 
+    def _resolve_real_path(self, filename: str) -> Path:
+        """
+        解析文件名并返回真实的绝对路径
+        
+        Args:
+            filename: 可能是绝对路径、相对路径或单个文件名
+            
+        Returns:
+            解析后的绝对路径
+            
+        Raises:
+            FileNotFoundError: 文件未找到
+            ValueError: 路径超出 workspace_root 范围
+        """
+        from pathlib import Path
+        
+        # 转换为 Path 对象
+        input_path = Path(filename)
+        
+        # 情况1: 处理绝对路径
+        if input_path.is_absolute():
+            try:
+                # 检查是否在 workspace_root 范围内
+                resolved_path = input_path.resolve()
+                workspace_root = Path(self.workspace_root).resolve()
+                
+                # 检查路径是否在 workspace_root 下
+                if not str(resolved_path).startswith(str(workspace_root)):
+                    raise ValueError(f"Path {filename} is outside workspace_root")
+                    
+                # 检查文件是否存在
+                if not resolved_path.exists():
+                    raise FileNotFoundError(f"File not found: {filename}")
+                    
+                return resolved_path
+                
+            except Exception as e:
+                raise ValueError(f"Invalid absolute path: {filename}") from e
+        
+        # 情况2: 处理相对路径
+        # 判断是否是单个文件名（不包含路径分隔符）
+        is_single_filename = '/' not in str(input_path) and '\\' not in str(input_path)
     
+        # 定义搜索顺序的函数
+        def try_resolve_in_workspace(workspace: Path) -> Optional[Path]:
+            """在指定工作区中解析路径"""
+            if not workspace:
+                return None
+                
+            try:
+                # 对于单个文件名，需要递归搜索
+                if is_single_filename:
+                    # 在工作区中递归搜索文件
+                    for found_file in workspace.rglob(filename):
+                        if found_file.is_file():
+                            return found_file.resolve()
+                else:
+                    # 对于带路径的相对路径，直接解析
+                    candidate = (workspace / input_path).resolve()
+                    if candidate.exists() and candidate.is_file():
+                        return candidate
+                        
+            except Exception:
+                pass
+                
+            return None
+        
+        # 按优先级顺序尝试解析
+        # 1. 先尝试共享工作区
+        resolved = try_resolve_in_workspace(self.current_workspace)
+        if resolved:
+            return resolved
+        
+        # 2. 再尝试私有工作区
+        resolved = try_resolve_in_workspace(self.current_private_workspace)
+        if resolved:
+            return resolved
+        
+        # 3. 如果都没找到，抛出异常
+        raise FileNotFoundError(f"File not found in any workspace: {filename}")
+
     
