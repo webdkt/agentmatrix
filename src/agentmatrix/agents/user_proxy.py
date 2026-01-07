@@ -63,11 +63,6 @@ class UserProxyAgent(BaseAgent):
             subject = resp['reply'] or ""
             #取subject 最后一行
             subject = subject.split("\n")[-1]
-        #给subject 后面加上日期yyyy-mm-dd 
-        
-        subject = subject + " " + datetime.datetime.now().strftime("%Y-%m-%d")
-        subject = subject.strip()
-
 
         email = Email(
             sender=self.name,
