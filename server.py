@@ -544,11 +544,10 @@ async def send_email(session_id: str, request: SendEmailRequest):
     if not user_agent:
         raise HTTPException(status_code=404, detail=f"User agent '{user_agent_name}' not found")
 
-    # Generate new session_id if None
+    # Use session_id from URL if request.user_session_id is None
     user_session_id = request.user_session_id
     if user_session_id is None:
-        import uuid
-        user_session_id = str(uuid.uuid4())
+        user_session_id = session_id
 
     # Call User agent's speak method
     await user_agent.speak(

@@ -34,13 +34,8 @@ function app() {
             body: ''
         },
 
-        // Inline reply state
-        replyingToEmail: null,       // 正在回复的邮件对象
-        isReplying: false,           // 是否正在显示回复框
-        replyMode: 'reply',          // 'reply' or 'forward'
-        replyBody: '',               // 回复内容
-        replyRecipient: '',          // 转发时的收件人
-        isSendingReply: false,       // 回复发送中
+        // Reply state - 使用 Map 存储每个邮件的回复状态
+        replyStates: {},
 
         // Computed property for filtered agents
         get filteredAgents() {
@@ -261,93 +256,6 @@ function app() {
             }
         },
 
-        // Start reply/forward
-        startReply(email, mode = 'reply') {
-            this.replyMode = mode;  // 'reply' or 'forward'
-            this.replyingToEmail = email;
-            this.isReplying = true;
-
-            if (mode === 'reply') {
-                this.replyRecipient = email.sender;
-            } else {
-                this.replyRecipient = '';  // 转发时需选择收件人
-            }
-
-            this.replyBody = '';
-        },
-
-        // Cancel reply
-        cancelReply() {
-            this.replyingToEmail = null;
-            this.isReplying = false;
-            this.replyBody = '';
-            this.replyRecipient = '';
-            this.replyMode = 'reply';
-        },
-
-        // Send inline reply
-        async sendInlineReply() {
-            if (!this.replyBody) {
-                alert('请输入消息内容');
-                return;
-            }
-
-            if (this.replyMode === 'forward' && !this.replyRecipient) {
-                alert('请选择收件人');
-                return;
-            }
-
-            this.isSendingReply = true;
-
-            try {
-                const emailData = {
-                    recipient: this.replyRecipient,
-                    subject: '',  // 空字符串，user_proxy会自动生成
-                    body: this.replyBody
-                };
-
-                // 如果是回复，添加 in_reply_to
-                if (this.replyMode === 'reply' && this.replyingToEmail) {
-                    emailData.in_reply_to = this.replyingToEmail.id;
-                }
-
-                // 发送到当前会话
-                const response = await API.sendEmail(
-                    this.currentSession.session_id,
-                    emailData
-                );
-
-                console.log('Reply sent:', response);
-
-                // 关闭回复框
-                this.cancelReply();
-
-                // 刷新邮件列表
-                await this.loadSessionEmails(this.currentSession.session_id);
-
-            } catch (error) {
-                console.error('Failed to send reply:', error);
-                alert(`发送失败: ${error.message}`);
-            } finally {
-                this.isSendingReply = false;
-            }
-        },
-
-        // Open enlarge modal
-        openEnlargeModal() {
-            // 将内联回复的内容复制到模态框
-            if (this.replyingToEmail) {
-                this.newEmail.recipient = this.replyRecipient;
-                this.newEmail.body = this.replyBody;
-            }
-
-            // 显示模态框
-            this.showNewEmailModal = true;
-
-            // 关闭内联回复框
-            this.cancelReply();
-        },
-
         // Panel resizing methods
         startResize(edge, event) {
             this.isResizing = true;
@@ -396,6 +304,69 @@ function app() {
             // Remove window-level event listeners
             window.removeEventListener('mousemove', this.onResize);
             window.removeEventListener('mouseup', this.stopResize);
+        },
+
+        // 显示回复框
+        startReply(email, mode = 'reply') {
+            // 直接在 email 对象上添加属性
+            email.showReplyBox = true;
+            email.replyMode = mode;
+            email.replyBody = email.replyBody || '';  // 保持已有内容或初始化为空
+            email.replyRecipient = mode === 'reply' ? email.sender : '';
+        },
+
+        // 隐藏回复框
+        cancelReply(email) {
+            email.showReplyBox = false;
+        },
+
+        // 发送回复
+        async sendReply(email) {
+            if (!email.replyBody || email.replyBody.trim() === '') {
+                alert('请输入消息内容');
+                return;
+            }
+
+            if (email.replyMode === 'forward' && (!email.replyRecipient || email.replyRecipient.trim() === '')) {
+                alert('请输入收件人');
+                return;
+            }
+
+            try {
+                const emailData = {
+                    recipient: email.replyRecipient,
+                    subject: '',  // 空字符串，user_proxy会自动生成
+                    body: email.replyBody
+                };
+
+                // 如果是回复模式，添加 in_reply_to
+                if (email.replyMode === 'reply') {
+                    emailData.in_reply_to = email.id;
+                }
+
+                // 关闭回复框（在刷新之前，避免引用失效）
+                email.showReplyBox = false;
+
+                // 使用原邮件的 user_session_id（重要：不是 currentSession.session_id！）
+                const targetSessionId = email.user_session_id;
+                console.log('Sending to session:', targetSessionId);
+
+                const response = await API.sendEmail(
+                    targetSessionId,
+                    emailData
+                );
+
+                console.log('Message sent:', response);
+
+                // 如果目标会话与当前会话相同，刷新邮件列表
+                if (this.currentSession && this.currentSession.session_id === targetSessionId) {
+                    await this.loadSessionEmails(this.currentSession.session_id);
+                }
+
+            } catch (error) {
+                console.error('Failed to send:', error);
+                alert(`发送失败: ${error.message}`);
+            }
         }
     };
 }
