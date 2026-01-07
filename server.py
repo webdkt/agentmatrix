@@ -547,7 +547,13 @@ async def send_email(session_id: str, request: SendEmailRequest):
     # Use session_id from URL if request.user_session_id is None
     user_session_id = request.user_session_id
     if user_session_id is None:
-        user_session_id = session_id
+        if session_id == 'new':
+            # Generate new UUID for new conversations
+            import uuid
+            user_session_id = str(uuid.uuid4())
+        else:
+            # Use existing session_id for replies
+            user_session_id = session_id
 
     # Call User agent's speak method
     await user_agent.speak(
