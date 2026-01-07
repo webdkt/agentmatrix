@@ -90,8 +90,8 @@ class FileSkillMixin:
             if not file_path.is_file():
                 return f"Error: '{relative_path}' is not a file."
 
-            # 文件大小限制：50KB
-            MAX_SIZE = 50 * 1024
+            # 文件大小限制：5KB
+            MAX_SIZE = 5 * 1024
             if file_path.stat().st_size > MAX_SIZE:
                 return f"Error: File too large ({file_path.stat().st_size} bytes). Limit: {MAX_SIZE} bytes."
 
@@ -169,8 +169,8 @@ class FileSkillMixin:
             if not file_path.is_file():
                 return f"Error: '{relative_path}' is not a file."
 
-            # 文件大小限制：50KB
-            MAX_SIZE = 50 * 1024
+            # 文件大小限制：5KB
+            MAX_SIZE = 5 * 1024
             if file_path.stat().st_size > MAX_SIZE:
                 return f"Error: File too large ({file_path.stat().st_size} bytes). Limit: {MAX_SIZE} bytes."
 
