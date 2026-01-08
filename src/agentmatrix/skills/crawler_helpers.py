@@ -6,6 +6,7 @@
 
 import json
 import re
+import asyncio
 from collections import deque
 from typing import Dict, List, Optional, Any
 
@@ -313,3 +314,152 @@ class CrawlerHelperMixin:
         except Exception as e:
             self.logger.exception(f"Batch evaluation failed: {e}")
             return {"priority": "none", "text": None, "element": None, "reason": f"Error: {e}"}
+
+    async def _get_full_page_markdown(self, tab, ctx) -> str:
+        """
+        获取完整页面的 Markdown，自动识别 HTML/PDF
+
+        Args:
+            tab: 浏览器标签页句柄
+            ctx: 上下文对象（可选，用于临时文件保存）
+
+        Returns:
+            str: Markdown 格式的页面内容
+        """
+        from ..core.browser.browser_adapter import PageType
+
+        content_type = await self.browser.analyze_page_type(tab)
+
+        if content_type == PageType.STATIC_ASSET:
+            return await self._pdf_to_full_markdown(tab, ctx)
+        else:
+            return await self._html_to_full_markdown(tab)
+
+    async def _html_to_full_markdown(self, tab) -> str:
+        """
+        将 HTML 页面转换为完整 Markdown
+
+        Args:
+            tab: 浏览器标签页句柄
+
+        Returns:
+            str: Markdown 格式的页面内容
+        """
+        import trafilatura
+
+        raw_html = tab.html
+        url = self.browser.get_tab_url(tab)
+
+        # 使用 trafilatura 提取完整 Markdown
+        markdown = trafilatura.extract(
+            raw_html,
+            include_links=True,
+            include_formatting=True,
+            output_format='markdown',
+            url=url
+        )
+
+        # 降级方案：如果失败，尝试只提取文本（不含链接和格式）
+        if not markdown or len(markdown) < 50:
+            markdown = trafilatura.extract(
+                raw_html,
+                include_links=False,
+                include_formatting=False,
+                output_format='markdown',
+                only_with_text=True
+            )
+
+        return markdown or ""
+
+    async def _pdf_to_full_markdown(self, tab, ctx) -> str:
+        """
+        将 PDF 转换为完整 Markdown
+
+        Args:
+            tab: 浏览器标签页句柄
+            ctx: 上下文对象（可选，用于临时文件保存）
+
+        Returns:
+            str: Markdown 格式的 PDF 内容
+        """
+        # 下载 PDF 到本地
+        pdf_path = await self.browser.save_static_asset(tab)
+
+        # 调用 PDF 转换（在线程池中执行，避免阻塞）
+        markdown = await asyncio.to_thread(
+            self._convert_pdf_to_markdown_text,
+            pdf_path
+        )
+
+        # 可选：保存到临时文件（如果 ctx 支持）
+        if hasattr(ctx, 'temp_file_dir') and ctx.temp_file_dir:
+            self._save_temp_markdown(markdown, pdf_path, ctx.temp_file_dir)
+
+        return markdown
+
+    def _convert_pdf_to_markdown_text(self, pdf_path: str) -> str:
+        """
+        将 PDF 文件转换为 Markdown 文本（核心实现）
+
+        Args:
+            pdf_path: PDF 文件路径
+
+        Returns:
+            str: Markdown 格式的文本
+
+        Raises:
+            Exception: PDF 转换失败
+        """
+        from marker.converters.pdf import PdfConverter
+        from marker.models import create_model_dict
+        from marker.output import text_from_rendered
+        import fitz
+
+        try:
+            # 获取 PDF 总页数
+            with fitz.open(pdf_path) as doc:
+                total_pages = len(doc)
+
+            self.logger.debug(f"PDF总页数: {total_pages}")
+
+            # 初始化 marker 模型
+            self.logger.debug("加载 marker 模型...")
+            converter = PdfConverter(
+                artifact_dict=create_model_dict(),
+            )
+
+            # 执行转换
+            self.logger.debug("正在转换 PDF 到 Markdown...")
+            rendered = converter(pdf_path)
+
+            # 从渲染结果中提取文本
+            text, _, images = text_from_rendered(rendered)
+
+            self.logger.debug(f"转换完成! 共 {len(text)} 个字符")
+
+            return text
+
+        except Exception as e:
+            self.logger.error(f"PDF 转换失败: {e}")
+            raise
+
+    def _save_temp_markdown(self, markdown: str, pdf_path: str, temp_dir: str):
+        """
+        保存临时 Markdown 文件（用于调试）
+
+        Args:
+            markdown: Markdown 文本
+            pdf_path: 原始 PDF 路径
+            temp_dir: 临时目录
+        """
+        import os
+        from slugify import slugify
+
+        os.makedirs(temp_dir, exist_ok=True)
+        filename = slugify(f"pdf_{os.path.basename(pdf_path)}") + ".md"
+        temp_path = os.path.join(temp_dir, filename)
+
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(markdown)
+
+        self.logger.info(f"📄 保存临时 Markdown: {temp_path}")
