@@ -7,6 +7,7 @@ import re
 from typing import List, Set, Dict, Optional, Any, Deque
 from collections import deque
 from dataclasses import dataclass, field
+from ..skills.utils import sanitize_filename
 
 from ..core.browser.google import search_google
 from ..core.browser.bing import search_bing
@@ -216,7 +217,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
     """
 
     @register_action(
-        "针对一个问题上网搜索答案，提供要解决的问题和（可选）搜索关键字词",
+        "针对一个问题上网搜索答案，提供要解决的问题和（可选但建议提供的）搜索关键字词",
         param_infos={
             "purpose": "要回答的问题（或研究目标）",
             "search_phrase": "可选，初始搜索关键词",
@@ -341,6 +342,65 @@ class WebSearcherMixin(CrawlerHelperMixin):
         finally:
             self.logger.info("🛑 Closing browser...")
             await self.browser.close()
+
+    @register_action(
+        "访问一个网页并查看网页内容，如果是pdf文件就下载",
+        param_infos={
+            "url": "要访问的网页 URL"
+        }
+    )
+    async def visit_url(self,url: str):
+        # 1. 准备环境
+        profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", self.name)
+        download_path = os.path.join(self.current_workspace, "downloads")
+
+
+        
+        self.logger.info(f"🔍 准备访问: {url}")
+
+        self.browser = DrissionPageAdapter(
+            profile_path=profile_path,
+            download_path=download_path
+        )
+        await self.browser.start(headless=False)
+
+        tab = await self.browser.get_tab()
+        
+
+        nav_report = await self.browser.navigate(tab, url)
+        final_url = self.browser.get_tab_url(tab)
+        
+
+        # === Phase 2: Identify Page Type ===
+        page_type = await self.browser.analyze_page_type(tab)
+
+        if page_type == PageType.ERRO_PAGE:
+            self.logger.warning(f"🚫 Error Page: {final_url}")
+            return f"Error Accessing Page: {url}"
+
+        # === 分支 A: 静态资源 ===
+        if page_type == PageType.STATIC_ASSET:
+            self.logger.info(f"📄 Static Asset: {final_url}")
+
+            download_file = await self.browser.save_static_asset(tab)
+            return f"文件已下载到： {download_file}"
+
+  
+
+        # === 分支 B: 交互式网页 ===
+        elif page_type == PageType.NAVIGABLE:
+            await self.browser.stabilize(tab)
+            markdown = await self._html_to_full_markdown(tab)
+            
+            #用markdown第一行作为文件名字
+            filename = markdown.split('\n')[0].strip().replace("#","")
+            filename = sanitize_filename(filename) + ".md"
+
+            #把markdown保存为文件
+            with open(os.path.join(self.current_workspace, filename), "w", encoding="utf-8") as f:
+                f.write(markdown)
+            return f"网页摘要已保存到： {filename}"
+
 
     # ==========================================
     # 2. 获取完整页面内容

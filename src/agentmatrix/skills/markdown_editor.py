@@ -96,7 +96,7 @@ class AdvancedMarkdownEditingMixin:
 
 
     @register_action(
-        "编辑markdown文件，提供要编辑的文件名和具体的一项修改编辑指令，不是创意写作，一次进行一项修改",
+        "编辑txt和Markdown格式文件，处理一个逻辑上独立完整的编辑任务。",
         param_infos={
             "file_path": "要编辑的Markdown文档的完整路径。",
             "edit_instruction": "对文档进行修改的自然语言指令。"

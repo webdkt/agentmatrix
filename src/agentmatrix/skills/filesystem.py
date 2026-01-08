@@ -83,9 +83,16 @@ class FileSkillMixin:
         try:
             workspace = self.private_workspace
             file_path = self._resolve_path(workspace, relative_path)
+            
 
             if not file_path.exists():
-                return f"Error: File '{relative_path}' does not exist."
+                shared_file_path = self._resolve_path(self.current_workspace, relative_path)
+                if shared_file_path.exists():
+                    return f"Error: File '{relative_path}' is not in private workspace, it's in shared workspace."
+                else:
+                    return f"Error: File '{relative_path}' does not exists"
+
+
 
             if not file_path.is_file():
                 return f"Error: '{relative_path}' is not a file."
