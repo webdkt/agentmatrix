@@ -19,7 +19,7 @@ from ..skills.crawler_helpers import CrawlerHelperMixin
 from ..core.browser.drission_page_adapter import DrissionPageAdapter
 from ..core.action import register_action
 
-search_func = search_google
+search_func = search_bing
 
 # ==========================================
 # Prompt 集中管理
@@ -401,71 +401,8 @@ class WebSearcherMixin(CrawlerHelperMixin):
                 f.write(markdown)
             return f"网页摘要已保存到： {filename}"
 
-
     # ==========================================
-    # 2. 获取完整页面内容
-    # ==========================================
-
-    async def _get_full_page_markdown(self, tab: TabHandle, ctx: WebSearcherContext) -> str:
-        """
-        获取完整页面的 Markdown，无字符限制
-        - HTML: 使用 trafilatura 提取完整 Markdown
-        - PDF: 使用 pdf_to_markdown 转换完整文档
-        """
-        content_type = await self.browser.analyze_page_type(tab)
-
-        if content_type == PageType.STATIC_ASSET:
-            return await self._pdf_to_full_markdown(tab, ctx)
-        else:
-            return await self._html_to_full_markdown(tab)
-
-    async def _html_to_full_markdown(self, tab: TabHandle) -> str:
-        """将 HTML 页面转换为完整 Markdown"""
-        import trafilatura
-
-        raw_html = tab.html
-        url = self.browser.get_tab_url(tab)
-
-        # 使用 trafilatura 提取完整 Markdown
-        markdown = trafilatura.extract(
-            raw_html,
-            include_links=True,
-            include_formatting=True,
-            output_format='markdown',
-            url=url
-        )
-
-        # 备选方案
-        if not markdown or len(markdown) < 50:
-            markdown = tab.text
-
-        return markdown or ""
-
-    async def _pdf_to_full_markdown(self, tab: TabHandle, ctx: WebSearcherContext) -> str:
-        """将 PDF 转换为完整 Markdown（独立实现，便于后续优化）"""
-        from skills.report_writer_utils import pdf_to_markdown
-
-        # 下载 PDF 到本地
-        pdf_path = await self.browser.save_static_asset(tab)
-
-        # 转换完整 PDF 为 Markdown
-        markdown = pdf_to_markdown(pdf_path)
-
-        # 可选：保存到临时文件（调试用）
-        if ctx.temp_file_dir:
-            import os
-            from slugify import slugify
-            os.makedirs(ctx.temp_file_dir, exist_ok=True)
-            filename = slugify(f"pdf_{os.path.basename(pdf_path)}") + ".md"
-            temp_path = os.path.join(ctx.temp_file_dir, filename)
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(markdown)
-            self.logger.info(f"📄 Saved markdown to: {temp_path}")
-
-        return markdown
-
-    # ==========================================
-    # 3. 辅助方法（目录、选择章节、分段）
+    # 2. 辅助方法（目录、选择章节、分段）
     # ==========================================
 
     def _generate_document_toc(self, markdown: str) -> List[Dict[str, Any]]:
