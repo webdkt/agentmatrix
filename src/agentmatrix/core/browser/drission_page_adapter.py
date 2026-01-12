@@ -86,6 +86,22 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
         self.browser: Optional[Any] = None
 
+    def _hash_path_to_port(self, profile_path: str) -> int:
+        """
+        根据 profile_path 生成唯一端口号（9200-9500 范围）
+
+        这样可以确保：
+        - 相同的 profile_path 总是生成相同的端口 → 浏览器复用
+        - 不同的 profile_path 生成不同的端口 → 真正隔离
+
+        Args:
+            profile_path: Chrome 用户数据目录路径
+
+        Returns:
+            int: 端口号（9200-9500 范围内）
+        """
+        hash_val = int(hashlib.md5(profile_path.encode()).hexdigest(), 16)
+        return 9200 + (hash_val % 300)
 
     async def start(self, headless: bool = False):
         """
@@ -95,7 +111,13 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             headless: 是否以无头模式启动浏览器
         """
         os.environ["no_proxy"] = "localhost,127.0.0.1"
-        co = ChromiumOptions().set_user_data_path(self.profile_path)
+
+        # 根据 profile_path 生成唯一端口，实现不同 agent 的隔离
+        port = self._hash_path_to_port(self.profile_path)
+
+        co = ChromiumOptions()
+        co.set_user_data_path(self.profile_path)
+        co.set_local_port(port)  # 关键：为每个 agent 分配独立端口
 
         # 配置下载路径
         if self.download_path:
