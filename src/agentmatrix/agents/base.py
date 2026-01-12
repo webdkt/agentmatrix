@@ -81,7 +81,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                 }
 
     @property
-    def current_private_workspace(self) -> Path:
+    def private_workspace(self) -> Path:
         """
         获取当前 session 的个人工作目录（如果不存在则自动创建）
 
@@ -642,7 +642,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             return resolved
         
         # 2. 再尝试私有工作区
-        resolved = try_resolve_in_workspace(self.current_private_workspace)
+        resolved = try_resolve_in_workspace(self.private_workspace)
         if resolved:
             return resolved
         
