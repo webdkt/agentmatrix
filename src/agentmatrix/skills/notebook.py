@@ -16,13 +16,6 @@ class NotebookMixin:
         }
     )
     async def search_in_diary(self, query):
-        search_result = await asyncio.to_thread(
-            self.sync_search_in_history,
-            query=query
-        )
-        return search_result
-
-    def sync_search_in_history(self, query):
         max_count = 10 #最多检查 10 封邮件
         session = self.current_session
         user_session_id = session.user_session_id
@@ -32,7 +25,7 @@ class NotebookMixin:
             if mails:
                 m = mails[0]
                 mail_text = str(m)
-                    
+
 
                 search_history_prompt = textwrap.dedent(f"""
                     你是一个专业的历史邮件管理助理。负责从系统邮件历史中查找能够回答用户问题的邮件。
@@ -48,14 +41,14 @@ class NotebookMixin:
 
                     [应答的要求]：
                     1. 严格按照下面的专业格式报告查找的结果：
-                    2. 如果这封邮件包含用户想找的信息，就输出 “FOUND"。单一单词，不要附加任何额外信息。
+                    2. 如果这封邮件包含用户想找的信息，就输出 "FOUND"。单一单词，不要附加任何额外信息。
                     3. 如果这封邮件包含用户想找的部分信息，就摘录这部分可能有用的信息的原文，并且直接输出。只输出原文，不要任何其他信息。
                     4. 如果这封邮件没有任何有用信息，输出 "NOT_FOUND"。单一单词，不要附加任何额外信息
-                    5. 总之，你的输出要么是 “FOUND”，要么是 “NOT_FOUND”，要么是邮件中摘录的部分原文。任何其他内容都被认为是不专业的。
+                    5. 总之，你的输出要么是 "FOUND"，要么是 "NOT_FOUND"，要么是邮件中摘录的部分原文。任何其他内容都被认为是不专业的。
                 """)
                 messages= [{"role": "user", "content": search_history_prompt}]
 
-                response = self.cerebellum.backend.think(messages=messages)
+                response = await self.cerebellum.backend.think(messages=messages)
                 reply_str= response['reply']
                 if reply_str == "FOUND":
                     return textwrap.dedent(f"""
