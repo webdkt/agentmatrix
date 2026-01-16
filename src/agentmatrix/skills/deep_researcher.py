@@ -109,6 +109,8 @@ class DeepResearcher(DeepResearchHelper):
         director_persona, researcher_persona = self._generate_personas(ctx)
         ctx.director_persona = director_persona
         ctx.researcher_persona = researcher_persona
+        await self._discuss_research_plan(ctx)
+        await self._do_research(ctx)
 
 
     async def _discuss_research_plan(self, ctx: ResearchContext):
@@ -124,6 +126,27 @@ class DeepResearcher(DeepResearchHelper):
         self.logger.debug(f"🤖 {resp['reasoning']}")
         director_suggestion = resp['reply']
         self.logger.debug(f'{director_suggestion}')
+        final_plan_prompt = self._format_prompt(self.RESEARCHER_FINAL_PLAN_1,ctx, draft_plan = plan_draft, director_suggestion=director_suggestion)
+        final_plan = self.brain.think_with_retry(final_plan_prompt, self._research_plan_parser)
+
+        ctx.research_plan = final_plan["[研究计划]"]
+        chapter_outline = final_plan["[章节大纲]"]
+        ctx.key_questions = final_plan["[关键问题]"]
+        #chapter_outline 需要进一步解析成章节列表， 每行一个章节标题，取 '# ' 后面的内容
+        chapters = []
+        for line in chapter_outline.split('\n'):
+            if line.startswith('# '):
+                chapters.append(line[2:])
+        ctx.chapter_outline = chapters
+
+
+    async def _do_research(self, ctx: ResearchContext):
+        # 这里构造一个mesage history,  包括 research 目标和当前计划，以及目前的笔记内容
+        # 要求brain 决定下一个步骤。步骤列表包括：
+        # 1. 进行一个新的research task (search + crawl + read + note) - 一页笔记满了就返回，让brain看到新的笔记，决定下一步
+        # 2. Summarize current page
+        # 3. review key questions
+        
         
         
 
@@ -134,21 +157,13 @@ class DeepResearcher(DeepResearchHelper):
 
 
 
-    @register_action(
-        "为研究做准备，上网搜索并下载相关资料，要提供研究的目标和搜索关键词",
-        param_infos={
-            "purpose": "研究的具体目标",
-            "search_phrase": "在搜索引擎输入的初始关键词",
-            "topic": "保存资料的文件夹名称",
-            "max_time": "最大运行时间(分钟)"
-        }
-    )
-    async def research_crawler(self, purpose: str, search_phrase: str, topic: str, max_time: int = 30):
+    #TODO: 把research_crawler改造成 _do_research 
+    async def research_crawler(self, ctx):
         """
         [Entry Point] 外部调用的入口
         """
         # 1. 准备环境
-        save_dir = os.path.join(self.workspace_root, "downloads", sanitize_filename(topic))
+        save_dir = os.path.join(ctx.research_dir, "downloads", sanitize_filename(ctx.research_title))
 
         os.makedirs(save_dir, exist_ok=True)
 
@@ -159,13 +174,8 @@ class DeepResearcher(DeepResearchHelper):
             download_path=save_dir
         )
         
-        ctx = MissionContext(
-            purpose=purpose,
-            save_dir=save_dir,
-            deadline=time.time() + int(max_time) * 60
-        )
-        
-        self.logger.info(f"🚀 Mission Start: {purpose}")
+
+        self.logger.info(f"🚀 Mission Start: {ctx.research_purpose}")
         
         # 2. 启动浏览器
         await self.browser_adapter.start(headless=False) # 调试模式先开有头

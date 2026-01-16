@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, Optional, Callable, List
+from typing import Dict, Optional, Callable, List, Any
 from ..core.message import Email
 from ..core.session import TaskSession
 from ..core.events import AgentEvent
@@ -649,4 +649,84 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         # 3. 如果都没找到，抛出异常
         raise FileNotFoundError(f"File not found in any workspace: {filename}")
 
-    
+    async def _run_micro_agent(
+        self,
+        persona: str,
+        task: str,
+        available_actions: Optional[List[str]] = None,
+        task_context: Optional[Dict[str, Any]] = None,
+        max_steps: int = 50,
+        exclude_actions: Optional[List[str]] = None
+    ) -> str:
+        """
+        运行一个 Micro Agent 来处理子任务
+
+        这是 BaseAgent 中使用 Micro Agent 的便捷方法
+        Micro Agent 继承 BaseAgent 的所有 actions（默认），是 BaseAgent 的临时"人格"
+
+        Args:
+            persona: 角色/身份描述（覆盖 BaseAgent 的 persona）
+            task: 任务描述
+            available_actions: 可用的 action 名称列表（None = 使用所有 BaseAgent 的 actions）
+            task_context: 任务上下文（可选）
+            max_steps: 最大步数
+            exclude_actions: 要排除的 actions（默认排除等待类 actions）
+
+        Returns:
+            str: Micro Agent 的执行结果
+
+        Example:
+            # 使用所有 actions（默认）
+            result = await self._run_micro_agent(
+                persona="You are a code analysis expert...",
+                task="Analyze the project structure",
+                task_context={"path": "/project"},
+                max_steps=30
+            )
+
+            # 指定部分 actions
+            result = await self._run_micro_agent(
+                persona="You are a researcher...",
+                task="Research this topic",
+                available_actions=["web_search", "read_file", "finish_task"],
+                max_steps=20
+            )
+        """
+        from .micro_agent import MicroAgent
+
+        # 默认排除等待类 actions（这些会导致 Micro Agent 无法正常返回）
+        default_exclude = ["rest_n_wait", "take_a_break"]
+        if exclude_actions:
+            default_exclude.extend(exclude_actions)
+
+        # 如果没有指定 available_actions，使用 BaseAgent 的所有 actions（排除等待类）
+        if available_actions is None:
+            available_actions = [
+                action_name for action_name in self.actions_map.keys()
+                if action_name not in default_exclude
+            ]
+
+        # 确保 finish_task 在列表中
+        if "finish_task" not in available_actions:
+            available_actions.append("finish_task")
+
+        # 创建（或重用）Micro Agent
+        if not hasattr(self, '_micro_agent_instance'):
+            self._micro_agent_instance = MicroAgent(
+                brain=self.brain,
+                cerebellum=self.cerebellum,
+                action_registry=self.actions_map,
+                name=f"{self.name}_Micro",
+                default_max_steps=max_steps
+            )
+
+        # 执行任务
+        result = await self._micro_agent_instance.execute(
+            persona=persona,
+            task=task,
+            available_actions=available_actions,
+            task_context=task_context,
+            max_steps=max_steps
+        )
+
+        return result
