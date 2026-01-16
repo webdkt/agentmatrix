@@ -1,4 +1,6 @@
 import traceback
+from urllib.parse import quote_plus
+
 async def extract_search_results(adapter, tab):
     """
     Extract search results from Bing search results page.
@@ -107,9 +109,12 @@ async def search_bing(adapter, tab, query, max_pages=5, page=None):
     """
     print(f"\n=== Bing Search: {query} (max pages: {max_pages}) ===")
 
-    # Navigate to Bing
-    print("1. Navigating to Bing...")
-    interaction_report = await adapter.navigate(tab, "https://www.bing.com")
+    # Navigate directly to Bing search results page
+    print("1. Navigating to Bing search results...")
+    encoded_query = quote_plus(query)
+    print(f"   Query: {query}")
+    print(f"   Encoded: {encoded_query}")
+    interaction_report = await adapter.navigate(tab, f"https://www.bing.com/search?q={encoded_query}")
     print(f"✓ Navigation completed. URL changed: {interaction_report.is_url_changed}")
 
     # Wait a moment for page to load
@@ -123,13 +128,8 @@ async def search_bing(adapter, tab, query, max_pages=5, page=None):
         intl_btn.click()
         time.sleep(1)  # Wait for the page to update after clicking intl button
 
-    # Type search query and submit
-    print("2. Typing search query...")
-    await adapter.type_text(tab, "@@tag()=input@@name=q", f"{query}\n", True)
-    print("✓ Search query submitted")
-
     # Stabilize the search results page
-    print("\n3. Stabilizing search results page...")
+    print("\n2. Stabilizing search results page...")
     stabilization_success = await adapter.stabilize(tab)
     print(f"✓ Stabilization completed: {stabilization_success}")
 
