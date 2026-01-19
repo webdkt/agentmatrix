@@ -70,7 +70,9 @@ class MicroAgent(AutoLoggerMixin):
         task: str,
         available_actions: List[str],
         task_context: Optional[Dict[str, Any]] = None,
-        max_steps: Optional[int] = None
+        max_steps: Optional[int] = None,
+        exit_condition: str = "finish_task",
+        initial_history: Optional[List[Dict]] = None
     ) -> str:
         """
         执行任务（可重复调用）
@@ -81,9 +83,11 @@ class MicroAgent(AutoLoggerMixin):
             available_actions: 可用的 action 名称列表
             task_context: 任务上下文（可选）
             max_steps: 最大步数（可选，默认使用 default_max_steps）
+            exit_condition: 退出条件 action 名称（默认 "finish_task"）
+            initial_history: 初始对话历史（用于恢复记忆，可选）
 
         Returns:
-            str: 最终结果
+            str: 最终结果（退出 action 返回的内容）
         """
         # 设置本次执行的参数
         self.persona = persona
@@ -91,22 +95,31 @@ class MicroAgent(AutoLoggerMixin):
         self.task_context = task_context or {}
         self.available_actions = available_actions
         self.max_steps = max_steps or self.default_max_steps
+        self.exit_condition = exit_condition
 
         # 重置执行状态
-        self.messages = []
         self.step_count = 0
         self.result = None
+
+        # 恢复或初始化对话历史
+        if initial_history:
+            # 恢复记忆：复制历史记录
+            self.messages = initial_history.copy()
+            self.logger.info(f"Micro Agent {self.name} restoring memory with {len(initial_history)} messages")
+            # 添加新的任务输入
+            self._add_message("user", f"\n[NEW INPUT]\n{self._format_task_message()}")
+        else:
+            # 新对话：初始化
+            self.messages = []
+            self._initialize_conversation()
 
         self.logger.info(f"Micro Agent {self.name} executing task: {task[:50]}...")
 
         try:
-            # 1. 初始化对话
-            self._initialize_conversation()
-
-            # 2. 执行 think-negotiate-act 循环
+            # 执行 think-negotiate-act 循环
             await self._run_loop()
 
-            # 3. 返回结果
+            # 返回结果
             self.logger.info(f"Micro Agent {self.name} completed in {self.step_count} steps")
             return self.result or "Task completed without explicit result"
 
@@ -135,8 +148,8 @@ Instructions:
 1. Think step by step about what needs to be done
 2. When you need to use an action, include the action name in your response
 3. The system will negotiate parameters with you if needed
-4. When you have completed the task, use the action: finish_task
-5. Provide your final result when calling finish_task
+4. When you have completed the task, use the action: {self.exit_condition}
+5. Provide your final result when calling {self.exit_condition}
 
 Available actions: {', '.join(self.available_actions)}
 """
@@ -176,8 +189,8 @@ Available actions: {', '.join(self.available_actions)}
             # 2. 识别 action
             action_name = self._detect_action(thought)
 
-            if action_name == "finish_task":
-                # 任务完成，提取结果并退出
+            if action_name == self.exit_condition:
+                # 达到退出条件，提取结果并退出
                 self.result = self._extract_final_result(thought)
                 break
 
@@ -301,6 +314,15 @@ Available actions: {', '.join(self.available_actions)}
     def _add_message(self, role: str, content: str):
         """添加消息到对话历史"""
         self.messages.append({"role": role, "content": content})
+
+    def get_history(self) -> List[Dict]:
+        """
+        获取完整的对话历史
+
+        Returns:
+            List[Dict]: 完整的对话历史（包括初始历史 + 新增对话）
+        """
+        return self.messages
 
 
 # ============================================================================
