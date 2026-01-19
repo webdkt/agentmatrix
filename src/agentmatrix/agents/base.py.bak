@@ -256,48 +256,120 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                 await asyncio.sleep(1)  # 防止异常风暴
 
     async def process_email(self, email: Email):
-        """
-        处理邮件 = 恢复记忆 + 执行 + 保存记忆
-
-        使用内置 Micro Agent 执行 think-act 循环
-        """
         # 1. Session Management (Routing)
         self.logger.debug(f"New Email")
         self.logger.debug(str(email))
         session = self._resolve_session(email)
         self.current_session = session
         self.current_user_session_id = session.user_session_id
+        #print(f"Prcessing email from {email.sender} , {email.subject}")
+        
+        
+        # 2. Add incoming message to history (Input)
+        self._add_message_to_history(email)
+        
+        # 3. The "Think-Act" Loop
+        # 设置一个最大步数，防止 LLM 死循环自言自语
+        MAX_STEPS = 100 
+        step_count = 0
 
-        # 2. 准备参数
-        task = str(email)
+        async def ask_brain_clarification(question: str) -> str:
+            # 1. 构造一个临时的 Context
+            # 我们不希望把 Cerebellum 的琐碎问题污染到主 History 里
+            # 所以我们 copy 一份当前的 history，附加上问题
+            temp_messages = session.history.copy()
+            
+            # 2. 注入 System Prompt，告诉 Brain 现在是在回答小脑的质询
+            
+            
+            temp_messages.append({"role": "user", "content": f"[INTERNAL QUERY]  {question} "})
+            
+            # 3. Brain 思考
+            response = await self.brain.think(temp_messages)
+            return response['reply']
+        
+        while step_count < MAX_STEPS:
+            step_count += 1
+            
+            # A. Brain: Think (Context -> Intention)
+            context = self._get_llm_context(session)
+            
+            intention = await self.brain.think(context)
+            self.logger.debug(intention)
+            
+            intention = intention['reply']
+            
+            
 
-        # 3. 准备 available actions
-        # BaseAgent 使用所有 actions（包括 send_email）
-        available_actions = list(self.actions_map.keys())
+            action_signal = None  
+            #check if there's [ACTION SIGNAL] format in intention
+            if "[ACTION SIGNAL]:" in intention:
+                action_signal = intention.split("[ACTION SIGNAL]:",1)[1].strip()
+            else:
+                # 没有遵守格式，强制要求重写
+                self._add_brain_intention_to_history(intention)
+                self._add_question_to_brain("Action signal should begin with  `[ACTION SIGNAL]:`")
+                continue
+            
+            
+            
+            # 2. Cerebellum 翻译
+            manifest_str = self._generate_tools_prompt()
+            contacts = self.post_office.get_contact_list(exclude = self.name)
+            contacts = "\n".join(contacts)
 
-        # 4. 执行 Micro Agent
-        # 传入之前的 history（恢复记忆）
-        micro_core = self._get_micro_core()
+            action_json = await self.cerebellum.negotiate(
+                initial_intent=action_signal, 
+                tools_manifest=manifest_str,
+                contacts = contacts,
+                brain_callback=ask_brain_clarification
+            )
+            
+            
+            
+            
+            action_name = action_json.get("action")
+            self.logger.debug(f"{self.name} will do action: \n{action_name}")
+            params = action_json.get("params", {})
 
-        result = await micro_core.execute(
-            persona=self.get_prompt(),
-            task=task,
-            available_actions=available_actions,
-            task_context={
-                "session_id": session.session_id,
-                "sender": email.sender,
-                "user_session_id": email.user_session_id
-            },
-            max_steps=100,
-            exit_condition="rest_n_wait",
-            initial_history=session.history  # 恢复记忆！
-        )
+            
 
-        # 5. 更新 session 的 history
-        session.history = micro_core.get_history()
+            # 4. 查找方法
+            method = self.actions_map.get(action_name)
+            if not method:
+                # 幻觉处理：Brain 编造了一个不存在的动作
+                self._add_intention_feedback_to_history(intention, "Body is tired, need to take a break") #希望Brain会选择“Take a Break"!
+                self.logger.error(f"Tried to do an unknown action: {action_name}")
+                continue
 
-        self.logger.debug(f"Email processing completed. Result: {result[:100] if result else 'No result'}...")
-        self.logger.info(f"Session {session.session_id} now has {len(session.history)} messages")
+            # 5. 执行方法 (Execution)
+            try:
+                # 获取动作类型
+                
+                
+                if action_name != "rest_n_wait":
+                    result = await method(**params)
+                    self.logger.debug(f"{self.name} did action: \n{result}")
+                    # 同步动作：把结果喂回给 Brain，继续循环
+                    self._add_intention_feedback_to_history(intention, action_name, result)
+                    #self.logger.debug(f"{self.current_session.history[:-2]}")
+                    continue 
+                    
+                else:
+                    #如果大脑输出了 rest_n_wait 的意图，我们就结束本次循环了，不用回答了，只要记录下它最后说的
+                    self._add_brain_intention_to_history(intention)
+                    self.logger.debug(f"{self.name} will rest and wait")
+                    self.status = "WAITING" #wait for email reply
+                    break
+                                        
+            except Exception as e:
+                # 执行报错：把 Python 异常喂回给 Brain
+                # Brain 看到报错后，可能会决定 "google search error" 或者 "ask coder"
+                self.logger.exception("Body执行错误")
+                self._add_intention_feedback_to_history(intention, action_name, f"Something wrong happened : {e}")
+                continue
+
+    
 
     def _resolve_session(self, email: Email) -> TaskSession:
         # Case A: Reply
@@ -662,16 +734,23 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         if "finish_task" not in available_actions:
             available_actions.append("finish_task")
 
-        # 使用内置 Micro Agent（共享 _micro_core）
-        # 子任务不需要恢复记忆，所以 initial_history=None
-        result = await self._get_micro_core().execute(
+        # 创建（或重用）Micro Agent
+        if not hasattr(self, '_micro_agent_instance'):
+            self._micro_agent_instance = MicroAgent(
+                brain=self.brain,
+                cerebellum=self.cerebellum,
+                action_registry=self.actions_map,
+                name=f"{self.name}_Micro",
+                default_max_steps=max_steps
+            )
+
+        # 执行任务
+        result = await self._micro_agent_instance.execute(
             persona=persona,
             task=task,
             available_actions=available_actions,
             task_context=task_context,
-            max_steps=max_steps,
-            exit_condition="finish_task",
-            initial_history=None  # 新对话，不需要恢复记忆
+            max_steps=max_steps
         )
 
         return result

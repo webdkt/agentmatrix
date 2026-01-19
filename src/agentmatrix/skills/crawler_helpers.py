@@ -62,7 +62,16 @@ class CrawlerHelperMixin:
             self.logger.debug(f"No clean links found for {ctx.purpose}")
             return []
 
-        # 2. 分批 LLM 过滤
+        # 2. 根据候选数量确定提前终止阈值
+        total_candidates = len(clean_candidates)
+        if total_candidates <= 20:
+            # 少量候选：不设阈值，全部处理完
+            early_stop_threshold = None
+        else:
+            # 大量候选：设低阈值，达到即停止
+            early_stop_threshold = 3
+
+        # 3. 分批 LLM 过滤
         batch_size = 10
         selected_urls = []
         url_pattern = re.compile(r'(https?://[^\s"\'<>]+)')
@@ -81,22 +90,24 @@ class CrawlerHelperMixin:
                     list_str=list_str
                 )
             else:
-                # 默认 prompt
+                # 默认 prompt（强化精选要求）
                 prompt = f"""
                 Mission: Find links relevant to "{ctx.purpose}".
 
-                Below is a list of links found on a webpage.
-                This page is about: {page_summary}.
-                Select ONLY the links that are likely to contain information related to the Mission or worth to explore.
+                This page is about: {page_summary}
 
                 [Candidates]
                 {list_str}
 
                 [Instructions]
-                1. Select links that are likely to contain information related to the Mission. Or may lead to information related to the Mission (destination worth explore).
-                2. Ignore links clearly point to non-relevant pages or destinations
-                3. 注意，如果是百度百科这样的网页，上面的链接很多是无关的，要仔细甄别，只选择确定有关的
-                4. OUTPUT FORMAT: Just list the full URLs of the selected links, one per line.
+                1. Select ONLY links that are DIRECTLY relevant to the Mission
+                2. Each link must have HIGH probability of containing useful information
+                3. IGNORE ambiguous or generic links (e.g., "Learn More", "Click Here")
+                4. AVOID links that clearly point to non-relevant content
+                5. 如果是百度百科这类网页，上面的链接很多是无关的，要仔细甄别，只选择确定有关的
+                6. Be SELECTIVE - only choose links you are CONFIDENT will help
+
+                OUTPUT FORMAT: Just list the full URLs of the selected links, one per line.
                 """
 
             try:
@@ -107,7 +118,7 @@ class CrawlerHelperMixin:
                 raw_reply = resp.get('reply', '')
                 self.logger.debug(f"LLM reply: {raw_reply}")
 
-                # 3. 正则提取与验证
+                # 4. 正则提取与验证
                 found_urls = url_pattern.findall(raw_reply)
                 for raw_url in found_urls:
                     clean_url = raw_url.strip('.,;)]}"\'')
@@ -120,6 +131,14 @@ class CrawlerHelperMixin:
                             if clean_url in original_url and len(clean_url) > 15:
                                 selected_urls.append(original_url)
                                 break
+
+                # 5. 提前终止：达到阈值后停止
+                if early_stop_threshold and len(selected_urls) >= early_stop_threshold:
+                    self.logger.info(
+                        f"✓ Early stop: selected {len(selected_urls)} links "
+                        f"(threshold: {early_stop_threshold}) from {total_candidates} candidates"
+                    )
+                    break
 
             except Exception as e:
                 self.logger.error(f"Link filtering batch failed: {e}")
