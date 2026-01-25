@@ -2,14 +2,120 @@
 
 ## 概述
 
-AgentMatrix 实现了一个双层 Agent 系统，包含 **BaseAgent** 和 **MicroAgent**。MicroAgent 被设计为 BaseAgent 的"临时人格"——复用相同的能力，但拥有独立的任务上下文和专注的执行循环。
+### 为什么要分两层
+
+做 Agent 的时候有个实际问题：**一次对话可能包含多个任务，而每个任务又要分多步执行。**
+
+比如说用户和 Researcher Agent 正在对话（这是一个 session），用户说"帮我研究一下 AI 安全"。这个任务本身可能需要多步：先搜索资料、再阅读论文、最后整理报告。这些是 MicroAgent 的执行步骤。
+
+如果把这些混在一起，状态会很乱：session 级别的对话历史、任务级别的执行状态、步数计数器……全都堆在 BaseAgent 里，代码很难维护，bug 也难找。
+
+常见的两种做法都不太理想：
+
+1. **全塞进 BaseAgent**：session 历史、任务状态、执行步数全在一个对象里。状态一大堆，职责不清，改一个地方可能影响另一个。
+
+2. **每个任务起个新 Agent**：干净倒是干净，但新 Agent 得重新配置、重新加载技能，而且访问不到原 Agent 的上下文。
+
+### 我们的方案：BaseAgent（会话层）+ MicroAgent（执行层）
+
+我们把"会话管理"和"任务执行"分开：
+
+**BaseAgent = 会话层**
+- 管理 session 级别的状态（可以有多个独立的 session）
+- 每个 session 有自己的对话历史、上下文
+- 拥有技能、动作等能力（这些是全局的，跨 session 共享）
+- 收到用户任务后，委托给 MicroAgent 执行
+
+**MicroAgent = 执行层**
+- 专门跑单个任务（一次 think-act 循环）
+- 继承 BaseAgent 的所有能力（brain、cerebellum、action registry）
+- 有自己独立的执行上下文（任务描述、执行历史、步数计数）
+- 任务完成或超限就结束，返回结果
+
+关键点：**MicroAgent 不是另一个 Agent 类**，它是 BaseAgent 为了执行某个任务而创建的"临时执行上下文"。你可以把它理解为 BaseAgent 进入"专注干活模式"，干完活就回到正常状态。
+
+### 为什么要这么分
+
+**1. 职责清晰**
+- BaseAgent 管 session：这是哪个会话、历史消息是什么、用户在聊什么
+- MicroAgent 管执行：我现在在干嘛、下一步是什么、到第几步了
+- 不同层次的状态分开管理，代码好懂
+
+**2. 状态隔离**
+- BaseAgent 的 session 历史不会被执行步数、中间结果污染
+- MicroAgent 的执行状态（步数、中间结果）不会进 session 历史
+- MicroAgent 完事就消失，不用操心状态清理
+
+**3. 支持并发**
+- 一个 BaseAgent 可以同时维护多个 session
+- 每个 session 可以有自己的 MicroAgent 在执行任务
+- 互不干扰，各自管各自的状态
+
+**4. 失败不伤 session**
+- 任务失败了（超限、解析错误等），只影响这次 MicroAgent 执行
+- BaseAgent 的 session 还在，可以报告失败、让用户澄清、或者换个方式重试
+- 用户对话不受影响
+
+### 实际执行流程
+
+用户发邮件给 BaseAgent 时：
+
+```
+1. BaseAgent 收到邮件
+   ├─ 看 in_reply_to，这是哪个 session？
+   ├─ 恢复或创建 TaskSession（session 级别的对话历史）
+   └─ 委托给 MicroAgent 执行本次任务
+
+2. MicroAgent 执行
+   ├─ 继承 BaseAgent 的能力（brain、cerebellum、actions）
+   ├─ 初始化本次任务的执行上下文
+   ├─ 跑 think-negotiate-act 循环
+   │  ├─ 思考：下一步该干嘛？
+   │  ├─ 从 LLM 输出检测动作
+   │  ├─ 协商参数（通过 Cerebellum）
+   │  ├─ 执行动作
+   │  └─ 重复直到 finish_task 或到步数上限
+   └─ 返回结果给 BaseAgent
+
+3. BaseAgent 更新 session
+   ├─ 把 MicroAgent 的结果写入 session 历史
+   └─ 给用户发回复邮件
+```
+
+注意：MicroAgent 执行过程中的中间思考、动作调用等，不会进 session 历史。只有最终结果会记录到 session 中。
 
 ## 设计理念
 
-- **双脑架构**: 将推理(LLM)与参数协商(SLM)分离
-- **Micro Agent 作为临时人格**: 相同能力，不同上下文，独立生命周期
-- **基于邮件的通信**: 所有 Agent 间协调使用自然语言消息
-- **动态技能组合**: Skills 作为 mixins 在运行时动态加载
+这个双层架构的核心思想：
+
+**1. 会话和执行分离**
+- 会话（session）是对话级别的，可能持续很长时间
+- 执行（task）是任务级别的，通常几分钟就完成
+- 一次对话可能包含多次任务执行
+
+**2. 能力继承，状态独立**
+- MicroAgent 复用 BaseAgent 的能力，不影响 BaseAgent 的状态
+- 就像公司员工：用公司的技能和工具干活，但工作记录是自己的
+
+**3. 自然语言协调**
+- BaseAgent 和 MicroAgent 通过同样的 LLM 接口交流
+- 不需要特殊的 API —— 就是提示词和上下文管理
+- MicroAgent 本质上是 BaseAgent 内部的一次"专注对话"
+
+**4. 双脑架构**
+- **Brain (LLM)**：负责推理、理解、生成
+- **Cerebellum (SLM)**：负责参数解析、JSON 生成
+- 不同任务用不同能力的模型，成本和效果都更好
+
+**5. 动态组合技能**
+- 技能是 mixins，通过 YAML 配置加载
+- BaseAgent 的能力可组合、可扩展
+- MicroAgent 自动拥有 BaseAgent 的所有技能
+
+**6. 用邮件通信**
+- Agent 之间的通信都用自然语言（Email）
+- 通过 `in_reply_to` 维护线程关系
+- 靠"解释"而不是"API 调用"来协调 —— 更好理解，也更好调试
 
 ## BaseAgent
 
