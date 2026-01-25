@@ -1,6 +1,11 @@
 # AgentMatrix
 
-An intelligent multi-agent framework that lets LLMs focus on **reasoning**, not format compliance.
+An intelligent multi-agent framework that lets LLMs focus on **reasoning**, not format compliance. Making agent development more natural.
+
+**What we enable**:
+- **Natural Language Functions**: It is no longer just a simple LLM API call, but a natural language function. You input a natural language intent and get the execution result without worrying about specific formats. There is no more need to expend effort defining JSON structures; you only need to focus on the intent itself.
+
+- Natural **Sub-Agent Context Management**: Agents can recursively and nestably call skills (essentially sub-agents, referred to as "micro-agents" in this project), enabling them to handle more complex tasks. The execution contexts of these micro-agents are naturally and automatically isolated, eliminating concerns about context pollution. This supports long-cycle tasks without the need for complex manual context management.
 
 [**English**](readme.md) | [**中文文档**](readme_zh.md)
 
