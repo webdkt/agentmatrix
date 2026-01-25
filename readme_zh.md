@@ -1,69 +1,301 @@
 # AgentMatrix
 
-一个以“认知”为中心的自主 Agent 框架。
+一个让 LLM 专注于**推理**而不是格式合规的智能多 Agent 框架。
 
-### 它是什么？
+[**English**](readme.md) | [**中文文档**](readme_zh.md)
 
-AgentMatrix 是一个多智能体（Multi-Agent）框架，在这里，Agent 扮演的是独立的“数字员工”。它们通过异步消息（类似邮件）进行协作，而非僵化的 API 调用。
+## 🎯 AgentMatrix 是什么？
 
-这个框架专为构建鲁棒、智能的系统而设计，使其能够像人一样推理、协商并处理模糊性。
+AgentMatrix 是一个多 Agent 框架，特点是：
 
-### 为什么设计 AgentMatrix？—— 核心理念
+- **Agent** 像拥有特定技能的数字员工
+- Agent 通过**自然语言**（类似邮件）协作，而不是僵硬的 API 调用
+- LLM 可以自然推理，不会把"脑力"浪费在 JSON 语法上
 
-核心理念其实是常识。
+## 🧠 为什么这很重要？
 
-许多 Agent 框架强迫强大的语言模型（LLM）用 JSON 这样的僵硬格式去“思考”，这不仅容易出错，也限制了它们的推理能力。LLM每一次推理的注意力是有限的，用于“留意JSON格式“的注意力应该越少越好，而且这部分其实很难做好，或者说要做好必然花费许多”心智“和Token（这些心智和Token本来应该用于做好它真正要做的工作）。我有一个假设，即LLM越智能，它应该会越接近人脑的认知方式，而让人在脑子里去数清楚很多的JSON括号并且完美填好，是非常困难的，而且如果花了很多注意力去做好这个“杂技”动作，对真正的任务很可能是负面的作用（想象一下你同时做瞄准射击和深度阅读思考）—— 这个理念来自我的直觉，并无确定证据，但我相信是这样。也许未来的LLM可以全能，但我保持怀疑。
+### 问题所在
 
-AgentMatrix的核心理念就是：让LLM用自然语言沟通、思考和输出，大脑尽量不去做JSON转换这样的工作。
+大多数 Agent 框架强迫强大的 LLM 在僵硬的格式（如 JSON）里思考。这会导致：
 
-AgentMatrix 用 **大脑** + **小脑** + **Body** 的架构解决了这个问题：
+- ❌ LLM 的注意力被语法占用，而不是推理
+- ❌ 频繁的解析错误和脆弱的工作流
+- ❌ 降低了 LLM 处理复杂任务的能力
 
-*   🧠 **大脑 (The Brain / LLM):** 战略思想家。它是 Agent 的“意识”，负责用自然语言进行高层推理、形成意图。把它想象成一个坐在驾驶舱里的飞行员，他只需要决定“去哪里”，而不用关心具体如何拨动开关。它输出自然语言的**意图**
+**我们的理论**：要求 LLM 在做复杂推理的同时还要完美格式化 JSON，就像让人在杂耍的同时解微积分。你在增加不必要的认知负担。
 
-*    **小脑 (The Cerebellum / SLM):** 严谨的接口管理器。它接收大脑的自然语言意图，并将其精确地翻译成机器可执行的命令（JSON）。它理解意图，填入JSON.
+### 我们的解决方案
 
-*    **Body** 就是`python`程序体，它负责根据JSON，调用函数，并提供反馈
+AgentMatrix 使用 **大脑 + 小脑 + 身体**架构：
 
-如果大脑的意图不明确（例如，“发邮件”但没说发给谁），小脑不会报错或盲目执行，而是会**发起“谈判”**。它会向大脑发回一个内部提问，寻求澄清。这种内部对话机制，使得 Agent 变得异常鲁棒和智能。而且推荐SLM使用本地部署的小模型，性能足够，而且免费。这其实是一种智能分层的设计。需要高阶智能的任务使用更强的大模型，简单智能任务使用便宜甚至免费的本地模型，可以大大的降低总成本。
+```
+┌─────────────────────────────────────────────────┐
+│  🧠 大脑 (LLM)                                  │
+│  - 用自然语言推理                              │
+│  - 决定"要做什么"                              │
+│  - 无格式约束 → 更好的推理                     │
+└─────────────────────────────────────────────────┘
+                      ↓
+┌─────────────────────────────────────────────────┐
+│  🧠 小脑 (SLM)                                  │
+│  - 将意图翻译成结构化数据                      │
+│  - 处理参数协商                                │
+│  - 澄清不清楚的请求                            │
+└─────────────────────────────────────────────────┘
+                      ↓
+┌─────────────────────────────────────────────────┐
+│  💪 身体 (Python 代码)                          │
+│  - 执行函数                                    │
+│  - 提供反馈                                    │
+│  - 管理资源                                    │
+└─────────────────────────────────────────────────┘
+```
 
-### 一些核心概念
+**核心洞察**：让 LLM 用自然语言思考，然后用更小的模型把那个意图翻译成机器可执行的命令。
 
-*   **Agent (智能体):** 一个拥有特定角色（Persona）和能力清单的数字员工。
-*   **PostOffice (邮局):** 整个系统的通信中枢，所有 Agent 间的“邮件”都由它派发。
-*   **Runtime (the Matrix):** 一个运行时，可以想像成一个黑客帝国的Matrix，Agent是注入其中的灵魂。它包括内存结构和目录结构
-*   **Signal (信号):** 系统中的信息单元。无论是新邮件、工具执行结果，还是小脑的提问，都会被包装成一个 `Signal`。
-*   **Email**: 邮件。Agent之间通过邮件互相沟通。名字就是他们的邮箱。通过邮件回复关系，系统会自动的维护会话上下文（包括工作目录）
+## ✨ 核心特性
 
+### 1. 双层 Agent 架构 (v0.1.5+)
 
-### 运行机制：回合制循环
+**BaseAgent = 会话层**
+- 管理多次用户交互的对话状态
+- 可以同时维护多个独立的会话
+- 拥有技能、动作和能力
 
-Agent 的生命周期就像一个回合制游戏：
+**MicroAgent = 执行层**
+- 单个任务的临时执行器
+- 继承 BaseAgent 的所有能力
+- 有独立的执行上下文
+- 任务完成时终止
 
-1.  **唤醒 (Awake):** 一个 `Signal` 到达，Agent 从休眠中被唤醒。
-2.  **推理 (Reasoning):** 大脑分析信号和历史记录，在 `THOUGHT` 部分进行推理。这是它的“内心独白”。
-3.  **决策 (Decision):** 大脑做出决定，并输出一个明确的 `ACTION SIGNAL`，例如：“给 Coder 发邮件，主题是代码审查请求”。
-4.  **谈判 (Negotiation):** 小脑拦截这个指令。
-    *   **如果清晰无误:** 翻译成 JSON 并放行。
-    *   **如果信息不足:** 暂停执行，生成一个 `[INTERNAL QUERY]` 信号发回给大脑，开启一个用于澄清的“子回合”。
-5.  **执行 (Execution):** Agent 的“身体”执行被小脑验证过的指令。
-6.  **反馈与休眠 (Feedback & Rest):** 动作结果会立刻作为 `[BODY FEEDBACK]` 信号发回，触发下一个回合。这个循环会一直持续，直到大脑明确决定执行 `rest_n_wait` 动作，主动进入休眠。
+**为什么这很重要**：
+- ✅ 职责清晰分离
+- ✅ 状态隔离（会话历史 ≠ 执行步骤）
+- ✅ 任务失败不会破坏对话
+- ✅ 支持并发多会话管理
 
-具体的架构设计，参考 docs/Design.md
+### 2. Think-With-Retry 模式
 
-### 主要特点与优势
+**挑战**：从 LLM 输出中提取结构化数据，同时不伤害推理质量
 
-*   ✅ **极高的鲁棒性:** “谈判机制”从根本上避免了因指令格式错误或意图模糊导致的执行失败。
-*   🧠 **更强的智能:** 将“思考”与“动作”解耦，让大脑（LLM）可以不受格式束缚地进行复杂的推理。
-*   🌐 **真正的异步协作:** 基于“邮局”的消息传递，天然支持复杂的、并行的社会化 Agent 工作流。
-*   🧘 **显式的意志驱动:** Agent 拥有“自由意志”。它必须主动决定何时休息 (`rest_n_wait`)，这使得执行连续的多步任务变得简单自然。
+**我们的解决方案**：
+- 使用**松散的格式要求**（例如用 `[章节名]` 而不是严格的 JSON）
+- **智能重试**，提供具体、可操作的反馈
+- **对话式流程** - 重试感觉像自然的澄清
 
-*   其实最大的优点，在于让许多工作流设计变得非常简单
+**示例**：
+```python
+result = await llm_client.think_with_retry(
+    initial_messages="创建一个项目计划，包含以下部分：[计划]、[时间线]、[预算]",
+    parser=multi_section_parser,
+    section_headers=['[计划]', '[时间线]', '[预算]'],
+    max_retries=3
+)
+```
 
-### Trade Off
+如果 LLM 忘记了 `[时间线]` 部分：
+1. 解析器检测到缺失的部分
+2. 系统自动请求：*"你的回答很有帮助，但缺少 [时间线] 部分。请添加它。"*
+3. LLM 自然地纠正输出
+4. 没有僵硬的约束，只是对话式反馈
 
-任何事情，有得必有失。这个架构设计有两个显著的潜在缺点
+### 3. 自然语言协调
 
-1. 在大小脑需要沟通澄清的时候，可能有多轮对话，可能会带来较多的Token消耗
-2. 整个机制是异步的，Agent通过`Email`来沟通，而每个Agent虽然可以自动的处理多个会话的切换，但只能串行的处理一封封Email。这有它的许多好处，但也可能导致速度较慢。一个任务可能在队列（邮件队列）里躺很久，才被Agent读到然后去处理。
+Agent 通过**邮件**（自然语言消息）通信，而不是 API 调用：
 
-但我认为，这不是太大的问题。Agent最重要的是智能和鲁棒性，能够自主的把工作做完，花费一个小时还是二个小时，关系并不大。而Token的消耗，一来长期趋势只会更便宜，二来把事情做对做好才是最重要的。把事情做好，花Token是值得的。
+```python
+email = Email(
+    sender="Researcher",
+    recipient="Writer",
+    subject="研究报告请求",
+    body="请根据研究内容编写摘要...",
+    user_session_id="session_123"
+)
+await post_office.send_email(email)
+```
+
+**好处**：
+- 📝 更可解释和可调试
+- 🔄 通过 `in_reply_to` 实现线程对话
+- 🤝 Agent 解释它们在做什么，不只是返回代码
+
+### 4. 动态技能组合
+
+技能是**mixins**，通过 YAML 配置在运行时加载：
+
+```yaml
+# profiles/researcher.yml
+name: Researcher
+description: 研和信息收集专家
+
+mixins:
+  - agentmatrix.skills.web_searcher.WebSearcherMixin
+  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
+  - agentmatrix.skills.notebook.NotebookMixin
+```
+
+**好处**：
+- 🔧 可组合的能力
+- 📦 添加技能无需修改代码
+- 🎯 技能可以在 Agent 之间共享
+
+## 🚀 快速开始
+
+### 安装
+
+```bash
+pip install matrix-for-agents
+```
+
+### 基本用法
+
+```python
+from agentmatrix import AgentMatrix
+
+# 初始化框架
+matrix = AgentMatrix(
+    agent_profile_path="path/to/profiles",
+    matrix_path="path/to/matrix"
+)
+
+# 启动运行时
+await matrix.run()
+```
+
+### 向 Agent 发送任务
+
+```python
+# 给 Agent 发邮件
+email = Email(
+    sender="user@example.com",
+    recipient="Researcher",
+    subject="研究任务",
+    body="帮我研究 AI 安全最佳实践",
+    user_session_id="my-session"
+)
+
+await matrix.post_office.send_email(email)
+```
+
+## 📚 架构概览
+
+### 核心组件
+
+```
+AgentMatrix 运行时
+├── PostOffice        # 消息路由和服务发现
+├── VectorDB          # 邮件/笔记本的语义搜索
+├── AgentLoader       # 从 YAML 动态加载 Agent
+└── Agents
+    ├── BaseAgent     # 会话层 - 管理对话
+    └── MicroAgent    # 执行层 - 运行任务
+```
+
+### 执行流程
+
+```
+用户发送邮件
+    ↓
+BaseAgent 收到邮件
+    ↓
+恢复/创建会话
+    ↓
+委托给 MicroAgent
+    ↓
+MicroAgent 执行:
+  1. 思考：下一步该做什么？
+  2. 从 LLM 输出检测动作
+  3. 协商参数（通过 Cerebellum）
+  4. 执行动作
+  5. 重复直到 finish_task 或达到步数上限
+    ↓
+MicroAgent 返回结果
+    ↓
+BaseAgent 更新会话
+    ↓
+BaseAgent 发送回复邮件
+```
+
+## 📖 文档
+
+全面的双语文档（英文 & 中文）：
+
+### 核心架构
+- **[Agent 和 Micro Agent 设计](docs/agent-and-micro-agent-design-cn.md)**
+  - 双层架构设计哲学
+  - 会话 vs. 执行分离
+  - 技能系统和通信机制
+
+- **[Matrix World 架构](docs/matrix-world-cn.md)**
+  - 项目结构和组件
+  - 初始化和运行时流程
+  - 配置文件格式
+
+### 核心模式
+- **[Think-With-Retry 模式](docs/think-with-retry-pattern-cn.md)**
+  - 自然语言 → 结构化数据
+  - 解析器设计和实现
+  - 自定义解析器创建指南
+
+## 🛠️ 内置技能
+
+- **Filesystem** - 文件操作和目录管理
+- **WebSearcher** - 多搜索引擎的网络搜索
+- **CrawlerHelpers** - 网页爬取和内容提取
+- **Notebook** - 笔记本创建和管理
+- **ProjectManagement** - 项目规划和任务分解
+
+## 🧪 示例：创建自定义 Agent
+
+```yaml
+# profiles/my-agent.yml
+name: MyAgent
+description: 用于我的用例的自定义 Agent
+module: agentmatrix.agents.base
+class_name: BaseAgent
+
+# 加载所需的技能
+mixins:
+  - agentmatrix.skills.filesystem.FileSkillMixin
+  - agentmatrix.skills.web_searcher.WebSearcherMixin
+
+# 定义 Agent 的人格
+system_prompt: |
+  你是一个专注于研究和分析的
+  有用助手。
+
+# 配置后端
+backend_model: gpt-4
+cerebellum_model: gpt-3.5-turbo
+```
+
+## 🤝 贡献
+
+欢迎贡献！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 了解指南。
+
+## 📝 许可证
+
+Apache License 2.0 - 详见 [LICENSE](LICENSE) 文件
+
+## 🙏 致谢
+
+构建于：
+- [FastAPI](https://fastapi.tiangolo.com/) - API 框架
+- [DrissionPage](https://drissionpage.cn/) - 浏览器自动化
+- [ChromaDB](https://www.trychroma.com/) - 向量数据库
+
+## 📅 路线图
+
+- [ ] 增强的多 Agent 协作模式
+- [ ] 更多内置技能
+- [ ] 性能优化
+- [ ] 额外的后端集成
+- [ ] 增强的监控和调试工具
+
+---
+
+**当前版本**: v0.1.5  
+**状态**: Alpha（API 可能会演进）  
+**文档**: [docs/](docs/) | [English Documentation](docs/)
+
+详细信息请访问：https://github.com/webdkt/agentmatrix

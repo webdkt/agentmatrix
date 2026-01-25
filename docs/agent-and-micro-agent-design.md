@@ -2,14 +2,120 @@
 
 ## Overview
 
-AgentMatrix implements a dual-layer agent system with **BaseAgent** and **MicroAgent**. The MicroAgent is designed as a "temporary personality" of a BaseAgent - reusing the same capabilities but operating with an independent task context and focused execution loop.
+### Why We Need Two Layers
+
+When building agents, there's a practical issue: **a conversation can contain multiple tasks, and each task may require multiple execution steps.**
+
+For example, a user is chatting with a Researcher Agent (this is a session). The user says "Help me research AI safety." This task itself might need multiple steps: search for materials, read papers, then compile a report. These are the MicroAgent's execution steps.
+
+If we mix these together, the state gets messy: session-level conversation history, task-level execution state, step counters... all piled into BaseAgent. The code becomes hard to maintain and bugs are hard to find.
+
+Common approaches both have problems:
+
+1. **Stuff everything into BaseAgent**: Session history, task state, execution steps all in one object. Lots of state, unclear responsibilities, changing one thing might break another.
+
+2. **Spawn a new agent for each task**: Clean, but the new agent needs reconfiguration, reloading skills, and can't access the original agent's context.
+
+### Our Solution: BaseAgent (Session Layer) + MicroAgent (Execution Layer)
+
+We separate "session management" from "task execution":
+
+**BaseAgent = Session Layer**
+- Manages session-level state (can have multiple independent sessions)
+- Each session has its own conversation history and context
+- Owns skills, actions, and capabilities (these are global, shared across sessions)
+- Delegates to MicroAgent when receiving user tasks
+
+**MicroAgent = Execution Layer**
+- Runs a single task (one think-act cycle)
+- Inherits all of BaseAgent's capabilities (brain, cerebellum, action registry)
+- Has its own independent execution context (task description, execution history, step count)
+- Terminates when task completes or exceeds step limit, returns result
+
+Key point: **MicroAgent is not another agent class**—it's a "temporary execution context" created by BaseAgent to execute a specific task. Think of it as BaseAgent entering "focused work mode", then returning to normal state when done.
+
+### Why This Separation Matters
+
+**1. Clear Responsibilities**
+- BaseAgent manages session: which conversation is this, what's the history, what's the user discussing
+- MicroAgent manages execution: what am I doing right now, what's next, which step am I on
+- Different levels of state managed separately, code is easier to understand
+
+**2. State Isolation**
+- BaseAgent's session history won't be polluted by execution steps, intermediate results
+- MicroAgent's execution state (steps, intermediate results) won't enter session history
+- MicroAgent disappears when done, no need to worry about state cleanup
+
+**3. Supports Concurrency**
+- One BaseAgent can maintain multiple sessions simultaneously
+- Each session can have its own MicroAgent executing tasks
+- No interference, each manages its own state
+
+**4. Failure Doesn't Break Session**
+- Task failure (timeout, parse error, etc.) only affects that MicroAgent execution
+- BaseAgent's session remains intact, can report failure, ask user for clarification, or retry differently
+- User conversation is unaffected
+
+### Actual Execution Flow
+
+When a user sends an email to BaseAgent:
+
+```
+1. BaseAgent receives email
+   ├─ Check in_reply_to: which session is this?
+   ├─ Restore or create TaskSession (session-level conversation history)
+   └─ Delegate to MicroAgent to execute this task
+
+2. MicroAgent executes
+   ├─ Inherit BaseAgent's capabilities (brain, cerebellum, actions)
+   ├─ Initialize this task's execution context
+   ├─ Run think-negotiate-act loop
+   │  ├─ Think: what should I do next?
+   │  ├─ Detect action from LLM output
+   │  ├─ Negotiate parameters (via Cerebellum)
+   │  ├─ Execute action
+   │  └─ Repeat until finish_task or step limit
+   └─ Return result to BaseAgent
+
+3. BaseAgent updates session
+   ├─ Write MicroAgent's result to session history
+   └─ Send reply email to user
+```
+
+Note: MicroAgent's intermediate thoughts, action calls, etc. during execution don't enter session history. Only the final result is recorded.
 
 ## Design Philosophy
 
-- **Dual-Brain Architecture**: Separate reasoning (LLM) from parameter negotiation (SLM)
-- **Micro Agent as Temporary Personality**: Same capabilities, different context, independent lifecycle
-- **Email-Based Communication**: All inter-agent coordination uses natural language messages
-- **Dynamic Skill Composition**: Skills are mixins dynamically loaded at runtime
+The core ideas of this dual-layer architecture:
+
+**1. Session and Execution Separation**
+- Session is conversation-level, can last a long time
+- Execution is task-level, usually completes in minutes
+- One conversation can contain multiple task executions
+
+**2. Capability Inheritance, State Independence**
+- MicroAgent reuses BaseAgent's capabilities without affecting BaseAgent's state
+- Like an employee: uses company skills and tools, but work records are their own
+
+**3. Natural Language Coordination**
+- BaseAgent and MicroAgent communicate through the same LLM interface
+- No special APIs needed—just prompt engineering and context management
+- MicroAgent is essentially a "focused conversation" within BaseAgent
+
+**4. Dual-Brain Architecture**
+- **Brain (LLM)**: Responsible for reasoning, understanding, generation
+- **Cerebellum (SLM)**: Responsible for parameter parsing, JSON generation
+- Different models for different capabilities, better cost and performance
+
+**5. Dynamic Skill Composition**
+- Skills are mixins, loaded via YAML configuration
+- BaseAgent's capabilities are composable and extensible
+- MicroAgent automatically has all of BaseAgent's skills
+
+**6. Email-Based Communication**
+- All inter-agent communication uses natural language (Email)
+- Maintains thread relationships via `in_reply_to`
+- Coordinate through "explanation" not "API calls"—easier to understand and debug
 
 ## BaseAgent
 

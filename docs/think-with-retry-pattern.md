@@ -2,7 +2,48 @@
 
 ## Overview
 
-The Think-With-Retry pattern is a robust mechanism for calling LLMs and extracting structured output from natural language responses. It handles validation, error feedback, and automatic retries to ensure reliable parsing of LLM outputs.
+### The Challenge: Natural Language vs. Structured Data
+
+When working with LLMs, we face a fundamental tension: **we need to extract structured information from LLM outputs, but we want the LLM to focus on reasoning, not format compliance.**
+
+If we impose rigid formatting constraints (strict JSON schemas, precise template structures), the LLM expends cognitive capacity on format adherence rather than problem-solving—essentially a **"cognition tax"** that reduces reasoning quality. This is especially problematic for complex tasks requiring deep thinking.
+
+If we use no formatting at all, we get natural, flowing responses but cannot reliably extract the data we need for programmatic execution.
+
+Even when we specify moderate formatting guidelines, LLMs occasionally deviate—missing sections, reordering content, or introducing unexpected variations. These "edge cases" are inevitable when working with probabilistic language models.
+
+### The Solution: Think-With-Retry Pattern
+
+The **Think-With-Retry** pattern resolves this tension by providing a **loose but robust** mechanism that bridges uncertain natural language output and deterministic structured extraction, while minimizing cognitive overhead on format maintenance.
+
+**How it works conceptually:**
+
+1. **Request with Soft Format Guidelines**: Ask the LLM to provide information with gentle structural hints (e.g., "Please organize your response into these sections: [Plan], [Timeline], [Budget]"). The LLM focuses primarily on content quality.
+
+2. **Parse with Validation**: Attempt to extract structured data using a parser that validates the output. The parser checks for required elements and returns either:
+   - **Success**: Extracted structured data
+   - **Error**: Specific feedback about what's missing or malformed
+
+3. **Intelligent Retry**: If parsing fails, the pattern automatically feeds the error feedback back to the LLM in a conversational manner: *"Your previous response was helpful, but it's missing the [Timeline] section. Could you add that?"* The LLM then corrects its output naturally, without rigid constraint enforcement.
+
+4. **Loop Until Success**: Repeat steps 2-3 until valid structured data is extracted or maximum retries are reached.
+
+**Key Design Philosophy:**
+
+- **Loose Format Requirements**: We use natural section markers like `[Research Plan]` or `=====` rather than strict JSON schemas. This feels natural to LLMs and minimizes format friction.
+- **Specific Feedback**: When parsing fails, the parser provides precise, actionable feedback (e.g., *"Missing section: [Timeline]"*). The LLM understands and corrects naturally.
+- **Conversation Flow**: Retries are conversational—append the LLM's previous output and the error message to the conversation history, then ask for a revision. This mirrors human collaboration.
+- **Graceful Degradation**: If the LLM consistently fails to provide valid output after several attempts, the pattern raises an exception rather than proceeding with bad data.
+
+**Why This Works:**
+
+- **Preserves Cognitive Capacity**: LLMs focus on reasoning, not rigid format compliance
+- **Handles Edge Cases**: Automatic retry with feedback handles the inevitable deviations
+- **Natural Interaction**: Conversational retries align with how LLMs are trained to interact
+- **Deterministic Extraction**: Despite the loose input format, the output is always validated and structured
+- **Minimal Prompt Overhead**: No need for lengthy format instructions or complex JSON schemas
+
+The pattern transforms the inherent uncertainty of LLM natural language output into reliable, structured data through a lightweight, conversational feedback loop—essentially treating the LLM as an intelligent collaborator who occasionally needs clarification rather than a rigid template-filling system.
 
 ## LLM Client Encapsulation
 

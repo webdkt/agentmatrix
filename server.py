@@ -342,7 +342,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AgentMatrix",
     description="An intelligent agent framework with pluggable skills and LLM integrations",
-    version="0.1.4",
+    version="0.1.5",
     lifespan=lifespan
 )
 
@@ -691,7 +691,7 @@ def main():
 
     print("""
     ╔═══════════════════════════════════════╗
-    ║       AgentMatrix Server v0.1.4       ║
+    ║       AgentMatrix Server v0.1.5       ║
     ╚═══════════════════════════════════════╝
     """)
 

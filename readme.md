@@ -1,80 +1,151 @@
-# Agent-Matrix
+# AgentMatrix
 
-A cognition-centric autonomous agent framework with pluggable skills and multi-backend LLM integrations.
+An intelligent multi-agent framework that lets LLMs focus on **reasoning**, not format compliance.
 
-## Overview
+[**English**](readme.md) | [**中文文档**](readme_zh.md)
 
-Agent-Matrix is a multi-agent framework where agents act as independent "digital employees" that collaborate through asynchronous messaging (similar to email) rather than rigid API calls.
+## 🎯 What is AgentMatrix?
 
-Designed for building robust, intelligent systems that can reason, negotiate, and handle ambiguity like humans do.
+AgentMatrix is a multi-agent framework where:
 
-## Core Philosophy
+- **Agents** act as digital employees with specific skills
+- Agents collaborate through **natural language** (like email), not rigid APIs
+- LLMs can reason naturally without wasting "mental energy" on JSON syntax
 
-The core idea is really just common sense.
+## 🧠 Why This Matters?
 
-A lot of Agent frameworks compel powerful LLMs to "think" inside stiff, rigid formats like JSON. This isn't just prone to bugs; it actually stifles their ability to reason. An LLM has a limited attention span for every inference. We should minimize the amount of attention wasted on "watching the JSON syntax." Getting that syntax right takes a lot of "mental energy" and tokens—energy that should be spent on doing the actual work.
+### The Problem
 
-I have a theory: the smarter an LLM gets, the more it thinks like a human. Asking a human to count JSON brackets in their head and fill them in perfectly is incredibly hard. I believe forcing an LLM to do this kind of "mental gymnastics" hurts its performance on the main task (it’s like trying to shoot a target while reading a philosophy book). I don't have proof, just my intuition, but I believe this is how it works. Maybe future LLMs will be able to do everything effortlessly, but I doubt it.
+Most agent frameworks force powerful LLMs to think inside rigid formats like JSON. This:
 
-That is the heart of AgentMatrix: Let the LLM communicate, think, and output in natural language, and keep its brain away from JSON conversion work.
+- ❌ Wastes LLM attention on syntax instead of reasoning
+- ❌ Causes frequent parsing errors and brittle workflows
+- ❌ Reduces the LLM's ability to handle complex tasks
 
+**Our theory**: Asking an LLM to perfectly format JSON while doing complex reasoning is like asking a human to solve calculus problems while juggling. You're adding unnecessary cognitive load.
 
-Agent-Matrix solves this with a **Brain + Cerebellum + Body** architecture:
+### Our Solution
 
-- 🧠 **Brain (The LLM):** Strategic thinker. Uses natural language for high-level reasoning and intent formation. Like a pilot in a cockpit deciding "where to go" without worrying about switch details.
-- 🧠 **Cerebellum (The SLM):** Precise interface manager. Translates natural language intent into machine-executable commands (JSON). Understands intent and fills in JSON.
-- 💪 **Body**: The Python program that executes functions based on JSON and provides feedback.
+AgentMatrix uses a **Brain + Cerebellum + Body** architecture:
 
-When the brain's intent is unclear (e.g., "send email" without specifying recipient), the cerebellum doesn't error or blindly execute. Instead, it **initiates "negotiation"** by sending an internal query back to the brain for clarification. This internal dialogue makes agents exceptionally robust and intelligent.
+```
+┌─────────────────────────────────────────────────┐
+│  🧠 Brain (LLM)                                 │
+│  - Reasons in natural language                 │
+│  - Decides "what to do"                        │
+│  - No format constraints → better reasoning    │
+└─────────────────────────────────────────────────┘
+                      ↓
+┌─────────────────────────────────────────────────┐
+│  🧠 Cerebellum (SLM)                            │
+│  - Translates intent to structured data        │
+│  - Handles parameter negotiation               │
+│  - Clarifies unclear requests                 │
+└─────────────────────────────────────────────────┘
+                      ↓
+┌─────────────────────────────────────────────────┐
+│  💪 Body (Python Code)                          │
+│  - Executes functions                          │
+│  - Provides feedback                           │
+│  - Manages resources                           │
+└─────────────────────────────────────────────────┘
+```
 
-## Core Concepts
+**Key Insight**: Let the LLM think in natural language, then use a smaller model to translate that intent into machine-executable commands.
 
-- **Agent**: A digital employee with a specific persona and capability list
-- **PostOffice**: Central communication hub for all inter-agent messages
-- **Runtime (the Matrix)**: Execution environment including memory structures and directory layout
-- **Signal**: Information unit in the system - new emails, tool results, or cerebellum queries
-- **Email**: How agents communicate. Email reply chains automatically maintain conversation context
+## ✨ Key Features
 
-## How It Works: Turn-Based Loop
+### 1. Dual-Layer Agent Architecture (v0.1.5+)
 
-An agent's lifecycle is like a turn-based game:
+**BaseAgent = Session Layer**
+- Manages conversation state across multiple user interactions
+- Can maintain multiple independent sessions simultaneously
+- Owns skills, actions, and capabilities
 
-1. **Awake**: A `Signal` arrives, waking the agent from sleep
-2. **Reasoning**: Brain analyzes signal and history, reasoning in the `THOUGHT` section (internal monologue)
-3. **Decision**: Brain makes a decision and outputs a clear `ACTION SIGNAL`, e.g., "Send Coder an email with code review request"
-4. **Negotiation**: Cerebellum intercepts the instruction
-   - **If clear**: Translate to JSON and let it through
-   - **If unclear**: Pause execution, generate an `[INTERNAL QUERY]` signal back to brain, starting a "sub-turn" for clarification
-5. **Execution**: Agent's "body" executes the cerebellum-validated instruction
-6. **Feedback & Rest**: Action results immediately return as `[BODY FEEDBACK]` signal, triggering next turn. This continues until brain explicitly decides `rest_n_wait` action
+**MicroAgent = Execution Layer**
+- Temporary executor for single tasks
+- Inherits BaseAgent's capabilities
+- Has isolated execution context
+- Terminates when task completes
 
-See `docs/Design.md` for detailed architecture.
+**Why This Matters**:
+- ✅ Clear separation of concerns
+- ✅ State isolation (session history ≠ execution steps)
+- ✅ Task failure doesn't break conversations
+- ✅ Supports concurrent multi-session management
 
-## Key Features & Advantages
+### 2. Think-With-Retry Pattern
 
-- ✅ **Exceptional Robustness**: "Negotiation mechanism" fundamentally eliminates execution failures from format errors or unclear intent
-- 🧠 **Stronger Intelligence**: Decouples "thinking" from "actioning", letting the brain (LLM) do complex reasoning unencumbered by formats
-- 🌐 **True Asynchronous Collaboration**: Message passing through "post office" naturally supports complex, parallel social agent workflows
-- 🧘 **Explicit Will-Driven**: Agents have "free will". Must actively decide when to rest (`rest_n_wait`), making multi-step tasks simple and natural
+**The Challenge**: Extract structured data from LLM outputs without hurting reasoning quality
 
-**The biggest advantage**: Makes workflow design remarkably simple
+**Our Solution**:
+- Use **loose format requirements** (e.g., `[Section Name]` instead of strict JSON)
+- **Intelligent retry** with specific, actionable feedback
+- **Conversational flow** - retries feel like natural clarification
 
-## Trade-offs
+**Example**:
+```python
+result = await llm_client.think_with_retry(
+    initial_messages="Create a project plan with sections: [Plan], [Timeline], [Budget]",
+    parser=multi_section_parser,
+    section_headers=['[Plan]', '[Timeline]', '[Budget]'],
+    max_retries=3
+)
+```
 
-Everything has trade-offs. This architecture has two potential drawbacks:
+If the LLM forgets the `[Timeline]` section:
+1. Parser detects missing section
+2. System automatically requests: *"Your response was helpful, but missing the [Timeline] section. Please add it."*
+3. LLM corrects output naturally
+4. No rigid constraints, just conversational feedback
 
-1. When brain and cerebellum negotiate clarification, multiple rounds of dialogue may consume more tokens
-2. Fully asynchronous mechanism with email communication means each agent processes emails serially. While beneficial, tasks may sit in queue longer before processing
+### 3. Natural Language Coordination
 
-However, these aren't major issues. What matters most for agents is intelligence and robustness - autonomously completing work correctly. Taking one hour vs two hours doesn't matter much. And token costs will only decrease long-term. Spending tokens to do things right is worth it.
+Agents communicate through **Email** (natural language messages), not API calls:
 
-## Installation
+```python
+email = Email(
+    sender="Researcher",
+    recipient="Writer",
+    subject="Research Report Request",
+    body="Please compile a summary based on the research...",
+    user_session_id="session_123"
+)
+await post_office.send_email(email)
+```
+
+**Benefits**:
+- 📝 More interpretable and debuggable
+- 🔄 Threaded conversations via `in_reply_to`
+- 🤝 Agents explain what they're doing, not just return codes
+
+### 4. Dynamic Skill Composition
+
+Skills are **mixins** loaded at runtime via YAML configuration:
+
+```yaml
+# profiles/researcher.yml
+name: Researcher
+description: Research and information gathering specialist
+
+mixins:
+  - agentmatrix.skills.web_searcher.WebSearcherMixin
+  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
+  - agentmatrix.skills.notebook.NotebookMixin
+```
+
+**Benefits**:
+- 🔧 Composable capabilities
+- 📦 No code changes to add skills
+- 🎯 Skills can be shared across agents
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
 pip install matrix-for-agents
 ```
-
-## Quick Start
 
 ### Basic Usage
 
@@ -83,140 +154,148 @@ from agentmatrix import AgentMatrix
 
 # Initialize the framework
 matrix = AgentMatrix(
-    agent_profile_path="agent_profile_path",
-    matrix_path="matrix_path"
+    agent_profile_path="path/to/profiles",
+    matrix_path="path/to/matrix"
 )
 
-# Start the runtime (this will load all agents from profiles)
+# Start the runtime
 await matrix.run()
 ```
 
-### Using the CLI Runner (Recommended for First-Time Users)
-
-The package includes `cli_runner.py` as a practical example for interacting with agents:
+### Sending Tasks to Agents
 
 ```python
-# Run the CLI runner
-python cli_runner.py
-```
-
-The CLI runner provides:
-- 📥 Interactive command-line interface
-- 💬 Real-time agent communication
-- 🔄 Multi-session support
-- 📝 Message reply tracking
-
-**Usage Example:**
-```bash
-# Start the CLI
-$ python cli_runner.py
->>> 系统启动。可以在下面输入指令。
->>> 例如: Planner: 帮我分析数据
-
-# Send a message to an agent
->> Planner: 请帮我爬取网页数据
-
-# Start a new session
->> new session
-✅ 新会话开始 ID: a1b2c3d4-...
-
-# Reply to a specific message
->> reply: msg-123: 谢谢你的分析
-
-# Exit and save
->> exit
-```
-
-The CLI runner demonstrates:
-- How to initialize the AgentMatrix framework
-- How to set up event callbacks
-- How to communicate with agents through the User proxy
-- How to handle multi-session conversations
-
-For full source code, see `cli_runner.py` in the package installation directory.
-
-## Project Structure
-
-```
-agent-matrix/
-├── agents/          # Agent implementations
-│   ├── base.py      # Base agent class
-│   └── post_office.py  # Message routing system
-├── core/            # Core framework
-│   ├── runtime.py   # Main runtime
-│   ├── message.py   # Email/Signal definitions
-│   └── browser/     # Browser automation
-├── skills/          # Built-in skills
-│   ├── data_crawler.py    # Web scraping
-│   ├── web_searcher.py    # Web search
-│   └── filesystem.py      # File operations
-├── backends/        # LLM integrations
-├── db/              # Database layer
-├── profiles/        # Agent configurations (YAML)
-└── docs/            # Documentation
-```
-
-## Usage Examples
-
-### Agent Communication
-
-```python
-from agent_matrix import Email
-
+# Send an email to an agent
 email = Email(
-    sender="researcher",
-    recipient="analyst",
-    subject="Data Analysis Request",
-    body="Please analyze the crawled data...",
-    user_session_id="session_123"
+    sender="user@example.com",
+    recipient="Researcher",
+    subject="Research Task",
+    body="Help me research AI safety best practices",
+    user_session_id="my-session"
 )
 
-# Send through post office
-await matrix.post_office.dispatch(email)
+await matrix.post_office.send_email(email)
 ```
 
-### Built-in Skills
+## 📚 Architecture Overview
 
-Agents automatically load skills based on their profiles:
+### Core Components
+
+```
+AgentMatrix Runtime
+├── PostOffice        # Message routing and service discovery
+├── VectorDB          # Semantic search for emails/notebooks
+├── AgentLoader       # Dynamically loads agents from YAML
+└── Agents
+    ├── BaseAgent     # Session layer - manages conversations
+    └── MicroAgent    # Execution layer - runs tasks
+```
+
+### Execution Flow
+
+```
+User sends email
+    ↓
+BaseAgent receives email
+    ↓
+Restore/creates session
+    ↓
+Delegates to MicroAgent
+    ↓
+MicroAgent executes:
+  1. Think: What should I do next?
+  2. Detect action from LLM output
+  3. Negotiate parameters (via Cerebellum)
+  4. Execute action
+  5. Repeat until finish_task or max_steps
+    ↓
+MicroAgent returns result
+    ↓
+BaseAgent updates session
+    ↓
+BaseAgent sends reply email
+```
+
+## 📖 Documentation
+
+Comprehensive bilingual documentation (English & Chinese):
+
+### Core Architecture
+- **[Agent and Micro Agent Design](docs/agent-and-micro-agent-design.md)**
+  - Dual-layer architecture philosophy
+  - Session vs. execution separation
+  - Skill system and communication
+
+- **[Matrix World Architecture](docs/matrix-world.md)**
+  - Project structure and components
+  - Initialization and runtime flow
+  - Configuration format
+
+### Key Patterns
+- **[Think-With-Retry Pattern](docs/think-with-retry-pattern.md)**
+  - Natural language → structured data
+  - Parser design and implementation
+  - Custom parser creation guide
+
+## 🛠️ Built-in Skills
+
+- **Filesystem** - File operations and directory management
+- **WebSearcher** - Web search with multiple search engines
+- **CrawlerHelpers** - Web scraping and content extraction
+- **Notebook** - Notebook creation and management
+- **ProjectManagement** - Project planning and task breakdown
+
+## 🧪 Example: Creating a Custom Agent
 
 ```yaml
-# profiles/analyst.yaml
-name: "analyst"
-description: "Data analysis specialist"
-skills:
-  - filesystem
-  - web_searcher
+# profiles/my-agent.yml
+name: MyAgent
+description: A custom agent for my use case
+module: agentmatrix.agents.base
+class_name: BaseAgent
+
+# Load required skills
+mixins:
+  - agentmatrix.skills.filesystem.FileSkillMixin
+  - agentmatrix.skills.web_searcher.WebSearcherMixin
+
+# Define the agent's persona
+system_prompt: |
+  You are a helpful assistant specializing in
+  research and analysis.
+
+# Configure backends
+backend_model: gpt-4
+cerebellum_model: gpt-3.5-turbo
 ```
 
-## Requirements
+## 🤝 Contributing
 
-- Python 3.12 or higher
-- See `requirements.txt` for full dependency list
+Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## License
+## 📝 License
 
 Apache License 2.0 - see [LICENSE](LICENSE) file for details
 
-## Contributing
+## 🙏 Acknowledgments
 
-Contributions welcome! Please feel free to submit a Pull Request.
+Built with:
+- [FastAPI](https://fastapi.tiangolo.com/) - API framework
+- [DrissionPage](https://drissionpage.cn/) - Browser automation
+- [ChromaDB](https://www.trychroma.com/) - Vector database
 
-## Roadmap
+## 📅 Roadmap
 
 - [ ] Enhanced multi-agent collaboration patterns
 - [ ] More built-in skills
-- [ ] Improved documentation and tutorials
 - [ ] Performance optimizations
 - [ ] Additional backend integrations
-
-## Acknowledgments
-
-- Built with [FastAPI](https://fastapi.tiangolo.com/) (Not really used, will use later)
-- Browser automation powered by [DrissionPage](https://drissionpage.cn/)
-- Vector search with [ChromaDB](https://www.trychroma.com/)
+- [ ] Enhanced monitoring and debugging tools
 
 ---
 
-**Note**: Agent-Matrix is currently in alpha release (v0.1.2). APIs and features may evolve as we develop the framework.
+**Current Version**: v0.1.5
+**Status**: Alpha (APIs may evolve)
+**Documentation**: [docs/](docs/) | [中文文档](readme_zh.md)
 
-For Chinese documentation, see [readme_zh.md](readme_zh.md)
+For detailed information, visit: https://github.com/webdkt/agentmatrix
