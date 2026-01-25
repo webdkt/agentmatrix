@@ -27,20 +27,26 @@ class CrawlerHelperMixin:
         candidates: Dict[str, str],
         page_summary: str,
         ctx,
+        current_url: str = None,
         prompt_template: str = None
     ) -> List[str]:
         """
         [Brain] 批量筛选链接（统一实现）
 
+        改进：使用文本映射机制，不让 LLM 看长 URL，提升 Token 效率
+
         Args:
             candidates: 候选链接字典 {url: link_text}
             page_summary: 当前页面摘要
             ctx: 上下文对象（MissionContext 或 WebSearcherContext）
+            current_url: 当前页面 URL（用于判断链接是否指向本站）
             prompt_template: 可选的自定义 prompt（用于特殊需求）
 
         Returns:
             筛选后的 URL 列表
         """
+        from urllib.parse import urlparse
+
         # 1. 规则预过滤
         ignored_keywords = [
             "login", "signin", "sign up", "register", "password",
@@ -62,8 +68,48 @@ class CrawlerHelperMixin:
             self.logger.debug(f"No clean links found for {ctx.purpose}")
             return []
 
-        # 2. 根据候选数量确定提前终止阈值
-        total_candidates = len(clean_candidates)
+        # 2. 提取当前域名（用于判断链接是否指向本站）
+        current_domain = None
+        if current_url:
+            try:
+                current_domain = urlparse(current_url).netloc
+            except:
+                pass
+
+        # 3. 为所有候选链接构建增强文本映射
+        text_to_url = {}
+        candidates_with_enhanced_text = []
+        for url, text in clean_candidates.items():
+            # 解析链接的域名
+            link_domain = None
+            try:
+                link_domain = urlparse(url).netloc
+            except:
+                pass
+
+            # 生成增强的显示文本
+            if link_domain == current_domain:
+                # 本站链接
+                display_text = f"{text}（本站）"
+            elif link_domain:
+                # 外部链接
+                display_text = f"{text}（跳转到 {link_domain}）"
+            else:
+                # 无法解析域名
+                display_text = text
+
+            # 处理重名（如果多个链接有相同的增强文本）
+            base_text = display_text
+            counter = 2
+            while display_text in text_to_url:
+                display_text = f"{base_text}({counter})"
+                counter += 1
+
+            text_to_url[display_text] = url
+            candidates_with_enhanced_text.append((url, display_text))
+
+        # 4. 根据候选数量确定提前终止阈值
+        total_candidates = len(candidates_with_enhanced_text)
         if total_candidates <= 20:
             # 少量候选：不设阈值，全部处理完
             early_stop_threshold = None
@@ -71,44 +117,50 @@ class CrawlerHelperMixin:
             # 大量候选：设低阈值，达到即停止
             early_stop_threshold = 3
 
-        # 3. 分批 LLM 过滤
+        # 5. 分批 LLM 过滤
         batch_size = 10
         selected_urls = []
-        url_pattern = re.compile(r'(https?://[^\s"\'<>]+)')
-        candidates_list = list(clean_candidates.items())
+        candidates_list = candidates_with_enhanced_text
 
         for i in range(0, len(candidates_list), batch_size):
             batch = candidates_list[i:i + batch_size]
-            list_str = "\n".join([f"- [{text}] ({url})" for url, text in batch])
-            batch_url_map = {url.strip(): text for url, text in batch}
+
+            # 构建给 LLM 看的列表（只显示增强文本，不显示 URL）
+            list_str = "\n".join([f"- {enhanced_text}" for url, enhanced_text in batch])
+
+            # 构建 batch 的文本到URL映射
+            batch_text_to_url = {enhanced_text: url for url, enhanced_text in batch}
+
+            # 6. 构建完整的上下文信息
+            context_info = f"Mission: Find links relevant to \"{ctx.purpose}\".\n\n"
+            if current_domain:
+                context_info += f"Current website: {current_domain}\n"
+            context_info += f"This page is about: {page_summary}\n\n"
 
             # 使用自定义或默认 prompt
             if prompt_template:
                 prompt = prompt_template.format(
                     purpose=ctx.purpose,
+                    current_domain=current_domain or "unknown",
                     page_summary=page_summary,
                     list_str=list_str
                 )
             else:
-                # 默认 prompt（强化精选要求）
-                prompt = f"""
-                Mission: Find links relevant to "{ctx.purpose}".
+                # 默认 prompt（适配新的文本格式）
+                prompt = f"""{context_info}[Candidates]
+{list_str}
 
-                This page is about: {page_summary}
+[Instructions]
+1. Select ONLY links that are DIRECTLY relevant to the Mission
+2. Each link must have HIGH probability of containing useful information
+3. IGNORE ambiguous or generic links (e.g., "Learn More", "Click Here"）
+4. AVOID links that clearly point to non-relevant content
+5. 如果是百度百科这类网页，上面的链接很多是无关的，要仔细甄别，只选择确定有关的
+6. Be SELECTIVE - only choose links you are CONFIDENT will help
+7. Note: Links marked with （本站）stay on the same website, others navigate away
 
-                [Candidates]
-                {list_str}
-
-                [Instructions]
-                1. Select ONLY links that are DIRECTLY relevant to the Mission
-                2. Each link must have HIGH probability of containing useful information
-                3. IGNORE ambiguous or generic links (e.g., "Learn More", "Click Here")
-                4. AVOID links that clearly point to non-relevant content
-                5. 如果是百度百科这类网页，上面的链接很多是无关的，要仔细甄别，只选择确定有关的
-                6. Be SELECTIVE - only choose links you are CONFIDENT will help
-
-                OUTPUT FORMAT: Just list the full URLs of the selected links, one per line.
-                """
+OUTPUT FORMAT: Just list the link text exactly as shown above, one per line.
+"""
 
             try:
                 # 调用小脑
@@ -118,34 +170,49 @@ class CrawlerHelperMixin:
                 raw_reply = resp.get('reply', '')
                 self.logger.debug(f"LLM reply: {raw_reply}")
 
-                # 4. 正则提取与验证
-                found_urls = url_pattern.findall(raw_reply)
-                for raw_url in found_urls:
-                    clean_url = raw_url.strip('.,;)]}"\'')
+                # 7. 解析 LLM 返回的文本，映射回 URL
+                reply_lines = [line.strip() for line in raw_reply.split('\n') if line.strip()]
 
-                    if clean_url in batch_url_map:
-                        selected_urls.append(clean_url)
+                for reply_text in reply_lines:
+                    # 容错：移除可能的序号前缀（如 "1. ", "- "）
+                    clean_reply_text = reply_text.strip()
+                    if clean_reply_text.startswith('- '):
+                        clean_reply_text = clean_reply_text[2:].strip()
+                    if '. ' in clean_reply_text[:5]:  # 只在开头检查序号
+                        try:
+                            parts = clean_reply_text.split('. ', 1)
+                            if parts[0].isdigit():
+                                clean_reply_text = parts[1].strip()
+                        except:
+                            pass
+
+                    # 从本批次的映射中查找 URL
+                    if clean_reply_text in batch_text_to_url:
+                        url = batch_text_to_url[clean_reply_text]
+                        if url not in selected_urls:
+                            selected_urls.append(url)
                     else:
-                        # 容错匹配
-                        for original_url in batch_url_map.keys():
-                            if clean_url in original_url and len(clean_url) > 15:
-                                selected_urls.append(original_url)
+                        # 模糊匹配（容错 LLM 输出时的微小变化）
+                        for display_text, url in batch_text_to_url.items():
+                            if clean_reply_text in display_text or display_text in clean_reply_text:
+                                if url not in selected_urls:
+                                    selected_urls.append(url)
                                 break
 
-                # 5. 提前终止：达到阈值后停止
+                # 8. 提前终止：达到阈值后停止
                 if early_stop_threshold and len(selected_urls) >= early_stop_threshold:
                     self.logger.info(
                         f"✓ Early stop: selected {len(selected_urls)} links "
                         f"(threshold: {early_stop_threshold}) from {total_candidates} candidates"
                     )
-                    break
+                    return selected_urls[:early_stop_threshold]
 
             except Exception as e:
                 self.logger.error(f"Link filtering batch failed: {e}")
                 continue
 
-        self.logger.debug(f"Selected links: {selected_urls}")
-        return list(set(selected_urls))
+        self.logger.debug(f"Selected {len(selected_urls)} links from {total_candidates} candidates")
+        return selected_urls
 
     async def _choose_best_interaction(
         self,
@@ -356,9 +423,15 @@ class CrawlerHelperMixin:
         else:
             return await self._html_to_full_markdown(tab)
 
+    
+
     async def _html_to_full_markdown(self, tab) -> str:
         """
-        将 HTML 页面转换为完整 Markdown
+        将 HTML 页面转换为完整 Markdown（带智能回退机制）
+
+        策略：
+        1. 如果是 Google/Bing 搜索结果页：直接用 html2text（不使用 trafilatura）
+        2. 否则：优先使用 trafilatura（智能提取正文），失败则回退到 html2text
 
         Args:
             tab: 浏览器标签页句柄
@@ -367,11 +440,66 @@ class CrawlerHelperMixin:
             str: Markdown 格式的页面内容
         """
         import trafilatura
+        import re
+        import html2text
 
         raw_html = tab.html
         url = self.browser.get_tab_url(tab)
 
-        # 使用 trafilatura 提取完整 Markdown
+        # 判断是否是搜索结果页
+        is_google_search = 'google.com/search' in url or 'www.google.' in url
+        is_bing_search = 'bing.com/search' in url
+        is_search_results = is_google_search or is_bing_search
+
+        # 预处理：移除翻译按钮（字符串替换方式）
+        if is_search_results:
+            if is_google_search:
+                # Google: <a><span>翻译此页</span></a> - 删除整个a标签
+                raw_html = re.sub(
+                    r'<a\s+[^>]*><span[^>]*>\s*翻译此页\s*</span></a>',
+                    '',
+                    raw_html,
+                    flags=re.IGNORECASE
+                )
+                raw_html = re.sub(
+                    r'<a\s+[^>]*href="https://translate\.google\.com[^"]*"[^>]*>.*?</a>',
+                    '',
+                    raw_html,
+                    flags=re.IGNORECASE | re.DOTALL
+                )
+                # 也处理单引号的情况
+                raw_html = re.sub(
+                    r"<a\s+[^>]*href='https://translate\.google\.com[^']*'[^>]*>.*?</a>",
+                    '',
+                    raw_html,
+                    flags=re.IGNORECASE | re.DOTALL
+                )
+                self.logger.debug("✓ Removed Google translate buttons via string replacement")
+            elif is_bing_search:
+                # Bing: <span>翻译此结果</span> - 只删除span
+                raw_html = re.sub(
+                    r'<span[^>]*>\s*翻译此结果\s*</span>',
+                    '',
+                    raw_html,
+                    flags=re.IGNORECASE
+                )
+                self.logger.debug("✓ Removed Bing translate buttons via string replacement")
+
+            # 搜索结果页直接使用 html2text
+            converter = html2text.HTML2Text()
+            converter.ignore_links = False
+            converter.ignore_images = True
+            converter.body_width = 0
+            converter.ignore_emphasis = False
+
+            markdown = converter.handle(raw_html)
+            self.logger.info(f"✓ Search results page converted with html2text: {len(markdown)} chars")
+            return markdown or ""
+
+        
+            
+
+        # 尝试 trafilatura 提取正文
         markdown = trafilatura.extract(
             raw_html,
             include_links=True,
@@ -379,16 +507,9 @@ class CrawlerHelperMixin:
             output_format='markdown',
             url=url
         )
+        self.logger.debug(f"\n\n {markdown} \n\n")
 
-        # 降级方案：如果失败，尝试只提取文本（不含链接和格式）
-        if not markdown or len(markdown) < 50:
-            markdown = trafilatura.extract(
-                raw_html,
-                include_links=False,
-                include_formatting=False,
-                output_format='markdown',
-                only_with_text=True
-            )
+        
 
         return markdown or ""
 

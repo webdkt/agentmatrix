@@ -77,7 +77,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                 brain=self.brain,
                 cerebellum=self.cerebellum,
                 action_registry=self.actions_map,
-                name=f"{self.name}_Core",
+                name=f"{self.name}",
                 default_max_steps=100
             )
             self.logger.info(f"Micro Agent {self._micro_core.name} created")
@@ -152,26 +152,12 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         prompt =prompt.replace("{{ system_prompt }}", self.system_prompt)
         yellow_page = self.post_office.yellow_page_exclude_me(self.name)
         prompt =prompt.replace("{{ yellow_page }}", yellow_page)
-        capabilities_menu = self.get_capabilities_summary()
-        prompt = prompt.replace("{{ capabilities }}", capabilities_menu)
+        
         return prompt
 
         
 
-    def get_capabilities_summary(self) -> str:
-        """
-        生成给 Brain 看的能力清单 (Menu)。
-        只包含 Action Name 和 Description，不包含 JSON 参数细节。
-        """
-        lines = []
-        if not self.actions_meta:
-            return "(No capabilities registered)"
-
-        for name, meta in self.actions_meta.items():
-            # 格式示例: - read_file: 读取文件内容。只读取文本文件。
-            lines.append(f"- {name}: {meta['description']}")
-            
-        return "\n".join(lines)
+    
 
     def _generate_tools_prompt(self):
         """生成给 SLM 看的 Prompt"""
@@ -283,20 +269,19 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             persona=self.get_prompt(),
             task=task,
             available_actions=available_actions,
-            task_context={
-                "session_id": session.session_id,
-                "sender": email.sender,
-                "user_session_id": email.user_session_id
-            },
             max_steps=100,
-            exit_condition="rest_n_wait",
             initial_history=session.history  # 恢复记忆！
         )
 
         # 5. 更新 session 的 history
         session.history = micro_core.get_history()
 
-        self.logger.debug(f"Email processing completed. Result: {result[:100] if result else 'No result'}...")
+        # 只有当 result 是字符串且长度超过 100 时才切片
+        if isinstance(result, str) and len(result) > 100:
+            result_preview = f"{result[:100]}..."
+        else:
+            result_preview = result if result else 'No result'
+        self.logger.debug(f"Email processing completed. Result: {result_preview}")
         self.logger.info(f"Session {session.session_id} now has {len(session.history)} messages")
 
     def _resolve_session(self, email: Email) -> TaskSession:
@@ -366,6 +351,14 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         Planner: 将重写此方法，返回 State + Latest Message。
         """
         return session.history
+
+    @register_action(
+        "检查当前日期和时间，你不知道日期和时间，如果需要日期时间信息必须调用此action", param_infos={}
+    )
+    async def get_current_datetime(self):
+        from datetime import datetime
+        now = datetime.now()
+        return now.strftime("%Y-%m-%d %H:%M:%S")
 
     
     @register_action(
@@ -606,10 +599,10 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         persona: str,
         task: str,
         available_actions: Optional[List[str]] = None,
-        task_context: Optional[Dict[str, Any]] = None,
         max_steps: int = 50,
-        exclude_actions: Optional[List[str]] = None
-    ) -> str:
+        exclude_actions: Optional[List[str]] = None,
+        result_params: Optional[Dict[str, str]] = None
+    ) -> Any:
         """
         运行一个 Micro Agent 来处理子任务
 
@@ -620,19 +613,21 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             persona: 角色/身份描述（覆盖 BaseAgent 的 persona）
             task: 任务描述
             available_actions: 可用的 action 名称列表（None = 使用所有 BaseAgent 的 actions）
-            task_context: 任务上下文（可选）
             max_steps: 最大步数
             exclude_actions: 要排除的 actions（默认排除等待类 actions）
+            result_params: 返回值参数描述（可选），用于指定 finish_task 的参数结构
 
         Returns:
-            str: Micro Agent 的执行结果
+            Any: Micro Agent 的执行结果
+                 - 如果 result_params 为 None，返回字符串（向后兼容）
+                 - 如果有 result_params，返回 Dict[str, Any]
+                 - 如果出错或超时，返回 None 或 {"error": str}
 
         Example:
             # 使用所有 actions（默认）
             result = await self._run_micro_agent(
                 persona="You are a code analysis expert...",
                 task="Analyze the project structure",
-                task_context={"path": "/project"},
                 max_steps=30
             )
 
@@ -643,6 +638,18 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                 available_actions=["web_search", "read_file", "finish_task"],
                 max_steps=20
             )
+
+            # 使用结构化返回（新功能）
+            result = await self._run_micro_agent(
+                persona="You are a code reviewer...",
+                task="Review this code",
+                result_params={
+                    "summary": "审查总结",
+                    "issues": "问题列表",
+                    "score": "评分 (0-100)"
+                }
+            )
+            # result = {"summary": "...", "issues": [...], "score": 85}
         """
         from .micro_agent import MicroAgent
 
@@ -668,10 +675,9 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             persona=persona,
             task=task,
             available_actions=available_actions,
-            task_context=task_context,
             max_steps=max_steps,
-            exit_condition="finish_task",
-            initial_history=None  # 新对话，不需要恢复记忆
+            initial_history=None,  # 新对话，不需要恢复记忆
+            result_params=result_params  # 新增：传递 result_params
         )
 
         return result
