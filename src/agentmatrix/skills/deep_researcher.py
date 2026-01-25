@@ -7,8 +7,7 @@ from typing import List, Set, Dict, Optional, Any, Deque
 from collections import deque
 from enum import Enum, auto
 from dataclasses import dataclass, field
-from ..core.browser.google import search_google
-from ..core.browser.bing import search_bing
+from urllib.parse import quote_plus
 
 from pathlib import Path
 
@@ -27,7 +26,14 @@ from ..core.action import register_action
 from .deep_researcher import DeepResearchHelper,ResearchContext
 from .utils import sanitize_filename
 
-search_func = search_bing
+# ==========================================
+# Search engine configuration (与 web_searcher 保持一致)
+# ==========================================
+SEARCH_ENGINES = {
+    "google": "https://www.google.com/search?q={query}",
+    "bing": "https://www.bing.com/search?q={query}"
+}
+DEFAULT_SEARCH_ENGINE = "bing"  # 默认使用 Bing
 
 # ==========================================
 # 1. 状态与上下文定义 (State & Context)
@@ -146,6 +152,7 @@ class DeepResearcher(DeepResearchHelper):
         # 1. 进行一个新的research task (search + crawl + read + note) - 一页笔记满了就返回，让brain看到新的笔记，决定下一步
         # 2. Summarize current page
         # 3. review key questions
+        pass
         
         
         
@@ -157,10 +164,15 @@ class DeepResearcher(DeepResearchHelper):
 
 
 
-    #TODO: 把research_crawler改造成 _do_research 
-    async def research_crawler(self, ctx):
+    #TODO: 把research_crawler改造成 _do_research
+    async def research_crawler(self, ctx, search_phrase: str = None, search_engine: str = "bing"):
         """
         [Entry Point] 外部调用的入口
+
+        Args:
+            ctx: 研究上下文
+            search_phrase: 搜索关键词（可选，如果不提供则从研究目的生成）
+            search_engine: 搜索引擎（"google" 或 "bing"，默认 "bing"）
         """
         # 1. 准备环境
         save_dir = os.path.join(ctx.research_dir, "downloads", sanitize_filename(ctx.research_title))
@@ -176,32 +188,45 @@ class DeepResearcher(DeepResearchHelper):
         
 
         self.logger.info(f"🚀 Mission Start: {ctx.research_purpose}")
-        
-        # 2. 启动浏览器
+
+        # 2. 确定 search_phrase
+        if not search_phrase:
+            # 使用研究目的作为搜索词
+            search_phrase = ctx.research_purpose
+
+        # 3. 构建搜索结果页 URL
+        if search_engine.lower() not in SEARCH_ENGINES:
+            self.logger.warning(f"Unknown search engine '{search_engine}', using default '{DEFAULT_SEARCH_ENGINE}'")
+            search_engine = DEFAULT_SEARCH_ENGINE
+
+        search_url_template = SEARCH_ENGINES[search_engine.lower()]
+        encoded_query = quote_plus(search_phrase)
+        search_results_url = search_url_template.format(query=encoded_query)
+
+        self.logger.info(f"🔍 准备搜索: {search_phrase}")
+        self.logger.info(f"🔍 搜索引擎: {search_engine}")
+        self.logger.info(f"🔍 搜索结果页 URL: {search_results_url}")
+
+        # 4. 启动浏览器
         await self.browser_adapter.start(headless=False) # 调试模式先开有头
-        
+
         try:
-            # 3. 初始阶段：执行搜索 (Phase 0)
-            # 我们把搜索结果页当做第一个 Tab 的初始页面
+            # 5. 创建 Tab 和 Session
             first_tab = await self.browser_adapter.get_tab()
-            
-            search_result = await search_func(self.browser_adapter, first_tab, search_phrase)
+
             # 创建初始 Session
             initial_session = TabSession(handle=first_tab, current_url="")
-            # 把搜索页直接推入队列，让 lifecycle 去处理 navigate
-            for result in search_result:
-                initial_session.pending_link_queue.append(result['url'])
 
-            
-            
-            
-            
-            
-            
-            # 4. 进入递归循环
+            # 将搜索结果页 URL 加入队列（像 web_searcher 一样）
+            # 搜索结果页会被当作普通网页处理，由 LLM 决定点击哪些链接
+            initial_session.pending_link_queue.append(search_results_url)
+
+            self.logger.info(f"✓ Added search results page to queue")
+
+            # 6. 进入递归循环
             await self._run_tab_lifecycle(initial_session, ctx)
-            
-            # 5. 生成报告
+
+            # 7. 生成报告
             return self._generate_final_report(ctx)
 
         except Exception as e:
@@ -329,26 +354,17 @@ class DeepResearcher(DeepResearchHelper):
                     if page_changed:
                         filtered_links = {}
                         for link in links:
+                            # 使用统一的检查函数
+                            if not ctx.should_process_url(link, session.pending_link_queue):
+                                continue
 
-                            # 过滤掉已评估过的链接（避免重复调用 LLM）
-                            if ctx.has_link_assessed(link):
-                                continue
-                            #先判断这个link是否已经访问过，或者是否在黑名单中，以及是不是已经在pending_link_queue里
-                            if ctx.has_visited(link):
-                                continue
-                            if link in session.pending_link_queue:
-                                continue
-                            if any(bl in link for bl in ctx.blacklist):
-                                continue
-                            
-                            
                             filtered_links[link] = links[link]
 
                         selected_links = await self._filter_relevant_links(filtered_links,one_line_summary, ctx)
 
                         # 记录所有评估过的链接（无论是否被选中）
                         for link in filtered_links:
-                            ctx.mark_link_assessed(link)
+                            ctx.mark_visited(link)
 
                         new_links_count = 0
                         for link in selected_links:

@@ -1,0 +1,57 @@
+=== 解析结果 ===
+
+搜索引擎: google
+搜索结果数量: 9
+
+=== 格式化的 Markdown ===
+
+# 搜索结果 (共 9 条)
+
+[🔗Link1 To: www.cnn.com]
+**Donald J. Trump news**
+*www.cnn.com*
+
+[🔗Link2 To: www.theguardian.com]
+**Donald Trump**
+*www.theguardian.com*
+
+[🔗Link3 To: www.whitehouse.gov]
+**The White House**
+*www.whitehouse.gov*
+
+[🔗Link4 To: www.aljazeera.com]
+**Donald Trump | Today's latest from Al Jazeera**
+*www.aljazeera.com*
+
+[🔗Link5 To: www.reuters.com]
+**Latest Donald Trump News | Top Headlines on ...**
+*www.reuters.com*
+
+[🔗Link6 To: theconversation.com]
+**Donald Trump – News, Research and Analysis**
+*theconversation.com*
+
+[🔗Link7 To: www.politico.com]
+**Donald Trump: Latest News, Top Stories & Analysis**
+*www.politico.com*
+
+[🔗Link8 To: www.theguardian.com]
+**Trump news at a glance: president's 'board of peace' takes ...**
+*www.theguardian.com*
+
+[🔗翻页: 下一页]
+**→ 下一页**
+点击查看更多搜索结果
+
+
+=== 链接映射 ===
+
+Link1 To: www.cnn.com -> https://www.cnn.com/politics/president-donald-trump-47
+Link2 To: www.theguardian.com -> https://www.theguardian.com/us-news/donaldtrump
+Link3 To: www.whitehouse.gov -> https://www.whitehouse.gov/
+Link4 To: www.aljazeera.com -> https://www.aljazeera.com/tag/donald-trump/
+Link5 To: www.reuters.com -> https://www.reuters.com/world/us/donald-trump/
+Link6 To: theconversation.com -> https://theconversation.com/topics/donald-trump-10206
+Link7 To: www.politico.com -> https://www.politico.com/news/donald-trump
+Link8 To: www.theguardian.com -> https://www.theguardian.com/us-news/2026/jan/22/trump-administration-news-updates-today
+翻页: 下一页 -> https://www.google.com/search?q=trump+news&sca_esv=c9a82c01d27467b1&sxsrf=ANbL-n6e4SvdY7JepIyK1qUC-LnBFrrHhg:1769138719172&ei=H-pyac6iCuqp4-EPr_fS0QU&start=10&sa=N&sstk=Af77f_e9_-vTsQCR43bbIfVGhT_W0LHPMhX0eygRtzYJuwkB4d-hH5s3lmHnVULltshvoOdA2HKJClffyMzUaDnzPa5F6KxdIReIaw&ved=2ahUKEwiOrqin26CSAxXq1DgGHa-7NFoQ8NMDegQICxAW

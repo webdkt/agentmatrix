@@ -8,9 +8,10 @@ from typing import List, Set, Dict, Optional, Any, Deque
 from collections import deque
 from dataclasses import dataclass, field
 from ..skills.utils import sanitize_filename
+from ..skills.parser_utils import multi_section_parser
 
-from ..core.browser.google import search_google
-from ..core.browser.bing import search_bing
+from urllib.parse import quote_plus, urlparse
+
 from ..core.browser.browser_adapter import (
     BrowserAdapter, TabHandle, PageElement, PageSnapshot, PageType
 )
@@ -19,7 +20,12 @@ from ..skills.crawler_helpers import CrawlerHelperMixin
 from ..core.browser.drission_page_adapter import DrissionPageAdapter
 from ..core.action import register_action
 
-search_func = search_bing
+# Search engine configuration
+SEARCH_ENGINES = {
+    "google": "https://www.google.com/search?q={query}",
+    "bing": "https://www.bing.com/search?q={query}"
+}
+DEFAULT_SEARCH_ENGINE = "bing"  # Can be configured via environment variable or parameter
 
 # ==========================================
 # Prompt 集中管理
@@ -34,21 +40,35 @@ class WebSearcherPrompts:
 
     CHAPTER_SELECTION = """You are searching for information to answer: "{question}"
 
+Current page URL: {url}
+
 Below is the table of contents for a document:
 
 {toc_list}
 
+[Document Preview - First 500 Characters]
+{preview}
+
+[Important Note]
+The table of contents above was AUTOMATICALLY EXTRACTED from the web page by analyzing heading levels.
+Web pages often have messy or inconsistent heading structures. Some "chapters" may not be real content sections.
+
+Use the preview above to help assess whether this document is worth reading.
+
 [Task]
-Select the chapters that are MOST LIKELY to contain information relevant to answering the question.
+Select the chapters that are LIKELY to contain information relevant to answering the question.
 
 [Rules]
-1. You can select multiple chapters
-2. Be conservative - only select chapters that seem directly relevant
-3. If unsure, you can select multiple chapters to be safe
+1. First, assess whether this document is relevant by examining the TOC and preview
+2. If the document seems irrelevant, select "SKIP_DOC" to skip the entire document
+3. If the TOC looks random or unhelpful, select "SKIP_TOC" to process the full document
+4. You can select multiple chapters
+5. Be conservative - only select chapters that seem directly relevant
+6. If you select a parent chapter, ALL its sub-chapters will be included automatically
 
 [Output Format]
 
-First, explain your reasoning (why you selected these chapters).
+First, explain your reasoning (assess document relevance + TOC quality + why you selected these chapters).
 
 Then, output your selections using following format:
 
@@ -57,23 +77,29 @@ Then, output your selections using following format:
 你选择的章节名称2(replace with your choice)
 ...
 ====章节选择结束====
+One chapter name per line. The chapter names must EXACTLY match the names shown in the TOC above.
 
-One chapter name per line. The chapter names must EXACTLY match the names shown in the TOC above."""
+OR, if you decided 这个文档不相关:
+====章节选择====
+SKIP_DOC
+====章节选择结束====
 
-    CHAPTER_ERROR_HALLUCINATION = """Your selection contains chapters that don't exist in the TOC:
+OR, if you decided 这个目录没什么用:
+====章节选择====
+SKIP_TOC
+====章节选择结束====
 
-Invalid chapters:
-{invalid_chapters}
+"""
 
-Please select ONLY from the available chapters listed in the TOC. Try again."""
+    
 
     CHAPTER_ERROR_FORMAT = """Your output format is incorrect.
 
 Please use this EXACT format:
 
 ====章节选择====
-章节名称1
-章节名称2
+章节名称1(replace with your choice)
+章节名称2(replace with your choice)
 ====章节选择结束====
 
 Make sure:
@@ -94,19 +120,26 @@ Try again."""
 - Source URL: {url}
 - Progress: Page {current_batch} of {total_batches} ({progress_pct}% complete)
 
+{toc_info}
+
 [Notebook - What We Already Know]
 {notebook}
 
 [Current Page Content - Page {current_batch}]
+(Note: Links are marked as [🔗LinkText]. If you want to visit a link, copy its text (without 🔗) and list it in the "推荐链接" section below.)
+====BEGIN OF PAGE====
+
 {batch_text}
+
+====END OF PAGE====
 
 [Task]
 Based on the Notebook, Current Page, AND your reading progress, provide a brief summary.
 
 Consider your progress:
-- If you're early in the document (first 20%), keep exploring even if this page is weak
-- If you're late in the document (last 30%) and found nothing useful, consider skipping
-- If you're in the middle, continue unless the content is completely irrelevant
+- How deep are you in the document?
+- Does this document seem relevant to the question?
+- Based on document info and toc and current page, is this document likely to contain useful information?
 
 Your response MUST start with ONE of these four headings:
 
@@ -120,7 +153,7 @@ If you can provide a clear, complete answer based on the Notebook and Current Pa
 ##值得记录的笔记
 If you cannot answer yet, but found NEW and USEFUL information:
 - Use this heading
-- Provide a concise summary (2-5 sentences)
+- Provide a concise summary 
 - Focus on facts, data, definitions, explanations
 - Only extract information NOT already in Notebook
 - Always include the source URL
@@ -129,14 +162,14 @@ If you cannot answer yet, but found NEW and USEFUL information:
 If the page doesn't contain new or useful information, but the document still shows promise:
 - Use this heading
 - Briefly explain why (1 sentence)
-- Consider: If you're late in the document (>70%), you might want to skip
+
 
 ##完全不相关的文档应该放弃
-If the page is completely irrelevant to the question (navigation, ads, unrelated topics):
+If the page is completely irrelevant to the question (navigation, ads, unrelated topics) and you believe the document is not worth reading further:
 - Use this heading
 - Explain why (1 sentence)
 - Skip the rest of this document
-- Especially consider this if you're already deep into the document (>50%) and found nothing useful
+
 
 [Output Format]
 
@@ -144,10 +177,13 @@ If the page is completely irrelevant to the question (navigation, ads, unrelated
 
 Your content here...
 
-[Important]
-- Start with ONE of the four headings above (EXACTLY as shown)
-- Provide your content below the heading
-- Consider your reading progress when deciding whether to continue or skip"""
+====推荐链接====
+(Optional. If you see links in the text above that are worth visiting, list the LinkText (without 🔗) of those links here, one per line.)
+示例链接文本
+另一个链接文本
+====推荐链接结束====
+
+"""
 
     BATCH_ERROR_FORMAT = """Your output format is incorrect.
 
@@ -180,9 +216,198 @@ Example 4 (irrelevant):
 
 Try again."""
 
+    # ==========================================
+    # 3. 搜索结果页处理
+    # ==========================================
+
+    SEARCH_RESULT_BATCH = """You are reviewing SEARCH RESULTS from {search_engine} to answer: "{question}"
+
+
+
+[Notebook - What We Already Know]
+{notebook}
+
+(Note: Links are marked as [🔗LinkText]. If you want to visit a link, copy its text (without 🔗) and list it in the "##推荐链接" section.)
+====BEGIN OF SEARCH RESULTS====
+
+{batch_text}
+
+====END OF SEARCH RESULTS====
+
+[Task]
+Review these search results and decide which links are worth visiting to help answer the question. List them under ##推荐链接 section, one per line
+
+
+[Output Format]
+
+##推荐链接
+第一个链接(replace with your choice)
+另一个链接(replace with your choice)
+"""
+
 
 # ==========================================
-# 1. 状态与上下文定义
+# Markdown 链接管理器
+# ==========================================
+
+class MarkdownLinkManager:
+    """
+    Markdown 链接管理器
+
+    核心职责：
+    * 去噪：过滤已访问、黑名单链接
+    * 语义化替换：将 [Text](Long-URL) 替换为 [🔗Text]
+    * 防重名：处理相同 Anchor Text 的情况
+    * 信息增强：为无意义文本补充 URL 信息
+    * 相对链接转换：将相对URL转换为绝对URL
+    """
+
+    def __init__(self, ctx: 'WebSearcherContext', logger=None):
+        self.ctx = ctx
+        self.logger = logger  # 可选的 logger
+        # 核心映射：{ "显示给LLM的唯一文本": "真实URL" }
+        self.text_to_url: Dict[str, str] = {}
+        # 匹配 Markdown 链接 [text](url) - 包括相对URL和空锚文本
+        self.link_pattern = re.compile(r'\[([^\]]*)\]\(([^)]+)\)')
+        # 无意义文本列表
+        self.generic_terms = {
+            "click here", "here", "read more", "more", "link", "details",
+            "点击这里", "点击", "更多", "详情", "这里", "下载", "download"
+        }
+
+    def process(self, markdown_text: str, base_url: str) -> str:
+        """
+        处理 Markdown：清洗链接，生成唯一文本，建立映射
+
+        Args:
+            markdown_text: 原始 Markdown 文本
+            base_url: 当前页面的URL，用于处理相对链接
+
+        Returns:
+            处理后的 Markdown 文本（链接已替换为 [🔗Text] 格式）
+        """
+        link_count = 0
+
+        def replace_match(match):
+            nonlocal link_count
+            text = match.group(1).strip()
+            url = match.group(2).strip()
+
+            # 清理链接文本：移除换行符和多余空白
+            text = re.sub(r'\s+', ' ', text)  # 多个空白字符替换为单个空格
+            text = text.strip()
+
+            # 0. 过滤非HTTP链接（mailto:, javascript: 等）
+            if url.startswith(('mailto:', 'javascript:', '#', 'tel:')):
+                # 返回纯文本，移除链接
+                return text
+
+            # 1. 处理空锚文本：从URL生成描述性文本
+            if not text:
+                try:
+                    parsed_url = urlparse(url)
+                    # 尝试从URL提取有意义的文本
+                    if parsed_url.netloc:
+                        # 使用域名
+                        text = parsed_url.netloc
+                    else:
+                        # 使用URL路径的最后一部分
+                        path_parts = parsed_url.path.split('/')
+                        text = next((p for p in reversed(path_parts) if p), "链接")
+                except Exception:
+                    text = "链接"
+
+            # 2. 处理相对URL，转换为绝对URL
+            if url.startswith('/'):
+                # 相对URL，拼接base URL
+                try:
+                    parsed_base = urlparse(base_url)
+                    absolute_url = f"{parsed_base.scheme}://{parsed_base.netloc}{url}"
+                    url = absolute_url
+                except Exception:
+                    # 解析失败，返回纯文本
+                    return text
+            elif not url.startswith('http'):
+                # 其他格式（如 //example.com 或其他协议），返回纯文本
+                return text
+
+            # 3. 过滤逻辑：跳过已访问或黑名单链接
+            if not self.ctx.should_process_url(url):
+                return text  # 仅保留纯文本，移除链接属性
+
+            # 4. 生成唯一文本键
+            unique_text = self._generate_unique_text(text, url)
+
+            # 5. 记录映射
+            self.text_to_url[unique_text] = url
+
+            # 6. 替换为 [🔗Text] 格式
+            link_count += 1
+            return f"[🔗{unique_text}]"
+
+        result = self.link_pattern.sub(replace_match, markdown_text)
+        if self.logger:
+            self.logger.info(f"🔗 Processed {link_count} links in Markdown")
+        return result
+
+    def _generate_unique_text(self, text: str, url: str) -> str:
+        """
+        生成唯一的文本标识
+
+        Args:
+            text: 链接的 Anchor Text
+            url: 链接的真实 URL
+
+        Returns:
+            唯一的文本标识
+        """
+        # A. 处理无意义文本 (Generic Terms)
+        # 文本过短或无意义时，从 URL 提取提示
+        if len(text) < 2 or text.lower() in self.generic_terms:
+            try:
+                path = urlparse(url).path
+                hint = path.split('/')[-1]  # 尝试拿文件名
+                if not hint:
+                    hint = urlparse(url).netloc  # 拿不到文件名拿域名
+                # 限制 hint 长度防止过长
+                if len(hint) > 20:
+                    hint = hint[:17] + "..."
+                text = f"{text}({hint})"
+            except Exception:
+                pass
+
+        # B. 处理重名 (Duplicate Handling)
+        # 如果 URL 完全一致，复用同一个文本
+        if text in self.text_to_url and self.text_to_url[text] == url:
+            return text
+
+        # 如果文本存在但 URL 不同，加序号区分
+        base_text = text
+        counter = 2
+        while text in self.text_to_url:
+            text = f"{base_text}({counter})"
+            counter += 1
+
+        return text
+
+    def get_url(self, text: str) -> Optional[str]:
+        """
+        根据文本获取 URL
+
+        Args:
+            text: LLM 输出的链接文本（可能包含 🔗 符号）
+
+        Returns:
+            对应的真实 URL，如果不存在则返回 None
+        """
+        # 容错：移除可能被 LLM 带上的 🔗 符号和标点
+        clean_text = text.replace("🔗", "").strip()
+        clean_text = clean_text.strip("。，、；：""''""（）")
+        return self.text_to_url.get(clean_text)
+
+
+# ==========================================
+# 状态与上下文定义
 # ==========================================
 
 class WebSearcherContext(BaseCrawlerContext):
@@ -198,12 +423,35 @@ class WebSearcherContext(BaseCrawlerContext):
         self.notebook = ""
         self.chunk_threshold = chunk_threshold
         self.temp_file_dir = temp_file_dir
+        # 用于存储待处理的链接（在流式阅读过程中发现）
+        self.pending_links_from_reading: List[str] = []
 
     def add_to_notebook(self, info: str):
         """添加信息到小本本"""
         if info:
             timestamp = time.strftime("%H:%M:%S")
             self.notebook += f"\n\n[{timestamp}] {info}\n"
+
+    def add_pending_link(self, url: str):
+        """
+        添加待处理的链接（从流式阅读中发现）
+
+        Args:
+            url: 待访问的 URL
+        """
+        if url and url not in self.pending_links_from_reading:
+            self.pending_links_from_reading.append(url)
+
+    def get_pending_links(self) -> List[str]:
+        """
+        获取所有待处理的链接并清空列表
+
+        Returns:
+            待处理的链接列表
+        """
+        links = self.pending_links_from_reading.copy()
+        self.pending_links_from_reading.clear()
+        return links
 
 
 # ==========================================
@@ -222,8 +470,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             "purpose": "要回答的问题（或研究目标）",
             "search_phrase": "可选，初始搜索关键词",
             "max_time": "可选，最大搜索分钟，默认20",
-            "max_search_pages": "可选，最大搜索页数（默认5）",
-
+            "search_engine": "可选，搜索引擎（google 或 bing），默认 bing",
         }
     )
     async def web_search(
@@ -231,17 +478,17 @@ class WebSearcherMixin(CrawlerHelperMixin):
         purpose: str,
         search_phrase: str = None,
         max_time: int = 20,
-        max_search_pages: int = 5,
+        search_engine: str = "bing",
         temp_file_dir: Optional[str] = None
     ):
         """
-        [Entry Point] 上网搜索回答问题（流式处理版本）
+        [Entry Point] 上网搜索回答问题（统一流程版本）
 
         Args:
             purpose: 要回答的问题（或研究目标）
             search_phrase: 初始搜索关键词
             max_time: 最大搜索时间（分钟）
-            max_search_pages: 最大搜索页数（默认5）
+            search_engine: 搜索引擎（"google" 或 "bing"）
             chunk_threshold: 分段阈值（字符数）
             temp_file_dir: 临时文件保存目录（可选，用于调试）
         """
@@ -250,6 +497,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         download_path = os.path.join(self.current_workspace, "downloads")
         chunk_threshold = 5000
 
+        # 2. 确定 search_phrase
         if not search_phrase:
             resp = await self.brain.think(f"""
             现在我们要研究个新问题：{purpose}，打算上网搜索一下，需要你设计一下最合适的关键词或者关键字组合。输出的时候可以先简单解释一下这么设计的理由，但是最后一行必须是也只能是要搜索的内容（也就是输入到搜索引擎搜索栏的内容）。例如你认为应该搜索"Keyword"，那么最后一行就只能是"Keyword"
@@ -261,8 +509,21 @@ class WebSearcherMixin(CrawlerHelperMixin):
         #如果还是有问题,我们直接搜索问题：
         if not search_phrase:
             search_phrase = purpose
-        self.logger.info(f"🔍 准备搜索: {search_phrase}")
 
+        # 3. 构建搜索结果页 URL
+        if search_engine.lower() not in SEARCH_ENGINES:
+            self.logger.warning(f"Unknown search engine '{search_engine}', using default '{DEFAULT_SEARCH_ENGINE}'")
+            search_engine = DEFAULT_SEARCH_ENGINE
+
+        search_url_template = SEARCH_ENGINES[search_engine.lower()]
+        encoded_query = quote_plus(search_phrase)
+        search_results_url = search_url_template.format(query=encoded_query)
+
+        self.logger.info(f"🔍 准备搜索: {search_phrase}")
+        self.logger.info(f"🔍 搜索引擎: {search_engine}")
+        self.logger.info(f"🔍 搜索结果页 URL: {search_results_url}")
+
+        # 4. 初始化浏览器和上下文
         self.browser = DrissionPageAdapter(
             profile_path=profile_path,
             download_path=download_path
@@ -277,71 +538,43 @@ class WebSearcherMixin(CrawlerHelperMixin):
 
         self.logger.info(f"🔍 Web Search Start: {purpose}")
         self.logger.info(f"🔍 Initial search phrase: {search_phrase}")
-        self.logger.info(f"🔍 Max search pages: {max_search_pages}")
+        self.logger.info(f"🔍 Max search time: {max_time} minutes")
 
-        # 2. 启动浏览器
+        # 5. 启动浏览器
         await self.browser.start(headless=False)
 
         try:
-            # 3. 创建 Tab 和 Session
+            # 6. 创建 Tab 和 Session
             tab = await self.browser.get_tab()
             session = TabSession(handle=tab, current_url="")
 
-            # 4. 外层循环：逐页处理搜索结果
-            for page_num in range(1, max_search_pages + 1):
-                self.logger.info(f"\n{'='*60}")
-                self.logger.info(f"🔍 Fetching search results page {page_num}/{max_search_pages}")
-                self.logger.info(f"{'='*60}\n")
+            # 7. 将搜索结果页 URL 加入队列
+            # 搜索结果页被视为第一个要处理的页面
+            session.pending_link_queue.append(search_results_url)
 
-                # 4.1 获取第 page_num 页的搜索结果
-                search_result = await search_func(
-                    self.browser,
-                    tab,
-                    search_phrase,
-                    max_pages=max_search_pages,
-                    page=page_num  # 指定只获取第 page_num 页
-                )
+            self.logger.info(f"✓ Added search results page to queue")
 
-                if not search_result:
-                    self.logger.warning(f"⚠️ No results found on page {page_num}")
-                    break
+            # 8. 运行统一的搜索生命周期
+            # 搜索结果页会像普通网页一样被处理：
+            # - 获取完整内容（包括所有搜索结果的标题、链接、摘要）
+            # - LLM 阅读并决定点击哪些链接
+            # - 继续探索相关页面
+            answer = await self._run_search_lifecycle(session, ctx)
 
-                # 4.2 将 URL 添加到 pending_link_queue
-                added_count = 0
-                for result in search_result:
-                    url = result['url']
-                    if not ctx.has_visited(url):
-                        session.pending_link_queue.append(url)
-                        added_count += 1
-
-                self.logger.info(f"✓ Added {added_count} URLs from page {page_num} to queue")
-
-                # 4.3 运行 _run_search_lifecycle 处理这些 URL
-                self.logger.info(f"\n🌐 Processing URLs from page {page_num}...")
-                answer = await self._run_search_lifecycle(session, ctx)
-
-                # 4.4 如果找到答案，提前返回
-                if answer:
-                    self.logger.info(f"✅ Found answer on page {page_num}!")
-                    return f"Answer: {answer}\n\n---\nNotebook:\n{ctx.notebook}"
-
-                # 4.5 检查时间和资源限制
-                if ctx.is_time_up():
-                    self.logger.info("⏰ Time up!")
-                    break
-
-                self.logger.info(f"✓ Completed page {page_num}, continuing to next page...")
-
-            # 5. 未找到答案，返回 notebook
-            self.logger.info("⏸ Exhausted all search pages without finding complete answer")
-            return f"Could not find a complete answer.\n\nHere's what I found:\n{ctx.notebook}"
+            # 9. 返回结果
+            if answer:
+                self.logger.info(f"✅ Found answer!")
+                return f"Answer: {answer}\n\n---\nNotebook:\n{ctx.notebook}"
+            else:
+                self.logger.info("⏸ Search completed without finding complete answer")
+                return f"Could not find a complete answer.\n\nHere's what I found:\n{ctx.notebook}"
 
         except Exception as e:
             self.logger.exception("Web searcher crashed")
             return f"Search failed with error: {e}"
-        finally:
-            self.logger.info("🛑 Closing browser...")
-            await self.browser.close()
+        #finally:
+        #    self.logger.info("🛑 Closing browser...")
+        #    await self.browser.close()
 
     @register_action(
         "访问一个网页并查看网页内容，如果是pdf文件就下载",
@@ -444,11 +677,23 @@ class WebSearcherMixin(CrawlerHelperMixin):
     async def _let_llm_select_chapters(
         self,
         toc: List[Dict],
-        ctx: WebSearcherContext
+        ctx: WebSearcherContext,
+        markdown_preview: str = "",
+        url: str = ""
     ) -> List[int]:
         """
-        让 LLM 根据问题选择相关章节（带重试机制）
-        返回: 选中的章节索引列表（0-based）
+        让 LLM 根据问题选择相关章节（使用 think_with_retry 自动重试）
+
+        Args:
+            toc: 目录列表
+            ctx: 搜索上下文
+            markdown_preview: Markdown开头500字预览（帮助判断文档是否有用）
+            url: 当前页面URL（帮助LLM理解页面来源）
+
+        Returns:
+            选中的章节索引列表（0-based），或特殊值：
+            - None: 跳过章节选择（使用全文）
+            - "SKIP_DOC": 跳过整个文档（文档不相关）
         """
         # 构造 TOC 列表（不用数字编号，保留缩进）
         toc_lines = []
@@ -464,107 +709,96 @@ class WebSearcherMixin(CrawlerHelperMixin):
         }
 
         # 使用 prompt 模板
-        initial_prompt = WebSearcherPrompts.CHAPTER_SELECTION.format(
+        prompt = WebSearcherPrompts.CHAPTER_SELECTION.format(
             question=ctx.purpose,
-            toc_list=toc_list
+            toc_list=toc_list,
+            url=url,
+            preview=markdown_preview
         )
 
-        # 初始化消息列表
-        messages = [{"role": "user", "content": initial_prompt}]
+        self.logger.debug(f"【Chapter Selection Prompt】:\n{prompt}")
 
-        # 最大重试次数
-        MAX_RETRIES = 5
+        try:
+            # 使用 think_with_retry 自动处理重试
+            result = await self.cerebellum.backend.think_with_retry(
+                initial_messages=prompt,
+                parser=self.chapter_parser,
+                max_retries=5,
+                chapter_name_to_index = chapter_name_to_index
+            )
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                # 调用 LLM
-                response = await self.cerebellum.backend.think(messages=messages)
-                reply = response.get('reply', '').strip()
+            # result 可能是：
+            # - None: 跳过章节选择（使用全文）
+            # - "SKIP_DOC": 跳过整个文档
+            # - 章节索引列表
+            if result is None:
+                self.logger.info("📋 Skipping chapter selection (TOC not helpful)")
+                return None  # None 表示跳过章节选择，使用全文
 
-                self.logger.debug(f"Chapter selection attempt {attempt + 1}:\n{reply}")
+            if result == "SKIP_DOC":
+                self.logger.info("🚫 LLM decided to skip entire document (not relevant)")
+                return "SKIP_DOC"
 
-                # 将 LLM 的回复作为 assistant 消息加入历史
-                messages.append({"role": "assistant", "content": reply})
+            self.logger.info(f"✅ Successfully selected {len(result)} chapters: {result}")
+            return result
 
-                # 解析输出
-                result = self._parse_chapter_selection(reply, chapter_name_to_index)
+        except ValueError as e:
+            # think_with_retry 在所有重试失败后会抛出 ValueError
+            self.logger.error(f"❌ Chapter selection failed after all retries: {e}")
+            # 返回空列表（会触发全文处理）
+            return []
 
-                if result["status"] == "success":
-                    # 情况 (1): 解析成功，所有章节都是真的
-                    selected_indices = result["selected_indices"]
-                    self.logger.info(f"✅ Successfully selected {len(selected_indices)} chapters: {selected_indices}")
-                    return selected_indices
-
-                elif result["status"] == "hallucination":
-                    # 情况 (2): 解析成功，但有些章节是假的（幻觉）
-                    invalid_chapters = result["invalid_chapters"]
-                    self.logger.warning(f"⚠️ LLM hallucinated chapters: {invalid_chapters}")
-
-                    # 使用错误提示模板
-                    invalid_chapters_str = "\n".join(f"- {ch}" for ch in invalid_chapters)
-                    error_msg = WebSearcherPrompts.CHAPTER_ERROR_HALLUCINATION.format(
-                        invalid_chapters=invalid_chapters_str
-                    )
-
-                    messages.append({"role": "user", "content": error_msg})
-                    continue
-
-                else:  # result["status"] == "parse_error"
-                    # 情况 (3): 解析失败（格式不对）
-                    self.logger.warning(f"⚠️ LLM output format incorrect")
-
-                    # 使用错误提示模板
-                    error_msg = WebSearcherPrompts.CHAPTER_ERROR_FORMAT
-
-                    messages.append({"role": "user", "content": error_msg})
-                    continue
-
-            except Exception as e:
-                self.logger.error(f"Chapter selection failed: {e}")
-
-                if attempt < MAX_RETRIES - 1:
-                    messages.append({
-                        "role": "user",
-                        "content": "An error occurred. Please try again. Make sure to follow the output format exactly."
-                    })
-                    continue
-                else:
-                    # 所有重试都失败，返回空列表
-                    return []
-
-        # 超过最大重试次数，返回空列表（会触发全文处理）
-        self.logger.error(f"❌ Max retries ({MAX_RETRIES}) exceeded. Falling back to full text processing.")
-        return []
-
-    def _parse_chapter_selection(
-        self,
-        llm_output: str,
-        chapter_name_to_index: Dict[str, int]
-    ) -> Dict[str, Any]:
+    def _chapter_parser(self, llm_output: str, chapter_name_to_index: Dict[str, int]) -> Dict[str, Any]:
         """
+        Parser for think_with_retry - 遵循 Parser Contract
         解析 LLM 的章节选择输出
 
-        返回:
+        Args:
+            llm_output: LLM 的原始输出
+            chapter_name_to_index: 章节名到索引的映射
+
+        Returns:
         {
-            "status": "success" | "hallucination" | "parse_error",
-            "selected_indices": List[int],      # 如果成功
-            "invalid_chapters": List[str]       # 如果有幻觉
+            "status": "success" | "error",
+            "data": List[int],              # 当 status="success" 时，返回选中的章节索引
+            "feedback": str                 # 当 status="error" 时，返回反馈信息
         }
         """
-        # 查找分隔符
-        start_marker = "====章节选择===="
-        end_marker = "====章节选择结束===="
+        # 宽松处理：先检查整个输出是否包含 SKIP_DOC 或 SKIP_TOC
+        output_upper = llm_output.upper()
+        if "SKIP_DOC" in output_upper:
+            self.logger.info("🚫 LLM decided to skip entire document (not relevant)")
+            return {
+                "status": "success",
+                "data": "SKIP_DOC"  # 特殊值：跳过整个文档
+            }
 
-        start_idx = llm_output.find(start_marker)
-        end_idx = llm_output.find(end_marker)
+        if "SKIP_TOC" in output_upper:
+            self.logger.info("📋 LLM chose to skip chapter selection (TOC not helpful)")
+            return {
+                "status": "success",
+                "data": None  # None 表示跳过章节选择，使用全文
+            }
 
-        # 检查分隔符是否存在
-        if start_idx == -1 or end_idx == -1:
-            return {"status": "parse_error", "selected_indices": [], "invalid_chapters": []}
+        # 使用 multi_section_parser 提取章节选择部分
+        result = multi_section_parser(
+            llm_output,
+            section_headers=["====章节选择===="],
+            match_mode="ANY"
+        )
 
-        # 提取章节列表部分
-        start_idx += len(start_marker)
-        chapter_section = llm_output[start_idx:end_idx].strip()
+        if result["status"] == "error":
+            return {
+                "status": "error",
+                "feedback": WebSearcherPrompts.CHAPTER_ERROR_FORMAT
+            }
+
+        # 提取章节选择内容
+        chapter_section = result["sections"]["====章节选择===="]
+
+        # 如果有结束标记，只取结束标记之前的部分
+        if "====章节选择结束====" in chapter_section:
+            chapter_section = chapter_section.split("====章节选择结束====")[0].strip()
 
         # 按行分割
         chapter_lines = [
@@ -574,13 +808,24 @@ class WebSearcherMixin(CrawlerHelperMixin):
         ]
 
         if not chapter_lines:
-            return {"status": "parse_error", "selected_indices": [], "invalid_chapters": []}
+            return {
+                "status": "error",
+                "feedback": "没有选择任何章节。请至少选择一个相关章节。"
+            }
 
         # 验证章节是否存在于 TOC 中
         selected_indices = []
         invalid_chapters = []
 
         for chapter_name in chapter_lines:
+            # 特殊处理：SKIP_TOC 表示跳过章节选择，使用全文
+            if chapter_name == "SKIP_TOC":
+                self.logger.info("📋 LLM chose to skip chapter selection (TOC not helpful)")
+                return {
+                    "status": "success",
+                    "data": None  # None 表示跳过章节选择
+                }
+
             if chapter_name in chapter_name_to_index:
                 selected_indices.append(chapter_name_to_index[chapter_name])
             else:
@@ -588,27 +833,26 @@ class WebSearcherMixin(CrawlerHelperMixin):
 
         # 判断结果
         if invalid_chapters:
-            # 有幻觉
+            # 有幻觉 - 返回具体反馈
+
             return {
-                "status": "hallucination",
-                "selected_indices": selected_indices,
-                "invalid_chapters": invalid_chapters
-            }
-        elif selected_indices:
-            # 成功
-            return {
-                "status": "success",
-                "selected_indices": selected_indices,
-                "invalid_chapters": []
-            }
-        else:
-            # 没有选中任何章节（也可能是格式错误）
-            return {
-                "status": "parse_error",
-                "selected_indices": [],
-                "invalid_chapters": []
+                "status": "error",
+                "feedback": f"选择错误，以下章节不存在于TOC中：{', '.join(invalid_chapters)}。\n\n如果TOC中没有合适的章节，可以直接输出 SKIP_TOC 跳过章节选择。"
             }
 
+        if not selected_indices:
+            return {
+                "status": "error",
+                "feedback": "没有有效的章节选择。\n\n如果TOC中没有合适的章节，可以直接输出 SKIP_TOC 跳过章节选择。"
+            }
+
+        # 成功 - 返回章节索引列表
+        return {
+            "status": "success",
+            "data": selected_indices
+        }
+
+    
     def _split_by_paragraph_boundaries(
         self,
         text: str,
@@ -667,6 +911,38 @@ class WebSearcherMixin(CrawlerHelperMixin):
     # 4. 核心流式处理
     # ==========================================
 
+    def _find_chapters_in_batch(
+        self,
+        toc: List[Dict[str, Any]],
+        batch_start: int,
+        batch_end: int,
+        content_start: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        查找 batch 中涉及的所有章节（可能跨多个章节）
+
+        Args:
+            toc: 目录结构
+            batch_start: batch 在内容中的起始位置
+            batch_end: batch 在内容中的结束位置
+            content_start: 内容的起始位置（用于处理选中章节的情况）
+
+        Returns:
+            batch 涉及的所有章节列表（按出现顺序）
+        """
+        adjusted_start = batch_start + content_start
+        adjusted_end = batch_end + content_start
+
+        # 找到所有与 batch 有交集的章节
+        chapters_in_batch = []
+        for chapter in toc:
+            # 检查章节是否与 batch 有交集
+            # 有交集的条件：章节的结束位置 > batch起始 且 章节的起始位置 < batch结束
+            if chapter["end"] > adjusted_start and chapter["start"] < adjusted_end:
+                chapters_in_batch.append(chapter)
+
+        return chapters_in_batch
+
     async def _process_batch(
         self,
         batch_text: str,
@@ -674,10 +950,12 @@ class WebSearcherMixin(CrawlerHelperMixin):
         doc_title: str,
         current_batch: int,
         total_batches: int,
-        url
+        url,
+        toc: List[Dict[str, Any]] = None,
+        current_chapters: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        统一的批处理函数（带重试机制）
+        统一的批处理函数（使用 think_with_retry 自动重试）
 
         参数:
             batch_text: 当前批次文本
@@ -685,142 +963,184 @@ class WebSearcherMixin(CrawlerHelperMixin):
             doc_title: 文档名称
             current_batch: 当前批次（页码，从 1 开始）
             total_batches: 总批次数（总页数）
+            url: 当前页面 URL
+            toc: 可选的文档目录结构
+            current_chapters: 可选的当前页涉及的所有章节（可能跨多个章节）
 
         返回:
         {
             "heading_type": "answer" | "note" | "continue" | "skip_doc",
-            "content": str
+            "content": str,
+            "found_links": List[str]  # LLM 推荐的链接文本列表
         }
         """
         # 计算进度百分比
         progress_pct = int((current_batch / total_batches) * 100)
 
-        # 初始化消息列表
-        messages = [
-            {
-                "role": "user",
-                "content": WebSearcherPrompts.BATCH_PROCESSING.format(
-                    question=ctx.purpose,
-                    doc_title=doc_title,
-                    current_batch=current_batch,
-                    total_batches=total_batches,
-                    progress_pct=progress_pct,
-                    notebook=ctx.notebook,
-                    batch_text=batch_text,
-                    url=url
-                )
-            }
-        ]
+        # 构造 TOC 信息
+        toc_info = ""
+        if toc and current_chapters:
+            # 获取当前涉及的第一个和最后一个章节
+            first_chapter = current_chapters[0]
+            last_chapter = current_chapters[-1]
 
-        # 最大重试次数
-        MAX_RETRIES = 5
+            first_index = toc.index(first_chapter)
+            last_index = toc.index(last_chapter)
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                # 调用 LLM
-                response = await self.cerebellum.backend.think(messages=messages)
-                reply = response.get('reply', '').strip()
+            toc_info = f"\n[Document Structure - Table of Contents]\n"
 
-                self.logger.debug(f"Batch processing attempt {attempt + 1}:\n{reply}")
+            # 显示前 2 个章节（在第一个当前章节之前）
+            if first_index > 0:
+                toc_info += "- Previous chapters:\n"
+                for ch in toc[max(0, first_index - 2):first_index]:
+                    toc_info += f"  - {ch['title']}\n"
 
-                # 将 LLM 的回复作为 assistant 消息加入历史
-                messages.append({"role": "assistant", "content": reply})
+            # 显示当前涉及的章节（高亮，可能多个）
+            toc_info += "- >>> CURRENT SECTION (this page contains): <<<\n"
+            for ch in current_chapters:
+                # 根据 level 缩进
+                indent = "  " * (ch.get("level", 1) - 1)
+                toc_info += f"{indent}→ {ch['title']}\n"
 
-                # 解析输出
-                result = self._parse_batch_output(reply)
+            # 显示后 2 个章节（在最后一个当前章节之后）
+            if last_index < len(toc) - 1:
+                toc_info += "- Next chapters:\n"
+                for ch in toc[last_index + 1:min(len(toc), last_index + 3)]:
+                    toc_info += f"  - {ch['title']}\n"
 
-                if result["status"] == "success":
-                    # 成功
-                    heading_type = result["heading_type"]
-                    content = result["content"]
+            toc_info += "\n\n"
 
-                    # 根据类型记录日志
-                    if heading_type == "answer":
-                        self.logger.info(f"✅ Found answer in batch")
-                    elif heading_type == "note":
-                        self.logger.info(f"📝 Found useful info in batch")
-                    elif heading_type == "continue":
-                        self.logger.debug(f"👀 No new info, continuing")
-                    else:  # skip_doc
-                        self.logger.warning(f"🚫 Document irrelevant, skipping")
+        # 构造初始 prompt
+        prompt = WebSearcherPrompts.BATCH_PROCESSING.format(
+            question=ctx.purpose,
+            doc_title=doc_title,
+            current_batch=current_batch,
+            total_batches=total_batches,
+            progress_pct=progress_pct,
+            toc_info=toc_info,
+            notebook=ctx.notebook,
+            batch_text=batch_text,
+            url=url
+        )
+        self.logger.debug(f"【Batch Processing Prompt】:\n{prompt}")
+        try:
+            # 使用 think_with_retry 自动处理重试
+            # parser 返回: {"status": "success", "data": {"heading_type": ..., "content": ..., "found_links": [...]}}
+            result_data = await self.cerebellum.backend.think_with_retry(
+                initial_messages=prompt,
+                parser=self._batch_parser,
+                max_retries=5
+            )
 
-                    return {
-                        "heading_type": heading_type,
-                        "content": content
-                    }
+            # 根据类型记录日志
+            heading_type = result_data["heading_type"]
+            if heading_type == "answer":
+                self.logger.info(f"✅ Found answer in batch")
+            elif heading_type == "note":
+                self.logger.info(f"📝 Found useful info in batch")
+            elif heading_type == "continue":
+                self.logger.debug(f"👀 No new info, continuing")
+            else:  # skip_doc
+                self.logger.warning(f"🚫 Document irrelevant, skipping")
 
-                else:  # result["status"] == "parse_error"
-                    # 格式错误
-                    self.logger.warning(f"⚠️ LLM output format incorrect")
+            return result_data
 
-                    error_msg = WebSearcherPrompts.BATCH_ERROR_FORMAT
-                    messages.append({"role": "user", "content": error_msg})
-                    continue
+        except ValueError as e:
+            # think_with_retry 在所有重试失败后会抛出 ValueError
+            self.logger.error(f"❌ Batch processing failed after all retries: {e}")
+            # 返回默认值（继续阅读）
+            return {"heading_type": "continue", "content": "", "found_links": []}
 
-            except Exception as e:
-                self.logger.error(f"Batch processing failed: {e}")
-
-                if attempt < MAX_RETRIES - 1:
-                    messages.append({
-                        "role": "user",
-                        "content": "An error occurred. Please try again. Make sure to start with one of the four headings."
-                    })
-                    continue
-                else:
-                    # 所有重试都失败，返回默认值
-                    return {"heading_type": "continue", "content": ""}
-
-        # 超过最大重试次数，返回默认值（继续阅读）
-        self.logger.error(f"❌ Max retries ({MAX_RETRIES}) exceeded. Defaulting to 'continue'.")
-        return {"heading_type": "continue", "content": ""}
-
-    def _parse_batch_output(self, llm_output: str) -> Dict[str, Any]:
+    def _batch_parser(self, llm_output: str) -> Dict[str, Any]:
         """
-        解析 LLM 的批处理输出
+        Parser for think_with_retry - 遵循 Parser Contract
+        使用 multi_section_parser 实现，更健壮且不依赖标题位置
 
-        返回:
+        Args:
+            llm_output: LLM 的原始输出
+
+        Returns:
         {
-            "status": "success" | "parse_error",
-            "heading_type": "answer" | "note" | "continue" | "skip_doc",
-            "content": str
+            "status": "success" | "error",
+            "data": {
+                "heading_type": "answer" | "note" | "continue" | "skip_doc",
+                "content": str,
+                "found_links": List[str]
+            },
+            "feedback": str  # 当 status="error" 时返回反馈信息
         }
         """
-        # 定义四种标题
-        HEADINGS = {
+        # 1. 定义4个主标题
+        main_headings = [
+            "##对问题的回答",
+            "##值得记录的笔记",
+            "##没有值得记录的笔记继续阅读",
+            "##完全不相关的文档应该放弃"
+        ]
+
+        # 2. 使用 ANY 模式调用 multi_section_parser（只需要一个主标题）
+        result = multi_section_parser(
+            llm_output,
+            section_headers=main_headings,
+            match_mode="ANY"
+        )
+
+        if result["status"] == "error":
+            return {"status": "error", "feedback": result["feedback"]}
+
+        sections = result["sections"]
+
+        # 3. 获取第一个匹配的 section（通常只有一个）
+        heading_map = {
             "##对问题的回答": "answer",
             "##值得记录的笔记": "note",
             "##没有值得记录的笔记继续阅读": "continue",
             "##完全不相关的文档应该放弃": "skip_doc"
         }
 
-        # 检查输出以哪个标题开头
-        heading_type = None
-        heading_used = None
-
-        for heading, htype in HEADINGS.items():
-            if llm_output.startswith(heading):
-                heading_type = htype
-                heading_used = heading
+        chosen_heading = None
+        content = ""
+        for heading in main_headings:
+            if heading in sections:
+                chosen_heading = heading
+                content = sections[heading].strip()
                 break
 
-        if heading_type is None:
-            # 没有找到任何标题
-            return {"status": "parse_error", "heading_type": None, "content": ""}
+        # 4. 从 content 中分离出推荐链接（如果有）
+        found_links = []
+        if "====推荐链接====" in content:
+            parts = content.split("====推荐链接====")
+            content = parts[0].strip()
 
-        # 提取标题下面的内容
-        content_start = len(heading_used)
-        content = llm_output[content_start:].strip()
+            if len(parts) > 1:
+                # 提取链接部分
+                links_section = parts[1]
+                if "====推荐链接结束====" in links_section:
+                    links_section = links_section.split("====推荐链接结束====")[0]
 
-        # 如果内容为空，也算解析错误
+                link_lines = [line.strip() for line in links_section.split('\n') if line.strip()]
+                # 过滤掉示例文本和空行
+                found_links = [line for line in link_lines
+                               if line not in ["示例链接文本", "另一个链接文本"]]
+
+        # 5. 验证内容非空
         if not content:
-            return {"status": "parse_error", "heading_type": None, "content": ""}
+            return {
+                "status": "error",
+                "feedback": "内容不能为空，请在标题下提供实际内容"
+            }
 
-        # 成功
+        # 6. 返回符合 Parser Contract 的格式
         return {
             "status": "success",
-            "heading_type": heading_type,
-            "content": content
+            "data": {
+                "heading_type": heading_map[chosen_heading],
+                "content": content,
+                "found_links": found_links
+            }
         }
+
+    
 
     def _extract_document_title(self, markdown: str) -> str:
         """
@@ -844,78 +1164,165 @@ class WebSearcherMixin(CrawlerHelperMixin):
         self,
         markdown: str,
         ctx: WebSearcherContext,
-        url: str
+        url: str,
+        session: TabSession = None
     ) -> Optional[str]:
         """
         流式处理 Markdown 文档（统一入口）
 
         流程：
         1. 判断长度 → 决定是否需要选章节
-        2. 准备待处理内容（全文 OR 选中章节）
-        3. 按段落边界分成批次
-        4. 逐批流式处理
-        """
-        # 1. 判断长度
-        is_long = len(markdown) > ctx.chunk_threshold
+        2. 链接预处理：使用 MarkdownLinkManager 清洗链接
+        3. 准备待处理内容（全文 OR 选中章节）
+        4. 按段落边界分成批次
+        5. 逐批流式处理，并处理发现的链接
 
-        # 2. 准备待处理内容
+        Args:
+            markdown: 原始 Markdown 文本
+            ctx: 搜索上下文
+            url: 当前页面 URL
+            session: 可选的 TabSession，用于将发现的链接加入队列
+
+        Returns:
+            找到的答案，如果未找到则返回 None
+        """
+        # 1. 初始化 Link Manager 并预处理 Markdown
+        link_manager = MarkdownLinkManager(ctx, logger=self.logger)
+        clean_markdown = link_manager.process(markdown, url)
+
+        # 2. 判断长度
+        is_long = len(clean_markdown) > ctx.chunk_threshold
+
+        # 3. 准备待处理内容
         if not is_long:
             # 短文档：全文处理
-            self.logger.info(f"📄 Short document ({len(markdown)} chars). Processing full text.")
-            content_to_process = markdown
+            self.logger.info(f"📄 Short document ({len(clean_markdown)} chars). Processing full text.")
+            content_to_process = clean_markdown
         else:
             # 长文档：生成目录 → 选择章节
-            self.logger.info(f"📚 Long document ({len(markdown)} chars). Generating TOC...")
-            toc = self._generate_document_toc(markdown)
+            self.logger.info(f"📚 Long document ({len(clean_markdown)} chars). Generating TOC...")
+            toc = self._generate_document_toc(clean_markdown)
 
             if not toc or len(toc)<2:
                 # 无标题结构或者只有一个标题，全文处理
                 self.logger.info("📋 No headers found. Processing full text.")
-                content_to_process = markdown
+                content_to_process = clean_markdown
             else:
-                # 让 LLM 选择章节
+                # 让 LLM 选择章节（传入预览和URL）
                 self.logger.info(f"📑 Found {len(toc)} chapters. Asking LLM to select...")
-                selected_indices = await self._let_llm_select_chapters(toc, ctx)
+                self.logger.debug(f"【Document TOC】: {toc}")
 
-                if not selected_indices:
-                    self.logger.warning("⚠️ No chapters selected. Processing full text.")
-                    content_to_process = markdown
+                # 提取前500字符作为预览
+                markdown_preview = clean_markdown[:500] if len(clean_markdown) > 500 else clean_markdown
+
+                selected_indices = await self._let_llm_select_chapters(
+                    toc,
+                    ctx,
+                    markdown_preview=markdown_preview,
+                    url=url
+                )
+
+                # 处理 LLM 的选择结果
+                if selected_indices == "SKIP_DOC":
+                    # LLM 认为整个文档不相关，跳过
+                    self.logger.warning("🚫 LLM decided to skip entire document (not relevant)")
+                    # 标记所有链接为已评估
+                    for link_url in link_manager.text_to_url.values():
+                        ctx.mark_evaluated(link_url)
+                        self.logger.debug(f"✓ Marked as evaluated: {link_url}")
+                    return None  # 相当于 skip_doc
+
+                elif selected_indices is None or not selected_indices:
+                    # None 表示 LLM 认为TOC没用，空列表表示没选任何章节
+                    self.logger.warning("⚠️ No chapters selected or TOC skipped. Processing full text.")
+                    content_to_process = clean_markdown
                 else:
                     self.logger.info(f"✅ Selected {len(selected_indices)} chapters")
-                    # 提取选中章节
+                    # 提取选中章节（包含所有子章节）
                     selected_parts = []
+
                     for idx in selected_indices:
                         chapter = toc[idx]
-                        content = markdown[chapter["start"]:chapter["end"]]
+                        chapter_level = chapter["level"]
+
+                        # 查找该章节的所有子章节（level > current_level，直到遇到同级或上级章节）
+                        chapter_start = chapter["start"]
+                        chapter_end = chapter["end"]
+
+                        # 向后查找，找到该章节的结束位置
+                        for j in range(idx + 1, len(toc)):
+                            next_chapter = toc[j]
+                            if next_chapter["level"] <= chapter_level:
+                                # 遇到同级或上级章节，停止
+                                chapter_end = next_chapter["start"]
+                                break
+                            # 否则是子章节，继续向后查找
+
+                        # 提取内容（包含所有子章节）
+                        content = clean_markdown[chapter_start:chapter_end]
                         selected_parts.append(f"# {chapter['title']}\n\n{content}")
+
+                        self.logger.debug(
+                            f"Extracted chapter '{chapter['title']}' "
+                            f"(level {chapter_level}, {len(content)} chars, "
+                            f"positions {chapter_start}-{chapter_end})"
+                        )
+
                     content_to_process = "\n\n".join(selected_parts)
 
-        # 3. 按段落边界分成批次
+        # 4. 按段落边界分成批次
         self.logger.info(f"🔪 Splitting content into batches (max {ctx.chunk_threshold} chars each)...")
         batches = self._split_by_paragraph_boundaries(content_to_process, ctx.chunk_threshold)
         total_batches = len(batches)
         self.logger.info(f"📊 Split into {total_batches} batches")
 
-        # 4. 获取文档标题（用于 LLM 上下文）
+        # 5. 获取文档标题和 TOC（用于 LLM 上下文）
         doc_title = self._extract_document_title(content_to_process)
 
-        # 5. 逐批流式处理
+        # 生成或复用 TOC
+        toc = None
+        if is_long:
+            # 长文档，已经生成过 TOC（第 1064 行）
+            toc = self._generate_document_toc(clean_markdown)
+        else:
+            # 短文档，也生成 TOC（如果有的话）
+            toc = self._generate_document_toc(content_to_process)
+
+        # 6. 逐批流式处理，追踪位置
+        current_position = 0  # 当前 batch 在 content_to_process 中的起始位置
+
         for i, batch in enumerate(batches, start=1):  # 从 1 开始计数
             current_batch = i
+            batch_start = current_position
+            batch_end = current_position + len(batch)
+            current_position = batch_end  # 更新位置
+
             progress_pct = int((current_batch / total_batches) * 100)
             self.logger.info(
                 f"🔄 Processing batch {current_batch}/{total_batches} "
                 f"({progress_pct}%, {len(batch)} chars)..."
             )
 
-            # 统一的批处理（传入进度信息）
+            # 查找当前 batch 涉及的章节
+            current_chapters = []
+            if toc:
+                current_chapters = self._find_chapters_in_batch(
+                    toc,
+                    batch_start,
+                    batch_end,
+                    content_start=0  # content_to_process 是独立的，从 0 开始
+                )
+
+            # 统一的批处理（传入 TOC 和章节信息）
             result = await self._process_batch(
                 batch,
                 ctx,
                 doc_title=doc_title,
                 current_batch=current_batch,
                 total_batches=total_batches,
-                url=url
+                url=url,
+                toc=toc if toc else None,
+                current_chapters=current_chapters if current_chapters else None
             )
 
             # 处理结果
@@ -934,7 +1341,281 @@ class WebSearcherMixin(CrawlerHelperMixin):
                 self.logger.warning(f"🚫 Document irrelevant. Skipping rest of document.")
                 break
 
+            # 7. 处理发现的链接（新增逻辑）
+            if result.get("found_links"):
+                for link_text in result["found_links"]:
+                    target_url = link_manager.get_url(link_text)
+                    if target_url:
+                        self.logger.info(f"🔗 Context-aware link discovered: [{link_text}] -> {target_url}")
+                        # 如果有 session，直接加入队列；否则暂存到 ctx
+                        if session:
+                            session.pending_link_queue.append(target_url)
+                        else:
+                            ctx.add_pending_link(target_url)
+                    else:
+                        self.logger.warning(f"⚠️ LLM hallucinated link text: {link_text}")
+
             # heading_type == "continue": 什么都不做，继续下一批
+
+        # 8. 标记所有链接为已评估（重要！）
+        # _stream_process_markdown 是一个完整的评估过程
+        # 所有 link_manager 中的链接都已被 LLM 评估过（要么推荐，要么未推荐）
+        for url in link_manager.text_to_url.values():
+            ctx.mark_evaluated(url)
+            self.logger.debug(f"✓ Marked as evaluated: {url}")
+
+        # 未找到答案
+        return None
+
+    def _search_result_links_parser(self, llm_reply, link_manager: MarkdownLinkManager) -> callable:
+
+
+        # 1. 调用 multi_section_parser 提取 ##推荐链接
+        result = multi_section_parser(
+            llm_reply,
+            section_headers=["##推荐链接"],
+            match_mode="ANY"
+        )
+
+        self.logger.debug(f"【Search Result Links Parser Output】:\n{result}")
+
+        if result["status"] == "error":
+            return result
+
+        # 2. 提取链接列表
+        links_section = result["sections"].get("##推荐链接", "")
+
+        # 按行分割并清理
+        link_lines = [
+            line.strip()
+            for line in links_section.split('\n')
+            if line.strip()
+        ]
+
+        # 过滤掉示例文本
+        found_links = [
+            line for line in link_lines
+            if line not in ["第一个链接", "另一个链接"]
+        ]
+        self.logger.debug(f"【Extracted Links (raw)】:\n{found_links}")
+
+        # 3. 宽松验证：过滤掉无效链接，保留有效链接
+        valid_links = []
+        
+
+        for link_text in found_links:
+            if link_manager.get_url(link_text):
+                # 有效链接
+                valid_links.append(link_text)
+            
+
+        # 4. 判断结果
+        if valid_links:
+            # 有有效链接，成功（忽略无效链接）
+            
+            self.logger.info(f"✅ Extracted {len(valid_links)} valid links from LLM output")
+            return {
+                "status": "success",
+                "data": {
+                    "found_links": valid_links
+                }
+            }
+        else:
+            # 没有任何有效链接，返回错误
+            return {
+                "status": "error",
+                "feedback": "未能识别到有效的链接。请确保使用页面中显示的链接格式，例如：Link1 To: www.example.com"
+            }
+
+        return parser
+
+    async def _stream_process_search_result(
+        self,
+        html: str,
+        ctx: WebSearcherContext,
+        url: str,
+        session: TabSession = None,
+        search_engine: str = "unknown"
+    ) -> Optional[str]:
+        """
+        流式处理搜索引擎结果页（重构版）
+
+        新的流程：
+        1. 使用 SearchResultsParser 直接解析 HTML，提取结构化数据
+        2. 重新格式化为易读的 Markdown
+        3. 建立链接ID到URL的映射
+        4. 分批处理，让 LLM 选择值得访问的链接
+
+        Args:
+            html: 搜索结果页的原始 HTML
+            ctx: 搜索上下文
+            url: 当前页面 URL
+            session: 可选的 TabSession，用于将发现的链接加入队列
+            search_engine: 搜索引擎名称 ("google" 或 "bing")
+
+        Returns:
+            找到的答案，如果未找到则返回 None
+        """
+        from .search_results_parser import SearchResultsParser
+
+        # 1. 使用专门的解析器解析搜索结果
+        parser = SearchResultsParser(logger=self.logger)
+
+        # 【新增】设置URL过滤函数
+        parser.set_url_filter(ctx.should_process_url)
+
+        parsed_data = parser.parse(html, url)
+
+        filtered_count = parsed_data.get('filtered_count', 0)
+        self.logger.info(f"✓ Parsed {len(parsed_data['results'])} search results from {search_engine}")
+        if filtered_count > 0:
+            self.logger.info(f"  ↳ {filtered_count} results filtered (already visited/evaluated)")
+
+        # 2. 检查是否所有结果都被过滤了
+        if len(parsed_data['results']) == 0:
+            self.logger.warning("⚠️ All search results have been visited/evaluated. Skipping this page.")
+            # 标记所有链接为已评估（虽然已经没有了）
+            return None
+
+        # 3. 格式化为 Markdown
+        formatted_markdown = parser.format_as_markdown(parsed_data)
+
+        # 4. 构建链接映射
+        link_mapping = parser.build_link_mapping(parsed_data)
+
+        self.logger.debug(f"✓ Built link mapping with {len(link_mapping)} entries")
+        for link_id, url in list(link_mapping.items())[:3]:  # 显示前3个
+            self.logger.debug(f"  {link_id} -> {url}")
+
+        # 5. 按段落边界分成批次
+        self.logger.info(f"🔪 Splitting search results into batches (max {ctx.chunk_threshold} chars each)...")
+        batches = self._split_by_paragraph_boundaries(formatted_markdown, ctx.chunk_threshold)
+        total_batches = len(batches)
+        self.logger.info(f"📊 Split into {total_batches} batches")
+
+        # 6. 逐批流式处理
+        for i, batch in enumerate(batches, start=1):
+            current_batch = i
+            progress_pct = int((current_batch / total_batches) * 100)
+            self.logger.info(
+                f"🔄 Processing search results batch {current_batch}/{total_batches} "
+                f"({progress_pct}%, {len(batch)} chars)..."
+            )
+
+            # 构造搜索结果批处理 prompt
+            prompt = WebSearcherPrompts.SEARCH_RESULT_BATCH.format(
+                question=ctx.purpose,
+                search_engine=search_engine,
+                notebook=ctx.notebook,
+                batch_text=batch
+            )
+            self.logger.debug(f"【Search Result Batch Prompt】:\n{prompt}")
+
+            try:
+                # 创建专门用于搜索结果的 link manager（只用于验证链接）
+                class SearchResultLinkManager:
+                    def __init__(self, link_mapping):
+                        self.link_mapping = link_mapping
+
+                    def get_url(self, link_text):
+                        """
+                        灵活的链接文本匹配，支持三种模式：
+
+                        1. 完全匹配 - 例如 "[🔗Link1 To: www.weforum.org]"
+                        2. Link编号匹配 - 例如 "Link1", "🔗Link1", "Link 1"
+                        3. 域名匹配 - 例如 "www.weforum.org"（匹配第一个）
+
+                        Args:
+                            link_text: LLM 返回的链接文本
+
+                        Returns:
+                            匹配的 URL，如果未匹配则返回 None
+                        """
+                        import re
+
+                        # 模式1: 完全匹配（去掉 🔗 和前后空格）
+                        exact_match = link_text.replace("🔗", "").strip()
+                        if exact_match in self.link_mapping:
+                            return self.link_mapping[exact_match]
+
+                        # 模式2: Link编号匹配
+                        # 提取 "Link1", "Link2" 等编号
+                        # 支持格式: "Link1", "🔗Link1", "Link 1", "Link 1 To: ..."
+                        link_pattern = r"Link\s*(\d+)"
+                        match = re.search(link_pattern, link_text, re.IGNORECASE)
+                        if match:
+                            link_num = match.group(1)
+                            # 构造标准的 link_id 格式，例如 "Link1 To: www.example.com"
+                            # 需要在 link_mapping 中找到匹配的
+                            for link_id in self.link_mapping.keys():
+                                if link_id.startswith(f"Link{link_num} To:"):
+                                    return self.link_mapping[link_id]
+
+                        # 模式3: 域名匹配
+                        # 提取域名并查找第一个匹配的
+                        # 域名可能出现在 "To: www.example.com" 这样的格式中
+                        to_pattern = r"To:\s*([^\s\]]+)"
+                        to_match = re.search(to_pattern, link_text)
+                        if to_match:
+                            domain = to_match.group(1)
+                            # 在 link_mapping 中查找包含该域名的第一个
+                            for link_id, url in self.link_mapping.items():
+                                if domain in link_id:
+                                    return url
+
+                        # 如果直接提供的是纯域名（没有 "To:" 前缀）
+                        # 也尝试匹配
+                        clean_text = link_text.strip().strip("[]").replace("🔗", "").strip()
+                        if clean_text and "." in clean_text and not clean_text.startswith("Link"):
+                            # 看起来像域名
+                            for link_id, url in self.link_mapping.items():
+                                if clean_text in link_id:
+                                    return url
+
+                        # 未匹配
+                        return None
+
+                sr_link_manager = SearchResultLinkManager(link_mapping)
+
+                # 使用 think_with_retry 自动处理重试
+                # 使用专门的 parser，会验证链接是否存在，避免幻觉
+                result_data = await self.cerebellum.backend.think_with_retry(
+                    initial_messages=prompt,
+                    parser=self._search_result_links_parser,
+                    link_manager=sr_link_manager,
+                    max_retries=5
+                )
+                self.logger.debug(f"【Search Result Batch LLM Output】:\n{result_data}")
+
+                # 提取找到的链接
+                found_links = result_data.get("found_links", [])
+                self.logger.info(f"✅ Found {len(found_links)} recommended links from search results")
+
+            except ValueError as e:
+                import traceback
+                traceback.print_exc()
+                self.logger.error(f"❌ Search results batch processing failed after all retries: {e}")
+                found_links = []
+
+            # 处理发现的链接
+            if found_links:
+                for link_id in found_links:
+                    # 从 link_id 中提取实际URL
+                    target_url = sr_link_manager.get_url(link_id)
+                    if target_url:
+                        self.logger.info(f"🔗 Search result link discovered: [{link_id}] -> {target_url}")
+                        # 如果有 session，直接加入队列；否则暂存到 ctx
+                        if session:
+                            session.pending_link_queue.append(target_url)
+                        else:
+                            ctx.add_pending_link(target_url)
+                    else:
+                        self.logger.warning(f"⚠️ Could not find URL for link_id: {link_id}")
+
+        # 7. 标记所有链接为已评估（重要！）
+        for url in link_mapping.values():
+            ctx.mark_evaluated(url)
+            self.logger.debug(f"✓ Marked as evaluated: {url}")
 
         # 未找到答案
         return None
@@ -953,22 +1634,37 @@ class WebSearcherMixin(CrawlerHelperMixin):
             next_url = session.pending_link_queue.popleft()
             self.logger.info(f"🔗 Navigating to: {next_url}")
 
-            # 1.1 门禁检查
-            if ctx.has_visited(next_url) or any(bl in next_url for bl in ctx.blacklist):
+            # 1.1 门禁检查（next_url）
+            if ctx.has_visited(next_url):
+                self.logger.debug(f"✓ Already visited: {next_url}")
                 continue
+            
 
             # 1.2 导航到页面
             nav_report = await self.browser.navigate(session.handle, next_url)
+            
             final_url = self.browser.get_tab_url(session.handle)
             session.current_url = final_url
 
+            
+
+            # 1.3 从队列中移除 final_url（如果存在）
+            # 解决重定向问题：如果 final_url 也在队列中，需要移除避免重复访问
+            if final_url in session.pending_link_queue:
+                # 将队列转换为 list，移除 final_url，再重建 deque
+                temp_list = list(session.pending_link_queue)
+                temp_list.remove(final_url)
+                session.pending_link_queue = deque(temp_list)
+                self.logger.debug(f"✓ Removed final_url from queue (avoid duplicate): {final_url}")
+
+            # 1.4 检查 final_url 是否应该被处理
+            # 即使 next_url 通过了检查，final_url 也需要检查（重定向后可能不合法）
+            if ctx.has_visited(final_url):
+                self.logger.debug(f"✓ Already visited after redirect: {final_url}")
+                continue
+            # 1.5 标记已访问
             ctx.mark_visited(next_url)
             ctx.mark_visited(final_url)
-
-            # 1.3 二次黑名单检查
-            if any(bl in final_url for bl in ctx.blacklist):
-                self.logger.warning(f"🚫 Redirected to blacklisted URL: {final_url}")
-                continue
 
             # === Phase 2: Identify Page Type ===
             page_type = await self.browser.analyze_page_type(session.handle)
@@ -981,12 +1677,34 @@ class WebSearcherMixin(CrawlerHelperMixin):
             if page_type == PageType.STATIC_ASSET:
                 self.logger.info(f"📄 Static Asset: {final_url}")
 
-                # 获取完整 Markdown 并流式处理
-                markdown = await self._get_full_page_markdown(session.handle, ctx)
-                answer = await self._stream_process_markdown(markdown, ctx,final_url)
+                # 判断是否是搜索结果页
+                is_google = 'google.com/search' in final_url or 'www.google.' in final_url
+                is_bing = 'bing.com/search' in final_url
+
+                if is_google or is_bing:
+                    # 搜索结果页：直接获取HTML并使用专门的解析器
+                    search_engine = "Google" if is_google else "Bing"
+                    self.logger.info(f"🔍 Detected {search_engine} search results page")
+
+                    # 获取原始HTML
+                    raw_html = session.handle.html
+
+                    # 使用搜索结果专用处理
+                    answer = await self._stream_process_search_result(raw_html, ctx, final_url, session, search_engine)
+                else:
+                    # 普通网页：获取Markdown并处理
+                    markdown = await self._get_full_page_markdown(session.handle, ctx)
+                    answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
 
                 if answer:
                     return answer  # 找到答案，直接返回
+
+                # 处理从流式阅读中发现的链接
+                pending_links = ctx.get_pending_links()
+                for pending_link in pending_links:
+                    session.pending_link_queue.append(pending_link)
+                    ctx.mark_evaluated(pending_link)
+                    self.logger.info(f"📎 Added pending link from reading: {pending_link}")
 
                 continue  # 继续处理下一个 URL
 
@@ -1001,48 +1719,81 @@ class WebSearcherMixin(CrawlerHelperMixin):
                     if page_changed:
                         await self.browser.stabilize(session.handle)
 
-                        # 2. 获取完整 Markdown 并流式处理
-                        markdown = await self._get_full_page_markdown(session.handle, ctx)
-                        answer = await self._stream_process_markdown(markdown, ctx,final_url)
+                        # 判断是否是搜索结果页
+                        is_google = 'google.com/search' in final_url or 'www.google.' in final_url
+                        is_bing = 'bing.com/search' in final_url
 
-                        # 3. 如果找到答案，直接返回
+                        if is_google or is_bing:
+                            # 搜索结果页：直接获取HTML并使用专门的解析器
+                            search_engine = "Google" if is_google else "Bing"
+                            self.logger.info(f"🔍 Detected {search_engine} search results page")
+
+                            # 获取原始HTML
+                            raw_html = session.handle.html
+
+                            # 使用搜索结果专用处理
+                            answer = await self._stream_process_search_result(raw_html, ctx, final_url, session, search_engine)
+                        else:
+                            # 普通网页：获取Markdown并处理
+                            markdown = await self._get_full_page_markdown(session.handle, ctx)
+                            answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
+
+                        # 2. 如果找到答案，直接返回
                         if answer:
                             return answer
 
-                        # 4. 生成页面摘要（用于后续链接筛选）
-                        page_summary = markdown[:500] if markdown else ""
+                        # 3. 生成页面摘要（用于后续链接筛选）
+                        # 注意：搜索结果页没有page_summary
+                        if not (is_google or is_bing):
+                            page_summary = markdown[:500] if markdown else ""
 
-                    # === Phase 4: Scouting ===
+                        # 5. 处理从流式阅读中发现的链接
+                        pending_links = ctx.get_pending_links()
+                        for pending_link in pending_links:
+                            session.pending_link_queue.append(pending_link)
+                            ctx.mark_evaluated(pending_link)
+                            self.logger.info(f"📎 Added pending link from reading: {pending_link}")
+
+                        # 搜索结果页处理完成后，跳过后续的 Scouting 阶段
+                        # 搜索结果页的目的是获取下一步要访问的链接，不需要扫描导航链接和按钮
+                        # 处理完成后，主动结束当前页面的处理循环，回到外层循环处理队列中的推荐链接
+                        if is_google or is_bing:
+                            page_active = False
+                            continue
+
+                    # === Phase 4: Scouting (Navigation & Structure Links) ===
+                    # 注意：正文中的链接已经在流式阅读中通过 LLM 上下文感知处理
+                    # 这里关注：导航结构链接（知识库、文档、About等）+ 功能性按钮
                     links, buttons = await self.browser.scan_elements(session.handle)
                     self.logger.debug(f"🔍 Found {len(links)} links and {len(buttons)} buttons")
 
-                    # 4.1 处理 Links
+                    # 4.1 处理 Links（先过滤掉已处理和已访问的，减轻 LLM 负担）
                     if page_changed:
-                        filtered_links = {}
+                        # 构建候选链接字典（使用统一的检查函数）
+                        candidate_links = {}
                         for link in links:
-                            if ctx.has_link_assessed(link):
+                            if not ctx.should_process_url(link, session.pending_link_queue):
                                 continue
-                            if ctx.has_visited(link):
-                                continue
-                            if link in session.pending_link_queue:
-                                continue
-                            if any(bl in link for bl in ctx.blacklist):
-                                continue
-                            filtered_links[link] = links[link]
+                            candidate_links[link] = links[link]
 
-                        # 评估链接相关性
-                        selected_links = await self._filter_relevant_links(filtered_links, page_summary, ctx)
+                        # 使用 LLM 智能筛选导航链接
+                        if candidate_links:
+                            selected_links = await self._filter_relevant_links(
+                                candidate_links,
+                                page_summary,
+                                ctx,
+                                current_url=session.current_url
+                            )
 
-                        # 标记已评估
-                        for link in filtered_links:
-                            ctx.mark_link_assessed(link)
+                            # 标记已评估（使用 mark_evaluated 而不是 mark_visited）
+                            for link in candidate_links:
+                                ctx.mark_evaluated(link)
 
-                        # 添加到队列
-                        new_links_count = 0
-                        for link in selected_links:
-                            session.pending_link_queue.append(link)
-                            new_links_count += 1
-                        self.logger.info(f"👀 Added {new_links_count} links to queue")
+                            # 添加到队列
+                            for link in selected_links:
+                                session.pending_link_queue.append(link)
+
+                            self.logger.info(f"🔗 Added {len(selected_links)} navigation/structure links to queue")
 
                     # 4.2 处理 Buttons
                     candidate_buttons = []

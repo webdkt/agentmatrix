@@ -1,0 +1,77 @@
+=== 解析结果 ===
+
+搜索引擎: bing
+搜索结果数量: 11
+
+=== 格式化的 Markdown ===
+
+# 搜索结果 (共 11 条)
+
+[🔗Link1 To: www.weforum.org]
+**Davos 2026: Special Address by US President Donald J Trump**
+*www.weforum.org*
+· Watch the special address by Donald J. Trump, President of the United States, at the World Economic Forum Annual Meeting 2026 in Davos, highlighting US policy priorities and global …
+
+[🔗Link2 To: www.cnbc.com]
+**Donald Trump addressed leaders in Davos. I was there - CNBC**
+*www.cnbc.com*
+· Donald Trump told a packed room at Davos he demanded "immediate" negotiations over Greenland. CNBC was there, where the tension was palpable.
+
+[🔗Link3 To: singjupost.com]
+**President Donald Trump Remarks @WEF Davos 2026 (Transcript)**
+*singjupost.com*
+· Here is the full transcript of U.S. President Donald Trump’s full address at the World Economic Forum in Davos, January 21, 2026. Brief Notes: U.S. President Donald Trump delivers a …
+
+[🔗Link4 To: www.whitehouse.gov]
+**In Davos, President Trump Outlines Bold Vision for American …**
+*www.whitehouse.gov*
+· President Donald J. Trump commanded the stage this morning at the World Economic Forum in Davos, Switzerland, delivering a bold address that reaffirmed America’s leadership on the global …
+
+[🔗Link5 To: www.cnn.com]
+**Five takeaways from Trump’s antagonistic speech in Davos - CNN**
+*www.cnn.com*
+· President Donald Trump speaks during the 56th annual meeting of the World Economic Forum, WEF, in Davos, Switzerland, Wednesday, Jan. 21, 2026.
+
+[🔗Link6 To: www.nytimes.com]
+**Here’s a Look at Everything (and Everyone) Trump Targeted at Davos**
+*www.nytimes.com*
+· President Trump’s verbal broadsides drew gasps and nervous laughter at the annual gathering of political and business leaders.
+
+[🔗Link7 To: indianexpress.com]
+**Davos 2026 Live Updates: Trump and Mark Carney Davos Speech, …**
+*indianexpress.com*
+· Davos 2026 Donald Trump & Mark Carney Davos Speech LIVE Updates: US President Donald Trump’s third visit as president comes as US allies worry about his ambition to take over Greenland, …
+
+[🔗Link8 To: economictimes.indiatimes.com]
+**Trump at Davos 2026 — From bold push to acquire Greenland to …**
+*economictimes.indiatimes.com*
+· Trump at Davos 2026: In a 70-minute address that veered from economic triumphalism to blunt geopolitical ultimatums, President Donald Trump dominated the World Economic Forum on …
+
+[🔗Link9 To: apnews.com]
+**Davos live updates: Trump set to lead largest-ever US delegation | AP …**
+*apnews.com*
+· U.S. President Donald Trump returns to the World Economic Forum's annual meeting of business, political and cultural elites in Davos, Switzerland, leading a record-large U.S. delegation, …
+
+[🔗Link10 To: www.cbsnews.com]
+**Watch Live: Trump addresses Davos economic forum as U.S. allies …**
+*www.cbsnews.com*
+· President Trump is addressing the gathering of world leaders, CEOs and policymakers as America's allies balk at his efforts to acquire Greenland.
+
+[🔗翻页: 下一页]
+**→ 下一页**
+点击查看更多搜索结果
+
+
+=== 链接映射 ===
+
+Link1 To: www.weforum.org -> https://www.weforum.org/stories/2026/01/davos-2026-special-address-donald-trump-president-united-states-america/
+Link2 To: www.cnbc.com -> https://www.cnbc.com/2026/01/21/donald-trump-davos-speech-greenland-tariffs-europe.html?msockid=2e0162b6b1666028264a777cb00061a8
+Link3 To: singjupost.com -> https://singjupost.com/transcript-president-donald-trump-remarks-wef-davos-2026/
+Link4 To: www.whitehouse.gov -> https://www.whitehouse.gov/articles/2026/01/in-davos-president-trump-outlines-bold-vision-for-american-prosperity-transatlantic-strength/
+Link5 To: www.cnn.com -> https://www.cnn.com/2026/01/21/politics/donald-trump-davos-speech-takeaways
+Link6 To: www.nytimes.com -> https://www.nytimes.com/2026/01/21/us/politics/trump-davos-speech-takeaways.html
+Link7 To: indianexpress.com -> https://indianexpress.com/article/world/davos-2026-live-updates-donald-trump-world-economic-forum-india-10485598-10485978/
+Link8 To: economictimes.indiatimes.com -> https://economictimes.indiatimes.com/news/international/us/trump-at-davos-2026-from-bold-push-to-acquire-greenland-to-economic-nationalism-and-tariffs-here-are-the-key-highlights-from-trumps-davos-speech/articleshow/127025011.cms
+Link9 To: apnews.com -> https://apnews.com/live/world-economic-forum-davos-updates-1-21-2026
+Link10 To: www.cbsnews.com -> https://www.cbsnews.com/live-updates/trump-greenland-davos-2026-world-economic-forum/
+翻页: 下一页 -> https://www.bing.com/search?q=Trump+davos+2026&sp=-1&ghc=1&lq=0&pq=trump+davos+202&sc=5-15&qs=n&sk=&cvid=9B6EE031AF834424AE4E61E65707FFAB&FPIG=1597691FF6CC4403BD669E02E8A00AAB&first=11&FORM=PORE
