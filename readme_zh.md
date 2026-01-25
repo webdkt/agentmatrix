@@ -68,11 +68,66 @@ AgentMatrix 使用 **大脑 + 小脑 + 身体**架构：
 - 有独立的执行上下文
 - 任务完成时终止
 
+**🔥 核心特性：递归嵌套与 "LLM 函数"**
+
+MicroAgent 调用可以**递归嵌套** - 这是一个革命性的特性：
+
+```
+MicroAgent 第 1 层
+  ├─ 调用: web_search() 动作
+  │   └─ 这个动作内部运行:
+  │       └─ MicroAgent 第 2 层 (处理搜索结果)
+  │           ├─ 调用: analyze_content() 动作
+  │           │   └─ 这个动作内部运行:
+  │           │       └─ MicroAgent 第 3 层 (提取关键信息)
+  │           │           └─ 返回结构化数据给第 2 层
+  │           └─ 返回分析结果给第 1 层
+  └─ 返回最终结果给用户
+```
+
 **为什么这很重要**：
-- ✅ 职责清晰分离
-- ✅ 状态隔离（会话历史 ≠ 执行步骤）
-- ✅ 任务失败不会破坏对话
-- ✅ 支持并发多会话管理
+
+- ✅ **完美状态隔离**：每一层的执行历史都保持隔离。第 3 层的复杂推理不会污染第 2 层的上下文。第 2 层的中间步骤不会干扰第 1 层的会话。
+
+- ✅ **MicroAgent 作为 "LLM 函数"**：把 `micro_agent.execute()` 看作**自然语言函数**：
+  - **输入**：自然语言任务描述
+  - **处理**：LLM 推理 + 多步执行
+  - **输出**：自然语言结果 或 结构化数据（通过 `expected_schema`）
+
+  ```python
+  # 定义一个 "LLM 函数"
+  async def research_topic(topic: str) -> Dict:
+      """LLM 函数 - 不是普通的 Python 函数"""
+      result = await micro_agent.execute(
+          persona="你是一个研究员",
+          task=f"研究关于 {topic} 的内容",
+          result_params={
+              "expected_schema": {
+                  "summary": "摘要",
+                  "key_findings": ["关键发现"],
+                  "sources": ["来源"]
+              }
+          }
+      )
+      return result  # 返回结构化数据
+
+  # 在另一个 MicroAgent 中调用这个 "LLM 函数"
+  @register_action(description="研究多个主题")
+  async def research_multiple_topics(topics: List[str]) -> Dict:
+      results = {}
+      for topic in topics:
+          # 递归调用 MicroAgent
+          results[topic] = await research_topic(topic)
+      return results
+  ```
+
+- ✅ **简单构建复杂任务**：将复杂工作流分解为可组合的 LLM 函数调用，每个都有独立的上下文。
+
+- ✅ **自然递归**：实现递归任务分解，每一层都是独立的 MicroAgent。
+
+**对比**：
+- **Python 函数**：确定性逻辑，固定流程
+- **LLM 函数 (MicroAgent)**：概率性推理，灵活思考，自然语言接口
 
 ### 2. Think-With-Retry 模式
 

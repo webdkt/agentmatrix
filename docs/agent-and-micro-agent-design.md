@@ -56,6 +56,85 @@ Key point: **MicroAgent is not another agent class**—it's a "temporary executi
 - BaseAgent's session remains intact, can report failure, ask user for clarification, or retry differently
 - User conversation is unaffected
 
+**5. 🔥 Recursive Nesting & "LLM Functions" (Game-Changing Feature)**
+
+This is the most powerful aspect of the dual-layer architecture:
+
+**MicroAgent calls can be recursively nested**:
+
+```
+MicroAgent Layer 1
+  ├─ Executes: web_search() action
+  │   └─ This action internally calls:
+  │       └─ MicroAgent Layer 2 (processes and analyzes search results)
+  │           ├─ Executes: summarize_content() action
+  │           │   └─ This action internally calls:
+  │           │       └─ MicroAgent Layer 3 (extracts key information)
+  │           │           └─ Returns structured data to Layer 2
+  │           └─ Returns analysis to Layer 1
+  └─ Returns final result to BaseAgent
+```
+
+**Key Characteristics**:
+
+1. **Perfect State Isolation**: Each layer's execution history is completely isolated:
+   - Layer 3's reasoning process doesn't pollute Layer 2's context
+   - Layer 2's intermediate steps don't clutter Layer 1's context
+   - Each layer only sees the final result from the layer below
+
+2. **MicroAgent as "LLM Function"**:
+   - Think of `micro_agent.execute()` as a **natural language function**
+   - Not a traditional Python function (deterministic logic)
+   - Not a chatbot conversation (back-and-forth dialogue)
+   - It's a **probabilistic reasoning unit** with:
+     - **Input**: Natural language task description
+     - **Processing**: LLM reasoning + multi-step think-act loop
+     - **Output**: Natural language result OR structured data (via `expected_schema`)
+
+3. **Composability**:
+   - Build complex workflows by composing simple LLM functions
+   - Each function has independent context and execution history
+   - Natural recursion: tasks can decompose into subtasks recursively
+
+**Example: Recursive Task Decomposition**
+
+```python
+async def breakdown_task(task: str, depth: int = 0) -> Dict:
+    """LLM function for recursive task breakdown"""
+    if depth > 3:  # Recursion termination
+        return await execute_simple_task(task)
+
+    # Use MicroAgent to break down task
+    subtask_result = await self._run_micro_agent(
+        persona="You are a task planner",
+        task=f"Break down '{task}' into 3-5 subtasks",
+        result_params={
+            "expected_schema": {
+                "subtasks": ["string"],
+                "priority": "string"
+            }
+        }
+    )
+
+    # Recursively process each subtask
+    results = {}
+    for subtask in subtask_result["subtasks"]:
+        # Recursive MicroAgent call - each with isolated context
+        results[subtask] = await breakdown_task(subtask, depth + 1)
+
+    return results
+```
+
+**Why This Matters**:
+
+- ✅ **Simplicity**: Complex multi-step workflows become simple function compositions
+- ✅ **Clarity**: Each layer has a clean, isolated context
+- ✅ **Robustness**: Failure at Layer 3 doesn't break Layers 1 or 2
+- ✅ **Flexibility**: Mix and match LLM functions like building blocks
+- ✅ **Scalability**: Build arbitrarily complex workflows from simple primitives
+
+This is fundamentally different from traditional function calls or chatbot interactions—it's a new paradigm: **natural language functions with probabilistic reasoning and perfect isolation**.
+
 ### Actual Execution Flow
 
 When a user sends an email to BaseAgent:

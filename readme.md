@@ -68,11 +68,66 @@ AgentMatrix uses a **Brain + Cerebellum + Body** architecture:
 - Has isolated execution context
 - Terminates when task completes
 
+**🔥 Key Feature: Recursive Nesting & "LLM Functions"**
+
+MicroAgent calls can be **recursively nested** - this is a game-changer:
+
+```
+MicroAgent Layer 1
+  ├─ Calls: web_search() action
+  │   └─ This action internally runs:
+  │       └─ MicroAgent Layer 2 (processes search results)
+  │           ├─ Calls: analyze_content() action
+  │           │   └─ This action internally runs:
+  │           │       └─ MicroAgent Layer 3 (extracts key info)
+  │           │           └─ Returns structured data to Layer 2
+  │           └─ Returns analysis to Layer 1
+  └─ Returns final result to user
+```
+
 **Why This Matters**:
-- ✅ Clear separation of concerns
-- ✅ State isolation (session history ≠ execution steps)
-- ✅ Task failure doesn't break conversations
-- ✅ Supports concurrent multi-session management
+
+- ✅ **Perfect State Isolation**: Each layer's execution history stays isolated. Layer 3's complex reasoning doesn't pollute Layer 2's context. Layer 2's intermediate steps don't clutter Layer 1's session.
+
+- ✅ **MicroAgent as "LLM Function"**: Think of `micro_agent.execute()` as a **natural language function**:
+  - **Input**: Natural language task description
+  - **Processing**: LLM reasoning + multi-step execution
+  - **Output**: Natural language result OR structured data (via `expected_schema`)
+
+  ```python
+  # Define an "LLM function"
+  async def research_topic(topic: str) -> Dict:
+      """LLM function - not a regular Python function"""
+      result = await micro_agent.execute(
+          persona="You are a researcher",
+          task=f"Research about {topic}",
+          result_params={
+              "expected_schema": {
+                  "summary": "string",
+                  "key_findings": ["string"],
+                  "sources": ["string"]
+              }
+          }
+      )
+      return result  # Returns structured data
+
+  # Call it from another MicroAgent
+  @register_action(description="Research multiple topics")
+  async def research_multiple_topics(topics: List[str]) -> Dict:
+      results = {}
+      for topic in topics:
+          # Recursive MicroAgent call
+          results[topic] = await research_topic(topic)
+      return results
+  ```
+
+- ✅ **Build Complex Tasks Simply**: Break down complex workflows into composable LLM function calls, each with isolated context.
+
+- ✅ **Natural Recursion**: Implement recursive task decomposition where each level is an independent MicroAgent.
+
+**Comparison**:
+- **Python Functions**: Deterministic logic, fixed flow
+- **LLM Functions (MicroAgent)**: Probabilistic reasoning, flexible thinking, natural language interface
 
 ### 2. Think-With-Retry Pattern
 
