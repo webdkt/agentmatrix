@@ -142,7 +142,7 @@ async def breakdown_task(task: str, depth: int = 0) -> Dict:
 ```
 1. BaseAgent 收到邮件
    ├─ 看 in_reply_to，这是哪个 session？
-   ├─ 恢复或创建 TaskSession（session 级别的对话历史）
+   ├─ 通过 SessionManager 恢复或创建 session（session 级别的对话历史）
    └─ 委托给 MicroAgent 执行本次任务
 
 2. MicroAgent 执行
@@ -218,9 +218,8 @@ class BaseAgent(FileSkillMixin, AutoLoggerMixin):
         self.actions_map = {}   # 名称 -> 方法引用
         self.actions_meta = {}  # 名称 -> 元数据(描述、参数)
 
-        # 会话管理
-        self.sessions = {}      # 每个对话一个 TaskSession
-        self.reply_mapping = {} # 邮件线程(in_reply_to -> 会话)
+        # 会话管理（委托给 SessionManager）
+        self.session_manager = None  # 当 workspace_root 设置时初始化
 
         # Micro Agent 核心(懒初始化)
         self._micro_core = None
@@ -256,19 +255,20 @@ async def web_search(self, query: str, num_results: int = 10):
 
 ```python
 async def process_email(self, email: Email):
-    # 恢复或创建会话
-    session = self._get_or_create_session(email)
+    # 通过 SessionManager 恢复或创建会话
+    session = await self.session_manager.get_session(email)
 
     # 使用 Micro Agent 执行
     result = await self._run_micro_agent(
         persona=self.system_prompt,
         task=email.body,
         available_actions=self.actions_map.keys(),
-        session_history=session.history
+        session_history=session["history"]
     )
 
     # 更新会话并发送回复
-    session.add_message(email.body, result)
+    session["history"].append({"role": "user", "content": email.body})
+    session["history"].append({"role": "assistant", "content": result})
     await self._send_reply(email, result)
 ```
 

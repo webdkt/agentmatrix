@@ -1,9 +1,9 @@
 import asyncio
 from typing import Dict, Optional, Callable, List, Any
 from ..core.message import Email
-from ..core.session import TaskSession
 from ..core.events import AgentEvent
 from ..core.action import register_action
+from ..core.session_manager import SessionManager
 import traceback
 from dataclasses import asdict
 import inspect
@@ -32,20 +32,16 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         self.brain = None
         self.status = "IDLE"
         self.last_received_email = None #最后收到的信
-        self.cerebellum = None 
-        self.workspace_root = None
+        self.cerebellum = None
+        self._workspace_root = None
         self.post_office = None
         self.last_email_processed = True
-    
-        
-        
 
-        
+        # Session Manager（延迟初始化）
+        self.session_manager = None
+
         # 标准组件
         self.inbox = asyncio.Queue()
-        #self.sessions = {}
-        self.sessions: Dict[str, TaskSession] = {} # Key: Original Msg ID
-        self.reply_mapping: Dict[str, str] = {}    # Key: Outgoing Msg ID -> Value: Session ID
         
         # 事件回调 (Server 注入)
         self.async_event_callback: Optional[Callable] = None
@@ -63,6 +59,19 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         self._micro_core = None
 
         self.logger.info(f"Agent {self.name} 初始化完成")
+
+    @property
+    def workspace_root(self):
+        return self._workspace_root
+
+    @workspace_root.setter
+    def workspace_root(self, value):
+        self._workspace_root = value
+        if value is not None:
+            self.session_manager = SessionManager(
+                agent_name=self.name,
+                workspace_root=value
+            )
 
     def _get_micro_core(self):
         """
@@ -250,9 +259,9 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         # 1. Session Management (Routing)
         self.logger.debug(f"New Email")
         self.logger.debug(str(email))
-        session = self._resolve_session(email)
+        session = await self.session_manager.get_session(email)
         self.current_session = session
-        self.current_user_session_id = session.user_session_id
+        self.current_user_session_id = session["user_session_id"]
 
         # 2. 准备参数
         task = str(email)
@@ -270,11 +279,19 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             task=task,
             available_actions=available_actions,
             max_steps=100,
-            initial_history=session.history  # 恢复记忆！
+            initial_history=session["history"]  # 恢复记忆！
         )
 
         # 5. 更新 session 的 history
-        session.history = micro_core.get_history()
+        session["history"] = micro_core.get_history()
+        session["last_sender"] = self.name  # 更新最后发送者
+
+        # 6. 自动保存到磁盘（元数据 + history 一起）
+        try:
+            await self.session_manager.save_session(session)
+            self.logger.debug(f"💾 Auto-saved session {session['session_id'][:8]}")
+        except Exception as e:
+            self.logger.warning(f"Failed to auto-save session: {e}")
 
         # 只有当 result 是字符串且长度超过 100 时才切片
         if isinstance(result, str) and len(result) > 100:
@@ -282,75 +299,56 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         else:
             result_preview = result if result else 'No result'
         self.logger.debug(f"Email processing completed. Result: {result_preview}")
-        self.logger.info(f"Session {session.session_id} now has {len(session.history)} messages")
-
-    def _resolve_session(self, email: Email) -> TaskSession:
-        # Case A: Reply
-        if email.in_reply_to and email.in_reply_to in self.reply_mapping:
-            session_id = self.reply_mapping.pop(email.in_reply_to)
-            return self.sessions[session_id]
-        
-        # Case B: New Task
-        session = TaskSession(
-            session_id=email.id,
-            original_sender=email.sender,
-            history=[],
-            status="RUNNING",
-            user_session_id=email.user_session_id
-        )
-        self.sessions[email.id] = session
-        return session
+        self.logger.info(f"Session {session['session_id'][:8]} now has {len(session['history'])} messages")
 
     def _add_message_to_history(self, email: Email):
         # 如果是新 Session，注入 System Prompt
         session = self.current_session
-        if len(session.history) == 0:
-            session.history.append({"role": "system", "content": self.get_prompt()})
-        
+        if len(session["history"]) == 0:
+            session["history"].append({"role": "system", "content": self.get_prompt()})
+
         # 注入用户/同事的邮件
-        
+
         content =  "[INCOMING MAIL]\n"
         content+= f"{email}"
-        
-        
-        session.history.append({"role": "user", "content": content})
+        session["history"].append({"role": "user", "content": content})
 
     def _add_intention_feedback_to_history(self, intention, action_name,  result=None):
         session = self.current_session
         # 把动作执行结果反馈给 LLM
         msg_body =  "[BODY FEEDBACK]\n"
         if result:
-        
+
             msg_body +=f"Action: '{action_name}'\n"
-            msg_body +=textwrap.dedent(f"""Result: 
+            msg_body +=textwrap.dedent(f"""Result:
                 {result}
             """)
         else:
             msg_body +=f" '{action_name}'\n"
-        session.history.append({"role": "assistant", "content": intention})
-        session.history.append({"role": "user", "content": msg_body})
+        session["history"].append({"role": "assistant", "content": intention})
+        session["history"].append({"role": "user", "content": msg_body})
 
     
 
 
     def _add_brain_intention_to_history(self, intention):
         session = self.current_session
-        session.history.append({"role": "assistant", "content": intention})
+        session["history"].append({"role": "assistant", "content": intention})
 
     def _add_question_to_brain(self, question):
         session = self.current_session
-        
-        session.history.append({"role": "user", "content": f"[INTERNAL QUERY]: {question}\n"})
+
+        session["history"].append({"role": "user", "content": f"[INTERNAL QUERY]: {question}\n"})
 
 
 
-    def _get_llm_context(self, session: TaskSession) -> List[Dict]:
+    def _get_llm_context(self, session: dict) -> List[Dict]:
         """
         [多态的关键]
         Worker: 返回完整的 history。
         Planner: 将重写此方法，返回 State + Latest Message。
         """
-        return session.history
+        return session["history"]
 
     @register_action(
         "检查当前日期和时间，你不知道日期和时间，如果需要日期时间信息必须调用此action", param_infos={}
@@ -401,7 +399,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         # 否则，in_reply_to = session.session_id
         session = self.current_session
         last_email = self.last_received_email
-        in_reply_to = session.session_id
+        in_reply_to = session["session_id"]
         if to == last_email.sender:
             in_reply_to = last_email.id
         if not subject:
@@ -415,13 +413,18 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             subject=subject,
             body=body,
             in_reply_to=in_reply_to,
-            user_session_id=session.user_session_id
+            user_session_id=session["user_session_id"]
         )
-        
-        
 
         await self.post_office.dispatch(msg)
-        self.reply_mapping[msg.id] = self.current_session.session_id
+
+        # 更新 reply_mapping（自动保存到磁盘）
+        await self.session_manager.update_reply_mapping(
+            msg_id=msg.id,
+            session_id=self.current_session["session_id"],
+            user_session_id=session["user_session_id"]
+        )
+
         return f"Email sent to {to}"
 
     
@@ -433,38 +436,15 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         """
         核心可观察性方法：返回 Agent 当前的完整状态快照
         """
-        # 1. 统计当前正在进行的会话
-        active_sessions_data = []
-        for sess_id, session in self.sessions.items():
-            active_sessions_data.append({
-                "session_id": sess_id,
-                "original_sender": session.original_sender,
-                "status": session.status,
-                "history_length": len(session.history),
-                # 这里甚至可以把最后一条对话内容截取出来展示
-                "last_message": session.history[-1]['content'][:50] + "..." if session.history else ""
-            })
-
-        # 2. 统计正在等待的外部请求
-        waiting_for = []
-        for msg_id, sess_id in self.reply_mapping.items():
-            waiting_for.append({
-                "waiting_msg_id": msg_id,
-                "belongs_to_session": sess_id
-            })
-
         return {
             "name": self.name,
-            "is_alive": True, # 这里可以加心跳检查
-            "inbox_depth": self.inbox.qsize(), # 还有多少信没读
-            "sessions_count": len(self.sessions),
-            "sessions": active_sessions_data,  # 详细上下文
-            "waiting_map": waiting_for         # 依赖关系
+            "is_alive": True,
+            "inbox_depth": self.inbox.qsize()
         }
     
     def dump_state(self) -> Dict:
         """生成当前 Agent 的完整快照"""
-        
+
         # 1. 提取收件箱里所有未读邮件
         # Queue 没法直接序列化，得把东西取出来变成 List
         inbox_content = []
@@ -472,43 +452,31 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             email = self.inbox.get_nowait()
             inbox_content.append(asdict(email)) # Email 也需要 to_dict
             self.inbox.task_done()
-        
-        # 2. 提取 Session
-        sessions_dump = {k: v.to_dict() for k, v in self.sessions.items()}
 
         # 额外检查：如果保存时正在处理某封信，把它塞回 Inbox 的头部！
-        # 这样下次启动时，Agent 会重新处理这封信，相当于“断点重试”
+        # 这样下次启动时，Agent 会重新处理这封信，相当于"断点重试"
         if self.last_received_email and not self.last_email_processed:
              inbox_content.insert(0, asdict(self.last_received_email))
 
         return {
             "name": self.name,
             "inbox": inbox_content,
-            "sessions": sessions_dump,
-            "reply_mapping": self.reply_mapping,
+            # Session 数据已经在 SessionManager 中自动持久化，不需要在这里保存
             # 如果是 Planner，它会有额外的 project_state，
             # 可以通过 hasattr 检查或者子类覆盖 dump_state
-            "extra_state": getattr(self, "project_state", None) 
+            "extra_state": getattr(self, "project_state", None)
         }
 
     def load_state(self, snapshot: Dict):
-        """从快照恢复现场"""
+        """从快照恢复现场（Lazy Load：不加载 sessions）"""
         # 1. 恢复收件箱
         for email_dict in snapshot["inbox"]:
             # 假设 Email 类有 from_dict
             email = Email(**email_dict)
             self.inbox.put_nowait(email)
-            
-        # 2. 恢复 Sessions
-        self.sessions = {
-            k: TaskSession.from_dict(v) 
-            for k, v in snapshot["sessions"].items()
-        }
-        
-        # 3. 恢复路由表
-        self.reply_mapping = snapshot["reply_mapping"]
-        
-        # 4. 恢复额外状态 (Planner)
+
+        # 2. Lazy Load: Sessions 将在需要时从磁盘加载（通过 SessionManager）
+        # 3. 恢复额外状态 (Planner)
         if snapshot.get("extra_state"):
             self.project_state = snapshot["extra_state"]
 

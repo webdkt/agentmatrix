@@ -183,3 +183,35 @@ def multi_section_parser(
 
     except Exception as e:
         return {"status": "error", "feedback": f"解析失败: {str(e)}"}
+
+
+def simple_section_parser(raw_reply: str, divider: str = None) -> dict:
+    """
+    通用文本解析器，根据分隔符提取内容（单section模式）。
+
+    这是 multi_section_parser 的简化版，用于只需要提取一个section的场景。
+
+    Args:
+        raw_reply: LLM 返回的原始回复
+        divider: 可选分隔符。如果为 None，则自动查找形如 "=====" 或 "=====text=====" 的分隔行
+                分隔行前后都至少需要2个等号
+
+    Returns:
+        {
+            "status": "success" | "error",
+            "data": 提取的内容 (成功时),
+            "feedback": 错误信息 (失败时)
+        }
+
+    Example:
+        >>> text = '''
+        ... 一些介绍文本...
+        ... ============
+        ... 要提取的内容
+        ... 更多内容...
+        ... ============
+        ... '''
+        >>> result = simple_section_parser(text)
+        >>> # 返回: {"status": "success", "data": "要提取的内容\\n\\n更多内容..."}
+    """
+    return multi_section_parser(raw_reply, section_headers=[divider] if divider else None)
