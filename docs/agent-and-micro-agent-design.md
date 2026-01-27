@@ -142,7 +142,7 @@ When a user sends an email to BaseAgent:
 ```
 1. BaseAgent receives email
    ├─ Check in_reply_to: which session is this?
-   ├─ Restore or create TaskSession (session-level conversation history)
+   ├─ Restore or create session via SessionManager (session-level conversation history)
    └─ Delegate to MicroAgent to execute this task
 
 2. MicroAgent executes
@@ -218,9 +218,8 @@ class BaseAgent(FileSkillMixin, AutoLoggerMixin):
         self.actions_map = {}   # name -> method reference
         self.actions_meta = {}  # name -> metadata (description, params)
 
-        # Session Management
-        self.sessions = {}      # TaskSession per conversation
-        self.reply_mapping = {} # Email threading (in_reply_to -> session)
+        # Session Management (delegated to SessionManager)
+        self.session_manager = None  # Initialized when workspace_root is set
 
         # Micro Agent Core (lazy initialized)
         self._micro_core = None
@@ -256,19 +255,20 @@ The decorator marks the method as an action and stores metadata. During initiali
 
 ```python
 async def process_email(self, email: Email):
-    # Restore or create session
-    session = self._get_or_create_session(email)
+    # Restore or create session via SessionManager
+    session = await self.session_manager.get_session(email)
 
     # Execute with Micro Agent
     result = await self._run_micro_agent(
         persona=self.system_prompt,
         task=email.body,
         available_actions=self.actions_map.keys(),
-        session_history=session.history
+        session_history=session["history"]
     )
 
     # Update session and send reply
-    session.add_message(email.body, result)
+    session["history"].append({"role": "user", "content": email.body})
+    session["history"].append({"role": "assistant", "content": result})
     await self._send_reply(email, result)
 ```
 

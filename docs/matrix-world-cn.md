@@ -363,7 +363,7 @@ await matrix.post_office.send_email(email)
    │
 3. Agent 的 process_email() 方法:
    ├─ 检查 in_reply_to 以获取线程上下文
-   ├─ 恢复或创建 TaskSession
+   ├─ 通过 SessionManager 恢复或创建 session
    ├─ 委托给 MicroAgent
    │  └─ 思考-协商-行动循环:
    │     ├─ 思考: LLM 生成推理

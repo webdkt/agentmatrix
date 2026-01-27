@@ -93,116 +93,141 @@ async def extract_search_results(adapter, tab):
 
     return results
 
-async def search_bing(adapter, tab, query, max_pages=5, page=None):
+async def search_bing(adapter, tab, query, max_pages=1):
     """
-    Perform a Bing search and extract results from multiple pages.
+    Perform a Bing search using human-like behavior.
+
+    This function ONLY executes the search and leaves the browser on the search results page.
+    It does NOT extract any search results - that's handled by the caller.
 
     Args:
         adapter: DrissionPageAdapter instance
         tab: Current browser tab handle
-        query: Search query string
-        max_pages: Maximum number of pages to extract (default: 5)
-        page: Specific page to extract (default: None). If specified, only returns results from that page.
+        query: Search query string (will be typed into search box)
+        max_pages: Maximum number of pages to navigate (default: 1). Note: This function
+                   only stays on the first page; multi-page navigation is handled elsewhere.
 
     Returns:
-        List of dictionaries containing title, url, and snippet for each search result
+        bool: True if search completed successfully, False otherwise
+
+    Raises:
+        Exception: If search fails (no search box found, navigation fails, etc.)
     """
-    print(f"\n=== Bing Search: {query} (max pages: {max_pages}) ===")
+    print(f"\n=== Bing Search: {query} ===")
 
-    # Navigate directly to Bing search results page
-    print("1. Navigating to Bing search results...")
-    encoded_query = quote_plus(query)
-    print(f"   Query: {query}")
-    print(f"   Encoded: {encoded_query}")
-    interaction_report = await adapter.navigate(tab, f"https://www.bing.com/search?q={encoded_query}")
-    print(f"✓ Navigation completed. URL changed: {interaction_report.is_url_changed}")
-
-    # Wait a moment for page to load
     import time
+    import random
+
+    # Step 1: Navigate to Bing homepage
+    print("1. Navigating to Bing homepage...")
+    interaction_report = await adapter.navigate(tab, "https://www.bing.com")
+    print(f"   Query: {query}")
+    print(f"✓ Navigation to homepage completed. URL changed: {interaction_report.is_url_changed}")
+
+    # Wait for page to load
     time.sleep(2)
 
-    # Check for International button and click if present
+    # Step 2: Stabilize the homepage
+    print("\n2. Stabilizing Bing homepage...")
+    stabilization_success = await adapter.stabilize(tab)
+    print(f"✓ Stabilization completed: {stabilization_success}")
+
+    # Step 3: Type search query like a human
+    print("\n3. Typing search query...")
+
+    # 额外等待，确保搜索框完全加载
+    print("   Waiting for search box to be ready...")
+    time.sleep(random.uniform(1.5, 2.5))  # 随机等待1.5-2.5秒
+
+    # Bing search box selector (try multiple possible selectors)
+    search_box_selectors = [
+        'input[name="q"]',      # Standard Bing search box
+        'textarea[name="q"]',   # Alternative design
+    ]
+
+    search_typed = False
+    for selector in search_box_selectors:
+        try:
+            print(f"   Trying selector: {selector}")
+
+            # Type the query with human-like behavior
+            success = await adapter.type_text(tab, selector, query, clear_existing=True)
+
+            if success:
+                print(f"   ✓ Query typed successfully with: {selector}")
+                search_typed = True
+                break
+            else:
+                print(f"   ✗ Failed to type with: {selector}")
+        except Exception as e:
+            print(f"   ✗ Selector failed: {selector} - {e}")
+            continue
+
+    if not search_typed:
+        error_msg = "Failed to find and type in Bing search box"
+        print(f"   ✗ {error_msg}")
+        raise Exception(error_msg)
+
+    # 模拟人类思考：输入完后短暂停顿，准备点击搜索
+    print("   Pausing briefly (simulating human behavior)...")
+    time.sleep(random.uniform(0.8, 1.5))  # 随机等待0.8-1.5秒
+
+    # Step 4: Submit search (click search button instead of pressing Enter)
+    print("\n4. Submitting search...")
+
+    # 额外等待，让用户看到输入的内容
+    time.sleep(random.uniform(0.3, 0.7))  # 额外等待0.3-0.7秒
+
+    # 尝试多种搜索按钮选择器
+    search_button_selectors = [
+        'css:button[type="submit"]',      # 标准提交按钮
+        'css:input[name="go"]',           # Bing 的搜索按钮
+        'css:#search_icon',               # 搜索图标按钮
+        'css:.search_icon',               # 搜索图标（class）
+        'css:#sb_form_go',                # Bing 搜索按钮 ID
+    ]
+
+    button_clicked = False
+    for selector in search_button_selectors:
+        try:
+            print(f"   Trying to click search button: {selector}")
+            success = await adapter.click_by_selector(tab, selector)
+
+            if success and not success.error:
+                print(f"   ✓ Search button clicked successfully")
+                button_clicked = True
+                break
+            else:
+                print(f"   ✗ Failed to click button (or button not found)")
+        except Exception as e:
+            print(f"   ✗ Button click failed: {e}")
+            continue
+
+    if not button_clicked:
+        # 如果点击按钮失败，尝试按回车（但在 textarea 里会换行）
+        print(f"   ⚠️  Could not find search button, trying Enter key (may not work in textarea)...")
+        from ..browser.browser_adapter import KeyAction
+        submit_report = await adapter.press_key(tab, KeyAction.ENTER)
+        print(f"   Pressed Enter. URL changed: {submit_report.is_url_changed}")
+
+    # Wait for search results page to load
+    print("   Waiting for search results page to load...")
+    time.sleep(random.uniform(2.5, 3.5))  # 随机等待2.5-3.5秒，更真实
+
+    # Step 5: Check for International button and click if present
+    print("\n5. Checking for International button...")
     intl_btn = tab.ele("@id=est_en")
     if intl_btn:
         print("   Found International button. Clicking...")
         intl_btn.click()
         time.sleep(1)  # Wait for the page to update after clicking intl button
+    else:
+        print("   No International button found (or already on international version)")
 
-    # Stabilize the search results page
-    print("\n2. Stabilizing search results page...")
+    # Step 6: Stabilize the search results page
+    print("\n6. Stabilizing search results page...")
     stabilization_success = await adapter.stabilize(tab)
     print(f"✓ Stabilization completed: {stabilization_success}")
 
-    # If page is specified, only extract that specific page
-    if page is not None:
-        print(f"\n=== Extracting page {page} only ===")
-
-        # Navigate to the specified page
-        target_page = page
-        while target_page > 1:
-            try:
-                next_page_selector = f'css:a[aria-label=\'Page {target_page}\']'
-                print(f"Looking for Page {target_page}...")
-                next_page_link = tab.ele(next_page_selector, timeout=2)
-
-                if next_page_link:
-                    print(f"✓ Found Page {target_page}, clicking...")
-                    next_page_link.click()
-                    time.sleep(2)
-                    await adapter.stabilize(tab)
-                    target_page -= 1
-                else:
-                    print(f"✗ Page {page} not found")
-                    return []
-            except Exception as e:
-                print(f"✗ Error navigating to page {page}: {e}")
-                return []
-
-        # Extract results from the specified page
-        print(f"\n=== Processing page {page} ===")
-        page_results = await extract_search_results(adapter, tab)
-        print(f"\n=== Total results collected: {len(page_results)} ===")
-        return page_results
-
-    # Extract search results from multiple pages (original logic)
-    all_results = []
-    current_page = 1
-
-    while current_page <= max_pages:
-        print(f"\n=== Processing page {current_page} ===")
-
-        # Extract results from current page
-        page_results = await extract_search_results(adapter, tab)
-        all_results.extend(page_results)
-
-        # Check if we should continue to next page
-        if current_page < max_pages:
-            # Look for next page link using aria-label='Page X'
-            next_page_num = current_page + 1
-            next_page_selector = f'css:a[aria-label=\'Page {next_page_num}\']'
-
-            try:
-                print(f"\nLooking for next page (Page {next_page_num})...")
-                next_page_link = tab.ele(next_page_selector, timeout=2)
-
-                if next_page_link:
-                    print(f"✓ Found next page link, clicking...")
-                    next_page_link.click()
-                    time.sleep(2)  # Wait for page to load
-
-                    # Stabilize after page change
-                    await adapter.stabilize(tab)
-                    current_page += 1
-                else:
-                    print(f"✓ No more pages available")
-                    break
-
-            except Exception as e:
-                print(f"✓ No more pages available or error finding next page: {e}")
-                break
-        else:
-            print(f"\n✓ Reached maximum page limit ({max_pages})")
-            break
-
-    print(f"\n=== Total results collected: {len(all_results)} ===")
-    return all_results
+    print(f"\n✓ Search completed successfully. Browser now on search results page.")
+    return True

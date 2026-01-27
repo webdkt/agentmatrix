@@ -363,7 +363,7 @@ await matrix.post_office.send_email(email)
    │
 3. Agent's process_email() method:
    ├─ Check in_reply_to for thread context
-   ├─ Restore or create TaskSession
+   ├─ Restore or create session via SessionManager
    ├─ Delegate to MicroAgent
    │  └─ Think-Negotiate-Act loop:
    │     ├─ Think: LLM generates reasoning

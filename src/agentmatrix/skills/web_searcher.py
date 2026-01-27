@@ -235,15 +235,141 @@ Try again."""
 ====END OF SEARCH RESULTS====
 
 [Task]
-Review these search results and decide which links are worth visiting to help answer the question. List them under ##推荐链接 section, one per line
+Review these search results and decide which links are worth visiting to help answer the question.
 
+[Important Rules]
+1. If NONE of the search results are relevant to the question, select "SKIP_PAGE" to skip this batch
+2. Be SELECTIVE - only choose links that have HIGH probability of containing useful information
+3. It's OK to skip if the results don't seem helpful
 
 [Output Format]
 
+If you found relevant links:
 ##推荐链接
 第一个链接(replace with your choice)
 另一个链接(replace with your choice)
+
+If NONE of the results are relevant:
+##推荐链接
+SKIP_PAGE
 """
+
+    # ==========================================
+    # 4. 导航页处理
+    # ==========================================
+
+    NAVIGATION_PAGE = """You are reviewing a NAVIGATION PAGE to answer: "{question}"
+
+
+[Notebook - What We Already Know]
+{notebook}
+
+(Note: Links are marked as [🔗LinkText]. If you want to visit a link, copy its text (without 🔗) and list it in the "##推荐链接" section.)
+====BEGIN OF NAVIGATION PAGE====
+
+{navigation_text}
+
+====END OF NAVIGATION PAGE====
+
+[Task]
+This is a navigation/index page containing links to other content. Review these links and select the ones most likely to contain relevant information to answer the question.
+
+[Important Rules]
+1. If NONE of the links on this page are relevant to the question, select "SKIP_PAGE" to skip this navigation page
+2. Be SELECTIVE - only choose links that have HIGH probability of containing useful information
+3. Navigation pages often contain many irrelevant links (home, about, login, etc.) - ignore those
+4. It's OK to skip if this navigation page doesn't seem helpful
+
+[Output Format]
+
+If you found relevant links:
+##推荐链接
+第一个链接(replace with your choice)
+另一个链接(replace with your choice)
+
+If NONE of the links are relevant:
+##推荐链接
+SKIP_PAGE
+"""
+
+
+# ==========================================
+# 结构化链接管理器（用于搜索结果和导航页）
+# ==========================================
+
+class StructuredLinkManager:
+    """
+    结构化链接管理器
+
+    用于搜索结果页和导航页的链接解析，支持灵活的链接文本匹配：
+
+    1. 完全匹配 - 例如 "[🔗Link1 To: www.example.com]"
+    2. Link编号匹配 - 例如 "Link1", "🔗Link1", "Link 1"
+    3. 域名匹配 - 例如 "www.example.com"（匹配第一个）
+
+    这个类是搜索结果和导航页通用的链接解析工具。
+    """
+
+    def __init__(self, link_mapping: dict):
+        """
+        Args:
+            link_mapping: 链接ID到URL的映射字典
+                         例如 {"Link1 To: www.example.com": "https://example.com/..."}
+        """
+        self.link_mapping = link_mapping
+
+    def get_url(self, link_text: str) -> Optional[str]:
+        """
+        灵活的链接文本匹配，支持三种模式
+
+        Args:
+            link_text: LLM 返回的链接文本
+
+        Returns:
+            匹配的 URL，如果未匹配则返回 None
+        """
+        import re
+
+        # 模式1: 完全匹配（去掉 🔗 和前后空格）
+        exact_match = link_text.replace("🔗", "").strip()
+        if exact_match in self.link_mapping:
+            return self.link_mapping[exact_match]
+
+        # 模式2: Link编号匹配
+        # 提取 "Link1", "Link2" 等编号
+        # 支持格式: "Link1", "🔗Link1", "Link 1", "Link 1 To: ..."
+        link_pattern = r"Link\s*(\d+)"
+        match = re.search(link_pattern, link_text, re.IGNORECASE)
+        if match:
+            link_num = match.group(1)
+            # 在 link_mapping 中找到匹配的
+            for link_id in self.link_mapping.keys():
+                if link_id.startswith(f"Link{link_num} To:"):
+                    return self.link_mapping[link_id]
+
+        # 模式3: 域名匹配
+        # 提取域名并查找第一个匹配的
+        # 域名可能出现在 "To: www.example.com" 这样的格式中
+        to_pattern = r"To:\s*([^\s\]]+)"
+        to_match = re.search(to_pattern, link_text)
+        if to_match:
+            domain = to_match.group(1)
+            # 在 link_mapping 中查找包含该域名的第一个
+            for link_id, url in self.link_mapping.items():
+                if domain in link_id:
+                    return url
+
+        # 模式4: 如果直接提供的是纯域名（没有 "To:" 前缀）
+        # 也尝试匹配
+        clean_text = link_text.strip().strip("[]").replace("🔗", "").strip()
+        if clean_text and "." in clean_text and not clean_text.startswith("Link"):
+            # 看起来像域名
+            for link_id, url in self.link_mapping.items():
+                if clean_text in link_id:
+                    return url
+
+        # 未匹配
+        return None
 
 
 # ==========================================
@@ -510,18 +636,13 @@ class WebSearcherMixin(CrawlerHelperMixin):
         if not search_phrase:
             search_phrase = purpose
 
-        # 3. 构建搜索结果页 URL
+        # 3. 验证搜索引擎
         if search_engine.lower() not in SEARCH_ENGINES:
             self.logger.warning(f"Unknown search engine '{search_engine}', using default '{DEFAULT_SEARCH_ENGINE}'")
             search_engine = DEFAULT_SEARCH_ENGINE
 
-        search_url_template = SEARCH_ENGINES[search_engine.lower()]
-        encoded_query = quote_plus(search_phrase)
-        search_results_url = search_url_template.format(query=encoded_query)
-
         self.logger.info(f"🔍 准备搜索: {search_phrase}")
         self.logger.info(f"🔍 搜索引擎: {search_engine}")
-        self.logger.info(f"🔍 搜索结果页 URL: {search_results_url}")
 
         # 4. 初始化浏览器和上下文
         self.browser = DrissionPageAdapter(
@@ -548,17 +669,17 @@ class WebSearcherMixin(CrawlerHelperMixin):
             tab = await self.browser.get_tab()
             session = TabSession(handle=tab, current_url="")
 
-            # 7. 将搜索结果页 URL 加入队列
-            # 搜索结果页被视为第一个要处理的页面
-            session.pending_link_queue.append(search_results_url)
+            # 7. 生成虚拟搜索URL并加入队列
+            # 使用虚拟URL协议 "search:" 来触发搜索函数
+            # URL格式: "search:{search_engine}:{search_phrase}"
+            # 例如: "search:bing:2026年1月24日 政治 新闻"
+            search_virtual_url = f"search:{search_engine.lower()}:{search_phrase}"
+            session.pending_link_queue.append(search_virtual_url)
 
-            self.logger.info(f"✓ Added search results page to queue")
+            self.logger.info(f"✓ Added virtual search URL to queue: {search_virtual_url}")
 
             # 8. 运行统一的搜索生命周期
-            # 搜索结果页会像普通网页一样被处理：
-            # - 获取完整内容（包括所有搜索结果的标题、链接、摘要）
-            # - LLM 阅读并决定点击哪些链接
-            # - 继续探索相关页面
+            # _run_search_lifecycle 会识别虚拟URL并调用相应的搜索函数
             answer = await self._run_search_lifecycle(session, ctx)
 
             # 9. 返回结果
@@ -1367,7 +1488,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 未找到答案
         return None
 
-    def _search_result_links_parser(self, llm_reply, link_manager: MarkdownLinkManager) -> callable:
+    def _search_result_links_parser(self, llm_reply, link_manager) -> callable:
 
 
         # 1. 调用 multi_section_parser 提取 ##推荐链接
@@ -1392,27 +1513,35 @@ class WebSearcherMixin(CrawlerHelperMixin):
             if line.strip()
         ]
 
-        # 过滤掉示例文本
+        # 3. 检查是否选择跳过
+        if "SKIP_PAGE" in link_lines:
+            self.logger.info("⏭️ LLM decided to skip this search result batch (no relevant results)")
+            return {
+                "status": "success",
+                "data": {
+                    "found_links": []  # 空列表表示没有找到相关链接
+                }
+            }
+
+        # 4. 过滤掉示例文本
         found_links = [
             line for line in link_lines
-            if line not in ["第一个链接", "另一个链接"]
+            if line not in ["第一个链接", "另一个链接", "SKIP_PAGE"]
         ]
         self.logger.debug(f"【Extracted Links (raw)】:\n{found_links}")
 
-        # 3. 宽松验证：过滤掉无效链接，保留有效链接
+        # 5. 宽松验证：过滤掉无效链接，保留有效链接
         valid_links = []
-        
 
         for link_text in found_links:
             if link_manager.get_url(link_text):
                 # 有效链接
                 valid_links.append(link_text)
-            
 
-        # 4. 判断结果
+        # 6. 判断结果
         if valid_links:
             # 有有效链接，成功（忽略无效链接）
-            
+
             self.logger.info(f"✅ Extracted {len(valid_links)} valid links from LLM output")
             return {
                 "status": "success",
@@ -1421,10 +1550,14 @@ class WebSearcherMixin(CrawlerHelperMixin):
                 }
             }
         else:
-            # 没有任何有效链接，返回错误
+            # 没有任何有效链接，但LLM也没有选择SKIP_PAGE
+            # 视为"没有找到相关链接"，返回成功但空列表
+            self.logger.info("⏭️ No valid links found (LLM didn't explicitly SKIP, but no relevant links)")
             return {
-                "status": "error",
-                "feedback": "未能识别到有效的链接。请确保使用页面中显示的链接格式，例如：Link1 To: www.example.com"
+                "status": "success",
+                "data": {
+                    "found_links": []
+                }
             }
 
         return parser
@@ -1512,77 +1645,15 @@ class WebSearcherMixin(CrawlerHelperMixin):
             self.logger.debug(f"【Search Result Batch Prompt】:\n{prompt}")
 
             try:
-                # 创建专门用于搜索结果的 link manager（只用于验证链接）
-                class SearchResultLinkManager:
-                    def __init__(self, link_mapping):
-                        self.link_mapping = link_mapping
-
-                    def get_url(self, link_text):
-                        """
-                        灵活的链接文本匹配，支持三种模式：
-
-                        1. 完全匹配 - 例如 "[🔗Link1 To: www.weforum.org]"
-                        2. Link编号匹配 - 例如 "Link1", "🔗Link1", "Link 1"
-                        3. 域名匹配 - 例如 "www.weforum.org"（匹配第一个）
-
-                        Args:
-                            link_text: LLM 返回的链接文本
-
-                        Returns:
-                            匹配的 URL，如果未匹配则返回 None
-                        """
-                        import re
-
-                        # 模式1: 完全匹配（去掉 🔗 和前后空格）
-                        exact_match = link_text.replace("🔗", "").strip()
-                        if exact_match in self.link_mapping:
-                            return self.link_mapping[exact_match]
-
-                        # 模式2: Link编号匹配
-                        # 提取 "Link1", "Link2" 等编号
-                        # 支持格式: "Link1", "🔗Link1", "Link 1", "Link 1 To: ..."
-                        link_pattern = r"Link\s*(\d+)"
-                        match = re.search(link_pattern, link_text, re.IGNORECASE)
-                        if match:
-                            link_num = match.group(1)
-                            # 构造标准的 link_id 格式，例如 "Link1 To: www.example.com"
-                            # 需要在 link_mapping 中找到匹配的
-                            for link_id in self.link_mapping.keys():
-                                if link_id.startswith(f"Link{link_num} To:"):
-                                    return self.link_mapping[link_id]
-
-                        # 模式3: 域名匹配
-                        # 提取域名并查找第一个匹配的
-                        # 域名可能出现在 "To: www.example.com" 这样的格式中
-                        to_pattern = r"To:\s*([^\s\]]+)"
-                        to_match = re.search(to_pattern, link_text)
-                        if to_match:
-                            domain = to_match.group(1)
-                            # 在 link_mapping 中查找包含该域名的第一个
-                            for link_id, url in self.link_mapping.items():
-                                if domain in link_id:
-                                    return url
-
-                        # 如果直接提供的是纯域名（没有 "To:" 前缀）
-                        # 也尝试匹配
-                        clean_text = link_text.strip().strip("[]").replace("🔗", "").strip()
-                        if clean_text and "." in clean_text and not clean_text.startswith("Link"):
-                            # 看起来像域名
-                            for link_id, url in self.link_mapping.items():
-                                if clean_text in link_id:
-                                    return url
-
-                        # 未匹配
-                        return None
-
-                sr_link_manager = SearchResultLinkManager(link_mapping)
+                # 创建 Link Manager 实例
+                link_manager = StructuredLinkManager(link_mapping)
 
                 # 使用 think_with_retry 自动处理重试
                 # 使用专门的 parser，会验证链接是否存在，避免幻觉
                 result_data = await self.cerebellum.backend.think_with_retry(
                     initial_messages=prompt,
                     parser=self._search_result_links_parser,
-                    link_manager=sr_link_manager,
+                    link_manager=link_manager,
                     max_retries=5
                 )
                 self.logger.debug(f"【Search Result Batch LLM Output】:\n{result_data}")
@@ -1601,7 +1672,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             if found_links:
                 for link_id in found_links:
                     # 从 link_id 中提取实际URL
-                    target_url = sr_link_manager.get_url(link_id)
+                    target_url = link_manager.get_url(link_id)
                     if target_url:
                         self.logger.info(f"🔗 Search result link discovered: [{link_id}] -> {target_url}")
                         # 如果有 session，直接加入队列；否则暂存到 ctx
@@ -1620,10 +1691,155 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 未找到答案
         return None
 
+    async def _process_navigation_page(
+        self,
+        tab,
+        ctx: WebSearcherContext,
+        url: str,
+        session: TabSession = None
+    ) -> Optional[str]:
+        """
+        处理导航页/索引页（首页、频道页等）
+
+        流程：
+        1. 通过 jina.ai 获取页面的 Markdown
+        2. 提取所有链接（过滤纯图片链接）
+        3. 格式化为类似搜索结果的格式（带链接ID）
+        4. 构建链接ID到URL的映射
+        5. 让 LLM 选择值得访问的链接
+
+        Args:
+            tab: 浏览器标签页
+            ctx: 搜索上下文
+            url: 当前页面 URL
+            session: TabSession，用于将发现的链接加入队列
+
+        Returns:
+            找到的答案，如果未找到则返回 None
+        """
+        # 1. 通过 jina.ai 获取 markdown
+        self.logger.info(f"📥 Fetching navigation page markdown from jina.ai...")
+        try:
+            markdown = await self.get_markdown_via_jina(url, timeout=30)
+            self.logger.info(f"✓ Received {len(markdown)} characters from jina.ai")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to fetch markdown from jina.ai: {e}")
+            return None
+
+        # 2. 提取链接
+        self.logger.info(f"🔍 Extracting links from navigation page...")
+        links = self.extract_navigation_links(markdown)
+        self.logger.info(f"✓ Extracted {len(links)} links (pure images filtered)")
+
+        if len(links) == 0:
+            self.logger.warning("⚠️ No links found in navigation page")
+            return None
+
+        # 3. 过滤已访问/已评估的链接
+        filtered_links = []
+        for link in links:
+            if ctx.should_process_url(link.url, session.pending_link_queue if session else []):
+                filtered_links.append(link)
+
+        filtered_count = len(links) - len(filtered_links)
+        if filtered_count > 0:
+            self.logger.info(f"  ↳ Filtered {filtered_count} already visited/evaluated links")
+
+        if len(filtered_links) == 0:
+            self.logger.warning("⚠️ All navigation links have been visited/evaluated. Skipping this page.")
+            return None
+
+        # 4. 格式化为 Markdown（类似搜索结果格式）
+        formatted_markdown = self.format_navigation_links_as_markdown(filtered_links, url)
+
+        # 5. 构建链接映射
+        link_mapping = self.build_navigation_link_mapping(filtered_links)
+
+        self.logger.debug(f"✓ Built link mapping with {len(link_mapping)} entries")
+        for link_id, mapped_url in list(link_mapping.items())[:3]:  # 显示前3个
+            self.logger.debug(f"  {link_id} -> {mapped_url}")
+
+        # 6. 按段落边界分成批次
+        self.logger.info(f"🔪 Splitting navigation links into batches (max {ctx.chunk_threshold} chars each)...")
+        batches = self._split_by_paragraph_boundaries(formatted_markdown, ctx.chunk_threshold)
+        total_batches = len(batches)
+        self.logger.info(f"📊 Split into {total_batches} batches")
+
+        # 7. 逐批流式处理
+        for i, batch in enumerate(batches, start=1):
+            current_batch = i
+            progress_pct = int((current_batch / total_batches) * 100)
+            self.logger.info(
+                f"🔄 Processing navigation batch {current_batch}/{total_batches} "
+                f"({progress_pct}%, {len(batch)} chars)..."
+            )
+
+            # 构造导航页批处理 prompt
+            prompt = WebSearcherPrompts.NAVIGATION_PAGE.format(
+                question=ctx.purpose,
+                notebook=ctx.notebook,
+                navigation_text=batch
+            )
+            self.logger.debug(f"【Navigation Page Batch Prompt】:\n{prompt}")
+
+            try:
+                # 创建通用的 StructuredLinkManager 实例
+                link_manager = StructuredLinkManager(link_mapping)
+
+                # 使用 think_with_retry 自动处理重试
+                result_data = await self.cerebellum.backend.think_with_retry(
+                    initial_messages=prompt,
+                    parser=self._search_result_links_parser,
+                    link_manager=link_manager,
+                    max_retries=5
+                )
+                self.logger.debug(f"【Navigation Page Batch LLM Output】:\n{result_data}")
+
+                # 提取找到的链接
+                found_links = result_data.get("found_links", [])
+                self.logger.info(f"✅ Found {len(found_links)} recommended links from navigation page")
+
+            except ValueError as e:
+                import traceback
+                traceback.print_exc()
+                self.logger.error(f"❌ Navigation page batch processing failed after all retries: {e}")
+                found_links = []
+
+            # 处理发现的链接
+            if found_links:
+                for link_id in found_links:
+                    target_url = link_manager.get_url(link_id)
+                    if target_url:
+                        self.logger.info(f"🔗 Navigation link discovered: [{link_id}] -> {target_url}")
+                        session.pending_link_queue.append(target_url)
+                    else:
+                        self.logger.warning(f"⚠️ Could not find URL for link_id: {link_id}")
+
+        # 8. 标记所有链接为已评估（重要！）
+        for nav_link in filtered_links:
+            ctx.mark_evaluated(nav_link.url)
+            #self.logger.debug(f"✓ Marked as evaluated: {nav_link.url}")
+
+        # 未找到答案
+        return None
+
     async def _run_search_lifecycle(self, session: TabSession, ctx: WebSearcherContext) -> Optional[str]:
         """
-        [The Core Loop] 搜索生命周期
-        核心逻辑：访问页面 → 尝试回答问题 → 不能回答则记录信息 → 继续探索
+        [NEW VERSION - Simplified]
+        [The Core Loop] 搜索生命周期（简化版）
+
+        核心理念：每种页面类型一次性完成所有决策，不需要额外的 Scouting 阶段
+
+        页面类型处理流程：
+        1. 搜索结果页 → 解析结果 → LLM选择链接 → 加入队列 → 结束
+        2. 导航页 → jina.ai获取markdown → 提取链接 → LLM选择 → 加入队列 → 结束
+        3. 内容页 → LLM阅读内容 → 推荐链接(已在阅读中) → 得到answer → 结束
+
+        相比旧版本的优势：
+        - 不再需要Scouting阶段（1958-2041行）
+        - 每种页面类型都有专门的LLM交互，一次性完成决策
+        - 减少重复让LLM看链接
+        - 流程更清晰、更高效
         """
         while not ctx.is_time_up():
             # --- Phase 1: Navigation ---
@@ -1632,36 +1848,45 @@ class WebSearcherMixin(CrawlerHelperMixin):
                 break
 
             next_url = session.pending_link_queue.popleft()
-            self.logger.info(f"🔗 Navigating to: {next_url}")
+            self.logger.info(f"🔗 Processing: {next_url}")
 
             # 1.1 门禁检查（next_url）
             if ctx.has_visited(next_url):
                 self.logger.debug(f"✓ Already visited: {next_url}")
                 continue
-            
 
-            # 1.2 导航到页面
-            nav_report = await self.browser.navigate(session.handle, next_url)
-            
+            # 1.2 检查是否是虚拟搜索URL
+            if next_url.startswith("search:"):
+                parts = next_url.split(":", 2)
+                if len(parts) != 3:
+                    self.logger.error(f"Invalid virtual search URL format: {next_url}")
+                    continue
+
+                _, search_engine, search_phrase = parts
+                self.logger.info(f"🔍 Executing search on {search_engine}: {search_phrase}")
+
+                from agentmatrix.core.browser.google import search_google
+                from agentmatrix.core.browser.bing import search_bing
+
+                search_fun = search_google if search_engine.lower() == "google" else search_bing
+                await search_fun(adapter=self.browser, tab=session.handle, query=search_phrase)
+            else:
+                await self.browser.navigate(session.handle, next_url)
+
             final_url = self.browser.get_tab_url(session.handle)
             session.current_url = final_url
 
-            
-
             # 1.3 从队列中移除 final_url（如果存在）
-            # 解决重定向问题：如果 final_url 也在队列中，需要移除避免重复访问
             if final_url in session.pending_link_queue:
-                # 将队列转换为 list，移除 final_url，再重建 deque
                 temp_list = list(session.pending_link_queue)
                 temp_list.remove(final_url)
                 session.pending_link_queue = deque(temp_list)
-                self.logger.debug(f"✓ Removed final_url from queue (avoid duplicate): {final_url}")
 
             # 1.4 检查 final_url 是否应该被处理
-            # 即使 next_url 通过了检查，final_url 也需要检查（重定向后可能不合法）
             if ctx.has_visited(final_url):
                 self.logger.debug(f"✓ Already visited after redirect: {final_url}")
                 continue
+
             # 1.5 标记已访问
             ctx.mark_visited(next_url)
             ctx.mark_visited(final_url)
@@ -1676,140 +1901,235 @@ class WebSearcherMixin(CrawlerHelperMixin):
             # === 分支 A: 静态资源 ===
             if page_type == PageType.STATIC_ASSET:
                 self.logger.info(f"📄 Static Asset: {final_url}")
-
-                # 判断是否是搜索结果页
-                is_google = 'google.com/search' in final_url or 'www.google.' in final_url
-                is_bing = 'bing.com/search' in final_url
-
-                if is_google or is_bing:
-                    # 搜索结果页：直接获取HTML并使用专门的解析器
-                    search_engine = "Google" if is_google else "Bing"
-                    self.logger.info(f"🔍 Detected {search_engine} search results page")
-
-                    # 获取原始HTML
-                    raw_html = session.handle.html
-
-                    # 使用搜索结果专用处理
-                    answer = await self._stream_process_search_result(raw_html, ctx, final_url, session, search_engine)
-                else:
-                    # 普通网页：获取Markdown并处理
-                    markdown = await self._get_full_page_markdown(session.handle, ctx)
-                    answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
+                markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
+                answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
 
                 if answer:
-                    return answer  # 找到答案，直接返回
+                    return answer
 
                 # 处理从流式阅读中发现的链接
                 pending_links = ctx.get_pending_links()
                 for pending_link in pending_links:
                     session.pending_link_queue.append(pending_link)
                     ctx.mark_evaluated(pending_link)
-                    self.logger.info(f"📎 Added pending link from reading: {pending_link}")
 
-                continue  # 继续处理下一个 URL
+                continue
 
             # === 分支 B: 交互式网页 ===
+            elif page_type == PageType.NAVIGABLE:
+                self.logger.debug("🌐 Navigable Page")
+                await self.browser.stabilize(session.handle)
+
+                # 判断页面类型
+                is_google = 'google.com/search' in final_url or 'www.google.' in final_url
+                is_bing = 'bing.com/search' in final_url
+
+                if is_google or is_bing:
+                    # === 类型1: 搜索结果页 ===
+                    search_engine = "Google" if is_google else "Bing"
+                    self.logger.info(f"🔍 {search_engine} Search Results")
+
+                    raw_html = session.handle.html
+                    answer = await self._stream_process_search_result(raw_html, ctx, final_url, session, search_engine)
+
+                    if answer:
+                        return answer
+
+                    # 搜索结果页处理完成，继续下一个URL
+                    continue
+
+                else:
+                    # 判断是否是导航页
+                    is_nav, nav_reason = await self.is_navigation_page(session.handle, final_url)
+
+                    if is_nav:
+                        # === 类型2: 导航页 ===
+                        self.logger.info(f"🧭 Navigation Page: {final_url} ({nav_reason})")
+                        answer = await self._process_navigation_page(session.handle, ctx, final_url, session)
+
+                        if answer:
+                            return answer
+
+                        # 导航页处理完成，继续下一个URL
+                        continue
+
+                    else:
+                        # === 类型3: 普通内容页 ===
+                        self.logger.info(f"📖 Content Page: {final_url}")
+                        markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
+                        answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
+
+                        if answer:
+                            return answer
+
+                        # 处理从流式阅读中发现的链接
+                        pending_links = ctx.get_pending_links()
+                        for pending_link in pending_links:
+                            session.pending_link_queue.append(pending_link)
+                            ctx.mark_evaluated(pending_link)
+
+                        # 内容页处理完成，继续下一个URL
+                        continue
+
+        # 未找到答案
+        return None
+
+    async def _run_search_lifecycle_old(self, session: TabSession, ctx: WebSearcherContext) -> Optional[str]:
+        """
+        [OLD VERSION - BACKUP]
+        [The Core Loop] 搜索生命周期（旧版本，保留作为参考）
+
+        旧版本包含Scouting阶段（1958-2041行），会在读取页面后再次扫描链接和按钮
+        新版本简化了流程，每种页面类型一次性完成所有决策
+        """
+        # 这里直接复制旧的实现，保持不变
+        while not ctx.is_time_up():
+            # --- Phase 1: Navigation ---
+            if not session.pending_link_queue:
+                self.logger.info("Queue empty. Ending search.")
+                break
+
+            next_url = session.pending_link_queue.popleft()
+            self.logger.info(f"🔗 Processing: {next_url}")
+
+            # 1.1 门禁检查（next_url）
+            if ctx.has_visited(next_url):
+                self.logger.debug(f"✓ Already visited: {next_url}")
+                continue
+
+            # 1.2 检查是否是虚拟搜索URL
+            if next_url.startswith("search:"):
+                parts = next_url.split(":", 2)
+                if len(parts) != 3:
+                    self.logger.error(f"Invalid virtual search URL format: {next_url}")
+                    continue
+
+                _, search_engine, search_phrase = parts
+                self.logger.info(f"🔍 Executing search on {search_engine}: {search_phrase}")
+
+                from agentmatrix.core.browser.google import search_google
+                from agentmatrix.core.browser.bing import search_bing
+
+                search_fun = search_google if search_engine.lower() == "google" else search_bing
+                await search_fun(adapter=self.browser, tab=session.handle, query=search_phrase)
+            else:
+                await self.browser.navigate(session.handle, next_url)
+
+            final_url = self.browser.get_tab_url(session.handle)
+            session.current_url = final_url
+
+            if final_url in session.pending_link_queue:
+                temp_list = list(session.pending_link_queue)
+                temp_list.remove(final_url)
+                session.pending_link_queue = deque(temp_list)
+
+            if ctx.has_visited(final_url):
+                self.logger.debug(f"✓ Already visited after redirect: {final_url}")
+                continue
+
+            ctx.mark_visited(next_url)
+            ctx.mark_visited(final_url)
+
+            # === Phase 2: Identify Page Type ===
+            page_type = await self.browser.analyze_page_type(session.handle)
+
+            if page_type == PageType.ERRO_PAGE:
+                self.logger.warning(f"🚫 Error Page: {final_url}")
+                continue
+
+            # === Static Asset Branch ===
+            if page_type == PageType.STATIC_ASSET:
+                self.logger.info(f"📄 Static Asset: {final_url}")
+                markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
+                answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
+
+                if answer:
+                    return answer
+
+                pending_links = ctx.get_pending_links()
+                for pending_link in pending_links:
+                    session.pending_link_queue.append(pending_link)
+                    ctx.mark_evaluated(pending_link)
+
+                continue
+
+            # === Navigable Branch ===
             elif page_type == PageType.NAVIGABLE:
                 self.logger.debug("🌐 Navigable Page. Entering processing loop.")
                 page_active = True
                 page_changed = True
 
                 while page_active and not ctx.is_time_up():
-                    # 1. Stabilize (滚动加载)
                     if page_changed:
                         await self.browser.stabilize(session.handle)
 
-                        # 判断是否是搜索结果页
                         is_google = 'google.com/search' in final_url or 'www.google.' in final_url
                         is_bing = 'bing.com/search' in final_url
 
                         if is_google or is_bing:
-                            # 搜索结果页：直接获取HTML并使用专门的解析器
                             search_engine = "Google" if is_google else "Bing"
                             self.logger.info(f"🔍 Detected {search_engine} search results page")
-
-                            # 获取原始HTML
                             raw_html = session.handle.html
-
-                            # 使用搜索结果专用处理
                             answer = await self._stream_process_search_result(raw_html, ctx, final_url, session, search_engine)
                         else:
-                            # 普通网页：获取Markdown并处理
-                            markdown = await self._get_full_page_markdown(session.handle, ctx)
-                            answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
+                            is_nav, nav_reason = await self.is_navigation_page(session.handle, final_url)
+                            if is_nav:
+                                self.logger.info(f"🧭 Navigation Page detected: {final_url}")
+                                answer = await self._process_navigation_page(session.handle, ctx, final_url, session)
+                            else:
+                                markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
+                                answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
 
-                        # 2. 如果找到答案，直接返回
                         if answer:
                             return answer
 
-                        # 3. 生成页面摘要（用于后续链接筛选）
-                        # 注意：搜索结果页没有page_summary
-                        if not (is_google or is_bing):
-                            page_summary = markdown[:500] if markdown else ""
-
-                        # 5. 处理从流式阅读中发现的链接
                         pending_links = ctx.get_pending_links()
                         for pending_link in pending_links:
                             session.pending_link_queue.append(pending_link)
                             ctx.mark_evaluated(pending_link)
-                            self.logger.info(f"📎 Added pending link from reading: {pending_link}")
 
-                        # 搜索结果页处理完成后，跳过后续的 Scouting 阶段
-                        # 搜索结果页的目的是获取下一步要访问的链接，不需要扫描导航链接和按钮
-                        # 处理完成后，主动结束当前页面的处理循环，回到外层循环处理队列中的推荐链接
-                        if is_google or is_bing:
+                        if is_google or is_bing or is_nav:
                             page_active = False
                             continue
 
-                    # === Phase 4: Scouting (Navigation & Structure Links) ===
-                    # 注意：正文中的链接已经在流式阅读中通过 LLM 上下文感知处理
-                    # 这里关注：导航结构链接（知识库、文档、About等）+ 功能性按钮
+                    # === Phase 4: Scouting (旧版本的额外扫描阶段) ===
                     links, buttons = await self.browser.scan_elements(session.handle)
                     self.logger.debug(f"🔍 Found {len(links)} links and {len(buttons)} buttons")
 
-                    # 4.1 处理 Links（先过滤掉已处理和已访问的，减轻 LLM 负担）
                     if page_changed:
-                        # 构建候选链接字典（使用统一的检查函数）
                         candidate_links = {}
                         for link in links:
-                            if not ctx.should_process_url(link, session.pending_link_queue):
-                                continue
-                            candidate_links[link] = links[link]
+                            if ctx.should_process_url(link, session.pending_link_queue):
+                                candidate_links[link] = links[link]
 
-                        # 使用 LLM 智能筛选导航链接
                         if candidate_links:
                             selected_links = await self._filter_relevant_links(
                                 candidate_links,
-                                page_summary,
+                                markdown[:500] if markdown else "",
                                 ctx,
                                 current_url=session.current_url
                             )
 
-                            # 标记已评估（使用 mark_evaluated 而不是 mark_visited）
                             for link in candidate_links:
                                 ctx.mark_evaluated(link)
 
-                            # 添加到队列
                             for link in selected_links:
                                 session.pending_link_queue.append(link)
 
                             self.logger.info(f"🔗 Added {len(selected_links)} navigation/structure links to queue")
 
-                    # 4.2 处理 Buttons
                     candidate_buttons = []
                     for button_text in buttons:
                         if not ctx.has_button_assessed(session.current_url, button_text):
                             candidate_buttons.append({button_text: buttons[button_text]})
 
-                    # === Phase 5: Execution ===
                     if not candidate_buttons:
                         self.logger.info("🤔 No worthy buttons. Moving to next page.")
                         page_active = False
                         continue
 
-                    chosen_button = await self._choose_best_interaction(candidate_buttons, page_summary, ctx)
+                    chosen_button = await self._choose_best_interaction(candidate_buttons, markdown[:500] if markdown else "", ctx)
 
-                    # 标记已评估
                     assessed_button_texts = [list(btn.keys())[0] for btn in candidate_buttons]
                     ctx.mark_buttons_assessed(session.current_url, assessed_button_texts)
 
@@ -1818,23 +2138,20 @@ class WebSearcherMixin(CrawlerHelperMixin):
                         page_active = False
                         continue
 
-                    # 执行点击
                     self.logger.info(f"🖱️ Clicking: [{chosen_button.get_text()}]")
                     ctx.mark_interacted(session.current_url, chosen_button.get_text())
 
                     report = await self.browser.click_and_observe(session.handle, chosen_button)
 
-                    # 5.1 处理新 Tab
                     if report.new_tabs:
                         self.logger.info(f"✨ New Tab(s): {len(report.new_tabs)}")
                         for new_tab_handle in report.new_tabs:
                             new_session = TabSession(handle=new_tab_handle, current_url="", depth=session.depth + 1)
-                            answer = await self._run_search_lifecycle(new_session, ctx)
-                            if answer:  # 如果在递归中找到答案，向上传递
+                            answer = await self._run_search_lifecycle_old(new_session, ctx)
+                            if answer:
                                 return answer
                             await self.browser.close_tab(new_tab_handle)
 
-                    # 5.2 处理页面变动
                     if report.is_dom_changed or report.is_url_changed:
                         self.logger.info("🔄 Page changed. Re-assessing.")
                         page_changed = True
@@ -1842,11 +2159,9 @@ class WebSearcherMixin(CrawlerHelperMixin):
                             session.current_url = self.browser.get_tab_url(session.handle)
                         continue
 
-                    # 5.3 无变化
                     page_changed = False
                     continue
 
-        # 未找到答案
         return None
 
     # ==========================================

@@ -810,7 +810,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         # TODO: 实现保存视图为文件的逻辑
         pass
 
-    async def save_static_asset(self, tab: TabHandle) -> Optional[str]:
+    async def save_static_asset(self, tab: TabHandle, original_url: str = None) -> Optional[str]:
         """
         [针对 STATIC_ASSET]
         保存当前 Tab 显示的内容为文件。
@@ -819,6 +819,13 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         - PDF 文件
         - 图片文件 (jpg, png, gif, webp, etc.)
         - 文本文件 (json, txt, xml, etc.)
+
+        Args:
+            tab: 浏览器标签页
+            original_url: 原始URL（可选，用于处理Chrome PDF viewer等转换后的URL）
+
+        Returns:
+            保存的文件路径，失败返回 None
         """
         if not tab:
             self.logger.error("Tab handle is None")
@@ -833,11 +840,23 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 self.logger.warning(f"Page is not a static asset: {url}")
                 return None
 
-            # 2. 确定保存目录
+            # 2. 确定用于下载的URL（处理Chrome PDF viewer等情况）
+            # 如果当前URL不是http开头，尝试使用原始URL
+            if not url.startswith('http://') and not url.startswith('https://'):
+                if original_url and (original_url.startswith('http://') or original_url.startswith('https://')):
+                    self.logger.info(f"当前URL '{url}' 无效，使用原始URL: {original_url}")
+                    url = original_url
+                else:
+                    raise RuntimeError(
+                        f"无法下载静态资源：当前URL '{url}' 不是有效的HTTP URL. "
+                        f"这可能是Chrome PDF viewer或其他浏览器内部URL转换导致。"
+                    )
+
+            # 3. 确定保存目录
             save_dir = self.download_path if self.download_path else "downloads"
             Path(save_dir).mkdir(parents=True, exist_ok=True)
 
-            # 3. 解析 URL 获取文件名
+            # 4. 解析 URL 获取文件名
             parsed_url = urlparse(url)
             filename = unquote(os.path.basename(parsed_url.path))
 
@@ -847,7 +866,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 ext = self._get_extension_from_url(url)
                 filename = f"{uuid.uuid4().hex[:8]}{ext}"
 
-            # 4. 判断资源类型并保存
+            # 5. 判断资源类型并保存
             file_path = os.path.join(save_dir, filename)
 
             # 判断是否是文本类型
@@ -856,14 +875,22 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 await self._save_text_asset(tab, file_path)
             else:
                 # 在线程池中使用 tab.download 下载二进制类型
-                # 注意：浏览器已经在启动时设置了 download_path，这里不应该再传路径参数
-                # 否则会导致路径被拼接两次
                 res = await asyncio.to_thread(tab.download, url)
-                status, file_path = res
-                #await self._save_binary_asset(url, file_path)
+                success, downloaded_path = res
+
+                # 检查下载是否成功
+                if not success:
+                    self.logger.error(f"Download failed: {downloaded_path}")
+                    return None
+
+                file_path = downloaded_path
 
             # 转换为绝对路径，确保后续调用能正确找到文件
             file_path = os.path.abspath(file_path)
+            #检查file_path 是否存在
+            if not os.path.exists(file_path):
+                self.logger.error(f"Download failed")
+                return None
             self.logger.info(f"Static asset saved to: {file_path}")
             return file_path
 
@@ -1225,13 +1252,78 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         """
         if not tab:
             tab = await self.get_tab()
-        ele = await asyncio.to_thread(tab.ele, selector)
-        if ele:
-            await asyncio.to_thread(ele.click)
-            await asyncio.sleep(random.uniform(0.1,0.3) )
-            await asyncio.to_thread(ele.input, vals=text, clear=clear_existing)
-            return True
-        return False
+
+        try:
+            print(f"      [DEBUG] type_text: Looking for element with selector '{selector}'")
+
+            # 首先尝试直接查找
+            ele = await asyncio.to_thread(tab.ele, selector, timeout=2)
+
+            if not ele:
+                # 如果直接查找失败，尝试解析选择器并手动查找
+                print(f"      [DEBUG] Direct lookup failed, trying alternative method...")
+                ele = await self._find_element_fallback(tab, selector)
+
+            if ele:
+                print(f"      [DEBUG] type_text: Found element, clicking...")
+                await asyncio.to_thread(ele.click)
+
+                print(f"      [DEBUG] type_text: Clicked, waiting briefly...")
+                await asyncio.sleep(random.uniform(0.1,0.3) )
+
+                print(f"      [DEBUG] type_text: Inputting text: '{text[:50]}...'")
+                await asyncio.to_thread(ele.input, vals=text, clear=clear_existing)
+
+                print(f"      [DEBUG] type_text: ✓ Successfully typed text")
+                return True
+            else:
+                print(f"      [DEBUG] type_text: Element not found with selector '{selector}'")
+                return False
+        except Exception as e:
+            # 元素未找到或其他错误
+            print(f"      [DEBUG] type_text FAILED: {e}")
+            import traceback
+            print(f"      [DEBUG] Traceback: {traceback.format_exc()}")
+            return False
+
+    async def _find_element_fallback(self, tab, selector: str):
+        """
+        Fallback method for finding elements when direct lookup fails.
+        Parses common selector patterns and finds elements manually.
+        """
+        import re
+
+        # 解析选择器，例如: "textarea[name="q"]" 或 "input[name=q]"
+        pattern = r'^(\w+)\[name=["\']([^"\']+)["\']\]$'
+        match = re.match(pattern, selector)
+
+        if match:
+            tag_name = match.group(1)  # e.g., "textarea" or "input"
+            name_value = match.group(2)  # e.g., "q"
+
+            print(f"      [DEBUG] Fallback: Searching for <{tag_name}> with name='{name_value}'")
+
+            # 查找所有该标签的元素
+            elements = await asyncio.to_thread(tab.eles, f'tag:{tag_name}')
+
+            print(f"      [DEBUG] Fallback: Found {len(elements)} <{tag_name}> elements")
+
+            # 遍历找到 name 属性匹配的
+            for ele in elements:
+                try:
+                    name_attr = ele.attr('name')
+                    print(f"      [DEBUG] Fallback: Checking element with name='{name_attr}'")
+                    if name_attr == name_value:
+                        print(f"      [DEBUG] Fallback: ✓ Found matching element!")
+                        return ele
+                except:
+                    continue
+
+            print(f"      [DEBUG] Fallback: No matching element found")
+            return None
+
+        print(f"      [DEBUG] Fallback: Selector pattern not recognized: {selector}")
+        return None
 
     async def press_key(self, tab: TabHandle, key: Union[KeyAction, str]) -> InteractionReport:
         """
@@ -1242,8 +1334,45 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             InteractionReport: 按键可能会导致页面刷新或跳转 (如按回车提交表单)，
             所以必须返回后果报告，供逻辑层判断是否需要 Soft Restart。
         """
-        # TODO: 实现按键逻辑
-        pass
+        if not tab:
+            tab = await self.get_tab()
+
+        old_url = tab.url if hasattr(tab, 'url') else ""
+
+        try:
+            # 转换 KeyAction 枚举为实际按键
+            if isinstance(key, KeyAction):
+                key_map = {
+                    KeyAction.ENTER: 'enter',
+                    KeyAction.ESC: 'esc',
+                    KeyAction.TAB: 'tab',
+                    KeyAction.PAGE_DOWN: 'page_down',
+                    KeyAction.SPACE: 'space'
+                }
+                key_value = key_map.get(key, 'enter')
+            else:
+                key_value = str(key).lower()
+
+            # 使用 DrissionPage 的按键模拟
+            await asyncio.to_thread(tab.actions.key_down, key_value)
+            await asyncio.sleep(0.1)  # 短暂延迟
+            await asyncio.to_thread(tab.actions.key_up, key_value)
+
+            # 等待可能的页面变化
+            await asyncio.sleep(1)
+
+            # 检查后果
+            new_url = tab.url if hasattr(tab, 'url') else ""
+            is_url_changed = old_url != new_url
+
+            return InteractionReport(
+                is_url_changed=is_url_changed,
+                is_dom_changed=is_url_changed
+            )
+
+        except Exception as e:
+            self.logger.exception(f"Failed to press key: {key}")
+            return InteractionReport(error=f"Key press failed: {str(e)}")
 
     async def click_by_selector(self, tab: TabHandle, selector: str) -> InteractionReport:
         """
@@ -1251,8 +1380,125 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         区别于 click_and_observe (那个是基于侦察出的 PageElement 对象)，
         这个方法用于已知页面结构的场景 (如点击搜索按钮)。
         """
-        # TODO: 实现选择器点击逻辑
-        pass
+        if not tab:
+            tab = await self.get_tab()
+
+        old_url = tab.url if hasattr(tab, 'url') else ""
+
+        try:
+            # 使用 DrissionPage 的 ele 方法查找元素
+            element = await asyncio.to_thread(tab.ele, selector, timeout=5)
+
+            if not element:
+                self.logger.warning(f"Element not found with selector: {selector}")
+                return InteractionReport(error=f"Element not found: {selector}")
+
+            # 点击前记录状态
+            old_tabs_count = len(tab.browser.tab_ids) if hasattr(tab, 'browser') else 1
+
+            # 模拟人类点击
+            await asyncio.to_thread(element.click)
+            await asyncio.sleep(random.uniform(0.5, 1.5))  # 随机延迟
+
+            # 检查后果
+            new_url = tab.url if hasattr(tab, 'url') else ""
+            is_url_changed = old_url != new_url
+
+            # 检查是否有新标签页弹出
+            new_tabs = []
+            if hasattr(tab, 'browser'):
+                current_tabs_count = len(tab.browser.tab_ids)
+                if current_tabs_count > old_tabs_count:
+                    # 有新标签页，获取句柄
+                    new_tabs = [tab.browser.latest_tab]
+
+            return InteractionReport(
+                is_url_changed=is_url_changed,
+                is_dom_changed=is_url_changed,
+                new_tabs=new_tabs
+            )
+
+        except Exception as e:
+            self.logger.exception(f"Failed to click element: {selector}")
+            return InteractionReport(error=f"Click failed: {str(e)}")
+
+    async def click_first_visible_by_selector(self, tab: TabHandle, selector: str) -> InteractionReport:
+        """
+        [精确点击] 通过选择器查找所有匹配元素，点击第一个可见的。
+        用于处理有多个匹配元素（包括隐藏元素）的情况。
+
+        Args:
+            tab: 标签页句柄
+            selector: CSS选择器
+
+        Returns:
+            InteractionReport: 点击结果报告
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        old_url = tab.url if hasattr(tab, 'url') else ""
+
+        try:
+            # 使用 DrissionPage 的 eles 方法查找所有匹配元素
+            elements = await asyncio.to_thread(tab.eles, selector, timeout=5)
+
+            if not elements or len(elements) == 0:
+                self.logger.warning(f"No elements found with selector: {selector}")
+                return InteractionReport(error=f"No elements found: {selector}")
+
+            print(f"      [DEBUG] Found {len(elements)} elements with selector '{selector}'")
+
+            # 遍历找到第一个可见的元素
+            visible_element = None
+            for i, ele in enumerate(elements):
+                try:
+                    # 检查元素是否可见
+                    is_visible = ele.states.is_displayed
+                    print(f"      [DEBUG] Element {i+1}: is_displayed={is_visible}")
+
+                    if is_visible:
+                        visible_element = ele
+                        print(f"      [DEBUG] ✓ Found visible element at index {i}")
+                        break
+                except Exception as e:
+                    print(f"      [DEBUG] Element {i+1}: Error checking visibility: {e}")
+                    continue
+
+            if not visible_element:
+                self.logger.warning(f"No visible element found with selector: {selector}")
+                return InteractionReport(error=f"No visible element found: {selector}")
+
+            # 点击前记录状态
+            old_tabs_count = len(tab.browser.tab_ids) if hasattr(tab, 'browser') else 1
+
+            # 模拟人类点击
+            await asyncio.to_thread(visible_element.click)
+            await asyncio.sleep(random.uniform(0.5, 1.5))  # 随机延迟
+
+            # 检查后果
+            new_url = tab.url if hasattr(tab, 'url') else ""
+            is_url_changed = old_url != new_url
+
+            # 检查是否有新标签页弹出
+            new_tabs = []
+            if hasattr(tab, 'browser'):
+                current_tabs_count = len(tab.browser.tab_ids)
+                if current_tabs_count > old_tabs_count:
+                    # 有新标签页，获取句柄
+                    new_tabs = [tab.browser.latest_tab]
+
+            print(f"      [DEBUG] ✓ Successfully clicked visible element")
+
+            return InteractionReport(
+                is_url_changed=is_url_changed,
+                is_dom_changed=is_url_changed,
+                new_tabs=new_tabs
+            )
+
+        except Exception as e:
+            self.logger.exception(f"Failed to click visible element: {selector}")
+            return InteractionReport(error=f"Click failed: {str(e)}")
 
     async def scroll(self, tab: TabHandle, direction: str = "bottom", distance: int = 0):
         """
@@ -1293,26 +1539,28 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             self.logger.warning(f"Scroll failed: {e}")
             return False
 
-    async def find_element(self, tab: TabHandle, selector: str) -> PageElement:
+    async def find_element(self, tab: TabHandle, selector: str, timeout: float = 2.0) -> Optional[PageElement]:
         """
-        根据选择器查找元素。
+        检查某个特定元素是否存在。
         用于验证页面是否加载正确 (例如：检查是否存在 'input[name="q"]' 来确认是否在 Google 首页)。
+        如果存在就返回这个element, 不存在返回None
 
         Args:
             tab: 标签页句柄
             selector: CSS选择器或XPath等定位符
+            timeout: 超时时间（秒），默认2秒
 
         Returns:
-            PageElement: 找到的元素对象
-
-        Raises:
-            Exception: 如果元素未找到或查找过程中出现错误
+            PageElement if found, None if not found
         """
         if not tab:
             tab = await self.get_tab()
 
-        # 在线程池中使用 DrissionPage 的 ele 方法查找元素
-        chromium_element = await asyncio.to_thread(tab.ele, selector)
-
-        # 如果找不到元素，DrissionPage 会抛出异常，这里我们让它自然抛出
-        return DrissionPageElement(chromium_element)
+        try:
+            # 在线程池中使用 DrissionPage 的 ele 方法查找元素，带超时
+            chromium_element = await asyncio.to_thread(tab.ele, selector, timeout=timeout)
+            return DrissionPageElement(chromium_element)
+        except Exception as e:
+            # DrissionPage 找不到元素时会抛出异常
+            self.logger.debug(f"Element not found with selector '{selector}': {e}")
+            return None
