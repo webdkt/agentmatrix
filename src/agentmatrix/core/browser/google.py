@@ -188,11 +188,10 @@ async def search_google(adapter, tab, query, max_pages=1):
     # 额外等待，让用户看到输入的内容
     time.sleep(random.uniform(0.3, 0.7))  # 额外等待0.3-0.7秒
 
-    # 尝试多种搜索按钮选择器（使用固定属性）
+    # 尝试搜索按钮选择器（中文和英文 aria-label）
     search_button_selectors = [
         'css:input[type="submit"][aria-label="Google 搜索"]',  # 中文版
         'css:input[type="submit"][aria-label="Google Search"]', # 英文版
-        'css:input[name="btnK"][type="submit"]',  # 备选：name + type 组合
     ]
 
     button_clicked = False
@@ -210,7 +209,10 @@ async def search_google(adapter, tab, query, max_pages=1):
             else:
                 print(f"   ✗ Failed to click button: {success.error}")
         except Exception as e:
+            import traceback
             print(f"   ✗ Button click failed: {e}")
+            print(f"   Full stack trace:")
+            traceback.print_exc()
             continue
 
     if not button_clicked:

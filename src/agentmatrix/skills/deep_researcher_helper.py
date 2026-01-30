@@ -33,9 +33,10 @@ class ResearchContext(BaseCrawlerContext):
         self._init_database()
         self._load_assessed_history()
 
-        self.research_plan = None
-        self.chapter_outline = None
-        self.key_questions = None
+        # Research Blueprint - 研究蓝图（Planning Stage 产出）
+        self.blueprint_overview = None  # 自由文本，记录研究想法和思路
+        self.research_plan = None  # 任务列表 (task/todo list)
+        self.chapter_outline = None  # 章节大纲 (heading one 列表)
         self.current_status = None
 
     def mark_link_assessed(self, url: str):
@@ -139,13 +140,13 @@ def persona_parser(raw_reply: str) -> dict:
     Args:
         raw_reply: LLM 返回的原始回复
     Returns:
-        { "status": "success" | "error", "data" or "feedback": 提取的内容或错误信息}
+        { "status": "success" | "error", "content" or "feedback": 提取的内容或错误信息}
     """
     from .parser_utils import simple_section_parser
 
     result = simple_section_parser(raw_reply, "[正式文稿]")
     if result['status'] == 'success':
-        if not result['data'].startswith("你是"):
+        if not result['content'].startswith("你是"):
             return {"status": "error", "feedback": "正式文稿必须以'你是'开头"}
     return result
 
@@ -159,7 +160,7 @@ def research_plan_parser(raw_reply: str) -> dict:
     Args:
         raw_reply: LLM 返回的原始回复
     Returns:
-        { "status": "success" | "error", "sections" or "feedback": 提取的内容或错误信息}
+        { "status": "success" | "error", "content" or "feedback": 提取的内容或错误信息}
     """
     from .parser_utils import multi_section_parser
 
@@ -171,7 +172,13 @@ def research_plan_parser(raw_reply: str) -> dict:
     if plan['status'] == 'error':
         return plan
 
-    chapter_outline = plan['sections'].get("[章节大纲]", "").strip()
+    chapter_outline = plan['content'].get("[章节大纲]", "").strip()
+    research_plan = plan["content"].get("[研究计划]","").strip()
+    if not research_plan:
+        return {
+                "status": "error",
+                "feedback": "研究计划不能为空"
+            }
 
     # 验证章节大纲格式
     for line in chapter_outline.split('\n'):
@@ -193,7 +200,7 @@ def director_approval_parser(raw_reply: str) -> dict:
 
     期望的director输出格式：
     [决策]
-    批准 / 不批准
+    Approve / Need Improvement
     [理由]
     评估理由
     [反馈]
@@ -217,9 +224,9 @@ def director_approval_parser(raw_reply: str) -> dict:
     if sections['status'] != 'success':
         return {"status": "error", "feedback": "格式错误，请使用指定的section格式"}
 
-    decision_section = sections['sections'].get("[决策]", "").strip()
-    reason_section = sections['sections'].get("[理由]", "")
-    feedback_section = sections['sections'].get("[反馈]", "")
+    decision_section = sections['content'].get("[决策]", "").strip()
+    reason_section = sections['content'].get("[理由]", "")
+    feedback_section = sections['content'].get("[反馈]", "")
 
     # 判断决策
     decision = decision_section.lower()
@@ -481,11 +488,19 @@ class Page:
 
 
 class Notebook:
-    """笔记本 - 番茄笔记法"""
+    """笔记本 - 番茄笔记法（带文件持久化）"""
 
     UNCATEGORIZED_NAME = "未分类"
 
-    def __init__(self, page_size_limit: int = 2000):
+    def __init__(self, file_path: Optional[str] = None, page_size_limit: int = 2000):
+        """
+        初始化笔记本
+
+        Args:
+            file_path: 笔记本文件路径（JSON格式），如果为None则不持久化
+            page_size_limit: 每页最大字符数
+        """
+        self.file_path = file_path
         self.pages: List[Page] = []
         self.page_size_limit = page_size_limit
         self._current_page: Optional[Page] = None
@@ -497,6 +512,91 @@ class Notebook:
 
         # 创建默认的"未分类"章节
         self._create_chapter(self.UNCATEGORIZED_NAME)
+
+        # 如果指定了文件路径，尝试从文件加载
+        if self.file_path:
+            self._load_from_file()
+
+    def _load_from_file(self):
+        """从文件加载笔记本数据"""
+        if not self.file_path:
+            return
+
+        try:
+            from pathlib import Path
+            file_path = Path(self.file_path)
+
+            if not file_path.exists():
+                # 文件不存在，创建空文件
+                self._save_to_file()
+                return
+
+            import json
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # 恢复 chapters
+            self._chapters = data.get("chapters", {})
+            self._name_to_id = data.get("name_to_id", {})
+
+            # 恢复 pages
+            self.pages = []
+            for page_data in data.get("pages", []):
+                page = Page(
+                    page_number=page_data["page_number"],
+                    notes=[
+                        Note(content=n["content"], chapter_id=n["chapter_id"])
+                        for n in page_data.get("notes", [])
+                    ],
+                    summary=page_data.get("summary", "")
+                )
+                self.pages.append(page)
+
+            # 恢复当前页
+            if self.pages:
+                last_page_num = data.get("current_page_number", len(self.pages) - 1)
+                if 0 <= last_page_num < len(self.pages):
+                    self._current_page = self.pages[last_page_num]
+
+        except Exception as e:
+            print(f"Warning: Failed to load notebook from {self.file_path}: {e}")
+            # 加载失败，使用空笔记本
+
+    def _save_to_file(self):
+        """保存笔记本到文件"""
+        if not self.file_path:
+            return
+
+        try:
+            from pathlib import Path
+            import json
+
+            file_path = Path(self.file_path)
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 序列化数据
+            data = {
+                "chapters": self._chapters,
+                "name_to_id": self._name_to_id,
+                "pages": [
+                    {
+                        "page_number": page.page_number,
+                        "notes": [
+                            {"content": note.content, "chapter_id": note.chapter_id}
+                            for note in page.notes
+                        ],
+                        "summary": page.summary
+                    }
+                    for page in self.pages
+                ],
+                "current_page_number": self._current_page.page_number if self._current_page else -1
+            }
+
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+        except Exception as e:
+            print(f"Warning: Failed to save notebook to {self.file_path}: {e}")
 
     def _create_chapter(self, name: str) -> str:
         """内部方法：创建章节，返回id"""
@@ -567,6 +667,10 @@ class Notebook:
             self._add_new_page()
 
         self.current_page.add_note(note)
+
+        # 自动保存
+        self._save_to_file()
+
         return self._current_page
 
     @property
@@ -617,6 +721,8 @@ class Notebook:
     def set_page_summary(self, page_number: int, summary: str):
         if 0 <= page_number < len(self.pages):
             self.pages[page_number].summary = summary
+            # 自动保存
+            self._save_to_file()
 
     def list_chapters(self) -> List[str]:
         """列出所有章节名称"""

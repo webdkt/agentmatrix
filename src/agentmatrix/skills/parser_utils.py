@@ -20,11 +20,11 @@ def multi_section_parser(
     1. 多 section 模式：section_headers 为字符串列表
        - 根据提供的 section headers 识别多个 section
        - 如果一行完全等于某个 header（regex_mode=False）或匹配某个正则表达式（regex_mode=True），则该行是 section header
-       - 返回 {"status": "...", "sections": {"header1": "content1", ...}}
+       - 返回 {"status": "...", "content": {"header1": "content1", ...}}
 
-    2. 单 section 模式（向后兼容）：section_headers 为 None 或空列表
+    2. 单 section 模式：section_headers 为 None 或空列表
        - 自动查找形如 "=====" 或 "=====text=====" 的分隔行
-       - 返回 {"status": "...", "data": "..."}
+       - 返回 {"status": "...", "content": "..."}
 
     Args:
         raw_reply: LLM 返回的原始回复
@@ -42,14 +42,14 @@ def multi_section_parser(
         单 section 模式：
         {
             "status": "success" | "error",
-            "data": 提取的内容 (成功时),
+            "content": 提取的内容 (成功时),
             "feedback": 错误信息 (失败时)
         }
 
         多 section 模式：
         {
             "status": "success" | "error",
-            "sections": {section_name: content, ...} (成功时),
+            "content": {section_name: content, ...} (成功时),
             "feedback": 错误信息 (失败时)
         }
 
@@ -156,7 +156,7 @@ def multi_section_parser(
                         return {"status": "error",
                                "feedback": f"ALL 模式：未找到匹配正则表达式 '{pattern}' 的 section header。找到的 sections: {list(sections.keys())}"}
 
-            return {"status": "success", "sections": sections}
+            return {"status": "success", "content": sections}
 
         # ========== 模式2: 单 section 解析（向后兼容）==========
         else:
@@ -179,7 +179,7 @@ def multi_section_parser(
             if not content:
                 return {"status": "error", "feedback": "分隔符后没有内容"}
 
-            return {"status": "success", "data": content}
+            return {"status": "success", "content": content}
 
     except Exception as e:
         return {"status": "error", "feedback": f"解析失败: {str(e)}"}
@@ -199,7 +199,7 @@ def simple_section_parser(raw_reply: str, divider: str = None) -> dict:
     Returns:
         {
             "status": "success" | "error",
-            "data": 提取的内容 (成功时),
+            "content": 提取的内容 (成功时),
             "feedback": 错误信息 (失败时)
         }
 
@@ -212,6 +212,6 @@ def simple_section_parser(raw_reply: str, divider: str = None) -> dict:
         ... ============
         ... '''
         >>> result = simple_section_parser(text)
-        >>> # 返回: {"status": "success", "data": "要提取的内容\\n\\n更多内容..."}
+        >>> # 返回: {"status": "success", "content": "要提取的内容\\n\\n更多内容..."}
     """
     return multi_section_parser(raw_reply, section_headers=[divider] if divider else None)

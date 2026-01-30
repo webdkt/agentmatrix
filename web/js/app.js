@@ -208,6 +208,25 @@ function app() {
             return name.substring(0, 2).toUpperCase();
         },
 
+        // Render Markdown content
+        renderMarkdown(content) {
+            if (!content) return '';
+            try {
+                // Configure marked options for better rendering
+                marked.setOptions({
+                    breaks: true,      // Convert \n to <br>
+                    gfm: true,         // GitHub Flavored Markdown
+                    headerIds: false,  // Don't generate header IDs
+                    mangle: false      // Don't mangle email addresses
+                });
+                return marked.parse(content);
+            } catch (error) {
+                console.error('Markdown rendering error:', error);
+                // Fallback to plain text with line breaks
+                return content.replace(/\n/g, '<br>');
+            }
+        },
+
         // Select agent from dropdown
         selectAgent(agent) {
             this.newEmail.recipient = agent;

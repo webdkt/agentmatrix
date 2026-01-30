@@ -92,12 +92,23 @@ class SessionManager(AutoLoggerMixin):
 
     async def save_session(self, session: dict):
         """
-        保存 session 到磁盘
+        保存 session 到磁盘（保存 history 和 context）
 
         Args:
             session: session dict（包含元数据和 history）
         """
         await self._save_session_to_disk(session)
+
+    async def save_session_context_only(self, session: dict):
+        """
+        只保存 session 的 context 到磁盘（不保存 history）
+
+        用于频繁更新 context 而不需要更新 history 的场景
+
+        Args:
+            session: session dict
+        """
+        await self._save_session_context(session)
 
     async def update_reply_mapping(self, msg_id: str, session_id: str, user_session_id: str):
         """
@@ -131,7 +142,7 @@ class SessionManager(AutoLoggerMixin):
             dict: 新创建的 session 对象
         """
         now = datetime.now().isoformat()
-        return {
+        session = {
             "session_id": session_id,
             "original_sender": sender,
             "last_sender": None,
@@ -139,33 +150,51 @@ class SessionManager(AutoLoggerMixin):
             "user_session_id": user_session_id,
             "created_at": now,
             "last_modified": now,
-            "history": []
+            "history": [],
+            "context": {}  # Session级别的变量存储
         }
+
+        # 创建 session 目录并保存初始文件
+        await self._save_session_history(session)
+        await self._save_session_context(session)
+
+        return session
 
     async def _load_session_from_disk(self, session_id: str, user_session_id: str) -> Optional[dict]:
         """
-        从磁盘加载 session（lazy load，加载元数据+history）
+        从磁盘加载 session（lazy load，分别加载 history 和 context）
 
         Args:
             session_id: session ID
             user_session_id: 用户会话 ID
 
         Returns:
-            dict: session 对象（包含元数据和 history），如果文件不存在返回 None
+            dict: session 对象（包含元数据、history 和 context），如果文件不存在返回 None
         """
         if not self.workspace_root:
             return None
 
-        session_file = Path(self.workspace_root) / user_session_id / "history" / self.agent_name / f"{session_id}.json"
+        session_dir = Path(self.workspace_root) / user_session_id / "history" / self.agent_name / session_id
+        history_file = session_dir / "history.json"
+        context_file = session_dir / "context.json"
 
-        if not session_file.exists():
+        if not history_file.exists():
             return None
 
         try:
-            # 异步读取文件（包含元数据 + history）
+            # 加载 history.json（包含元数据 + history）
             session_data = await asyncio.to_thread(
-                lambda p=session_file: json.load(open(p, "r", encoding="utf-8"))
+                lambda p=history_file: json.load(open(p, "r", encoding="utf-8"))
             )
+
+            # 加载 context.json（如果存在）
+            if context_file.exists():
+                context_data = await asyncio.to_thread(
+                    lambda p=context_file: json.load(open(p, "r", encoding="utf-8"))
+                )
+                session_data["context"] = context_data
+            else:
+                session_data["context"] = {}
 
             self.logger.info(f"✅ Loaded session {session_id[:8]} from disk ({len(session_data.get('history', []))} messages)")
             return session_data
@@ -176,7 +205,19 @@ class SessionManager(AutoLoggerMixin):
 
     async def _save_session_to_disk(self, session: dict):
         """
-        保存 session 到磁盘（包含元数据 + history）
+        保存 session 到磁盘（包含元数据 + history + context）
+
+        注意：此方法保留用于向后兼容，实际上会分别调用 _save_session_history 和 _save_session_context
+
+        Args:
+            session: session dict
+        """
+        await self._save_session_history(session)
+        await self._save_session_context(session)
+
+    async def _save_session_history(self, session: dict):
+        """
+        保存 session 的 history 和元数据到磁盘（不包含 context）
 
         Args:
             session: session dict（包含元数据和 history）
@@ -187,17 +228,53 @@ class SessionManager(AutoLoggerMixin):
         # 更新 last_modified
         session["last_modified"] = datetime.now().isoformat()
 
-        session_file = Path(self.workspace_root) / session["user_session_id"] / "history" / self.agent_name / f"{session['session_id']}.json"
+        session_dir = Path(self.workspace_root) / session["user_session_id"] / "history" / self.agent_name / session['session_id']
+        history_file = session_dir / "history.json"
 
-        # 确保目录存在
-        session_file.parent.mkdir(parents=True, exist_ok=True)
+        # 确保 session 目录存在
+        session_dir.mkdir(parents=True, exist_ok=True)
 
-        # 异步写入文件（元数据 + history 一起）
+        # 准备保存的数据（不包含 context）
+        history_data = {
+            "session_id": session["session_id"],
+            "original_sender": session["original_sender"],
+            "last_sender": session.get("last_sender"),
+            "status": session.get("status", "RUNNING"),
+            "user_session_id": session["user_session_id"],
+            "created_at": session["created_at"],
+            "last_modified": session["last_modified"],
+            "history": session["history"]
+        }
+
+        # 异步写入 history.json
         await asyncio.to_thread(
-            lambda p=session_file, s=session: json.dump(s, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+            lambda p=history_file, d=history_data: json.dump(d, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
         )
 
-        self.logger.debug(f"💾 Saved session {session['session_id'][:8]}")
+        self.logger.debug(f"💾 Saved session history {session['session_id'][:8]}")
+
+    async def _save_session_context(self, session: dict):
+        """
+        保存 session 的 context 到磁盘（不包含 history）
+
+        Args:
+            session: session dict
+        """
+        if not self.workspace_root:
+            return
+
+        session_dir = Path(self.workspace_root) / session["user_session_id"] / "history" / self.agent_name / session['session_id']
+        context_file = session_dir / "context.json"
+
+        # 确保 session 目录存在
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        # 异步写入 context.json
+        await asyncio.to_thread(
+            lambda p=context_file, c=session.get("context", {}): json.dump(c, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        )
+
+        self.logger.debug(f"💾 Saved session context {session['session_id'][:8]}")
 
     async def _load_reply_mapping(self, user_session_id: str):
         """

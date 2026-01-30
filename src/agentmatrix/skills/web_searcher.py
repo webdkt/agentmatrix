@@ -843,7 +843,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             # 使用 think_with_retry 自动处理重试
             result = await self.cerebellum.backend.think_with_retry(
                 initial_messages=prompt,
-                parser=self.chapter_parser,
+                parser=self._chapter_parser,
                 max_retries=5,
                 chapter_name_to_index = chapter_name_to_index
             )
@@ -881,7 +881,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         Returns:
         {
             "status": "success" | "error",
-            "data": List[int],              # 当 status="success" 时，返回选中的章节索引
+            "content": List[int],              # 当 status="success" 时，返回选中的章节索引
             "feedback": str                 # 当 status="error" 时，返回反馈信息
         }
         """
@@ -891,14 +891,14 @@ class WebSearcherMixin(CrawlerHelperMixin):
             self.logger.info("🚫 LLM decided to skip entire document (not relevant)")
             return {
                 "status": "success",
-                "data": "SKIP_DOC"  # 特殊值：跳过整个文档
+                "content": "SKIP_DOC"  # 特殊值：跳过整个文档
             }
 
         if "SKIP_TOC" in output_upper:
             self.logger.info("📋 LLM chose to skip chapter selection (TOC not helpful)")
             return {
                 "status": "success",
-                "data": None  # None 表示跳过章节选择，使用全文
+                "content": None  # None 表示跳过章节选择，使用全文
             }
 
         # 使用 multi_section_parser 提取章节选择部分
@@ -915,7 +915,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             }
 
         # 提取章节选择内容
-        chapter_section = result["sections"]["====章节选择===="]
+        chapter_section = result["content"]["====章节选择===="]
 
         # 如果有结束标记，只取结束标记之前的部分
         if "====章节选择结束====" in chapter_section:
@@ -944,7 +944,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
                 self.logger.info("📋 LLM chose to skip chapter selection (TOC not helpful)")
                 return {
                     "status": "success",
-                    "data": None  # None 表示跳过章节选择
+                    "content": None  # None 表示跳过章节选择
                 }
 
             if chapter_name in chapter_name_to_index:
@@ -970,7 +970,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 成功 - 返回章节索引列表
         return {
             "status": "success",
-            "data": selected_indices
+            "content": selected_indices
         }
 
     
@@ -1146,7 +1146,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         self.logger.debug(f"【Batch Processing Prompt】:\n{prompt}")
         try:
             # 使用 think_with_retry 自动处理重试
-            # parser 返回: {"status": "success", "data": {"heading_type": ..., "content": ..., "found_links": [...]}}
+            # parser 返回: {"status": "success", "content": {"heading_type": ..., "content": ..., "found_links": [...]}}
             result_data = await self.cerebellum.backend.think_with_retry(
                 initial_messages=prompt,
                 parser=self._batch_parser,
@@ -1183,7 +1183,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         Returns:
         {
             "status": "success" | "error",
-            "data": {
+            "content": {
                 "heading_type": "answer" | "note" | "continue" | "skip_doc",
                 "content": str,
                 "found_links": List[str]
@@ -1209,7 +1209,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         if result["status"] == "error":
             return {"status": "error", "feedback": result["feedback"]}
 
-        sections = result["sections"]
+        sections = result["content"]
 
         # 3. 获取第一个匹配的 section（通常只有一个）
         heading_map = {
@@ -1254,7 +1254,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 6. 返回符合 Parser Contract 的格式
         return {
             "status": "success",
-            "data": {
+            "content": {
                 "heading_type": heading_map[chosen_heading],
                 "content": content,
                 "found_links": found_links
@@ -1350,7 +1350,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
                     # 标记所有链接为已评估
                     for link_url in link_manager.text_to_url.values():
                         ctx.mark_evaluated(link_url)
-                        self.logger.debug(f"✓ Marked as evaluated: {link_url}")
+                        #self.logger.debug(f"✓ Marked as evaluated: {link_url}")
                     return None  # 相当于 skip_doc
 
                 elif selected_indices is None or not selected_indices:
@@ -1483,7 +1483,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 所有 link_manager 中的链接都已被 LLM 评估过（要么推荐，要么未推荐）
         for url in link_manager.text_to_url.values():
             ctx.mark_evaluated(url)
-            self.logger.debug(f"✓ Marked as evaluated: {url}")
+            #self.logger.debug(f"✓ Marked as evaluated: {url}")
 
         # 未找到答案
         return None
@@ -1504,7 +1504,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             return result
 
         # 2. 提取链接列表
-        links_section = result["sections"].get("##推荐链接", "")
+        links_section = result["content"].get("##推荐链接", "")
 
         # 按行分割并清理
         link_lines = [
@@ -1518,7 +1518,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             self.logger.info("⏭️ LLM decided to skip this search result batch (no relevant results)")
             return {
                 "status": "success",
-                "data": {
+                "content": {
                     "found_links": []  # 空列表表示没有找到相关链接
                 }
             }
@@ -1545,7 +1545,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             self.logger.info(f"✅ Extracted {len(valid_links)} valid links from LLM output")
             return {
                 "status": "success",
-                "data": {
+                "content": {
                     "found_links": valid_links
                 }
             }
@@ -1555,7 +1555,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             self.logger.info("⏭️ No valid links found (LLM didn't explicitly SKIP, but no relevant links)")
             return {
                 "status": "success",
-                "data": {
+                "content": {
                     "found_links": []
                 }
             }
@@ -1686,7 +1686,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 7. 标记所有链接为已评估（重要！）
         for url in link_mapping.values():
             ctx.mark_evaluated(url)
-            self.logger.debug(f"✓ Marked as evaluated: {url}")
+            #self.logger.debug(f"✓ Marked as evaluated: {url}")
 
         # 未找到答案
         return None
@@ -1939,12 +1939,19 @@ class WebSearcherMixin(CrawlerHelperMixin):
                     continue
 
                 else:
-                    # 判断是否是导航页
-                    is_nav, nav_reason = await self.is_navigation_page(session.handle, final_url)
+                    # === 统一处理：先 extract 内容，根据长度判断页面类型 ===
+                    # 默认当做内容页，先尝试提取内容
+                    self.logger.info(f"📄 Attempting to extract content: {final_url}")
+                    markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
 
-                    if is_nav:
-                        # === 类型2: 导航页 ===
-                        self.logger.info(f"🧭 Navigation Page: {final_url} ({nav_reason})")
+                    # 根据提取的内容长度判断页面类型
+                    content_length = len(markdown.strip()) if markdown else 0
+                    self.logger.debug(f"Extracted content length: {content_length} chars")
+
+                    # 阈值：如果提取的内容少于 150 字符，认为是导航页
+                    if content_length < 150:
+                        # === 类型2: 导航页（extract 内容太少） ===
+                        self.logger.info(f"🧭 Navigation Page: {final_url} (extracted only {content_length} chars < 150 threshold)")
                         answer = await self._process_navigation_page(session.handle, ctx, final_url, session)
 
                         if answer:
@@ -1954,9 +1961,8 @@ class WebSearcherMixin(CrawlerHelperMixin):
                         continue
 
                     else:
-                        # === 类型3: 普通内容页 ===
-                        self.logger.info(f"📖 Content Page: {final_url}")
-                        markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
+                        # === 类型3: 内容页（extract 成功） ===
+                        self.logger.info(f"📖 Content Page: {final_url} (extracted {content_length} chars)")
                         answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
 
                         if answer:
