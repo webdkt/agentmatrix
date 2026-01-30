@@ -1424,7 +1424,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
     async def click_first_visible_by_selector(self, tab: TabHandle, selector: str) -> InteractionReport:
         """
-        [精确点击] 通过选择器查找所有匹配元素，点击第一个可见的。
+        [精确点击] 通过选择器查找所有匹配元素，依次尝试点击直到成功。
         用于处理有多个匹配元素（包括隐藏元素）的情况。
 
         Args:
@@ -1449,52 +1449,48 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
             print(f"      [DEBUG] Found {len(elements)} elements with selector '{selector}'")
 
-            # 遍历找到第一个可见的元素
-            visible_element = None
+            # 点击前记录状态
+            old_tabs_count = len(tab.browser.tab_ids) if hasattr(tab, 'browser') else 1
+
+            # 依次尝试每个元素（优先尝试可见的，但不可见的也会尝试）
             for i, ele in enumerate(elements):
                 try:
                     # 检查元素是否可见
                     is_visible = ele.states.is_displayed
-                    print(f"      [DEBUG] Element {i+1}: is_displayed={is_visible}")
+                    print(f"      [DEBUG] Element {i+1}: is_displayed={is_visible}, attempting to click...")
 
-                    if is_visible:
-                        visible_element = ele
-                        print(f"      [DEBUG] ✓ Found visible element at index {i}")
-                        break
+                    # 模拟人类点击
+                    await asyncio.to_thread(ele.click)
+                    await asyncio.sleep(random.uniform(0.5, 1.5))  # 随机延迟
+
+                    # 检查后果
+                    new_url = tab.url if hasattr(tab, 'url') else ""
+                    is_url_changed = old_url != new_url
+
+                    # 检查是否有新标签页弹出
+                    new_tabs = []
+                    if hasattr(tab, 'browser'):
+                        current_tabs_count = len(tab.browser.tab_ids)
+                        if current_tabs_count > old_tabs_count:
+                            # 有新标签页，获取句柄
+                            new_tabs = [tab.browser.latest_tab]
+
+                    print(f"      [DEBUG] ✓ Successfully clicked element {i+1}")
+
+                    return InteractionReport(
+                        is_url_changed=is_url_changed,
+                        is_dom_changed=is_url_changed,
+                        new_tabs=new_tabs
+                    )
+
                 except Exception as e:
-                    print(f"      [DEBUG] Element {i+1}: Error checking visibility: {e}")
+                    print(f"      [DEBUG] Element {i+1}: Click failed with error: {e}")
+                    # 继续尝试下一个元素
                     continue
 
-            if not visible_element:
-                self.logger.warning(f"No visible element found with selector: {selector}")
-                return InteractionReport(error=f"No visible element found: {selector}")
-
-            # 点击前记录状态
-            old_tabs_count = len(tab.browser.tab_ids) if hasattr(tab, 'browser') else 1
-
-            # 模拟人类点击
-            await asyncio.to_thread(visible_element.click)
-            await asyncio.sleep(random.uniform(0.5, 1.5))  # 随机延迟
-
-            # 检查后果
-            new_url = tab.url if hasattr(tab, 'url') else ""
-            is_url_changed = old_url != new_url
-
-            # 检查是否有新标签页弹出
-            new_tabs = []
-            if hasattr(tab, 'browser'):
-                current_tabs_count = len(tab.browser.tab_ids)
-                if current_tabs_count > old_tabs_count:
-                    # 有新标签页，获取句柄
-                    new_tabs = [tab.browser.latest_tab]
-
-            print(f"      [DEBUG] ✓ Successfully clicked visible element")
-
-            return InteractionReport(
-                is_url_changed=is_url_changed,
-                is_dom_changed=is_url_changed,
-                new_tabs=new_tabs
-            )
+            # 所有元素都尝试失败
+            self.logger.warning(f"Failed to click any of the {len(elements)} elements with selector: {selector}")
+            return InteractionReport(error=f"Failed to click all {len(elements)} elements")
 
         except Exception as e:
             self.logger.exception(f"Failed to click visible element: {selector}")

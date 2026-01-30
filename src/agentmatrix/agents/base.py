@@ -263,6 +263,19 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         self.current_session = session
         self.current_user_session_id = session["user_session_id"]
 
+        # 设置当前 session 目录
+        if self.workspace_root:
+            from pathlib import Path
+            self.current_session_folder = str(
+                Path(self.workspace_root) /
+                session["user_session_id"] /
+                "history" /
+                self.name /
+                session["session_id"]
+            )
+        else:
+            self.current_session_folder = None
+
         # 2. 准备参数
         task = str(email)
 
@@ -649,3 +662,94 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         )
 
         return result
+
+    # ==========================================
+    # Session Context 管理
+    # ==========================================
+
+    def get_session_context(self) -> dict:
+        """
+        获取当前session的context
+
+        Returns:
+            dict: session context字典，如果不存在返回空字典
+        """
+        if not hasattr(self, 'current_session') or not self.current_session:
+            return {}
+        return self.current_session.get("context", {})
+
+    async def set_session_context(self, context: dict):
+        """
+        设置当前session的context（完全替换）
+
+        Args:
+            context: 要设置的context字典
+        """
+        if not hasattr(self, 'current_session') or not self.current_session:
+            self.logger.warning("No active session to set context")
+            return
+
+        self.current_session["context"] = context
+
+        # 自动保存到磁盘
+        try:
+            await self.session_manager.save_session(self.current_session)
+            self.logger.debug(f"💾 Saved session context")
+        except Exception as e:
+            self.logger.warning(f"Failed to save session context: {e}")
+
+    async def update_session_context(self, **kwargs):
+        """
+        更新当前session的context（部分更新/合并）
+
+        注意：此方法会自动保存context到磁盘，但不保存history（性能优化）
+
+        Args:
+            **kwargs: 要更新的context字段
+
+        Example:
+            await self.update_session_context(
+                research_title="AI Safety",
+                current_step="planning"
+            )
+        """
+        if not hasattr(self, 'current_session') or not self.current_session:
+            self.logger.warning("No active session to update context")
+            return
+
+        if "context" not in self.current_session:
+            self.current_session["context"] = {}
+
+        # 合并更新
+        self.current_session["context"].update(kwargs)
+
+        # 只保存 context（不保存 history，性能优化）
+        try:
+            await self.session_manager.save_session_context_only(self.current_session)
+            self.logger.debug(f"💾 Saved session context: {list(kwargs.keys())}")
+        except Exception as e:
+            self.logger.warning(f"Failed to save session context: {e}")
+
+    async def clear_session_context(self):
+        """清除当前session的context"""
+        if not hasattr(self, 'current_session') or not self.current_session:
+            self.logger.warning("No active session to clear context")
+            return
+
+        self.current_session["context"] = {}
+
+        # 自动保存到磁盘
+        try:
+            await self.session_manager.save_session_context_only(self.current_session)
+            self.logger.debug(f"💾 Cleared session context")
+        except Exception as e:
+            self.logger.warning(f"Failed to clear session context: {e}")
+
+    def get_session_folder(self) -> Optional[str]:
+        """
+        获取当前session的文件夹路径
+
+        Returns:
+            str: session 文件夹的绝对路径，如果不存在返回 None
+        """
+        return getattr(self, 'current_session_folder', None)

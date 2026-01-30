@@ -69,15 +69,11 @@ class LLMClient(AutoLoggerMixin):
 
                 if parsed_result.get("status") == "success":
                     self.logger.debug("Micro-Agent: Parser reported SUCCESS.")
-                    # 兼容两种返回格式：
-                    # 1. {"status": "success", "data": ...}
-                    # 2. {"status": "success", "sections": ...} (multi_section_parser 格式)
-                    if "data" in parsed_result:
-                        return parsed_result["data"]
-                    elif "sections" in parsed_result:
-                        return parsed_result["sections"]
+                    # 统一返回格式：{"status": "success", "content": ...}
+                    if "content" in parsed_result:
+                        return parsed_result["content"]
                     else:
-                        # 既没有 data 也没有 sections，返回空字典
+                        # 没有内容字段，返回空字典
                         return {}
                 
                 elif parsed_result.get("status") == "error":

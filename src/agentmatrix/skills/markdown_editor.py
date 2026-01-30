@@ -79,9 +79,9 @@ class AdvancedMarkdownEditingMixin:
         reply = reply.split('\n')[-1].split()[-1]
         reply.replace("'", "").replace('"','')
         if reply == "YES":
-            return {"status": "success", "data": True}
+            return {"status": "success", "content": True}
         elif reply == "NO":
-            return {"status": "success", "data": False}
+            return {"status": "success", "content": False}
         else:
             return {"status": "error", "feedback": 'Invalid response. Please answer with only "YES" or "NO".'}
 
@@ -256,7 +256,7 @@ class AdvancedMarkdownEditingMixin:
             parser=self._parse_editor_output
         )
 
-        #edit_result = editor_result['data']
+        #edit_result = editor_result['content']
 
         prompt2 = "现在判断一下编辑任务是否**全部**完成了，如果确定全部完成不再需要继续阅读，就回答'YES'，不确定或者还没有完成，就回答'NO'。只回答 YES 或者 NO"
         messages_round2 = [
@@ -290,12 +290,12 @@ class AdvancedMarkdownEditingMixin:
             if new_content == self.NO_CHANGE_SIGNAL:
                 return {
                     "status": "success",
-                    "data": {"change_made": False, "content": None, "full_reply":raw_reply}
+                    "content": {"change_made": False, "content": None, "full_reply":raw_reply}
                 }
             else:
                 return {
                     "status": "success",
-                    "data": {"change_made": True, "content": new_content, "full_reply":raw_reply}
+                    "content": {"change_made": True, "content": new_content, "full_reply":raw_reply}
                 }
                 
         except Exception:

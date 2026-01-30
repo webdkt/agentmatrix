@@ -19,7 +19,7 @@ class SkillHelpers:
             if isinstance(data, list) and all(isinstance(item, str) for item in data):
                 return {
                     "status": "success",
-                    "data": data
+                    "content": data
                 }
             else:
                 # The JSON was valid, but its structure is wrong for our needs.
@@ -49,8 +49,8 @@ class SkillHelpers:
                         表示允许两种格式：一种必须有 key1 和 key2，另一种只有 some_key
         
         Returns:
-            dict: 包含 status 和 data 或 feedback 的字典
-                - 成功时: {"status": "success", "data": parsed_data}
+            dict: 包含 status 和 content 或 feedback 的字典
+                - 成功时: {"status": "success", "content": parsed_data}
                 - 失败时: {"status": "error", "feedback": error_message}
         """
         try:
@@ -72,7 +72,7 @@ class SkillHelpers:
                 if required_keys.issubset(data_keys):
                     return {
                         "status": "success",
-                        "data": data
+                        "content": data
                     }
             
             # 4. 如果都不匹配，生成错误信息
