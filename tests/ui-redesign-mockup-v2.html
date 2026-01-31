@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentMatrix UI Redesign Mockup v2 - Message Card Design</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tabler Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f5f3ff',
+                            100: '#ede9fe',
+                            200: '#ddd6fe',
+                            300: '#c4b5fd',
+                            400: '#a78bfa',
+                            500: '#8b5cf6',
+                            600: '#7c3aed',
+                            700: '#6d28d9',
+                            800: '#5b21b6',
+                            900: '#4c1d95',
+                        },
+                        accent: {
+                            50: '#f0fdfa',
+                            100: '#ccfbf1',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                        },
+                        surface: {
+                            50: '#fafaf9',
+                            100: '#f5f5f4',
+                            200: '#e7e5e4',
+                            300: '#d6d3d1',
+                            400: '#a8a29e',
+                            500: '#78716c',
+                            600: '#57534e',
+                            700: '#44403c',
+                            800: '#292524',
+                            900: '#1c1917',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #fafaf9 0%, #f5f5f4 100%);
+        }
+        
+        /* Glassmorphism */
+        .glass {
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(20px) saturate(180%);
+        }
+        
+        /* ============================================
+           NEW MESSAGE CARD DESIGN - Modern Office Style
+           Larger fonts for better readability
+           ============================================ */
+        
+        /* Base message card */
+        .message-card {
+            max-width: 85%;
+            border-radius: 16px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.05), 0 2px 6px rgba(0,0,0,0.02);
+            transition: all 0.25s ease;
+        }
+        
+        .message-card:hover {
+            box-shadow: 0 12px 32px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.03);
+        }
+        
+        /* User Message - Clean white with left border accent */
+        .message-user {
+            background: white;
+            border: 1px solid #e7e5e4;
+            border-left: 3px solid #7c3aed;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .message-user:hover {
+            border-color: #d6d3d1;
+        }
+        
+        /* AI Message - Glass effect with left border */
+        .message-ai {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-left: 3px solid #14b8a6;
+            border-bottom-left-radius: 4px;
+        }
+        
+        /* Message Header - EVEN LARGER FONT SIZE */
+        .message-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid #f5f5f4;
+        }
+        
+        .message-user .message-header {
+            background: linear-gradient(90deg, rgba(124,58,237,0.03) 0%, transparent 100%);
+        }
+        
+        .message-ai .message-header {
+            background: linear-gradient(90deg, rgba(20,184,166,0.03) 0%, transparent 100%);
+        }
+        
+        /* Header Left - Recipient/Sender info */
+        .message-header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .message-label {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #a8a29e;
+        }
+        
+        .message-recipient {
+            font-size: 16px;
+            font-weight: 600;
+            color: #7c3aed;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .message-sender {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0d9488;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        /* Header Right - Timestamp */
+        .message-time {
+            font-size: 14px;
+            color: #a8a29e;
+            font-variant-numeric: tabular-nums;
+        }
+        
+        /* Message Content - EVEN LARGER PADDING */
+        .message-content {
+            padding: 20px;
+        }
+        
+        /* Subject - EVEN LARGER FONT SIZE */
+        .message-subject {
+            font-size: 19px;
+            font-weight: 700;
+            color: #1c1917;
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px dashed #e7e5e4;
+            line-height: 1.4;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .message-subject::before {
+            content: '';
+            display: inline-block;
+            width: 5px;
+            height: 22px;
+            background: #7c3aed;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+        
+        .message-ai .message-subject::before {
+            background: #14b8a6;
+        }
+        
+        /* Body - EVEN LARGER FONT SIZE */
+        .message-body {
+            font-size: 16px;
+            line-height: 1.9;
+            color: #57534e;
+        }
+        
+        /* Body paragraph spacing for long emails */
+        .message-body p {
+            margin-bottom: 16px;
+        }
+        
+        .message-body p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Action bar - EVEN LARGER FONT SIZE */
+        .message-actions {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 12px 20px;
+            border-top: 1px solid #f5f5f4;
+            background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.01) 100%);
+        }
+        
+        .action-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #78716c;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .action-btn:hover {
+            background: #f5f5f4;
+            color: #44403c;
+        }
+        
+        /* Animations */
+        @keyframes messageIn {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message-enter {
+            animation: messageIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="p-8">
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-10">
+            <h1 class="text-3xl font-bold text-surface-900 mb-2">消息卡片设计优化</h1>
+            <p class="text-surface-600">更大字体 + 中文示例</p>
+        </div>
+
+        <!-- Design Principles -->
+        <div class="bg-white rounded-2xl shadow-card border border-surface-200 p-6 mb-8">
+            <h2 class="text-lg font-semibold text-surface-900 mb-4">设计改进</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                        <i class="ti ti-user text-primary-600"></i>
+                    </div>
+                    <div>
+                        <p class="font-medium text-surface-900">显示收件人</p>
+                        <p class="text-surface-600">用户消息现在显示 "发送至：Agent 名称"</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-accent-100 flex items-center justify-center flex-shrink-0">
+                        <i class="ti ti-heading text-accent-600"></i>
+                    </div>
+                    <div>
+                        <p class="font-medium text-surface-900">主题突出</p>
+                        <p class="text-surface-600">主题有视觉指示器和虚线分隔</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <i class="ti ti-palette text-blue-600"></i>
+                    </div>
+                    <div>
+                        <p class="font-medium text-surface-900">简洁配色</p>
+                        <p class="text-surface-600">白色背景 + 彩色左边框，专业办公风格</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                        <i class="ti ti-text-size text-amber-600"></i>
+                    </div>
+                    <div>
+                        <p class="font-medium text-surface-900">更大字体</p>
+                        <p class="text-surface-600">正文16px、主题19px，中文阅读更舒适</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Message Examples -->
+        <div class="space-y-8">
+            
+            <!-- User Message with Subject (Chinese) -->
+            <div class="message-enter">
+                <div class="flex gap-4">
+                    <!-- Avatar -->
+                    <div class="w-11 h-11 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-base shadow-card flex-shrink-0 mt-1">
+                        我
+                    </div>
+                    
+                    <!-- Message Card -->
+                    <div class="message-card message-user flex-1">
+                        <!-- Header -->
+                        <div class="message-header">
+                            <div class="message-header-left">
+                                <span class="message-label">发送至</span>
+                                <span class="message-recipient">
+                                    <i class="ti ti-robot"></i>
+                                    架构师 Agent
+                                </span>
+                            </div>
+                            <span class="message-time">10:30</span>
+                        </div>
+                        
+                        <!-- Content -->
+                        <div class="message-content">
+                            <!-- Subject -->
+                            <div class="message-subject">
+                                项目架构设计讨论
+                            </div>
+                            
+                            <!-- Body -->
+                            <div class="message-body">
+                                <p>你好！能帮我设计一下新项目的技术架构吗？我们需要处理高并发流量，并确保系统可以水平扩展。</p>
+                                <p>初期预计有大约 10,000 个并发用户，计划一年内扩展到 100,000 用户。系统需要实时处理数据并保持低延迟响应。</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Actions -->
+                        <div class="message-actions">
+                            <button class="action-btn">
+                                <i class="ti ti-pencil"></i>
+                                编辑
+                            </button>
+                            <button class="action-btn">
+                                <i class="ti ti-copy"></i>
+                                复制
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Message Response (Chinese) -->
+            <div class="message-enter" style="animation-delay: 0.1s">
+                <div class="flex gap-4">
+                    <!-- Avatar -->
+                    <div class="w-11 h-11 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-card flex-shrink-0 mt-1">
+                        <i class="ti ti-brain text-xl"></i>
+                    </div>
+                    
+                    <!-- Message Card -->
+                    <div class="message-card message-ai flex-1">
+                        <!-- Header -->
+                        <div class="message-header">
+                            <div class="message-header-left">
+                                <span class="message-label">来自</span>
+                                <span class="message-sender">
+                                    <i class="ti ti-robot"></i>
+                                    架构师 Agent
+                                </span>
+                            </div>
+                            <span class="message-time">10:31</span>
+                        </div>
+                        
+                        <!-- Content -->
+                        <div class="message-content">
+                            <!-- Subject -->
+                            <div class="message-subject">
+                                回复：项目架构设计讨论
+                            </div>
+                            
+                            <!-- Body -->
+                            <div class="message-body">
+                                <p>当然可以！我建议采用现代化的微服务架构，包含以下核心组件：</p>
+                                
+                                <div class="space-y-3 my-4">
+                                    <div class="flex items-start gap-3 p-3 rounded-xl bg-surface-50 border border-surface-100">
+                                        <div class="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                            <i class="ti ti-gateway text-blue-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-surface-900 text-[15px]">API 网关</p>
+                                            <p class="text-[14px] text-surface-600">Kong 或 AWS API Gateway，用于限流和路由</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-start gap-3 p-3 rounded-xl bg-surface-50 border border-surface-100">
+                                        <div class="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                                            <i class="ti ti-refresh-dot text-emerald-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-surface-900 text-[15px]">服务网格</p>
+                                            <p class="text-[14px] text-surface-600">Istio 或 Linkerd，用于服务间通信治理</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-start gap-3 p-3 rounded-xl bg-surface-50 border border-surface-100">
+                                        <div class="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0">
+                                            <i class="ti ti-bolt text-violet-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-surface-900 text-[15px]">事件总线</p>
+                                            <p class="text-[14px] text-surface-600">Apache Kafka 或 RabbitMQ，用于异步处理</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <p>需要我详细解释其中某个组件，或者讨论数据层的设计吗？</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Actions -->
+                        <div class="message-actions">
+                            <button class="action-btn">
+                                <i class="ti ti-message-circle"></i>
+                                回复
+                            </button>
+                            <button class="action-btn">
+                                <i class="ti ti-share"></i>
+                                转发
+                            </button>
+                            <button class="action-btn">
+                                <i class="ti ti-copy"></i>
+                                复制
+                            </button>
+                            <button class="action-btn">
+                                <i class="ti ti-thumb-up"></i>
+                                有用
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User Message without Subject (Chinese) -->
+            <div class="message-enter" style="animation-delay: 0.2s">
+                <div class="flex gap-4">
+                    <!-- Avatar -->
+                    <div class="w-11 h-11 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-base shadow-card flex-shrink-0 mt-1">
+                        我
+                    </div>
+                    
+                    <!-- Message Card -->
+                    <div class="message-card message-user flex-1">
+                        <!-- Header -->
+                        <div class="message-header">
+                            <div class="message-header-left">
+                                <span class="message-label">发送至</span>
+                                <span class="message-recipient">
+                                    <i class="ti ti-robot"></i>
+                                    架构师 Agent
+                                </span>
+                            </div>
+                            <span class="message-time">10:35</span>
+                        </div>
+                        
+                        <!-- Content (No Subject) -->
+                        <div class="message-content">
+                            <div class="message-body">
+                                <p>好的，请详细解释一下数据层和缓存策略。我特别关心如何在多个服务之间处理会话管理。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Long Email Example (Chinese) -->
+            <div class="message-enter" style="animation-delay: 0.3s">
+                <div class="flex gap-4">
+                    <!-- Avatar -->
+                    <div class="w-11 h-11 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-card flex-shrink-0 mt-1">
+                        <i class="ti ti-brain text-xl"></i>
+                    </div>
+                    
+                    <!-- Message Card -->
+                    <div class="message-card message-ai flex-1">
+                        <!-- Header -->
+                        <div class="message-header">
+                            <div class="message-header-left">
+                                <span class="message-label">来自</span>
+                                <span class="message-sender">
+                                    <i class="ti ti-robot"></i>
+                                    架构师 Agent
+                                </span>
+                            </div>
+                            <span class="message-time">10:38</span>
+                        </div>
+                        
+                        <!-- Content -->
+                        <div class="message-content">
+                            <!-- Subject -->
+                            <div class="message-subject">
+                                数据层与缓存策略指南
+                            </div>
+                            
+                            <!-- Long Body -->
+                            <div class="message-body">
+                                <p>很好的问题！对于高流量的微服务架构，数据层设计至关重要。以下是全面的策略建议：</p>
+                                
+                                <p><strong>1. 每个服务独立数据库模式</strong></p>
+                                <p>每个微服务应该拥有自己的数据存储。这确保了松耦合，并允许服务独立扩展。你可以根据使用场景混合使用不同类型的数据库：</p>
+                                <ul style="margin-left: 24px; margin-bottom: 14px; list-style-type: disc;">
+                                    <li>PostgreSQL 用于事务性数据</li>
+                                    <li>MongoDB 用于文档存储</li>
+                                    <li>Redis 用于缓存和会话存储</li>
+                                    <li>Elasticsearch 用于搜索功能</li>
+                                </ul>
+                                
+                                <p><strong>2. 多级缓存策略</strong></p>
+                                <p>在多个层级实现缓存以减少数据库负载：</p>
+                                <ul style="margin-left: 24px; margin-bottom: 14px; list-style-type: disc;">
+                                    <li><strong>L1 缓存：</strong>服务内部内存缓存（Caffeine）</li>
+                                    <li><strong>L2 缓存：</strong>分布式缓存（Redis Cluster）跨服务共享</li>
+                                    <li><strong>L3 缓存：</strong>CDN 用于静态内容</li>
+                                </ul>
+                                
+                                <p><strong>3. 会话管理</strong></p>
+                                <p>对于跨服务的会话管理，使用分布式会话存储：</p>
+                                <ul style="margin-left: 24px; margin-bottom: 14px; list-style-type: disc;">
+                                    <li>使用 Redis 存储会话，设置 TTL 过期时间</li>
+                                    <li>使用 JWT Token 实现无状态认证</li>
+                                    <li>为 WebSocket 连接实现会话亲和性</li>
+                                </ul>
+                                
+                                <p>需要我提供 Redis Cluster 的具体配置示例，或者深入讨论 CQRS 模式在读取密集型场景下的应用吗？</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Actions -->
+                        <div class="message-actions">
+                            <button class="action-btn">
+                                <i class="ti ti-message-circle"></i>
+                                回复
+                            </button>
+                            <button class="action-btn">
+                                <i class="ti ti-bookmark"></i>
+                                收藏
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Comparison Section -->
+        <div class="mt-12 pt-8 border-t border-surface-200">
+            <h2 class="text-xl font-bold text-surface-900 mb-6">前后对比</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Before -->
+                <div>
+                    <p class="text-sm font-medium text-surface-500 mb-3 uppercase tracking-wider">之前（问题）</p>
+                    <div class="inline-block px-5 py-3.5 rounded-2xl rounded-tl-sm bg-gradient-to-br from-violet-500 to-violet-600 text-white shadow-lg">
+                        <p class="text-base leading-relaxed">用户消息使用深紫色背景</p>
+                    </div>
+                    <ul class="mt-4 space-y-2 text-sm text-surface-600">
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-x text-red-500"></i>
+                            不知道发给谁
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-x text-red-500"></i>
+                            主题和正文混在一起
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-x text-red-500"></i>
+                            紫色太深，长邮件刺眼
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-x text-red-500"></i>
+                            字体偏小，中文阅读吃力
+                        </li>
+                    </ul>
+                </div>
+                
+                <!-- After -->
+                <div>
+                    <p class="text-sm font-medium text-surface-500 mb-3 uppercase tracking-wider">之后（改进）</p>
+                    <div class="message-card message-user">
+                        <div class="message-header">
+                            <div class="message-header-left">
+                                <span class="message-label">发送至</span>
+                                <span class="message-recipient">
+                                    <i class="ti ti-robot"></i>
+                                    Agent 名称
+                                </span>
+                            </div>
+                            <span class="message-time">10:30</span>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-subject">清晰的主题行</div>
+                            <div class="message-body">
+                                <p>白色背景 + 紫色边框点缀，专业办公风格</p>
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="mt-4 space-y-2 text-sm text-surface-600">
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-check text-emerald-500"></i>
+                            Header 显示收件人
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-check text-emerald-500"></i>
+                            主题视觉层次清晰
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-check text-emerald-500"></i>
+                            专业办公风格
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="ti ti-check text-emerald-500"></i>
+                            更大字体（正文16px、主题19px）
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-12 text-surface-400 text-sm">
+            <p>AgentMatrix UI Design v2.1 - 中文优化版</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -492,14 +492,20 @@ class Notebook:
 
     UNCATEGORIZED_NAME = "未分类"
 
-    def __init__(self, file_path: Optional[str] = None, page_size_limit: int = 2000):
+    def __init__(self, file_path: str, page_size_limit: int = 2000):
         """
         初始化笔记本
 
         Args:
-            file_path: 笔记本文件路径（JSON格式），如果为None则不持久化
+            file_path: 笔记本文件路径（JSON格式，必需）
             page_size_limit: 每页最大字符数
+
+        Raises:
+            ValueError: 如果 file_path 为 None 或空字符串
         """
+        if not file_path:
+            raise ValueError("file_path is required for Notebook")
+
         self.file_path = file_path
         self.pages: List[Page] = []
         self.page_size_limit = page_size_limit
@@ -513,15 +519,16 @@ class Notebook:
         # 创建默认的"未分类"章节
         self._create_chapter(self.UNCATEGORIZED_NAME)
 
-        # 如果指定了文件路径，尝试从文件加载
-        if self.file_path:
-            self._load_from_file()
+        # 从文件加载（如果文件存在）或创建新文件
+        self._load_from_file()
 
     def _load_from_file(self):
-        """从文件加载笔记本数据"""
-        if not self.file_path:
-            return
+        """从文件加载笔记本数据
 
+        如果文件不存在，自动创建空文件
+        如果文件存在，加载已有内容
+        如果加载失败，使用空笔记本（但会尝试创建文件）
+        """
         try:
             from pathlib import Path
             file_path = Path(self.file_path)
@@ -560,13 +567,14 @@ class Notebook:
 
         except Exception as e:
             print(f"Warning: Failed to load notebook from {self.file_path}: {e}")
-            # 加载失败，使用空笔记本
+            # 加载失败，尝试创建新文件
+            try:
+                self._save_to_file()
+            except:
+                pass  # 如果创建也失败，就使用内存中的空笔记本
 
     def _save_to_file(self):
         """保存笔记本到文件"""
-        if not self.file_path:
-            return
-
         try:
             from pathlib import Path
             import json
