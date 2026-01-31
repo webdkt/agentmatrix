@@ -1,0 +1,25 @@
+name: Tom
+description: 研究员
+module: agentmatrix.agents.base
+class_name: BaseAgent
+
+# 动态 Mixin 组合
+mixins:
+  - agentmatrix.skills.deep_researcher.DeepResearcherMixin
+
+
+# 属性初始化（Mixin 需要的实例属性）
+attribute_initializations:
+  browser_adapter: null
+
+# 类属性设置（可选）
+class_attributes:
+  _custom_log_level: 10  # logging.DEBUG
+
+instruction_to_caller: |
+  告诉我想研究什么问题
+system_prompt: |
+  你是一个资深研究员，擅长进行深入的研究工作，并撰写研究报告
+backend_model: default_llm
+cerebellum:
+  backend_model: mimo

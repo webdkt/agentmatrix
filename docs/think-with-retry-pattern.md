@@ -74,45 +74,11 @@ class LLMClient(AutoLoggerMixin):
 
 ### Async Streaming Support
 
-The client supports async streaming responses for both OpenAI and Gemini APIs:
-
-**OpenAI Streaming** (lines 268-335):
-
-```python
-async def _stream_openai_response(self, messages, model):
-    async for chunk in openai_completion.stream(...):
-        if chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
-```
-
-**Gemini Streaming** (lines 170-266):
-
-```python
-async def _stream_gemini_response(self, messages, model):
-    async for chunk in await gemini_model.generate_content_async(...):
-        yield chunk.text
-```
-
-### Reasoning Content Extraction
-
-For models that support chain-of-thought (like o1), the client extracts reasoning content:
-
-```python
-# Extract reasoning from o1 models
-if hasattr(response, 'reasoning') and response.reasoning:
-    reasoning = response.reasoning
-else:
-    reasoning = None
-
-return {
-    "reasoning": reasoning,
-    "reply": content
-}
-```
+The client supports async streaming responses for both OpenAI and Gemini APIs.
 
 ## Think-With-Retry Pattern
 
-**Location**: `src/agentmatrix/backends/llm_client.py` (lines 33-105)
+**Location**: `src/agentmatrix/backends/llm_client.py` (lines 33-101)
 
 The `think_with_retry()` method implements a generic micro-agent that loops until LLM output is successfully parsed.
 
@@ -121,7 +87,7 @@ The `think_with_retry()` method implements a generic micro-agent that loops unti
 ```python
 async def think_with_retry(
     self,
-    initial_messages: Union[str, List[str]],
+    initial_messages: Union[str, List[Dict]],
     parser: callable,          # Parser function
     max_retries: int = 3,
     **parser_kwargs
@@ -130,119 +96,147 @@ async def think_with_retry(
     Generic micro-agent that loops until LLM output is successfully parsed
 
     Args:
-        initial_messages: Initial user messages
+        initial_messages: Initial user message (string or message list)
         parser: Parser function to extract structured output
         max_retries: Maximum number of retry attempts
         **parser_kwargs: Additional arguments for parser
 
     Returns:
-        Parsed data (from parser["data"] or parser["sections"])
-    """
-    messages = self._prepare_messages(initial_messages)
+        The value of parser's "content" field (type depends on parser)
+        - If parser returns single value: returns that value
+        - If parser returns multi-section dict: returns dict
+        - If no content field: returns empty dict {}
 
+    Raises:
+        ValueError: If max retries exceeded without success
+    """
+    # 1. Prepare messages
+    if isinstance(initial_messages, str):
+        messages = [{"role": "user", "content": initial_messages}]
+    else:
+        messages = initial_messages
+
+    # 2. Retry loop
     for attempt in range(max_retries):
-        # 1. Call LLM
+        # Call LLM
         response = await self.think(messages=messages)
         raw_reply = response['reply']
 
-        # 2. Parse with provided parser
+        # Parse with provided parser
         parsed_result = parser(raw_reply, **parser_kwargs)
 
-        # 3. Check result
+        # Check result
         if parsed_result.get("status") == "success":
-            # Success - return data
-            return (
-                parsed_result.get("data") or
-                parsed_result.get("sections")
-            )
+            # Success - return "content" field
+            if "content" in parsed_result:
+                return parsed_result["content"]
+            else:
+                return {}
 
         elif parsed_result.get("status") == "error":
-            # 4. Append feedback and retry
+            # Failure - append feedback and retry
             feedback = parsed_result.get("feedback")
-            messages.append({
-                "role": "assistant",
-                "content": raw_reply
-            })
-            messages.append({
-                "role": "user",
-                "content": feedback
-            })
-            # Continue loop with feedback
+            messages.append({"role": "assistant", "content": raw_reply})
+            messages.append({"role": "user", "content": feedback})
+            # Continue loop
 
     # Max retries exceeded
-    raise Exception(f"Max retries ({max_retries}) exceeded")
+    raise ValueError("LLM failed to produce a valid response after all retries.")
 ```
 
-### Parser Contract
+### Key Points
 
-Parsers must follow this interface:
+#### 1. Parser Return Format
 
-```python
-def parser(raw_reply: str, **kwargs) -> dict:
-    """
-    Parse LLM output and return status dict
-
-    Returns:
-        {
-            "status": "success" | "error",
-            "data": ...,              # Optional: single parsed data
-            "sections": {...},        # Optional: multiple sections
-            "feedback": str           # Required if status=error
-        }
-    """
-```
-
-**Success Response**:
+All parsers must follow a unified format:
 
 ```python
 {
-    "status": "success",
-    "data": "Parsed result"        # For single value
-    # OR
-    "sections": {                  # For multi-section
-        "Section 1": "Content 1",
-        "Section 2": "Content 2"
-    }
+    "status": "success" | "error",
+    "content": ...,      # On success: extracted content
+    "feedback": str      # On failure: error feedback
 }
 ```
 
-**Error Response**:
+**Success Examples**:
+```python
+# Return single value
+{
+    "status": "success",
+    "content": "This is extracted text content"
+}
 
+# Return multiple sections (dict)
+{
+    "status": "success",
+    "content": {
+        "[Research Plan]": "Plan content...",
+        "[Chapter Outline]": "Outline content..."
+    }
+}
+
+# Return list
+{
+    "status": "success",
+    "content": ["item1", "item2", "item3"]
+}
+```
+
+**Error Examples**:
 ```python
 {
     "status": "error",
-    "feedback": "Missing required field: [行动计划]. Please include this section."
+    "feedback": "Missing required section: [Research Plan]. Please include this section."
 }
 ```
 
-### Retry Flow
+#### 2. think_with_retry Return Value
+
+`think_with_retry` **only returns** the parser's `"content"` field, not the entire dict:
+
+```python
+# If parser returns {"status": "success", "content": "text"}
+# think_with_retry returns: "text"
+
+# If parser returns {"status": "success", "content": {"key": "value"}}
+# think_with_retry returns: {"key": "value"}
+
+# If parser returns {"status": "success", "content": [...]}
+# think_with_retry returns: [...]
+```
+
+This design makes calling code cleaner—no need to access `["content"]` every time.
+
+#### 3. Retry Flow
 
 ```
 ┌─────────────────────────────────────────────┐
-│  1. Call LLM with messages                  │
+│  1. Call LLM (messages)                     │
 └─────────────────┬───────────────────────────┘
                   │
                   ▼
         ┌─────────────────────┐
-        │  2. Parse output    │
+        │  2. Parser parse   │
+        │     parser(raw_reply)│
         └─────────┬───────────┘
                   │
                   ▼
         ┌─────────────────────┐
-        │  Status = success?  │
+        │  status == "success"?│
         └─────────┬───────────┘
              │    │
       Yes    │    │   No
              ▼    │
     ┌────────────┐ │
     │ Return     │ │
-    │ data       │ │
+    │ content    │ │
     └────────────┘ │
                   │
                   ▼
         ┌─────────────────────┐
-        │  3. Append feedback │
-        │     to messages     │
+        │  3. Append to messages│
+        │     - assistant: raw_reply
+        │     - user: feedback │
         └─────────┬───────────┘
                   │
                   ▼
@@ -250,24 +244,26 @@ def parser(raw_reply: str, **kwargs) -> dict:
         │  4. Retry LLM call  │
         └─────────┬───────────┘
                   │
-                  └──────► Loop back to step 1
+                  └──────► Back to step 1
 ```
 
-### Usage Example
+### Usage Examples
+
+#### Example 1: Extract Single Value
 
 ```python
 # Define parser
 def extract_plan(raw_reply: str) -> dict:
-    if "[研究计划]" not in raw_reply:
+    if "[Research Plan]" not in raw_reply:
         return {
             "status": "error",
-            "feedback": "Missing [研究计划] section. Please include it."
+            "feedback": "Missing [Research Plan] section. Please include it."
         }
     # Extract content
-    content = raw_reply.split("[研究计划]")[1].strip()
+    content = raw_reply.split("[Research Plan]")[1].strip()
     return {
         "status": "success",
-        "data": content
+        "content": content  # Note: use "content" field
     }
 
 # Use think_with_retry
@@ -277,53 +273,122 @@ result = await llm_client.think_with_retry(
     max_retries=3
 )
 
-# result contains the parsed plan
+# result is the extracted plan text (string)
+# Because parser's content is string, think_with_retry returns string directly
+print(result)  # "1. Literature review\n2. Experiment design..."
+```
+
+#### Example 2: Extract Multiple Sections
+
+```python
+from parser_utils import multi_section_parser
+
+# Use multi_section_parser
+result = await llm_client.think_with_retry(
+    initial_messages="""
+    Please generate the following:
+    1. [Research Plan] - Research steps
+    2. [Chapter Outline] - Report chapters
+    """,
+    parser=multi_section_parser,  # Direct function reference
+    section_headers=['[Research Plan]', '[Chapter Outline]'],
+    match_mode="ALL",
+    max_retries=3
+)
+
+# result is a dict: {"[Research Plan]": "...", "[Chapter Outline]": "..."}
+# Because multi_section_parser's content is dict
+print(result["[Research Plan]"])   # Access research plan
+print(result["[Chapter Outline]"])  # Access chapter outline
+```
+
+#### Example 3: Using in deep_researcher
+
+```python
+# In update_blueprint action
+generate_prompt = f"""
+{ctx['researcher_persona']}
+
+Research Topic: {ctx['research_title']}
+Research Purpose: {ctx['research_purpose']}
+
+Current research approach:
+{current_blueprint}
+
+Modification feedback:
+{modification_feedback}
+
+Please generate updated research approach based on feedback.
+Use [Formal Draft] as separator.
+"""
+
+result = await self.brain.think_with_retry(
+    generate_prompt,
+    multi_section_parser,
+    section_headers=["[Formal Draft]"],
+    match_mode="ALL"
+)
+
+# result is: {"[Formal Draft]": "Updated content..."}
+# Directly access dict to get content
+new_blueprint = result["[Formal Draft]"].strip()
 ```
 
 ## Parser Design
 
-### Parser Signature
+### Standard Parser Contract
 
 ```python
 def parser(
     raw_reply: str,
     **kwargs  # Parser-specific arguments
 ) -> dict:
-    # Implementation
-    pass
+    """
+    Parse LLM output
+
+    Args:
+        raw_reply: Raw text returned by LLM
+        **kwargs: Parser-specific parameters
+
+    Returns:
+        {
+            "status": "success" | "error",
+            "content": ...,      # On success: extracted content (any type)
+            "feedback": str      # On failure: error feedback
+        }
+    """
 ```
 
-### Error Reporting
-
-Parsers should provide specific, actionable feedback:
+### Error Reporting Best Practices
 
 ```python
-# Bad example
+# Bad example - not specific enough
 return {
     "status": "error",
-    "feedback": "Parse failed"  # Not helpful
+    "feedback": "Parse failed"  # Too vague
 }
 
-# Good example
+# Good example - specific and actionable
 return {
     "status": "error",
-    "feedback": "Missing required section: [研究计划]. "
+    "feedback": "Missing required section: [Research Plan]. "
                 "Please format your response with this section header."
 }
 ```
 
-### Parser Best Practices
+### Parser Design Principles
 
 1. **Be Specific**: Tell LLM exactly what's wrong
 2. **Provide Examples**: Show expected format in feedback
 3. **Check Requirements**: Validate all required fields
 4. **Handle Edge Cases**: Empty output, malformed content, etc.
+5. **Use "content" Field**: Always use "content" to return extracted content
 
-## Multi-Section Parser
+## Multi-Section Parser (multi_section_parser)
 
 **Location**: `src/agentmatrix/skills/parser_utils.py` (lines 10-186)
 
-The `multi_section_parser()` is a powerful utility for extracting multiple sections from LLM output.
+`multi_section_parser()` is a powerful generic parser for extracting multiple sections from LLM output.
 
 ### Function Signature
 
@@ -332,69 +397,92 @@ def multi_section_parser(
     raw_reply: str,
     section_headers: List[str] = None,
     regex_mode: bool = False,
-    match_mode: str = "ALL"  # or "ANY"
-) -> dict
+    match_mode: str = "ALL"  # "ALL" or "ANY"
+) -> dict:
+    """
+    Multi-section text parser
+
+    Returns:
+        {
+            "status": "success" | "error",
+            "content": {...}  (multi-section mode) or "..." (single-section mode),
+            "feedback": str   (on failure)
+        }
+    """
 ```
 
-### Two Modes of Operation
+### Two Operation Modes
 
-#### 1. Multi-Section Mode
+#### Mode 1: Multi-Section Parsing
 
-When `section_headers` is provided:
+When `section_headers` is provided, extract multiple sections:
 
 ```python
 text = """
-[研究计划]
+[Research Plan]
 1. Literature review on AI safety
 2. Interview experts
 3. Conduct experiments
 
-[章节大纲]
-Chapter 1: Introduction
-Chapter 2: Background
-Chapter 3: Methodology
+[Chapter Outline]
+# Introduction
+# Background
+# Methodology
 """
 
 result = multi_section_parser(
     text,
-    section_headers=['[研究计划]', '[章节大纲]'],
-    match_mode="ALL"  # All headers must be present
+    section_headers=['[Research Plan]', '[Chapter Outline]'],
+    match_mode="ALL"  # All sections must be present
 )
 
-# Returns:
-{
-    "status": "success",
-    "sections": {
-        "[研究计划]": "1. Literature review on AI safety\n2. Interview experts\n3. Conduct experiments",
-        "[章节大纲]": "Chapter 1: Introduction\nChapter 2: Background\nChapter 3: Methodology"
-    }
-}
+# parser returns:
+# {
+#     "status": "success",
+#     "content": {
+#         "[Research Plan]": "1. Literature review on AI safety\n2. Interview experts\n3. Conduct experiments",
+#         "[Chapter Outline]": "# Introduction\n# Background\n# Methodology"
+#     }
+# }
+
+# think_with_retry returns content field (dict):
+sections = await brain.think_with_retry(
+    "Generate research plan and chapter outline",
+    multi_section_parser,
+    section_headers=['[Research Plan]', '[Chapter Outline]'],
+    match_mode="ALL"
+)
+
+# sections is a dict:
+print(sections["[Research Plan]"])   # Access research plan
+print(sections["[Chapter Outline]"])  # Access chapter outline
 ```
 
-**Match Modes**:
-- `"ALL"`: All specified headers must be present (default)
-- `"ANY"`: At least one header must be present
+**match_mode parameter**:
+
+- `"ALL"` (default): All specified section_headers must exist
+- `"ANY"`: At least one header must exist
 
 **Error Example**:
 
 ```python
-# Missing [章节大纲]
+# Missing [Chapter Outline]
 result = multi_section_parser(
     text,
-    section_headers=['[研究计划]', '[章节大纲]'],
+    section_headers=['[Research Plan]', '[Chapter Outline]'],
     match_mode="ALL"
 )
 
 # Returns:
-{
-    "status": "error",
-    "feedback": "Missing required sections: ['[章节大纲]']"
-}
+# {
+#     "status": "error",
+#     "feedback": "ALL mode: Missing the following section headers: ['[Chapter Outline]']"
+# }
 ```
 
-#### 2. Single-Section Mode
+#### Mode 2: Single-Section Parsing
 
-When `section_headers` is `None` (backward compatible):
+When `section_headers` is `None`, use separator mode (backward compatible):
 
 ```python
 text = """
@@ -403,370 +491,305 @@ Some introductory text...
 Content to extract
 More content...
 ===========
-
-Footer text
 """
 
 result = multi_section_parser(text)
 
-# Returns:
-{
-    "status": "success",
-    "data": "Content to extract\nMore content..."
-}
+# parser returns:
+# {
+#     "status": "success",
+#     "content": "Content to extract\nMore content..."
+# }
 ```
 
-Finds the last `"====="` divider and extracts content between it and the next divider.
+Finds the last `"====="` separator and extracts content after it.
 
 ### Performance Optimizations
 
-The parser includes several optimizations for efficiency:
+`multi_section_parser` includes several efficiency optimizations:
 
-**1. Reverse Iteration** (lines 101-136):
+**1. Fast Pre-Check** (lines 90-94):
+
+```python
+if match_mode == "ALL" and not regex_mode:
+    # Use in operation for quick check if all headers exist
+    missing = [h for h in section_headers if h not in raw_reply]
+    if missing:
+        return {"status": "error",
+                "feedback": f"ALL mode: Missing the following section headers: {missing}"}
+```
+
+**2. Reverse Iteration + Early Termination** (lines 101-136):
 
 ```python
 # Iterate backwards from end of text
 for i in range(len(lines) - 1, -1, -1):
-    line = lines[i]
-    # Check for section headers
-    # ...
+    line = lines[i].strip()
+
+    if is_header and line not in found:
+        # Extract section content
+        sections[line] = ...
+        found.add(line)
+
+        # Early termination: found all needed headers
+        if found == needed:
+            break
 ```
 
-Benefits:
-- Finds content faster (typically near end)
-- Enables early termination
+**Advantages**:
+- Content typically near end, reverse is faster
+- Stop immediately when all sections found
+- Avoid unnecessary traversal
 
-**2. Early Termination** (line 132):
+## Key Points (Must Read)
+
+### Function Signature
 
 ```python
-if len(found_sections) == len(required_headers):
-    break  # All sections found
+async def think_with_retry(
+    self,
+    initial_messages: Union[str, List[Dict]],  # prompt
+    parser: callable,                          # parser function
+    max_retries: int = 3,
+    **parser_kwargs                            # parser's extra arguments
+) -> any:
 ```
 
-Stops searching once all required sections are found.
-
-**3. Fast Pre-Check** (lines 89-94):
+### Correct Usage
 
 ```python
-if match_mode == "ALL":
-    # Quick check if all headers exist
-    for header in section_headers:
-        if header not in raw_reply:
-            return {
-                "status": "error",
-                "feedback": f"Missing required section: {header}"
-            }
+# ✅ Correct: parser's extra arguments passed via **parser_kwargs
+result = await brain.think_with_retry(
+    prompt,                      # positional argument
+    multi_section_parser,        # positional argument
+    section_headers=["[Formal Draft]"],  # keyword argument → **parser_kwargs
+    match_mode="ALL"             # keyword argument → **parser_kwargs
+)
+
+# Equivalent to calling:
+# multi_section_parser(raw_reply, section_headers=[...], match_mode="ALL")
+
+# result is the value of parser's "content" field
 ```
 
-Avoids expensive iteration if headers are missing.
-
-### Implementation Details
+### Incorrect Usage
 
 ```python
-def multi_section_parser(
-    raw_reply: str,
-    section_headers: List[str] = None,
-    regex_mode: bool = False,
-    match_mode: str = "ALL"
-) -> dict:
-    # Single-section mode
-    if section_headers is None:
-        # Find last "=====" divider
-        divider_count = raw_reply.count("=====")
-        if divider_count < 2:
-            return {"status": "error", "feedback": "No content divider found"}
+# ❌ Wrong: wrap with lambda
+result = await brain.think_with_retry(
+    prompt,
+    lambda reply: parser(reply, arg=value)
+)
 
-        # Extract content between last two dividers
-        parts = raw_reply.split("=====")
-        content = parts[-2].strip()
-        return {"status": "success", "data": content}
-
-    # Multi-section mode
-    if match_mode == "ALL":
-        # Fast pre-check
-        for header in section_headers:
-            if header not in raw_reply:
-                return {
-                    "status": "error",
-                    "feedback": f"Missing required section: {header}"
-                }
-
-    # Reverse iteration to extract sections
-    lines = raw_reply.split('\n')
-    found_sections = {}
-
-    for i in range(len(lines) - 1, -1, -1):
-        line = lines[i].strip()
-
-        # Check if line is a section header
-        if line in section_headers:
-            # Extract content until next header
-            content = []
-            for j in range(i + 1, len(lines)):
-                next_line = lines[j].strip()
-                if next_line in section_headers:
-                    break
-                content.append(lines[j])
-
-            found_sections[line] = '\n'.join(content).strip()
-
-            # Early termination
-            if match_mode == "ALL" and len(found_sections) == len(section_headers):
-                break
-
-    # Validate results
-    if match_mode == "ALL" and len(found_sections) != len(section_headers):
-        return {
-            "status": "error",
-            "feedback": f"Missing sections: {set(section_headers) - set(found_sections.keys())}"
-        }
-
-    if match_mode == "ANY" and len(found_sections) == 0:
-        return {
-            "status": "error",
-            "feedback": "No sections found"
-        }
-
-    return {
-        "status": "success",
-        "sections": found_sections
-    }
+# ❌ Wrong: construct argument dict yourself
+result = await brain.think_with_retry(
+    prompt,
+    parser,
+    {"section_headers": ["[A]"]}
+)
 ```
 
-## Example: Search Results Parser
-
-**Location**: `src/agentmatrix/skills/search_results_parser.py`
-
-A practical example of a custom parser for extracting structured data from HTML search results.
-
-### Data Structure
+### Prompt Design: Must Include Examples
 
 ```python
-@dataclass
-class SearchResultItem:
-    title: str       # Result title
-    url: str         # Result URL
-    snippet: str     # Result snippet
-    site_info: str   # Site information
-    link_id: str     # Unique link ID
+# ✅ Correct: section header + example
+prompt = """
+{context}
+
+Please generate a new chapter outline.
+
+Example format:
+[Thought Process]
+...your understanding and thinking...
+
+[Formal Draft]
+# Chapter 1 Introduction
+# Chapter 2 Methodology
+
+Please follow the format above.
+"""
+
+# ❌ Wrong: only constraints, no example
+prompt = """
+Please generate chapter outline, only output chapters, nothing else.
+"""
 ```
 
-### Parser Features
+**Why need examples?**
+- LLM will mimic example format
+- Constraints like "only output xxx" are hard to follow
+- Examples are the most reliable format guarantee
+
+### Parser Design: Combine and Validate
 
 ```python
-def parse_search_results(html_content: str) -> dict:
-    """
-    Parse HTML search results (Google/Bing)
-
-    Extracts:
-    - Featured snippet
-    - Organic results (title, url, snippet)
-    - Next page link
-    - Bing redirect URLs (decoding)
-    """
-```
-
-**Key Features**:
-1. **HTML Parsing**: Uses BeautifulSoup to parse HTML
-2. **Featured Snippet Extraction**: Identifies special featured result
-3. **URL Filtering**: Filters out visited/evaluated links
-4. **Next Page Detection**: Finds pagination link
-5. **Bing Redirect Decoding** (lines 24-73): Handles Bing's redirected URLs
-
-```python
-# Decode Bing redirect URLs
-if "bing.com/ck/a?" in url:
-    # Extract u parameter
-    u_param = extract_u_param(url)
-    # Decode base64
-    decoded_url = base64.b64decode(u_param).decode('utf-8')
-    # Extract real URL
-    real_url = extract_real_url(decoded_url)
-    return real_url
-```
-
-### Usage Example
-
-```python
-# In MicroAgent action
-@register_action(description="Search the web")
-async def web_search(self, query: str, num_results: int = 10) -> str:
-    # Call search API
-    html = await self._search_api(query, num_results)
-
-    # Parse results
-    result = await self.brain.think_with_retry(
-        initial_messages=f"Parse these search results:\n{html}",
-        parser=parse_search_results,
-        max_retries=2
+# ✅ Correct: multi_section_parser + additional validation
+def my_parser(raw_reply: str) -> dict:
+    # 1. Extract with multi_section_parser first
+    result = multi_section_parser(
+        raw_reply,
+        section_headers=["[Formal Draft]"],
+        match_mode="ALL"
     )
 
-    # result is list of SearchResultItem
-    return format_results(result)
-```
+    if result["status"] == "error":
+        return result
 
-## Creating Custom Parsers
+    # 2. Extract and validate
+    content = result["content"]["[Formal Draft]"]
 
-### Step-by-Step Guide
-
-**1. Define Parser Function**:
-
-```python
-def my_custom_parser(raw_reply: str, **kwargs) -> dict:
-    # Validate input
-    if not raw_reply or not raw_reply.strip():
+    # Additional validation
+    if not validate(content):
         return {
             "status": "error",
-            "feedback": "Empty response. Please provide output."
+            "feedback": "Validation failed: ..."
         }
 
-    # Check for required markers
-    if "[REQUIRED_SECTION]" not in raw_reply:
-        return {
-            "status": "error",
-            "feedback": "Missing required section: [REQUIRED_SECTION]. "
-                       "Please format your response with this section."
-        }
-
-    # Extract data
-    content = extract_content(raw_reply)
-
-    # Validate data
-    if not content or len(content) < 10:
-        return {
-            "status": "error",
-            "feedback": "Extracted content is too short. "
-                       "Please provide more detailed information."
-        }
-
-    # Return success
     return {
         "status": "success",
-        "data": content
+        "content": processed_data
     }
 ```
 
-**2. Use with think_with_retry**:
+### Core Principles (3 Rules)
+
+1. **Pass function directly**: `think_with_retry(prompt, parser, arg=value)`
+2. **Must provide examples**: Prompt must have format examples for LLM to mimic
+3. **Combine validation**: `multi_section_parser` + additional validation
+
+Remember these 3 rules, you won't go wrong.
+
+## Common Usage Patterns
+
+### Pattern 1: Pass Parser Function Directly
 
 ```python
-result = await llm_client.think_with_retry(
-    initial_messages="Your task here...",
-    parser=my_custom_parser,
+# ✅ Correct: Pass function reference directly
+result = await brain.think_with_retry(
+    prompt,
+    multi_section_parser,  # Direct pass
+    section_headers=["[Section1]", "[Section2]"],
+    match_mode="ALL"
+)
+```
+
+### Pattern 2: Pass parser_kwargs
+
+```python
+# ✅ Correct: Parser's extra arguments passed via **parser_kwargs
+result = await brain.think_with_retry(
+    prompt,
+    multi_section_parser,
+    section_headers=["[Research Plan]"],
+    match_mode="ALL"  # These args get passed to multi_section_parser
+)
+```
+
+### Pattern 3: Use Custom Parser
+
+```python
+# Custom parser
+def my_parser(raw_reply: str, **kwargs) -> dict:
+    # Parsing logic
+    if validate(raw_reply):
+        return {
+            "status": "success",
+            "content": extract_data(raw_reply)
+        }
+    else:
+        return {
+            "status": "error",
+            "feedback": "Format error, please..."
+        }
+
+# Use it
+result = await brain.think_with_retry(
+    prompt,
+    my_parser,  # Custom parser
     max_retries=3
 )
 ```
 
-### Parser Template
+## Common Mistakes
+
+### Mistake 1: Using Lambda to Wrap Parser
 
 ```python
-def parser_template(raw_reply: str, **kwargs) -> dict:
-    """
-    Parser template
+# ❌ Wrong: Don't wrap with lambda
+result = await brain.think_with_retry(
+    prompt,
+    lambda reply: multi_section_parser(reply, ...),  # Wrong!
+    ...
+)
 
-    Args:
-        raw_reply: LLM output to parse
-        **kwargs: Parser-specific arguments
+# ✅ Correct: Pass parser directly
+result = await brain.think_with_retry(
+    prompt,
+    multi_section_parser,  # Correct
+    section_headers=["[Section1]"],
+    match_mode="ALL"
+)
+```
 
-    Returns:
-        Status dict with success/error information
-    """
+### Mistake 2: Wrong match_mode Value
 
-    # 1. Validate input
-    if not raw_reply:
-        return {
-            "status": "error",
-            "feedback": "Empty response"
-        }
+```python
+# ❌ Wrong: No such value as "EXACT"
+result = await brain.think_with_retry(
+    prompt,
+    multi_section_parser,
+    match_mode="EXACT"  # Wrong!
+)
 
-    # 2. Check required structure
-    required_markers = kwargs.get("required_markers", [])
-    for marker in required_markers:
-        if marker not in raw_reply:
-            return {
-                "status": "error",
-                "feedback": f"Missing {marker}. Please include it."
-            }
+# ✅ Correct: Only "ALL" or "ANY"
+result = await brain.think_with_retry(
+    prompt,
+    multi_section_parser,
+    match_mode="ALL"  # or "ANY"
+)
+```
 
-    # 3. Extract data
-    try:
-        data = extract_data(raw_reply, **kwargs)
-    except Exception as e:
-        return {
-            "status": "error",
-            "feedback": f"Parse error: {str(e)}. Please check format."
-        }
+### Mistake 3: Misunderstanding Return Value Format
 
-    # 4. Validate extracted data
-    if not validate_data(data, **kwargs):
-        return {
-            "status": "error",
-            "feedback": "Invalid data. Please ensure all fields are present."
-        }
+```python
+# ❌ Wrong: Don't access ["data"] or ["sections"]
+result = await brain.think_with_retry(...)
+content = result["data"]  # Wrong!
 
-    # 5. Return success
-    return {
-        "status": "success",
-        "data": data
-    }
+# ✅ Correct: result is the content field value
+sections = await brain.think_with_retry(
+    prompt,
+    multi_section_parser,
+    section_headers=["[A]", "[B]"],
+    match_mode="ALL"
+)
+# sections is directly a dict: {"[A]": "...", "[B]": "..."}
+print(sections["[A]"])  # Direct access
 ```
 
 ## Summary
+
+### Core Concepts
+
+1. **Parser Unified Contract**: All parsers return `{"status": "...", "content": ..., "feedback": "..."}`
+2. **think_with_retry Returns content**: Directly returns parser's `"content"` field value
+3. **Multi-Section Parsing**: Use `multi_section_parser` to extract multiple sections
+4. **Conversational Retry**: Auto feedback + retry until success or max retries reached
 
 ### Component Responsibilities
 
 | Component | Location | Responsibility |
 |-----------|----------|----------------|
-| LLMClient | backends/llm_client.py | LLM API wrapper with streaming |
-| think_with_retry | backends/llm_client.py | Generic retry loop for parsing |
-| multi_section_parser | skills/parser_utils.py | Extract multiple sections |
-| search_results_parser | skills/search_results_parser.py | Parse HTML search results |
-
-### Key Benefits
-
-1. **Robustness**: Automatic retries with specific feedback
-2. **Flexibility**: Pluggable parser interface
-3. **Efficiency**: Optimized parsing with early termination
-4. **Reliability**: Clear error messages guide LLM to correct output
-5. **Reusability**: Generic pattern works for any parsing task
+| LLMClient | backends/llm_client.py | LLM API wrapper + think_with_retry |
+| multi_section_parser | skills/parser_utils.py | Multi-section parser |
+| Custom parser | Various skill files | Task-specific parsing logic |
 
 ### Best Practices
 
-1. **Provide Specific Feedback**: Tell LLM exactly what's wrong
-2. **Validate Thoroughly**: Check all requirements before returning success
-3. **Use Multi-Section Parser**: Leverage existing parser when possible
-4. **Handle Edge Cases**: Empty output, malformed content, etc.
-5. **Limit Retries**: Set reasonable max_retries to avoid infinite loops
+1. **Pass Parser Directly**: Don't wrap with lambda
+2. **Use "content" Field**: Parser returns use "content", not "data" or "sections"
+3. **Provide Specific Feedback**: Give clear, actionable error messages when parser fails
+4. **Set Reasonable max_retries**: Usually 2-3 is sufficient
+5. **Leverage Existing Parser**: Prioritize `multi_section_parser` over reinventing
 
-### Common Patterns
-
-**Extract Single Value**:
-```python
-result = await brain.think_with_retry(
-    messages="Extract the date...",
-    parser=lambda text: extract_date(text),
-    max_retries=2
-)
-```
-
-**Extract Multiple Sections**:
-```python
-result = await brain.think_with_retry(
-    messages="Create sections [Plan], [Timeline], [Budget]",
-    parser=multi_section_parser,
-    section_headers=['[Plan]', '[Timeline]', '[Budget]'],
-    match_mode="ALL",
-    max_retries=3
-)
-# result is dict of sections
-```
-
-**Parse Complex Data**:
-```python
-result = await brain.think_with_retry(
-    messages="Extract structured data...",
-    parser=custom_structured_parser,
-    max_retries=3
-)
-```
-
-This pattern ensures reliable extraction of structured output from LLM natural language responses.
+The Think-With-Retry pattern transforms LLM uncertainty into reliable structured output through conversational feedback loops, making it a core pattern for building robust LLM applications.

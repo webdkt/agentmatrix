@@ -591,9 +591,9 @@ class WebSearcherMixin(CrawlerHelperMixin):
     """
 
     @register_action(
-        "针对一个问题上网搜索答案，提供要解决的问题和（可选但建议提供的）搜索关键字词",
+        "针对特定目的上网搜索，提供明确的搜索目的和（可选但建议提供的）搜索关键字词",
         param_infos={
-            "purpose": "要回答的问题（或研究目标）",
+            "purpose": "搜索的目的",
             "search_phrase": "可选，初始搜索关键词",
             "max_time": "可选，最大搜索分钟，默认20",
             "search_engine": "可选，搜索引擎（google 或 bing），默认 bing",
@@ -626,7 +626,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 2. 确定 search_phrase
         if not search_phrase:
             resp = await self.brain.think(f"""
-            现在我们要研究个新问题：{purpose}，打算上网搜索一下，需要你设计一下最合适的关键词或者关键字组合。输出的时候可以先简单解释一下这么设计的理由，但是最后一行必须是也只能是要搜索的内容（也就是输入到搜索引擎搜索栏的内容）。例如你认为应该搜索"Keyword"，那么最后一行就只能是"Keyword"
+            我们现在的目的是 {purpose}，打算上网搜索一下，需要你设计一下最合适的关键词或者关键字组合。输出的时候可以先简单解释一下这么设计的理由，但是最后一行必须是也只能是要搜索的内容（也就是输入到搜索引擎搜索栏的内容）。例如你认为应该搜索"Keyword"，那么最后一行就只能是"Keyword"
             """)
             reply = resp['reply']
             #get last line of reply

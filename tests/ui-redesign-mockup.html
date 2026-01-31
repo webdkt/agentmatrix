@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentMatrix UI Redesign Mockup</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tabler Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f5f3ff',
+                            100: '#ede9fe',
+                            200: '#ddd6fe',
+                            300: '#c4b5fd',
+                            400: '#a78bfa',
+                            500: '#8b5cf6',
+                            600: '#7c3aed',
+                            700: '#6d28d9',
+                            800: '#5b21b6',
+                            900: '#4c1d95',
+                        },
+                        accent: {
+                            50: '#f0fdfa',
+                            100: '#ccfbf1',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                        },
+                        surface: {
+                            50: '#fafaf9',
+                            100: '#f5f5f4',
+                            200: '#e7e5e4',
+                            300: '#d6d3d1',
+                            800: '#292524',
+                            900: '#1c1917',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                    borderRadius: {
+                        '2xl': '16px',
+                        '3xl': '24px',
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px rgba(0,0,0,0.04)',
+                        'card': '0 4px 16px rgba(0,0,0,0.05), 0 2px 6px rgba(0,0,0,0.02)',
+                        'elevated': '0 12px 32px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.03)',
+                        'glow': '0 0 40px rgba(124,58,237,0.12)',
+                        'glow-sm': '0 0 20px rgba(124,58,237,0.08)',
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+                        'slide-up': 'slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+                        'scale-in': 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                        'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        scaleIn: {
+                            '0%': { opacity: '0', transform: 'scale(0.95)' },
+                            '100%': { opacity: '1', transform: 'scale(1)' },
+                        },
+                        pulseSoft: {
+                            '0%, 100%': { opacity: '1' },
+                            '50%': { opacity: '0.7' },
+                        },
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: linear-gradient(135deg, #fafaf9 0%, #f5f5f4 100%);
+        }
+        
+        /* Glassmorphism */
+        .glass {
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d6d3d1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a29e;
+        }
+        
+        /* Custom Transitions */
+        .transition-smooth {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .transition-bounce {
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        /* Button Press Effect */
+        .btn-press:active {
+            transform: scale(0.96);
+        }
+        
+        /* Message Animations */
+        .message-enter {
+            animation: messageIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes messageIn {
+            from {
+                opacity: 0;
+                transform: translateY(16px) scale(0.96);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        /* Hover lift effect */
+        .hover-lift {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .hover-lift:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        }
+        
+        /* Gradient Text */
+        .gradient-text {
+            background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        /* Gradient Border */
+        .gradient-border {
+            position: relative;
+            background: white;
+            border-radius: 16px;
+        }
+        .gradient-border::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            padding: 1.5px;
+            background: linear-gradient(135deg, #c4b5fd, #ddd6fe, #ede9fe);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+        }
+        
+        /* Empty State Pattern */
+        .pattern-grid {
+            background-image: 
+                linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        
+        /* Typing Indicator */
+        .typing-dot {
+            animation: typingBounce 1.4s ease-in-out infinite;
+        }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-4px); }
+        }
+    </style>
+</head>
+<body class="h-screen overflow-hidden text-surface-800">
+
+    <!-- ============================================
+         MAIN APP LAYOUT
+         ============================================ -->
+    <div class="flex h-full">
+        
+        <!-- LEFT SIDEBAR - Icon Navigation -->
+        <aside class="w-[72px] glass border-r border-stone-200/60 flex flex-col items-center py-5 z-20">
+            <!-- Logo -->
+            <div class="mb-8">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-glow-sm btn-press cursor-pointer">
+                    <i class="ti ti-hexagon text-white text-xl"></i>
+                </div>
+            </div>
+            
+            <!-- Navigation Icons -->
+            <nav class="flex-1 flex flex-col items-center gap-2">
+                <button class="w-11 h-11 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center transition-smooth btn-press shadow-soft" title="Home">
+                    <i class="ti ti-home text-lg"></i>
+                </button>
+                <button class="w-11 h-11 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press" title="Conversations">
+                    <i class="ti ti-messages text-lg"></i>
+                </button>
+                <button class="w-11 h-11 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press" title="World">
+                    <i class="ti ti-world text-lg"></i>
+                </button>
+                <button class="w-11 h-11 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press" title="Files">
+                    <i class="ti ti-folder text-lg"></i>
+                </button>
+                
+                <div class="w-8 h-px bg-stone-200 my-2"></div>
+                
+                <button class="w-11 h-11 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press" title="Analytics">
+                    <i class="ti ti-chart-bar text-lg"></i>
+                </button>
+                <button class="w-11 h-11 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press" title="Settings">
+                    <i class="ti ti-settings text-lg"></i>
+                </button>
+            </nav>
+            
+            <!-- User Avatar -->
+            <div class="mt-auto">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-sm shadow-card cursor-pointer btn-press">
+                    U
+                </div>
+            </div>
+        </aside>
+
+        <!-- CONVERSATION LIST PANEL -->
+        <aside class="w-[320px] bg-white border-r border-stone-200/60 flex flex-col">
+            <!-- Panel Header -->
+            <div class="px-5 py-4 border-b border-stone-100">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-surface-900 tracking-tight">Conversations</h2>
+                    <button class="w-9 h-9 rounded-xl bg-primary-50 text-primary-600 hover:bg-primary-100 flex items-center justify-center transition-smooth btn-press shadow-soft">
+                        <i class="ti ti-plus text-lg"></i>
+                    </button>
+                </div>
+                <!-- Search -->
+                <div class="relative">
+                    <i class="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"></i>
+                    <input type="text" placeholder="Search conversations..." 
+                           class="w-full pl-10 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-700 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-smooth">
+                </div>
+            </div>
+            
+            <!-- Session List -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-1">
+                <!-- Active Session -->
+                <div class="p-3.5 rounded-xl bg-primary-50/70 border border-primary-200 cursor-pointer transition-smooth group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold shadow-card flex-shrink-0">
+                            <i class="ti ti-brain text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <span class="font-semibold text-stone-900 truncate">Project Planning</span>
+                                <span class="text-xs text-primary-600 font-medium">2m</span>
+                            </div>
+                            <p class="text-sm text-stone-500 truncate mt-0.5">Let me analyze the architecture...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Normal Session -->
+                <div class="p-3.5 rounded-xl hover:bg-stone-50 border border-transparent hover:border-stone-100 cursor-pointer transition-smooth group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-semibold shadow-soft flex-shrink-0">
+                            <i class="ti ti-code text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <span class="font-medium text-stone-900 truncate">Code Review</span>
+                                <span class="text-xs text-stone-400">1h</span>
+                            </div>
+                            <p class="text-sm text-stone-500 truncate mt-0.5">The implementation looks good!</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Another Session -->
+                <div class="p-3.5 rounded-xl hover:bg-stone-50 border border-transparent hover:border-stone-100 cursor-pointer transition-smooth group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-full bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center text-white font-semibold shadow-soft flex-shrink-0">
+                            <i class="ti ti-palette text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <span class="font-medium text-stone-900 truncate">Design Review</span>
+                                <span class="text-xs text-stone-400">5h</span>
+                            </div>
+                            <p class="text-sm text-stone-500 truncate mt-0.5">Here are my suggestions...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- More Sessions -->
+                <div class="p-3.5 rounded-xl hover:bg-stone-50 border border-transparent hover:border-stone-100 cursor-pointer transition-smooth group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-semibold shadow-soft flex-shrink-0">
+                            <i class="ti ti-bug text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <span class="font-medium text-stone-900 truncate">Bug Fix Discussion</span>
+                                <span class="text-xs text-stone-400">1d</span>
+                            </div>
+                            <p class="text-sm text-stone-500 truncate mt-0.5">I found the issue in line 42...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="p-3.5 rounded-xl hover:bg-stone-50 border border-transparent hover:border-stone-100 cursor-pointer transition-smooth group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-11 h-11 rounded-full bg-gradient-to-br from-rose-400 to-pink-600 flex items-center justify-center text-white font-semibold shadow-soft flex-shrink-0">
+                            <i class="ti ti-database text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <span class="font-medium text-stone-900 truncate">Database Schema</span>
+                                <span class="text-xs text-stone-400">2d</span>
+                            </div>
+                            <p class="text-sm text-stone-500 truncate mt-0.5">Here's the optimized query...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- MAIN CHAT AREA -->
+        <main class="flex-1 flex flex-col bg-gradient-to-br from-stone-50/50 to-white relative">
+            <!-- Chat Header -->
+            <header class="glass border-b border-stone-200/60 px-6 py-3.5 flex items-center justify-between z-10">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-card">
+                        <i class="ti ti-brain text-base"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-semibold text-stone-900">Project Planning</h1>
+                        <div class="flex items-center gap-1.5 text-xs text-stone-500">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            <span>Architect Agent • Online</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button class="w-9 h-9 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press">
+                        <i class="ti ti-phone text-lg"></i>
+                    </button>
+                    <button class="w-9 h-9 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press">
+                        <i class="ti ti-video text-lg"></i>
+                    </button>
+                    <button class="w-9 h-9 rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 flex items-center justify-center transition-smooth btn-press">
+                        <i class="ti ti-dots-vertical text-lg"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Messages Container -->
+            <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6" id="messages-container">
+                
+                <!-- Date Divider -->
+                <div class="flex items-center justify-center">
+                    <div class="px-4 py-1.5 rounded-full bg-stone-100 text-xs text-stone-500 font-medium">
+                        Today
+                    </div>
+                </div>
+                
+                <!-- User Message -->
+                <div class="flex gap-4 message-enter" style="animation-delay: 0.1s">
+                    <div class="w-9 h-9 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-sm shadow-card flex-shrink-0 mt-1">
+                        U
+                    </div>
+                    <div class="flex-1 max-w-[80%]">
+                        <div class="flex items-baseline gap-2 mb-1">
+                            <span class="font-semibold text-stone-900 text-sm">You</span>
+                            <span class="text-xs text-stone-400">10:30 AM</span>
+                        </div>
+                        <div class="inline-block px-5 py-3.5 rounded-2xl rounded-tl-sm bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-elevated shadow-primary-500/20">
+                            <p class="text-[15px] leading-relaxed">Hi! Can you help me design the architecture for our new microservices project? I need to handle high traffic and ensure scalability.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- AI Message -->
+                <div class="flex gap-4 message-enter" style="animation-delay: 0.2s">
+                    <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-card flex-shrink-0 mt-1">
+                        <i class="ti ti-brain text-base"></i>
+                    </div>
+                    <div class="flex-1 max-w-[85%]">
+                        <div class="flex items-baseline gap-2 mb-1">
+                            <span class="font-semibold text-stone-900 text-sm">Architect Agent</span>
+                            <span class="text-xs text-stone-400">10:31 AM</span>
+                        </div>
+                        <div class="glass px-5 py-4 rounded-2xl rounded-tl-sm border border-white/40 shadow-card">
+                            <p class="text-[15px] leading-relaxed text-stone-700 mb-3">Absolutely! I'd recommend a modern microservices architecture with these key components:</p>
+                            
+                            <div class="space-y-2 mb-4">
+                                <div class="flex items-start gap-3 p-3 rounded-xl bg-white/60">
+                                    <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                        <i class="ti ti-gateway text-blue-600"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-stone-900 text-sm">API Gateway</p>
+                                        <p class="text-sm text-stone-600">Kong or AWS API Gateway for rate limiting and routing</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-start gap-3 p-3 rounded-xl bg-white/60">
+                                    <div class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                                        <i class="ti ti-refresh-dot text-emerald-600"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-stone-900 text-sm">Service Mesh</p>
+                                        <p class="text-sm text-stone-600">Istio or Linkerd for service-to-service communication</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-start gap-3 p-3 rounded-xl bg-white/60">
+                                    <div class="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0">
+                                        <i class="ti ti-bolt text-violet-600"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-stone-900 text-sm">Event Bus</p>
+                                        <p class="text-sm text-stone-600">Apache Kafka or RabbitMQ for async processing</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <p class="text-[15px] leading-relaxed text-stone-700">Would you like me to elaborate on any of these components or discuss the data layer?</p>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="flex items-center gap-2 mt-2">
+                            <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-smooth btn-press">
+                                <i class="ti ti-refresh"></i>
+                                Reply
+                            </button>
+                            <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-smooth btn-press">
+                                <i class="ti ti-copy"></i>
+                                Copy
+                            </button>
+                            <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-smooth btn-press">
+                                <i class="ti ti-thumb-up"></i>
+                                Helpful
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- User Message 2 -->
+                <div class="flex gap-4 message-enter" style="animation-delay: 0.3s">
+                    <div class="w-9 h-9 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 flex items-center justify-center text-white font-semibold text-sm shadow-card flex-shrink-0 mt-1">
+                        U
+                    </div>
+                    <div class="flex-1 max-w-[80%]">
+                        <div class="flex items-baseline gap-2 mb-1">
+                            <span class="font-semibold text-stone-900 text-sm">You</span>
+                            <span class="text-xs text-stone-400">10:35 AM</span>
+                        </div>
+                        <div class="inline-block px-5 py-3.5 rounded-2xl rounded-tl-sm bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-elevated shadow-primary-500/20">
+                            <p class="text-[15px] leading-relaxed">Yes, please explain more about the data layer and caching strategy.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- AI Typing Indicator -->
+                <div class="flex gap-4 message-enter" style="animation-delay: 0.4s">
+                    <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-card flex-shrink-0 mt-1">
+                        <i class="ti ti-brain text-base"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex items-baseline gap-2 mb-1">
+                            <span class="font-semibold text-stone-900 text-sm">Architect Agent</span>
+                            <span class="text-xs text-stone-400 animate-pulse">Typing...</span>
+                        </div>
+                        <div class="glass px-4 py-3 rounded-2xl rounded-tl-sm border border-white/40 shadow-card inline-flex items-center gap-1">
+                            <div class="w-2 h-2 rounded-full bg-stone-400 typing-dot"></div>
+                            <div class="w-2 h-2 rounded-full bg-stone-400 typing-dot"></div>
+                            <div class="w-2 h-2 rounded-full bg-stone-400 typing-dot"></div>
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+
+            <!-- Message Input Area -->
+            <div class="px-6 pb-6 pt-2">
+                <div class="glass rounded-2xl border border-stone-200/60 shadow-elevated p-2">
+                    <div class="flex items-end gap-2">
+                        <button class="w-10 h-10 rounded-xl text-stone-400 hover:bg-stone-100 hover:text-stone-600 flex items-center justify-center transition-smooth btn-press flex-shrink-0">
+                            <i class="ti ti-paperclip text-xl"></i>
+                        </button>
+                        <textarea placeholder="Type your message..." rows="1" 
+                                  class="flex-1 py-2.5 px-2 bg-transparent border-0 text-stone-700 placeholder-stone-400 resize-none focus:outline-none focus:ring-0 text-[15px] max-h-32"
+                                  style="min-height: 44px;"></textarea>
+                        <button class="w-10 h-10 rounded-xl bg-primary-600 text-white hover:bg-primary-700 flex items-center justify-center transition-smooth btn-press shadow-glow-sm flex-shrink-0">
+                            <i class="ti ti-send text-lg"></i>
+                        </button>
+                    </div>
+                    <div class="flex items-center justify-between px-3 pb-1 pt-1">
+                        <div class="flex items-center gap-1">
+                            <button class="w-7 h-7 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-600 flex items-center justify-center transition-smooth">
+                                <i class="ti ti-mood-smile text-base"></i>
+                            </button>
+                            <button class="w-7 h-7 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-600 flex items-center justify-center transition-smooth">
+                                <i class="ti ti-at text-base"></i>
+                            </button>
+                            <button class="w-7 h-7 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-600 flex items-center justify-center transition-smooth">
+                                <i class="ti ti-code text-base"></i>
+                            </button>
+                        </div>
+                        <span class="text-xs text-stone-400">Press Enter to send</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- RIGHT FILE PANEL (Collapsible) -->
+        <aside class="w-[280px] bg-white border-l border-stone-200/60 flex flex-col">
+            <!-- Panel Header -->
+            <div class="px-5 py-4 border-b border-stone-100 flex items-center justify-between">
+                <h2 class="font-semibold text-stone-900">Files</h2>
+                <button class="w-8 h-8 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-600 flex items-center justify-center transition-smooth btn-press">
+                    <i class="ti ti-chevron-right"></i>
+                </button>
+            </div>
+            
+            <!-- File List -->
+            <div class="flex-1 overflow-y-auto p-4">
+                <div class="space-y-3">
+                    <!-- Folder -->
+                    <div class="group">
+                        <div class="flex items-center gap-2 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-smooth">
+                            <i class="ti ti-chevron-down text-stone-400 text-sm"></i>
+                            <i class="ti ti-folder-filled text-amber-400 text-lg"></i>
+                            <span class="text-sm font-medium text-stone-700">architecture</span>
+                        </div>
+                        <!-- Folder Contents -->
+                        <div class="ml-6 mt-1 space-y-1">
+                            <div class="flex items-center gap-2 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-smooth">
+                                <i class="ti ti-file-text text-stone-400 text-base"></i>
+                                <span class="text-sm text-stone-600">overview.md</span>
+                            </div>
+                            <div class="flex items-center gap-2 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-smooth">
+                                <i class="ti ti-file-text text-stone-400 text-base"></i>
+                                <span class="text-sm text-stone-600">diagrams.png</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Another Folder -->
+                    <div class="group">
+                        <div class="flex items-center gap-2 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-smooth">
+                            <i class="ti ti-chevron-right text-stone-400 text-sm"></i>
+                            <i class="ti ti-folder-filled text-amber-400 text-lg"></i>
+                            <span class="text-sm font-medium text-stone-700">docs</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Individual Files -->
+                    <div class="flex items-center gap-2 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-smooth">
+                        <i class="ti ti-file-type-pdf text-red-400 text-lg"></i>
+                        <span class="text-sm text-stone-600">requirements.pdf</span>
+                    </div>
+                    <div class="flex items-center gap-2 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition-smooth">
+                        <i class="ti ti-file-spreadsheet text-emerald-500 text-lg"></i>
+                        <span class="text-sm text-stone-600">estimates.xlsx</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Upload Area -->
+            <div class="p-4 border-t border-stone-100">
+                <div class="border-2 border-dashed border-stone-200 rounded-xl p-4 text-center hover:border-primary-300 hover:bg-primary-50/30 cursor-pointer transition-smooth">
+                    <i class="ti ti-cloud-upload text-stone-400 text-2xl mb-2"></i>
+                    <p class="text-xs text-stone-500">Drop files here or click to upload</p>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- ============================================
+         COMPONENT SHOWCASE SECTION
+         ============================================ -->
+    <div class="fixed bottom-4 right-4 z-50">
+        <button onclick="toggleShowcase()" class="w-12 h-12 rounded-full bg-primary-600 text-white shadow-elevated hover:bg-primary-700 flex items-center justify-center transition-smooth btn-press">
+            <i class="ti ti-components text-xl"></i>
+        </button>
+    </div>
+
+    <!-- Showcase Modal -->
+    <div id="showcase" class="fixed inset-0 z-40 hidden">
+        <div class="absolute inset-0 bg-stone-900/40 backdrop-blur-sm" onclick="toggleShowcase()"></div>
+        <div class="absolute right-0 top-0 bottom-0 w-[600px] bg-white shadow-2xl overflow-y-auto">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-stone-900">Design System Components</h2>
+                    <button onclick="toggleShowcase()" class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center transition-smooth">
+                        <i class="ti ti-x text-stone-500"></i>
+                    </button>
+                </div>
+                
+                <!-- Color Palette -->
+                <section class="mb-8">
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Color Palette</h3>
+                    <div class="grid grid-cols-5 gap-3">
+                        <div class="space-y-2">
+                            <div class="h-16 rounded-xl bg-primary-500 shadow-card"></div>
+                            <p class="text-xs text-stone-600 font-medium text-center">Primary 500</p>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="h-16 rounded-xl bg-primary-600 shadow-card"></div>
+                            <p class="text-xs text-stone-600 font-medium text-center">Primary 600</p>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="h-16 rounded-xl bg-accent-500 shadow-card"></div>
+                            <p class="text-xs text-stone-600 font-medium text-center">Accent 500</p>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="h-16 rounded-xl bg-stone-900 shadow-card"></div>
+                            <p class="text-xs text-stone-600 font-medium text-center">Surface 900</p>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="h-16 rounded-xl bg-stone-100 shadow-card"></div>
+                            <p class="text-xs text-stone-600 font-medium text-center">Surface 100</p>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Buttons -->
+                <section class="mb-8">
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Buttons</h3>
+                    <div class="space-y-4">
+                        <div class="flex items-center gap-3">
+                            <button class="px-5 py-2.5 rounded-xl bg-primary-600 text-white font-medium shadow-glow-sm hover:bg-primary-700 transition-smooth btn-press">
+                                Primary Button
+                            </button>
+                            <button class="px-5 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 font-medium shadow-card hover:bg-stone-50 hover:border-stone-300 transition-smooth btn-press">
+                                Secondary
+                            </button>
+                            <button class="px-5 py-2.5 rounded-xl text-stone-600 font-medium hover:bg-stone-100 transition-smooth btn-press">
+                                Tertiary
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button class="w-10 h-10 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center shadow-soft hover:bg-primary-100 transition-smooth btn-press">
+                                <i class="ti ti-plus"></i>
+                            </button>
+                            <button class="w-10 h-10 rounded-xl bg-stone-100 text-stone-600 flex items-center justify-center hover:bg-stone-200 transition-smooth btn-press">
+                                <i class="ti ti-settings"></i>
+                            </button>
+                            <button class="w-10 h-10 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 text-white flex items-center justify-center shadow-card btn-press">
+                                U
+                            </button>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Input Fields -->
+                <section class="mb-8">
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Input Fields</h3>
+                    <div class="space-y-4 max-w-sm">
+                        <div>
+                            <label class="block text-sm font-medium text-stone-700 mb-1.5">Username</label>
+                            <input type="text" placeholder="Enter username" 
+                                   class="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-700 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-smooth">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-stone-700 mb-1.5">API Key</label>
+                            <input type="password" placeholder="sk-..." 
+                                   class="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-700 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-smooth">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-stone-700 mb-1.5">Description</label>
+                            <textarea rows="3" placeholder="Enter description..." 
+                                      class="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-700 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-smooth resize-none"></textarea>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Cards -->
+                <section class="mb-8">
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Cards</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="p-5 rounded-2xl bg-white border border-stone-200 shadow-card hover:shadow-elevated hover:-translate-y-0.5 transition-smooth cursor-pointer">
+                            <div class="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center mb-3">
+                                <i class="ti ti-robot text-primary-600 text-xl"></i>
+                            </div>
+                            <h4 class="font-semibold text-stone-900 mb-1">AI Agent</h4>
+                            <p class="text-sm text-stone-500">Intelligent automation for your workflow</p>
+                        </div>
+                        <div class="p-5 rounded-2xl bg-gradient-to-br from-primary-50 to-white border border-primary-200 shadow-card">
+                            <div class="w-10 h-10 rounded-xl bg-primary-500 flex items-center justify-center mb-3 shadow-glow-sm">
+                                <i class="ti ti-sparkles text-white text-xl"></i>
+                            </div>
+                            <h4 class="font-semibold text-stone-900 mb-1">Pro Feature</h4>
+                            <p class="text-sm text-stone-500">Unlock advanced capabilities</p>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Avatars -->
+                <section class="mb-8">
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Avatars</h3>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-semibold shadow-card">A</div>
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-card">
+                            <i class="ti ti-brain"></i>
+                        </div>
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white shadow-card">
+                            <i class="ti ti-code"></i>
+                        </div>
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center text-white shadow-card">
+                            <i class="ti ti-palette"></i>
+                        </div>
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white shadow-card">
+                            <i class="ti ti-bug"></i>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Badges -->
+                <section class="mb-8">
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Badges & Status</h3>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">Online</span>
+                        <span class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">Away</span>
+                        <span class="px-2.5 py-1 rounded-full bg-stone-100 text-stone-600 text-xs font-medium">Offline</span>
+                        <span class="px-2.5 py-1 rounded-full bg-primary-100 text-primary-700 text-xs font-medium">New</span>
+                        <span class="px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">Beta</span>
+                        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stone-100">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span class="text-xs text-stone-600 font-medium">Typing</span>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Empty States -->
+                <section class="mb-8">
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Empty States</h3>
+                    <div class="border-2 border-dashed border-stone-200 rounded-2xl p-8 text-center pattern-grid">
+                        <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-stone-100 flex items-center justify-center">
+                            <i class="ti ti-folder-open text-3xl text-stone-300"></i>
+                        </div>
+                        <h4 class="text-lg font-semibold text-stone-700 mb-1">No files yet</h4>
+                        <p class="text-sm text-stone-500 mb-4">Drag and drop files here to upload</p>
+                        <button class="px-4 py-2 rounded-xl bg-primary-600 text-white text-sm font-medium shadow-glow-sm hover:bg-primary-700 transition-smooth btn-press">
+                            Upload File
+                        </button>
+                    </div>
+                </section>
+                
+                <!-- Design Principles -->
+                <section>
+                    <h3 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-4">Design Principles</h3>
+                    <div class="space-y-3">
+                        <div class="p-4 rounded-xl bg-stone-50 border border-stone-100">
+                            <h4 class="font-semibold text-stone-900 mb-1">🎨 Sophisticated Color</h4>
+                            <p class="text-sm text-stone-600">Deep violet primary with warm stone neutrals, gradient accents for depth</p>
+                        </div>
+                        <div class="p-4 rounded-xl bg-stone-50 border border-stone-100">
+                            <h4 class="font-semibold text-stone-900 mb-1">✨ Subtle Elevation</h4>
+                            <p class="text-sm text-stone-600">Multi-layer shadows, glassmorphism headers, refined borders</p>
+                        </div>
+                        <div class="p-4 rounded-xl bg-stone-50 border border-stone-100">
+                            <h4 class="font-semibold text-stone-900 mb-1">🎯 Meaningful Motion</h4>
+                            <p class="text-sm text-stone-600">Smooth transitions, bounce effects on buttons, message enter animations</p>
+                        </div>
+                        <div class="p-4 rounded-xl bg-stone-50 border border-stone-100">
+                            <h4 class="font-semibold text-stone-900 mb-1">🔤 Refined Typography</h4>
+                            <p class="text-sm text-stone-600">Inter font family, tight headings, relaxed body text, proper hierarchy</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleShowcase() {
+            const showcase = document.getElementById('showcase');
+            if (showcase.classList.contains('hidden')) {
+                showcase.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+            } else {
+                showcase.classList.add('hidden');
+                document.body.style.overflow = '';
+            }
+        }
+        
+        // Auto-resize textarea
+        const textarea = document.querySelector('textarea');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 128) + 'px';
+        });
+    </script>
+</body>
+</html>

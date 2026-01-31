@@ -753,3 +753,71 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             str: session 文件夹的绝对路径，如果不存在返回 None
         """
         return getattr(self, 'current_session_folder', None)
+
+    # ==========================================
+    # Transient Context（非持久化内存数据）
+    # ==========================================
+
+    def get_transient(self, key: str, default=None):
+        """
+        从transient context获取值（非持久化）
+
+        Transient context存储在session中，但不会保存到磁盘。
+        适合存储复杂对象、临时数据等不需要持久化的内容。
+
+        Args:
+            key: 键名
+            default: 默认值（如果键不存在）
+
+        Returns:
+            存储的值，或默认值
+
+        Example:
+            # 获取复杂对象
+            notebook = self.get_transient("notebook")
+            if not notebook:
+                notebook = Notebook()
+                self.set_transient("notebook", notebook)
+        """
+        if not self.current_session:
+            return default
+
+        transient_ctx = self.current_session.get("transient_context", {})
+        return transient_ctx.get(key, default)
+
+    def set_transient(self, key: str, value: any):
+        """
+        设置transient context中的值（非持久化）
+
+        用途：
+        - 存储复杂对象（class实例）
+        - 临时计算结果
+        - 缓存数据
+        - 任何不需要持久化的数据
+
+        Args:
+            key: 键名
+            value: 值（可以是任意Python对象）
+
+        Example:
+            # 存储复杂对象
+            parser = CustomParser()
+            self.set_transient("parser", parser)
+
+            # 存储缓存
+            self.set_transient("cache", {})
+
+        Note:
+            - 数据不会保存到磁盘
+            - 跟随session自动切换
+            - agent重启后数据丢失
+        """
+        if not self.current_session:
+            self.logger.warning("No active session to set transient data")
+            return
+
+        if "transient_context" not in self.current_session:
+            self.current_session["transient_context"] = {}
+
+        self.current_session["transient_context"][key] = value
+        self.logger.debug(f"💾 Set transient: {key}")

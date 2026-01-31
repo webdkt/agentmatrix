@@ -7,6 +7,57 @@
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom Tailwind Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f5f3ff',
+                            100: '#ede9fe',
+                            200: '#ddd6fe',
+                            300: '#c4b5fd',
+                            400: '#a78bfa',
+                            500: '#8b5cf6',
+                            600: '#7c3aed',
+                            700: '#6d28d9',
+                            800: '#5b21b6',
+                            900: '#4c1d95',
+                        },
+                        surface: {
+                            50: '#fafaf9',
+                            100: '#f5f5f4',
+                            200: '#e7e5e4',
+                            300: '#d6d3d1',
+                            400: '#a8a29e',
+                            500: '#78716c',
+                            600: '#57534e',
+                            700: '#44403c',
+                            800: '#292524',
+                            900: '#1c1917',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px rgba(0,0,0,0.04)',
+                        'card': '0 4px 16px rgba(0,0,0,0.05), 0 2px 6px rgba(0,0,0,0.02)',
+                        'elevated': '0 12px 32px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.03)',
+                        'glow': '0 0 40px rgba(124,58,237,0.12)',
+                        'glow-sm': '0 0 20px rgba(124,58,237,0.08)',
+                    },
+                }
+            }
+        }
+    </script>
+
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
@@ -16,169 +67,240 @@
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/static/css/custom.css">
+    
+    <style>
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: linear-gradient(135deg, #fafaf9 0%, #f5f5f4 100%);
+            min-height: 100vh;
+        }
+    </style>
 </head>
-<body>
-    <div id="wizard" x-data="wizard()" class="container mx-auto px-4 py-8">
+<body class="py-12 px-4">
+    <div id="wizard" x-data="wizard()" class="container mx-auto max-w-3xl">
         <!-- Header -->
-        <div class="text-center mb-12">
-            <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-50 rounded-full mb-6 shadow-elegant">
-                <i class="ti ti-robot text-4xl text-blue-600"></i>
+        <div class="text-center mb-10">
+            <div class="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-primary-100 to-primary-50 mb-6 shadow-elevated">
+                <i class="ti ti-hexagon text-4xl text-primary-600"></i>
             </div>
-            <h1 class="text-4xl font-bold text-slate-900 mb-2 tracking-tight">欢迎使用 AgentMatrix</h1>
-            <p class="text-slate-600 text-lg">让我们开始配置您的智能体矩阵世界</p>
+            <h1 class="text-4xl font-bold text-surface-900 mb-3 tracking-tight">Welcome to AgentMatrix</h1>
+            <p class="text-surface-600 text-lg">Let's configure your agent matrix world</p>
         </div>
 
-        <!-- Wizard Card - Glassmorphism -->
-        <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-elegant-lg border border-slate-200/60 p-8">
+        <!-- Wizard Card -->
+        <div class="bg-white rounded-3xl shadow-elevated border border-surface-200/60 p-8">
             <!-- Progress Indicator -->
-            <div class="mb-8">
+            <div class="mb-10">
                 <div class="flex items-center justify-between">
+                    <!-- Step 1 -->
                     <div class="flex items-center">
-                        <div class="flex items-center justify-center w-10 h-10 rounded-full bg-indigo-600 text-white font-bold shadow-elegant" :class="step >= 1 ? 'bg-indigo-600' : 'bg-slate-300'">1</div>
-                        <span class="ml-2 font-medium text-slate-900 tracking-tight">User 配置</span>
+                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold shadow-card transition-all duration-300"
+                             :class="step >= 1 ? 'bg-primary-600 text-white' : 'bg-surface-200 text-surface-500'">
+                            <i x-show="step > 1" class="ti ti-check"></i>
+                            <span x-show="step === 1">1</span>
+                        </div>
+                        <span class="ml-3 font-medium text-surface-900 tracking-tight hidden sm:block">User Setup</span>
                     </div>
-                    <div class="flex-1 h-1 mx-4 bg-slate-200">
-                        <div class="h-full bg-indigo-600 transition-all duration-300" :style="`width: ${step * 33.3}%`"></div>
+                    
+                    <!-- Progress Line 1 -->
+                    <div class="flex-1 h-1 mx-4 bg-surface-200 rounded-full overflow-hidden">
+                        <div class="h-full bg-primary-600 transition-all duration-500" :style="`width: ${step >= 2 ? '100%' : (step === 1 ? '50%' : '0%')}`"></div>
                     </div>
+                    
+                    <!-- Step 2 -->
                     <div class="flex items-center">
-                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold shadow-elegant" :class="step >= 2 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'">2</div>
-                        <span class="ml-2 font-medium tracking-tight" :class="step >= 2 ? 'text-slate-900' : 'text-slate-400'">LLM 配置</span>
+                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold shadow-card transition-all duration-300"
+                             :class="step >= 2 ? 'bg-primary-600 text-white' : 'bg-surface-200 text-surface-500'">
+                            <i x-show="step > 2" class="ti ti-check"></i>
+                            <span x-show="step <= 2">2</span>
+                        </div>
+                        <span class="ml-3 font-medium tracking-tight hidden sm:block" :class="step >= 2 ? 'text-surface-900' : 'text-surface-400'">LLM Config</span>
                     </div>
-                    <div class="flex-1 h-1 mx-4 bg-slate-200">
-                        <div class="h-full bg-indigo-600 transition-all duration-300" :style="`width: ${(step - 1) * 33.3}%`"></div>
+                    
+                    <!-- Progress Line 2 -->
+                    <div class="flex-1 h-1 mx-4 bg-surface-200 rounded-full overflow-hidden">
+                        <div class="h-full bg-primary-600 transition-all duration-500" :style="`width: ${step >= 3 ? '100%' : '0%'}`"></div>
                     </div>
+                    
+                    <!-- Step 3 -->
                     <div class="flex items-center">
-                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold shadow-elegant" :class="step >= 3 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'">3</div>
-                        <span class="ml-2 font-medium tracking-tight" :class="step >= 3 ? 'text-slate-900' : 'text-slate-400'">完成</span>
+                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold transition-all duration-300"
+                             :class="step >= 3 ? 'bg-primary-600 text-white shadow-card' : 'bg-surface-200 text-surface-500'">
+                            <i class="ti ti-check"></i>
+                        </div>
+                        <span class="ml-3 font-medium tracking-tight hidden sm:block" :class="step >= 3 ? 'text-surface-900' : 'text-surface-400'">Complete</span>
                     </div>
                 </div>
             </div>
 
             <!-- Step 1: User Agent Configuration -->
-            <div x-show="step === 1" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-x-4" x-transition:enter-end="opacity-100 transform translate-x-0">
-                <h2 class="text-2xl font-bold text-slate-900 mb-6 tracking-tight">配置 User Agent</h2>
-                <p class="text-slate-600 mb-6">请输入您的 User Agent 的名称（这是您在系统中的代表）</p>
+            <div x-show="step === 1" 
+                 x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 transform translate-x-4"
+                 x-transition:enter-end="opacity-100 transform translate-x-0"
+                 x-transition:leave="transition ease-in duration-200"
+                 x-transition:leave-start="opacity-100 transform translate-x-0"
+                 x-transition:leave-end="opacity-0 transform -translate-x-4">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl font-bold text-surface-900 mb-2 tracking-tight">Configure User Agent</h2>
+                    <p class="text-surface-600">Enter your name to represent you in the system</p>
+                </div>
 
-                <div class="mb-8">
-                    <div class="space-y-4">
+                <div class="max-w-md mx-auto mb-8">
+                    <div class="space-y-5">
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">User Agent 名称</label>
-                            <input type="text" x-model="config.user_name" placeholder="例如: Alice, Human, 用户" class="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
-                            <p class="mt-2 text-sm text-slate-500">建议使用简短易记的名称，可以是英文名、中文名或昵称</p>
+                            <label class="block text-sm font-medium text-surface-700 mb-2">User Agent Name</label>
+                            <div class="relative">
+                                <i class="ti ti-user absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"></i>
+                                <input type="text" x-model="config.user_name" placeholder="e.g., Alice, Human, User" 
+                                       class="w-full pl-10 pr-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
+                            </div>
+                            <p class="mt-2 text-sm text-surface-500">Use a short, memorable name (English, Chinese, or nickname)</p>
                         </div>
                     </div>
                 </div>
 
                 <!-- Error Message -->
-                <div x-show="errorMessage" x-transition class="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
-                    <div class="flex items-center">
-                        <i class="ti ti-alert-circle mr-2"></i>
+                <div x-show="errorMessage" 
+                     x-transition
+                     class="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 max-w-md mx-auto">
+                    <div class="flex items-center gap-2">
+                        <i class="ti ti-alert-circle text-lg"></i>
                         <span x-text="errorMessage"></span>
                     </div>
                 </div>
 
                 <!-- Navigation Buttons -->
-                <div class="flex justify-end">
-                    <button @click="submitUserConfig()" :disabled="isSubmitting" class="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-smooth btn-press focus-ring-custom flex items-center font-medium shadow-elegant">
-                        <span x-show="!isSubmitting">下一步</span>
-                        <span x-show="isSubmitting">验证中...</span>
-                        <i class="ti ti-arrow-right ml-2" x-show="!isSubmitting"></i>
-                        <i class="ti ti-loader animate-spin ml-2" x-show="isSubmitting"></i>
+                <div class="flex justify-end max-w-md mx-auto">
+                    <button @click="submitUserConfig()" 
+                            :disabled="isSubmitting"
+                            class="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:bg-surface-300 disabled:cursor-not-allowed transition-all duration-200 btn-press flex items-center gap-2 font-medium shadow-glow-sm">
+                        <span x-show="!isSubmitting">Next Step</span>
+                        <span x-show="isSubmitting">Verifying...</span>
+                        <i class="ti ti-arrow-right" x-show="!isSubmitting"></i>
+                        <i class="ti ti-loader-2 animate-spin" x-show="isSubmitting"></i>
                     </button>
                 </div>
             </div>
 
             <!-- Step 2: LLM Configuration -->
-            <div x-show="step === 2" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-x-4" x-transition:enter-end="opacity-100 transform translate-x-0">
-                <h2 class="text-2xl font-bold text-slate-900 mb-6 tracking-tight">配置大语言模型</h2>
-                <p class="text-slate-600 mb-6">请配置您的大语言模型服务。AgentMatrix 需要至少两个 LLM 配置。</p>
+            <div x-show="step === 2"
+                 x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 transform translate-x-4"
+                 x-transition:enter-end="opacity-100 transform translate-x-0"
+                 x-transition:leave="transition ease-in duration-200"
+                 x-transition:leave-start="opacity-100 transform translate-x-0"
+                 x-transition:leave-end="opacity-0 transform -translate-x-4">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl font-bold text-surface-900 mb-2 tracking-tight">Configure LLM</h2>
+                    <p class="text-surface-600">Set up your Large Language Model services (at least 2 required)</p>
+                </div>
 
                 <!-- Default LLM -->
-                <div class="mb-8">
-                    <h3 class="text-lg font-semibold text-slate-900 mb-4 flex items-center tracking-tight">
-                        <i class="ti ti-brain mr-2"></i>
-                        默认 LLM (default_llm)
-                    </h3>
-                    <div class="space-y-4">
+                <div class="max-w-lg mx-auto mb-8">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center">
+                            <i class="ti ti-brain text-primary-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-surface-900 tracking-tight">Default LLM</h3>
+                    </div>
+                    <div class="space-y-4 pl-10">
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">API 地址</label>
-                            <input type="url" x-model="config.default_llm.url" placeholder="https://api.openai.com/v1/chat/completions" class="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
+                            <label class="block text-sm font-medium text-surface-700 mb-2">API URL</label>
+                            <input type="url" x-model="config.default_llm.url" placeholder="https://api.openai.com/v1/chat/completions" 
+                                   class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">API Key</label>
-                            <input type="password" x-model="config.default_llm.api_key" placeholder="sk-..." class="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
+                            <label class="block text-sm font-medium text-surface-700 mb-2">API Key</label>
+                            <input type="password" x-model="config.default_llm.api_key" placeholder="sk-..." 
+                                   class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">模型名称</label>
-                            <input type="text" x-model="config.default_llm.model_name" placeholder="gpt-4" class="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
+                            <label class="block text-sm font-medium text-surface-700 mb-2">Model Name</label>
+                            <input type="text" x-model="config.default_llm.model_name" placeholder="gpt-4" 
+                                   class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
                         </div>
                     </div>
                 </div>
 
                 <!-- Default SLM -->
-                <div class="mb-8">
-                    <h3 class="text-lg font-semibold text-slate-900 mb-4 flex items-center tracking-tight">
-                        <i class="ti ti-brain mr-2"></i>
-                        默认 SLM (default_slm)
-                    </h3>
-                    <div class="space-y-4">
+                <div class="max-w-lg mx-auto mb-8">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                            <i class="ti ti-cpu text-emerald-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-surface-900 tracking-tight">Default SLM</h3>
+                    </div>
+                    <div class="space-y-4 pl-10">
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">API 地址</label>
-                            <input type="url" x-model="config.default_slm.url" placeholder="https://api.openai.com/v1/chat/completions" class="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
+                            <label class="block text-sm font-medium text-surface-700 mb-2">API URL</label>
+                            <input type="url" x-model="config.default_slm.url" placeholder="https://api.openai.com/v1/chat/completions" 
+                                   class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">API Key</label>
-                            <input type="password" x-model="config.default_slm.api_key" placeholder="sk-..." class="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
+                            <label class="block text-sm font-medium text-surface-700 mb-2">API Key</label>
+                            <input type="password" x-model="config.default_slm.api_key" placeholder="sk-..." 
+                                   class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2 tracking-tight">模型名称</label>
-                            <input type="text" x-model="config.default_slm.model_name" placeholder="gpt-3.5-turbo" class="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500/20 transition-smooth placeholder-slate-400">
+                            <label class="block text-sm font-medium text-surface-700 mb-2">Model Name</label>
+                            <input type="text" x-model="config.default_slm.model_name" placeholder="gpt-3.5-turbo" 
+                                   class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
                         </div>
                     </div>
                 </div>
 
                 <!-- Error Message -->
-                <div x-show="errorMessage" x-transition class="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
-                    <div class="flex items-center">
-                        <i class="ti ti-alert-circle mr-2"></i>
+                <div x-show="errorMessage" 
+                     x-transition
+                     class="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 max-w-lg mx-auto">
+                    <div class="flex items-center gap-2">
+                        <i class="ti ti-alert-circle text-lg"></i>
                         <span x-text="errorMessage"></span>
                     </div>
                 </div>
 
                 <!-- Navigation Buttons -->
-                <div class="flex justify-between">
-                    <button @click="step = 1" class="px-6 py-3 bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-smooth btn-press focus-ring-custom flex items-center font-medium">
-                        <i class="ti ti-arrow-left mr-2"></i>
-                        <span>上一步</span>
+                <div class="flex justify-between max-w-lg mx-auto">
+                    <button @click="step = 1" 
+                            class="px-6 py-3 bg-surface-100 text-surface-700 rounded-xl hover:bg-surface-200 transition-all duration-200 btn-press flex items-center gap-2 font-medium">
+                        <i class="ti ti-arrow-left"></i>
+                        <span>Back</span>
                     </button>
-                    <button @click="submitLLMConfig()" :disabled="isSubmitting" class="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-smooth btn-press focus-ring-custom flex items-center font-medium shadow-elegant">
-                        <span x-show="!isSubmitting">完成配置</span>
-                        <span x-show="isSubmitting">提交中...</span>
-                        <i class="ti ti-check ml-2" x-show="!isSubmitting"></i>
-                        <i class="ti ti-loader animate-spin ml-2" x-show="isSubmitting"></i>
+                    <button @click="submitLLMConfig()" 
+                            :disabled="isSubmitting"
+                            class="px-6 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:bg-surface-300 disabled:cursor-not-allowed transition-all duration-200 btn-press flex items-center gap-2 font-medium shadow-glow-sm">
+                        <span x-show="!isSubmitting">Complete Setup</span>
+                        <span x-show="isSubmitting">Submitting...</span>
+                        <i class="ti ti-check" x-show="!isSubmitting"></i>
+                        <i class="ti ti-loader-2 animate-spin" x-show="isSubmitting"></i>
                     </button>
                 </div>
             </div>
 
             <!-- Step 3: Completion -->
-            <div x-show="step === 3" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 transform translate-x-4" x-transition:enter-end="opacity-100 transform translate-x-0">
+            <div x-show="step === 3"
+                 x-transition:enter="transition ease-out duration-500"
+                 x-transition:enter-start="opacity-0 transform scale-95"
+                 x-transition:enter-end="opacity-100 transform scale-100">
                 <div class="text-center py-8">
-                    <div class="inline-flex items-center justify-center w-20 h-20 bg-emerald-100 rounded-full mb-6 shadow-elegant">
-                        <i class="ti ti-check text-4xl text-emerald-600"></i>
+                    <div class="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 mb-6 shadow-elevated">
+                        <i class="ti ti-check text-5xl text-white"></i>
                     </div>
-                    <h2 class="text-2xl font-bold text-slate-900 mb-4 tracking-tight">配置完成！</h2>
-                    <p class="text-slate-600 mb-8">您的 AgentMatrix 已经配置完成。点击下方按钮进入主界面。</p>
-                    <button @click="goToApp()" class="px-8 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-smooth btn-press focus-ring-custom inline-flex items-center font-medium shadow-elegant">
-                        <span>进入 AgentMatrix</span>
-                        <i class="ti ti-arrow-right ml-2"></i>
+                    <h2 class="text-3xl font-bold text-surface-900 mb-3 tracking-tight">Setup Complete!</h2>
+                    <p class="text-surface-600 mb-8 max-w-md mx-auto">Your AgentMatrix is now configured and ready to use. Click below to enter the main application.</p>
+                    <button @click="goToApp()" 
+                            class="px-8 py-3.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all duration-200 btn-press inline-flex items-center gap-2 font-medium shadow-glow-sm text-lg">
+                        <span>Enter AgentMatrix</span>
+                        <i class="ti ti-arrow-right"></i>
                     </button>
                 </div>
             </div>
         </div>
 
         <!-- Footer -->
-        <div class="text-center mt-8 text-slate-500 text-sm">
-            <p>AgentMatrix v0.1.5 | 需要帮助？访问 <a href="https://github.com/webdkt/agentmatrix" target="_blank" class="text-blue-600 hover:underline">GitHub</a></p>
+        <div class="text-center mt-8 text-surface-500 text-sm">
+            <p>AgentMatrix v0.1.5 | Need help? Visit <a href="https://github.com/webdkt/agentmatrix" target="_blank" class="text-primary-600 hover:underline">GitHub</a></p>
         </div>
     </div>
 
@@ -209,12 +331,12 @@
                 async submitUserConfig() {
                     // Validate user name
                     if (!this.config.user_name || this.config.user_name.trim() === '') {
-                        this.errorMessage = '请输入 User Agent 名称';
+                        this.errorMessage = 'Please enter a User Agent name';
                         return;
                     }
 
                     if (this.config.user_name.length > 50) {
-                        this.errorMessage = 'User Agent 名称不能超过50个字符';
+                        this.errorMessage = 'User Agent name must be less than 50 characters';
                         return;
                     }
 
@@ -225,12 +347,12 @@
                 async submitLLMConfig() {
                     // Validate inputs
                     if (!this.config.default_llm.url || !this.config.default_llm.api_key || !this.config.default_llm.model_name) {
-                        this.errorMessage = '请完整填写 default_llm 的所有字段';
+                        this.errorMessage = 'Please fill in all fields for Default LLM';
                         return;
                     }
 
                     if (!this.config.default_slm.url || !this.config.default_slm.api_key || !this.config.default_slm.model_name) {
-                        this.errorMessage = '请完整填写 default_slm 的所有字段';
+                        this.errorMessage = 'Please fill in all fields for Default SLM';
                         return;
                     }
 
@@ -241,7 +363,7 @@
                         await API.completeColdStart(this.config);
                         this.step = 3;
                     } catch (error) {
-                        this.errorMessage = '保存配置失败：' + error.message;
+                        this.errorMessage = 'Failed to save configuration: ' + error.message;
                     } finally {
                         this.isSubmitting = false;
                     }

@@ -619,19 +619,51 @@ async def get_session(session_id: str):
 
 @app.get("/api/agents")
 async def get_agents():
-    """Get all agents"""
-    # TODO: Implement agent retrieval
-    return {
-        "agents": []
-    }
+    """Get all agents with their details"""
+    global matrix_runtime
+    
+    if not matrix_runtime:
+        return {"agents": []}
+    
+    try:
+        agents_list = []
+        for name, agent in matrix_runtime.agents.items():
+            # Skip User agent (don't show user as an agent)
+            if name == matrix_runtime.get_user_agent_name():
+                continue
+            
+            agents_list.append({
+                "name": name,
+                "description": getattr(agent, 'description', 'No description'),
+                "instruction": getattr(agent, 'instruction_to_caller', ''),
+                "backend_model": getattr(agent, 'backend_model', 'default_llm')
+            })
+        
+        return {"agents": agents_list}
+    except Exception as e:
+        print(f"Error getting agents: {e}")
+        return {"agents": [], "error": str(e)}
 
 
 @app.get("/api/agents/{agent_name}")
 async def get_agent(agent_name: str):
-    """Get a specific agent"""
-    # TODO: Implement agent details retrieval
+    """Get a specific agent's details"""
+    global matrix_runtime
+    
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+    
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    
+    agent = matrix_runtime.agents[agent_name]
+    
     return {
-        "name": agent_name
+        "name": agent_name,
+        "description": getattr(agent, 'description', 'No description'),
+        "instruction": getattr(agent, 'instruction_to_caller', ''),
+        "backend_model": getattr(agent, 'backend_model', 'default_llm'),
+        "system_prompt": getattr(agent, 'system_prompt', '')[:200] + '...' if len(getattr(agent, 'system_prompt', '')) > 200 else getattr(agent, 'system_prompt', '')
     }
 
 

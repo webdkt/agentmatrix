@@ -37,13 +37,22 @@ function app() {
         // Reply state - 使用 Map 存储每个邮件的回复状态
         replyStates: {},
 
+        // File panel state
+        showFilePanel: true,
+
+        // Quick reply state
+        quickReplyBody: '',
+
+        // New email popup state
+        newEmailPopup: null,
+
         // Computed property for filtered agents
         get filteredAgents() {
             if (!this.agentSearchQuery) {
                 return this.agents;
             }
             return this.agents.filter(agent =>
-                agent.toLowerCase().includes(this.agentSearchQuery.toLowerCase())
+                agent.name.toLowerCase().includes(this.agentSearchQuery.toLowerCase())
             );
         },
 
@@ -117,8 +126,8 @@ function app() {
             try {
                 await this.loadSessions();
 
-                // Agents are already loaded from runtime status in init()
-                // Don't overwrite with API.getAgents() which returns empty
+                // Load agents with their details (including description/role)
+                await this.loadAgents();
 
                 // Load files
                 const filesData = await API.getFiles();
@@ -126,6 +135,23 @@ function app() {
             } catch (error) {
                 console.error('Failed to load initial data:', error);
             }
+        },
+
+        // Load agents with details
+        async loadAgents() {
+            try {
+                const agentsData = await API.getAgents();
+                this.agents = agentsData.agents || [];
+                console.log('Loaded agents:', this.agents);
+            } catch (error) {
+                console.error('Failed to load agents:', error);
+            }
+        },
+
+        // Get agent description by name
+        getAgentDescription(agentName) {
+            const agent = this.agents.find(a => a.name === agentName);
+            return agent?.description || '';
         },
 
         // Load sessions
@@ -140,16 +166,30 @@ function app() {
         },
 
         // Handle new email received via WebSocket
-        handleNewEmail(emailData) {
+        async handleNewEmail(emailData) {
             console.log('📧 New email received:', emailData);
 
-            // Show notification (could use browser notifications in the future)
-            // For now, just log and potentially update UI
-            const notification = `📧 New email from ${emailData.sender}: ${emailData.subject}`;
-            console.log(notification);
+            // Close any existing popup (only show latest)
+            this.newEmailPopup = null;
 
-            // TODO: Update session list or conversation history
-            // This would be implemented when we have proper session management
+            // Show new email popup
+            this.newEmailPopup = emailData;
+
+            // Refresh session list
+            await this.loadSessions();
+
+            // Select the session if user_session_id is available
+            if (emailData.user_session_id) {
+                const session = this.sessions.find(s => s.session_id === emailData.user_session_id);
+                if (session) {
+                    await this.selectSession(session);
+                }
+            }
+        },
+
+        // Close new email popup
+        closeNewEmailPopup() {
+            this.newEmailPopup = null;
         },
 
         // Tab navigation
@@ -187,14 +227,32 @@ function app() {
         formatDate(timestamp) {
             const date = new Date(timestamp);
             const now = new Date();
-            const diffTime = Math.abs(now - date);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            if (diffDays === 0) {
+            
+            // Check if it's today (same day)
+            const isToday = date.getDate() === now.getDate() &&
+                           date.getMonth() === now.getMonth() &&
+                           date.getFullYear() === now.getFullYear();
+            
+            if (isToday) {
                 return '今天';
-            } else if (diffDays === 1) {
+            }
+            
+            // Check if it's yesterday
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const isYesterday = date.getDate() === yesterday.getDate() &&
+                               date.getMonth() === yesterday.getMonth() &&
+                               date.getFullYear() === yesterday.getFullYear();
+            
+            if (isYesterday) {
                 return '昨天';
-            } else if (diffDays < 7) {
+            }
+            
+            // Calculate days difference for "X days ago"
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays < 7) {
                 return `${diffDays}天前`;
             } else {
                 return date.toLocaleDateString('zh-CN');
@@ -229,8 +287,8 @@ function app() {
 
         // Select agent from dropdown
         selectAgent(agent) {
-            this.newEmail.recipient = agent;
-            this.agentSearchQuery = agent;
+            this.newEmail.recipient = agent.name;
+            this.agentSearchQuery = agent.name;
             this.showAgentDropdown = false;
         },
 
@@ -266,7 +324,14 @@ function app() {
                 // Refresh sessions
                 await this.loadSessions();
 
-                alert('Message sent successfully!');
+                // Auto-select the newly created session
+                if (response.user_session_id) {
+                    // Find the new session in the updated list
+                    const newSession = this.sessions.find(s => s.session_id === response.user_session_id);
+                    if (newSession) {
+                        await this.selectSession(newSession);
+                    }
+                }
             } catch (error) {
                 console.error('Failed to send email:', error);
                 alert(`Failed to send: ${error.message}`);
@@ -377,6 +442,9 @@ function app() {
 
                 console.log('Message sent:', response);
 
+                // Refresh session list to update time
+                await this.loadSessions();
+
                 // 如果目标会话与当前会话相同，刷新邮件列表
                 if (this.currentSession && this.currentSession.session_id === targetSessionId) {
                     await this.loadSessionEmails(this.currentSession.session_id);
@@ -384,6 +452,39 @@ function app() {
 
             } catch (error) {
                 console.error('Failed to send:', error);
+                alert(`发送失败: ${error.message}`);
+            }
+        },
+
+        // Send quick reply from input box
+        async sendQuickReply() {
+            if (!this.quickReplyBody.trim() || !this.currentSession) {
+                return;
+            }
+
+            try {
+                const emailData = {
+                    recipient: this.currentSession.name,  // Send to the session's agent
+                    subject: '',
+                    body: this.quickReplyBody
+                };
+
+                const response = await API.sendEmail(
+                    this.currentSession.session_id,
+                    emailData
+                );
+
+                console.log('Quick reply sent:', response);
+
+                // Clear input
+                this.quickReplyBody = '';
+
+                // Refresh session list and messages
+                await this.loadSessions();
+                await this.loadSessionEmails(this.currentSession.session_id);
+
+            } catch (error) {
+                console.error('Failed to send quick reply:', error);
                 alert(`发送失败: ${error.message}`);
             }
         }

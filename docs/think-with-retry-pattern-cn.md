@@ -1,775 +1,163 @@
 # Think-With-Retry 模式
 
-## 概述
+和LLM进行自然对话并最终从LLM的自然语言输出中获得结构化输出的一种模式。
 
-### 挑战：自然语言 vs. 结构化数据
+目前，比较常见的让LLM输出结构化数据的方式是通过指定JSON输出格式这样的prompt方式。他有几个问题
+1. 不能百分百保证输出格式正确，而且对于复杂结构的JSON，出错概率会加大
+2. 会降智，会浪费智力。大语言模型的注意力是有限的，如果需要施加严格的约束，会必然分走一部分注意力，导致输出的质量下降（这当然是未经证实的规律，是来自我的经验和直觉）
 
-在使用 LLM 时，我们面临一个根本性的张力：**我们需要从 LLM 输出中提取结构化信息，但我们希望 LLM 专注于推理，而不是格式遵守。**
+所以，我提出了一种新的模式，叫做Think-With-Retry模式。这个模式的核心逻辑是，通过软性的约束，让大模型按照大致的结构输出，然后利用parser 对输出进行解析，对于结构确实或者错误，让LLM补充或者重新输出，直到输出符合预期。
 
-如果我们施加严格的格式约束（严格的 JSON 模式、精确的模板结构），LLM 会将认知能力消耗在格式遵守上，而不是解决问题——这本质上是一种**"认知税"**，会降低推理质量。对于需要深度思考的复杂任务，这个问题尤为突出。
+并且这个过程自动完成，并且不会污染主对话历史
 
-如果我们完全不使用格式，我们会得到自然、流畅的响应，但无法可靠地提取程序执行所需的数据。
+# 接口和参数
 
-即使我们指定适度的格式指南，LLM 偶尔也会偏离——缺少部分、重新排序内容或引入意外的变化。在使用概率性语言模型时，这些"边界情况"是不可避免的。
+## think的模式
+就是第一步让LLM输出的prompt如何设计。我建议不要每次要求他严格的格式（例如“只输出什么什么”）。而是允许它先输出自己的想法，然后把需要的内容用section 的形式，例如
+```
+[SECTION HEAD]
+SECTION CONTENT
+```
+这样的。或者用 ==== 分割的形式，总之用LLM很自然的输出方式来区分内容边界。并且一定要给示例。
 
-### 解决方案：Think-With-Retry 模式
+## parser的模式 （控制何时retry）
+parser的目的是校验LLM的输出是否有我们想要的内容，并且提取成我们想要的结构（不论是dict还是List还是只是str）。
+一般可以直接用multi_section_parser 或者 simple_parser， 如果有更复杂的结构，可以写一个Parser先调用multi_section_parser或者simple_parser，得到自己想要的输入块，然后进一步的去解析结构
 
-**Think-With-Retry** 模式通过提供一种**松散但健壮**的机制来解决这个张力，这种机制将不确定的自然语言输出和确定性的结构化提取连接起来，同时最大限度地减少格式维护的认知开销。
+## 传入parser的动态参数
 
-**概念上的工作原理：**
-
-1. **使用软格式指南请求**：要求 LLM 使用温和的结构提示提供信息（例如，"请将您的回答组织为以下部分：[计划]、[时间线]、[预算]"）。LLM 主要关注内容质量。
-
-2. **带验证的解析**：使用验证输出的解析器尝试提取结构化数据。解析器检查必需元素并返回：
-   - **成功**：提取的结构化数据
-   - **错误**：关于缺少或格式错误的特定反馈
-
-3. **智能重试**：如果解析失败，模式会以对话方式自动将错误反馈反馈给 LLM：*"您之前的回答很有帮助，但缺少 [时间线] 部分。您可以添加吗？"* 然后 LLM 自然地纠正其输出，而无需严格的约束执行。
-
-4. **循环直到成功**：重复步骤 2-3，直到提取到有效的结构化数据或达到最大重试次数。
-
-**关键设计哲学：**
-
-- **松散的格式要求**：我们使用自然的部分标记，如 `[研究计划]` 或 `=====`，而不是严格的 JSON 模式。这对 LLM 来说感觉很自然，并最大限度地减少了格式摩擦。
-
-- **特定的反馈**：当解析失败时，解析器提供精确、可操作的反馈（例如，*"缺少部分：[时间线]"*）。LLM 理解并自然纠正。
-
-- **对话流程**：重试是对话式的——将 LLM 之前的输出和错误消息附加到对话历史中，然后要求修改。这模仿了人类协作。
-
-- **优雅降级**：如果 LLM 在几次尝试后仍然无法提供有效输出，模式会引发异常，而不是继续使用坏数据。
-
-**为什么这有效：**
-
-- **保持认知能力**：LLM 专注于推理，而不是严格的格式遵守
-- **处理边界情况**：带反馈的自动重试处理不可避免的偏差
-- **自然交互**：对话式重试与 LLM 训练的交互方式一致
-- **确定性提取**：尽管输入格式松散，但输出始终经过验证和结构化
-- **最少的提示开销**：不需要冗长的格式说明或复杂的 JSON 模式
-
-该模式通过轻量级的对话式反馈循环，将 LLM 自然语言输出的固有不确定性转化为可靠、结构化的数据——本质上是将 LLM 视为智能协作者，偶尔需要澄清，而不是严格的模板填充系统。
-
-## LLM 客户端封装
-
-**位置**: `src/agentmatrix/backends/llm_client.py`
-
-`LLMClient` 类为与各种 LLM 提供商(OpenAI、Gemini 等)交互提供统一接口。
-
-### 核心功能
+parser 可以通过 `**parser_kwargs` 接收参数。
 
 ```python
-class LLMClient(AutoLoggerMixin):
-    def __init__(self, url: str, api_key: str, model_name: str):
-        self.url = url
-        self.api_key = api_key
-        self.model_name = model_name
-
-    async def think(self, messages: List[Dict]) -> Dict[str, str]:
-        """
-        调用 LLM 并返回包含推理和回复的响应
-
-        返回:
-            {
-                "reasoning": "思维链(如果有)",
-                "reply": "主要响应内容"
-            }
-        """
-```
-
-### 异步流式支持
-
-客户端支持 OpenAI 和 Gemini API 的异步流式响应:
-
-**OpenAI 流式** (268-335行):
-
-```python
-async def _stream_openai_response(self, messages, model):
-    async for chunk in openai_completion.stream(...):
-        if chunk.choices[0].delta.content:
-            yield chunk.choices[0].delta.content
-```
-
-**Gemini 流式** (170-266行):
-
-```python
-async def _stream_gemini_response(self, messages, model):
-    async for chunk in await gemini_model.generate_content_async(...):
-        yield chunk.text
-```
-
-### 推理内容提取
-
-对于支持思维链的模型(如 o1)，客户端提取推理内容:
-
-```python
-# 从 o1 模型提取推理
-if hasattr(response, 'reasoning') and response.reasoning:
-    reasoning = response.reasoning
-else:
-    reasoning = None
-
-return {
-    "reasoning": reasoning,
-    "reply": content
-}
-```
-
-## Think-With-Retry 模式
-
-**位置**: `src/agentmatrix/backends/llm_client.py` (33-105行)
-
-`think_with_retry()` 方法实现了一个通用的微 Agent，循环直到 LLM 输出成功解析。
-
-### 核心机制
-
-```python
-async def think_with_retry(
-    self,
-    initial_messages: Union[str, List[str]],
-    parser: callable,          # 解析器函数
-    max_retries: int = 3,
-    **parser_kwargs
-) -> any:
-    """
-    通用微 Agent，循环直到 LLM 输出成功解析
-
-    参数:
-        initial_messages: 初始用户消息
-        parser: 用于提取结构化输出的解析器
-        max_retries: 最大重试次数
-        **parser_kwargs: 解析器的额外参数
-
-    返回:
-        解析的数据(来自 parser["data"] 或 parser["sections"])
-    """
-    messages = self._prepare_messages(initial_messages)
-
-    for attempt in range(max_retries):
-        # 1. 调用 LLM
-        response = await self.think(messages=messages)
-        raw_reply = response['reply']
-
-        # 2. 使用提供的解析器解析
-        parsed_result = parser(raw_reply, **parser_kwargs)
-
-        # 3. 检查结果
-        if parsed_result.get("status") == "success":
-            # 成功 - 返回数据
-            return (
-                parsed_result.get("data") or
-                parsed_result.get("sections")
-            )
-
-        elif parsed_result.get("status") == "error":
-            # 4. 添加反馈并重试
-            feedback = parsed_result.get("feedback")
-            messages.append({
-                "role": "assistant",
-                "content": raw_reply
-            })
-            messages.append({
-                "role": "user",
-                "content": feedback
-            })
-            # 带反馈继续循环
-
-    # 超过最大重试次数
-    raise Exception(f"超过最大重试次数 ({max_retries})")
-```
-
-### 解析器契约
-
-解析器必须遵循此接口:
-
-```python
-def parser(raw_reply: str, **kwargs) -> dict:
-    """
-    解析 LLM 输出并返回状态字典
-
-    返回:
-        {
-            "status": "success" | "error",
-            "data": ...,              # 可选: 单个解析数据
-            "sections": {...},        # 可选: 多个部分
-            "feedback": str           # status=error 时必需
-        }
-    """
-```
-
-**成功响应**:
-
-```python
-{
-    "status": "success",
-    "data": "解析结果"              # 单个值
-    # 或
-    "sections": {                  # 多部分
-        "第1部分": "内容1",
-        "第2部分": "内容2"
-    }
-}
-```
-
-**错误响应**:
-
-```python
-{
-    "status": "error",
-    "feedback": "缺少必填字段: [行动计划]。请包含此部分。"
-}
-```
-
-### 重试流程
-
-```
-┌─────────────────────────────────────────────┐
-│  1. 使用消息调用 LLM                        │
-└─────────────────┬───────────────────────────┘
-                  │
-                  ▼
-        ┌─────────────────────┐
-        │  2. 解析输出        │
-        └─────────┬───────────┘
-                  │
-                  ▼
-        ┌─────────────────────┐
-        │  状态 = success?    │
-        └─────────┬───────────┘
-             │    │
-      是      │    │   否
-             ▼    │
-    ┌────────────┐ │
-    │ 返回       │ │
-    │ data       │ │
-    └────────────┘ │
-                  │
-                  ▼
-        ┌─────────────────────┐
-        │  3. 添加反馈        │
-        │     到消息          │
-        └─────────┬───────────┘
-                  │
-                  ▼
-        ┌─────────────────────┐
-        │  4. 重试 LLM 调用   │
-        └─────────┬───────────┘
-                  │
-                  └──────► 循环回步骤 1
-```
-
-### 使用示例
-
-```python
-# 定义解析器
-def extract_plan(raw_reply: str) -> dict:
-    if "[研究计划]" not in raw_reply:
-        return {
-            "status": "error",
-            "feedback": "缺少 [研究计划] 部分。请包含它。"
-        }
-    # 提取内容
-    content = raw_reply.split("[研究计划]")[1].strip()
-    return {
-        "status": "success",
-        "data": content
-    }
-
-# 使用 think_with_retry
-result = await llm_client.think_with_retry(
-    initial_messages="创建一个 AI 安全的研究计划",
-    parser=extract_plan,
-    max_retries=3
-)
-
-# result 包含解析的计划
-```
-
-## 解析器设计
-
-### 解析器签名
-
-```python
-def parser(
-    raw_reply: str,
-    **kwargs  # 解析器特定参数
-) -> dict:
-    # 实现
-    pass
-```
-
-### 错误报告
-
-解析器应提供具体、可操作的反馈:
-
-```python
-# 坏例子
-return {
-    "status": "error",
-    "feedback": "解析失败"  # 没有帮助
-}
-
-# 好例子
-return {
-    "status": "error",
-    "feedback": "缺少必需部分: [研究计划]。"
-                "请使用此部分标题格式化您的响应。"
-}
-```
-
-### 解析器最佳实践
-
-1. **具体化**: 准确告诉 LLM 错误在哪里
-2. **提供示例**: 在反馈中展示预期格式
-3. **检查要求**: 验证所有必填字段
-4. **处理边界情况**: 空输出、格式错误的内容等
-
-## 多部分解析器
-
-**位置**: `src/agentmatrix/skills/parser_utils.py` (10-186行)
-
-`multi_section_parser()` 是一个强大的工具，用于从 LLM 输出中提取多个部分。
-
-### 函数签名
-
-```python
-def multi_section_parser(
-    raw_reply: str,
-    section_headers: List[str] = None,
-    regex_mode: bool = False,
-    match_mode: str = "ALL"  # 或 "ANY"
-) -> dict
-```
-
-### 两种操作模式
-
-#### 1. 多部分模式
-
-当提供 `section_headers` 时:
-
-```python
-text = """
-[研究计划]
-1. AI 安全文献综述
-2. 采访专家
-3. 进行实验
-
-[章节大纲]
-第1章: 简介
-第2章: 背景
-第3章: 方法论
-"""
-
-result = multi_section_parser(
-    text,
-    section_headers=['[研究计划]', '[章节大纲]'],
-    match_mode="ALL"  # 所有标题必须存在
-)
-
-# 返回:
-{
-    "status": "success",
-    "sections": {
-        "[研究计划]": "1. AI 安全文献综述\n2. 采访专家\n3. 进行实验",
-        "[章节大纲]": "第1章: 简介\n第2章: 背景\n第3章: 方法论"
-    }
-}
-```
-
-**匹配模式**:
-- `"ALL"`: 所有指定的标题必须存在(默认)
-- `"ANY"`: 至少一个标题必须存在
-
-**错误示例**:
-
-```python
-# 缺少 [章节大纲]
-result = multi_section_parser(
-    text,
-    section_headers=['[研究计划]', '[章节大纲]'],
+# 示例：向 multi_section_parser 传递参数
+result = await brain.think_with_retry(
+    prompt,
+    multi_section_parser,
+    section_headers=["[研究计划]", "[章节大纲]"],
     match_mode="ALL"
 )
+# 等价于调用：multi_section_parser(raw_reply, section_headers=[...], match_mode="ALL")
+```
 
-# 返回:
+**注意**：直接传函数引用，不要用 lambda 包装。
+
+---
+
+# Parser 契约
+
+所有 parser 必须遵循统一格式：
+
+```python
 {
-    "status": "error",
-    "feedback": "缺少必需的部分: ['[章节大纲]']"
+    "status": "success" | "error",
+    "content": ...,      # 成功时：提取的内容
+    "feedback": str      # 失败时：错误反馈
 }
 ```
 
-#### 2. 单部分模式
-
-当 `section_headers` 为 `None` 时(向后兼容):
-
+**成功示例**：
 ```python
-text = """
-一些介绍文本...
-===========
-要提取的内容
-更多内容...
-===========
+# 返回单个值
+{"status": "success", "content": "提取的文本"}
 
-页脚文本
-"""
-
-result = multi_section_parser(text)
-
-# 返回:
-{
-    "status": "success",
-    "data": "要提取的内容\n更多内容..."
-}
+# 返回多section（字典）
+{"status": "success", "content": {"[研究计划]": "...", "[章节大纲]": "..."}}
 ```
 
-查找最后一个 `"====="` 分隔符并提取它和下一个分隔符之间的内容。
-
-### 性能优化
-
-解析器包含几个效率优化:
-
-**1. 反向迭代** (101-136行):
-
+**失败示例**：
 ```python
-# 从文本末尾向后迭代
-for i in range(len(lines) - 1, -1, -1):
-    line = lines[i]
-    # 检查部分标题
-    # ...
+{"status": "error", "feedback": "缺少必需的section: [研究计划]"}
 ```
 
-优势:
-- 更快找到内容(通常在末尾附近)
-- 启用提前终止
+**最佳实践**：
+- 错误信息要具体、可操作
+- 告诉 LLM 缺什么、怎么改
+- 不要只说"解析失败"这种模糊信息
 
-**2. 提前终止** (132行):
+---
 
-```python
-if len(found_sections) == len(required_headers):
-    break  # 找到所有部分
-```
+# multi_section_parser
 
-一旦找到所有必需部分就停止搜索。
+**位置**：`src/agentmatrix/skills/parser_utils.py`
 
-**3. 快速预检查** (89-94行):
+通用的多 section 解析器，支持两种模式。
 
-```python
-if match_mode == "ALL":
-    # 快速检查所有标题是否存在
-    for header in section_headers:
-        if header not in raw_reply:
-            return {
-                "status": "error",
-                "feedback": f"缺少必需部分: {header}"
-            }
-```
+## 模式1：多section解析
 
-如果标题缺失则避免昂贵的迭代。
-
-### 实现细节
+指定 `section_headers` 列表，提取多个 section。
 
 ```python
-def multi_section_parser(
-    raw_reply: str,
-    section_headers: List[str] = None,
-    regex_mode: bool = False,
-    match_mode: str = "ALL"
-) -> dict:
-    # 单部分模式
-    if section_headers is None:
-        # 查找最后一个 "=====" 分隔符
-        divider_count = raw_reply.count("=====")
-        if divider_count < 2:
-            return {"status": "error", "feedback": "未找到内容分隔符"}
-
-        # 提取最后两个分隔符之间的内容
-        parts = raw_reply.split("=====")
-        content = parts[-2].strip()
-        return {"status": "success", "data": content}
-
-    # 多部分模式
-    if match_mode == "ALL":
-        # 快速预检查
-        for header in section_headers:
-            if header not in raw_reply:
-                return {
-                    "status": "error",
-                    "feedback": f"缺少必需部分: {header}"
-                }
-
-    # 反向迭代以提取部分
-    lines = raw_reply.split('\n')
-    found_sections = {}
-
-    for i in range(len(lines) - 1, -1, -1):
-        line = lines[i].strip()
-
-        # 检查行是否为部分标题
-        if line in section_headers:
-            # 提取内容直到下一个标题
-            content = []
-            for j in range(i + 1, len(lines)):
-                next_line = lines[j].strip()
-                if next_line in section_headers:
-                    break
-                content.append(lines[j])
-
-            found_sections[line] = '\n'.join(content).strip()
-
-            # 提前终止
-            if match_mode == "ALL" and len(found_sections) == len(section_headers):
-                break
-
-    # 验证结果
-    if match_mode == "ALL" and len(found_sections) != len(section_headers):
-        return {
-            "status": "error",
-            "feedback": f"缺少部分: {set(section_headers) - set(found_sections.keys())}"
-        }
-
-    if match_mode == "ANY" and len(found_sections) == 0:
-        return {
-            "status": "error",
-            "feedback": "未找到任何部分"
-        }
-
-    return {
-        "status": "success",
-        "sections": found_sections
-    }
-```
-
-## 示例: 搜索结果解析器
-
-**位置**: `src/agentmatrix/skills/search_results_parser.py`
-
-一个自定义解析器的实际例子，用于从 HTML 搜索结果中提取结构化数据。
-
-### 数据结构
-
-```python
-@dataclass
-class SearchResultItem:
-    title: str       # 结果标题
-    url: str         # 结果 URL
-    snippet: str     # 结果摘要
-    site_info: str   # 站点信息
-    link_id: str     # 唯一链接 ID
-```
-
-### 解析器功能
-
-```python
-def parse_search_results(html_content: str) -> dict:
-    """
-    解析 HTML 搜索结果(Google/Bing)
-
-    提取:
-    - 特色摘要
-    - 自然结果(标题、url、摘要)
-    - 下一页链接
-    - Bing 重定向 URL(解码)
-    """
-```
-
-**关键特性**:
-1. **HTML 解析**: 使用 BeautifulSoup 解析 HTML
-2. **特色摘要提取**: 识别特殊的特色结果
-3. **URL 过滤**: 过滤已访问/已评估的链接
-4. **下一页检测**: 查找分页链接
-5. **Bing 重定向解码** (24-73行): 处理 Bing 的重定向 URL
-
-```python
-# 解码 Bing 重定向 URL
-if "bing.com/ck/a?" in url:
-    # 提取 u 参数
-    u_param = extract_u_param(url)
-    # 解码 base64
-    decoded_url = base64.b64decode(u_param).decode('utf-8')
-    # 提取真实 URL
-    real_url = extract_real_url(decoded_url)
-    return real_url
-```
-
-### 使用示例
-
-```python
-# 在 MicroAgent 动作中
-@register_action(description="搜索网络")
-async def web_search(self, query: str, num_results: int = 10) -> str:
-    # 调用搜索 API
-    html = await self._search_api(query, num_results)
-
-    # 解析结果
-    result = await self.brain.think_with_retry(
-        initial_messages=f"解析这些搜索结果:\n{html}",
-        parser=parse_search_results,
-        max_retries=2
-    )
-
-    # result 是 SearchResultItem 列表
-    return format_results(result)
-```
-
-## 创建自定义解析器
-
-### 分步指南
-
-**1. 定义解析器函数**:
-
-```python
-def my_custom_parser(raw_reply: str, **kwargs) -> dict:
-    # 验证输入
-    if not raw_reply or not raw_reply.strip():
-        return {
-            "status": "error",
-            "feedback": "空响应。请提供输出。"
-        }
-
-    # 检查必需标记
-    if "[REQUIRED_SECTION]" not in raw_reply:
-        return {
-            "status": "error",
-            "feedback": "缺少必需部分: [REQUIRED_SECTION]。"
-                       "请使用此部分标题格式化您的响应。"
-        }
-
-    # 提取数据
-    content = extract_content(raw_reply)
-
-    # 验证数据
-    if not content or len(content) < 10:
-        return {
-            "status": "error",
-            "feedback": "提取的内容太短。"
-                       "请提供更详细的信息。"
-        }
-
-    # 返回成功
-    return {
-        "status": "success",
-        "data": content
-    }
-```
-
-**2. 与 think_with_retry 一起使用**:
-
-```python
-result = await llm_client.think_with_retry(
-    initial_messages="你的任务在这里...",
-    parser=my_custom_parser,
-    max_retries=3
+result = multi_section_parser(
+    raw_reply,
+    section_headers=['[研究计划]', '[章节大纲]'],
+    match_mode="ALL"  # 或 "ANY"
 )
 ```
 
-### 解析器模板
+**match_mode 参数**：
+- `"ALL"`：所有指定的 headers 都必须存在（默认）
+- `"ANY"`：只要匹配到即可，有多少返回多少
+
+## 模式2：单section解析
+
+不指定 `section_headers`，自动查找 `=====` 分隔符，提取最后一个分隔符后的内容。
 
 ```python
-def parser_template(raw_reply: str, **kwargs) -> dict:
-    """
-    解析器模板
-
-    参数:
-        raw_reply: 要解析的 LLM 输出
-        **kwargs: 解析器特定参数
-
-    返回:
-        包含成功/错误信息的状态字典
-    """
-
-    # 1. 验证输入
-    if not raw_reply:
-        return {
-            "status": "error",
-            "feedback": "空响应"
-        }
-
-    # 2. 检查必需结构
-    required_markers = kwargs.get("required_markers", [])
-    for marker in required_markers:
-        if marker not in raw_reply:
-            return {
-                "status": "error",
-                "feedback": f"缺少 {marker}。请包含它。"
-            }
-
-    # 3. 提取数据
-    try:
-        data = extract_data(raw_reply, **kwargs)
-    except Exception as e:
-        return {
-            "status": "error",
-            "feedback": f"解析错误: {str(e)}。请检查格式。"
-        }
-
-    # 4. 验证提取的数据
-    if not validate_data(data, **kwargs):
-        return {
-            "status": "error",
-            "feedback": "无效数据。请确保所有字段都存在。"
-        }
-
-    # 5. 返回成功
-    return {
-        "status": "success",
-        "data": data
-    }
+result = multi_section_parser(raw_reply)
+# 返回：{"status": "success", "content": "分隔符后的内容"}
 ```
 
-## 总结
+## 性能优化
 
-### 组件职责
+1. **快速预检查**：ALL 模式下先用 `in` 操作检查所有 headers 是否存在
+2. **倒序遍历 + 提前终止**：从后往前找，找到所有需要的 sections 后立即停止
 
-| 组件 | 位置 | 职责 |
-|------|------|------|
-| LLMClient | backends/llm_client.py | 带流式的 LLM API 封装 |
-| think_with_retry | backends/llm_client.py | 用于解析的通用重试循环 |
-| multi_section_parser | skills/parser_utils.py | 提取多个部分 |
-| search_results_parser | skills/search_results_parser.py | 解析 HTML 搜索结果 |
+---
 
-### 关键优势
+# think_with_retry 实现机制
 
-1. **健壮性**: 带有具体反馈的自动重试
-2. **灵活性**: 可插拔的解析器接口
-3. **效率**: 带提前终止的优化解析
-4. **可靠性**: 清晰的错误消息指导 LLM 生成正确输出
-5. **可复用性**: 通用模式适用于任何解析任务
+## 返回值约定
 
-### 最佳实践
+`think_with_retry` **只返回** parser 的 `"content"` 字段值，不返回整个 dict。
 
-1. **提供具体反馈**: 准确告诉 LLM 错误在哪里
-2. **彻底验证**: 在返回成功之前检查所有要求
-3. **使用多部分解析器**: 尽可能利用现有解析器
-4. **处理边界情况**: 空输出、格式错误的内容等
-5. **限制重试**: 设置合理的 max_retries 以避免无限循环
-
-### 常见模式
-
-**提取单个值**:
 ```python
-result = await brain.think_with_retry(
-    messages="提取日期...",
-    parser=lambda text: extract_date(text),
-    max_retries=2
-)
+# 如果 parser 返回 {"status": "success", "content": "text"}
+# think_with_retry 返回： "text"
+
+# 如果 parser 返回 {"status": "success", "content": {"key": "value"}}
+# think_with_retry 返回： {"key": "value"}
 ```
 
-**提取多个部分**:
-```python
-result = await brain.think_with_retry(
-    messages="创建部分 [计划]、[时间线]、[预算]",
-    parser=multi_section_parser,
-    section_headers=['[计划]', '[时间线]', '[预算]'],
-    match_mode="ALL",
-    max_retries=3
-)
-# result 是部分的字典
+这样调用代码更简洁，不用每次都访问 `["content"]`。
+
+## 重试流程
+
+```
+1. 调用 LLM
+   ↓
+2. Parser 解析
+   ↓
+3. status == "success"?
+    ├─ Yes → 返回 content
+    └─ No  → 追加反馈到消息 → 重新调用 LLM（最多 max_retries 次）
 ```
 
-**解析复杂数据**:
-```python
-result = await brain.think_with_retry(
-    messages="提取结构化数据...",
-    parser=custom_structured_parser,
-    max_retries=3
-)
-```
+失败时，自动将 LLM 的输出和错误反馈追加到对话历史，让 LLM 自然地修正。
 
-这种模式确保从 LLM 自然语言响应中可靠地提取结构化输出。
+---
+
+# 核心要点（3条规则）
+
+1. **直接传函数**：`think_with_retry(prompt, parser, arg=value)`，不要用 lambda 包装
+
+2. **Prompt 必须包含示例**：给 LLM 提供格式示例让其模仿，比只给约束更可靠
+
+3. **组合验证**：`multi_section_parser` + 额外验证（先提取，再校验）
+
+---
+
+# 参见
+
+- **实现源码**：`src/agentmatrix/backends/llm_client.py` 的 `think_with_retry()` 方法
+- **通用 parser**：`src/agentmatrix/skills/parser_utils.py` 的 `multi_section_parser()`
+- **使用示例**：`src/agentmatrix/skills/deep_researcher.py` 中大量使用此模式
