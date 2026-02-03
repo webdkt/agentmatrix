@@ -11,7 +11,9 @@ def multi_section_parser(
     raw_reply: str,
     section_headers: List[str] = None,
     regex_mode: bool = False,
-    match_mode: str = "ALL"
+    match_mode: str = "ALL",
+    return_list: bool = False,
+    allow_empty: bool = False
 ) -> dict:
     """
     多 section 文本解析器，根据指定的 section headers 提取多个 section 的内容。
@@ -37,6 +39,12 @@ def multi_section_parser(
         match_mode: 匹配完整性要求（仅对多 section 模式有效）
                    - "ALL"（默认）：所有指定的 section headers 都必须存在，否则返回错误
                    - "ANY"：只要匹配到即可，有多少匹配就返回多少 sections
+        return_list: 是否将内容拆分为行列表（默认 False）
+                   - False：返回字符串（默认行为）
+                   - True：返回行列表 [line.strip() for line in content.split('\n') if line.strip()]
+        allow_empty: 是否允许空的 section 内容（默认 False）
+                   - False（默认）：如果 section 内容为空，返回错误
+                   - True：允许空的 section 内容
 
     Returns:
         单 section 模式：
@@ -76,6 +84,20 @@ def multi_section_parser(
         ... )
         >>> # 只返回找到的 [研究计划] 和 [章节大纲]，不报错
     """
+    # 内部辅助函数：后处理 section 内容
+    def _post_process(content: str):
+        """根据参数处理内容"""
+        # 如果不允许空且内容为空
+        if not allow_empty and not content.strip():
+            return None  # 标记为无效
+
+        # 如果需要返回列表
+        if return_list:
+            return [line.strip() for line in content.split('\n') if line.strip()]
+
+        # 否则返回字符串
+        return content.strip()
+
     try:
         if not raw_reply or not isinstance(raw_reply, str):
             return {"status": "error", "feedback": "输入内容无效"}
@@ -119,9 +141,15 @@ def multi_section_parser(
                 # 找到一个新的 section header（且未记录过）
                 if is_header and line not in found:
                     # 提取 section 内容：从 i+1 到 last_section_end
-                    # 使用 join 拼装（已经 split 了，join 是最优选择）
-                    section_content = '\n'.join(lines[i + 1:last_section_end]).strip()
-                    sections[line] = section_content
+                    raw_content = '\n'.join(lines[i + 1:last_section_end])
+                    processed_content = _post_process(raw_content)
+
+                    # 如果处理后的内容为 None（不允许空），返回错误
+                    if processed_content is None:
+                        return {"status": "error",
+                               "feedback": f"Section '{line}' 的内容为空"}
+
+                    sections[line] = processed_content
                     found.add(line)
 
                     # 更新下一个 section 的结束位置
@@ -174,12 +202,14 @@ def multi_section_parser(
                 return {"status": "error", "feedback": "未找到有效的分隔行，请确保输出格式正确"}
 
             # 提取最后一个分隔行之后的所有内容
-            content = '\n'.join(lines[divider_line_idx + 1:]).strip()
+            raw_content = '\n'.join(lines[divider_line_idx + 1:])
+            processed_content = _post_process(raw_content)
 
-            if not content:
-                return {"status": "error", "feedback": "分隔符后没有内容"}
+            # 如果处理后的内容为 None（不允许空），返回错误
+            if processed_content is None:
+                return {"status": "error", "feedback": "分隔符后没有内容（allow_empty=False）"}
 
-            return {"status": "success", "content": content}
+            return {"status": "success", "content": processed_content}
 
     except Exception as e:
         return {"status": "error", "feedback": f"解析失败: {str(e)}"}

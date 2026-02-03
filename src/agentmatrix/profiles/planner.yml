@@ -9,6 +9,19 @@ mixins:
   - agentmatrix.skills.project_management.ProjectManagementMixin
   - agentmatrix.skills.notebook.NotebookMixin
 
+# Top level actions: process_email 时可用的 actions
+# 未列出的 actions 可以通过 _run_micro_agent 在子任务中使用
+# rest_n_wait, send_email, finish_task 始终可用，无需配置
+top_level_actions:
+  - create_project_board
+  - add_task
+  - update_task_status
+  - get_project_report
+  - read_file
+  - write_file
+  - create_notebook
+  - append_to_notebook
+
 # 属性初始化
 attribute_initializations:
   project_board: null

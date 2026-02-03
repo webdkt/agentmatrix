@@ -153,7 +153,7 @@ If you can provide a clear, complete answer based on the Notebook and Current Pa
 ##值得记录的笔记
 If you cannot answer yet, but found NEW and USEFUL information:
 - Use this heading
-- Provide a concise summary 
+- 记录下有价值的信息到小本本，保持精简概要
 - Focus on facts, data, definitions, explanations
 - Only extract information NOT already in Notebook
 - Always include the source URL
@@ -596,7 +596,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
             "purpose": "搜索的目的",
             "search_phrase": "可选，初始搜索关键词",
             "max_time": "可选，最大搜索分钟，默认20",
-            "search_engine": "可选，搜索引擎（google 或 bing），默认 bing",
+            "search_engine": "可选，搜索引擎（google 或 bing），默认使用 agent 配置的 default_search_engine 或 bing",
         }
     )
     async def web_search(
@@ -604,7 +604,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         purpose: str,
         search_phrase: str = None,
         max_time: int = 20,
-        search_engine: str = "bing",
+        search_engine: str = None,
         temp_file_dir: Optional[str] = None
     ):
         """
@@ -614,10 +614,15 @@ class WebSearcherMixin(CrawlerHelperMixin):
             purpose: 要回答的问题（或研究目标）
             search_phrase: 初始搜索关键词
             max_time: 最大搜索时间（分钟）
-            search_engine: 搜索引擎（"google" 或 "bing"）
+            search_engine: 搜索引擎（"google" 或 "bing"），如果为 None 则使用配置的默认引擎
             chunk_threshold: 分段阈值（字符数）
             temp_file_dir: 临时文件保存目录（可选，用于调试）
         """
+        # 0. 确定 search_engine（优先级：参数 > 配置 > 默认）
+        if search_engine is None:
+            # 尝试从实例属性读取配置
+            search_engine = getattr(self, 'default_search_engine', DEFAULT_SEARCH_ENGINE)
+            self.logger.info(f"Using configured default search engine: {search_engine}")
         # 1. 准备环境
         profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", self.name)
         download_path = os.path.join(self.current_workspace, "downloads")
@@ -670,13 +675,22 @@ class WebSearcherMixin(CrawlerHelperMixin):
             session = TabSession(handle=tab, current_url="")
 
             # 7. 生成虚拟搜索URL并加入队列
-            # 使用虚拟URL协议 "search:" 来触发搜索函数
-            # URL格式: "search:{search_engine}:{search_phrase}"
+            # 支持多个搜索关键字组合：用逗号分隔 search_phrase，为每个短语生成独立的搜索URL
+            # 虚拟URL协议格式: "search:{search_engine}:{search_phrase}"
             # 例如: "search:bing:2026年1月24日 政治 新闻"
-            search_virtual_url = f"search:{search_engine.lower()}:{search_phrase}"
-            session.pending_link_queue.append(search_virtual_url)
 
-            self.logger.info(f"✓ Added virtual search URL to queue: {search_virtual_url}")
+            # 分割 search_phrase（支持中英文逗号）
+            search_phrases = [p.strip() for p in search_phrase.replace('，', ',').split(',')]
+            # 过滤空字符串
+            search_phrases = [p for p in search_phrases if p]
+
+            self.logger.info(f"✓ Parsed {len(search_phrases)} search phrase(s) from input: {search_phrases}")
+
+            # 为每个搜索短语生成虚拟搜索URL并加入队列
+            for phrase in search_phrases:
+                search_virtual_url = f"search:{search_engine.lower()}:{phrase}"
+                session.pending_link_queue.append(search_virtual_url)
+                self.logger.info(f"✓ Added virtual search URL to queue: {search_virtual_url}")
 
             # 8. 运行统一的搜索生命周期
             # _run_search_lifecycle 会识别虚拟URL并调用相应的搜索函数
@@ -1980,195 +1994,7 @@ class WebSearcherMixin(CrawlerHelperMixin):
         # 未找到答案
         return None
 
-    async def _run_search_lifecycle_old(self, session: TabSession, ctx: WebSearcherContext) -> Optional[str]:
-        """
-        [OLD VERSION - BACKUP]
-        [The Core Loop] 搜索生命周期（旧版本，保留作为参考）
-
-        旧版本包含Scouting阶段（1958-2041行），会在读取页面后再次扫描链接和按钮
-        新版本简化了流程，每种页面类型一次性完成所有决策
-        """
-        # 这里直接复制旧的实现，保持不变
-        while not ctx.is_time_up():
-            # --- Phase 1: Navigation ---
-            if not session.pending_link_queue:
-                self.logger.info("Queue empty. Ending search.")
-                break
-
-            next_url = session.pending_link_queue.popleft()
-            self.logger.info(f"🔗 Processing: {next_url}")
-
-            # 1.1 门禁检查（next_url）
-            if ctx.has_visited(next_url):
-                self.logger.debug(f"✓ Already visited: {next_url}")
-                continue
-
-            # 1.2 检查是否是虚拟搜索URL
-            if next_url.startswith("search:"):
-                parts = next_url.split(":", 2)
-                if len(parts) != 3:
-                    self.logger.error(f"Invalid virtual search URL format: {next_url}")
-                    continue
-
-                _, search_engine, search_phrase = parts
-                self.logger.info(f"🔍 Executing search on {search_engine}: {search_phrase}")
-
-                from agentmatrix.core.browser.google import search_google
-                from agentmatrix.core.browser.bing import search_bing
-
-                search_fun = search_google if search_engine.lower() == "google" else search_bing
-                await search_fun(adapter=self.browser, tab=session.handle, query=search_phrase)
-            else:
-                await self.browser.navigate(session.handle, next_url)
-
-            final_url = self.browser.get_tab_url(session.handle)
-            session.current_url = final_url
-
-            if final_url in session.pending_link_queue:
-                temp_list = list(session.pending_link_queue)
-                temp_list.remove(final_url)
-                session.pending_link_queue = deque(temp_list)
-
-            if ctx.has_visited(final_url):
-                self.logger.debug(f"✓ Already visited after redirect: {final_url}")
-                continue
-
-            ctx.mark_visited(next_url)
-            ctx.mark_visited(final_url)
-
-            # === Phase 2: Identify Page Type ===
-            page_type = await self.browser.analyze_page_type(session.handle)
-
-            if page_type == PageType.ERRO_PAGE:
-                self.logger.warning(f"🚫 Error Page: {final_url}")
-                continue
-
-            # === Static Asset Branch ===
-            if page_type == PageType.STATIC_ASSET:
-                self.logger.info(f"📄 Static Asset: {final_url}")
-                markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
-                answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
-
-                if answer:
-                    return answer
-
-                pending_links = ctx.get_pending_links()
-                for pending_link in pending_links:
-                    session.pending_link_queue.append(pending_link)
-                    ctx.mark_evaluated(pending_link)
-
-                continue
-
-            # === Navigable Branch ===
-            elif page_type == PageType.NAVIGABLE:
-                self.logger.debug("🌐 Navigable Page. Entering processing loop.")
-                page_active = True
-                page_changed = True
-
-                while page_active and not ctx.is_time_up():
-                    if page_changed:
-                        await self.browser.stabilize(session.handle)
-
-                        is_google = 'google.com/search' in final_url or 'www.google.' in final_url
-                        is_bing = 'bing.com/search' in final_url
-
-                        if is_google or is_bing:
-                            search_engine = "Google" if is_google else "Bing"
-                            self.logger.info(f"🔍 Detected {search_engine} search results page")
-                            raw_html = session.handle.html
-                            answer = await self._stream_process_search_result(raw_html, ctx, final_url, session, search_engine)
-                        else:
-                            is_nav, nav_reason = await self.is_navigation_page(session.handle, final_url)
-                            if is_nav:
-                                self.logger.info(f"🧭 Navigation Page detected: {final_url}")
-                                answer = await self._process_navigation_page(session.handle, ctx, final_url, session)
-                            else:
-                                markdown = await self._get_full_page_markdown(session.handle, ctx, next_url)
-                                answer = await self._stream_process_markdown(markdown, ctx, final_url, session)
-
-                        if answer:
-                            return answer
-
-                        pending_links = ctx.get_pending_links()
-                        for pending_link in pending_links:
-                            session.pending_link_queue.append(pending_link)
-                            ctx.mark_evaluated(pending_link)
-
-                        if is_google or is_bing or is_nav:
-                            page_active = False
-                            continue
-
-                    # === Phase 4: Scouting (旧版本的额外扫描阶段) ===
-                    links, buttons = await self.browser.scan_elements(session.handle)
-                    self.logger.debug(f"🔍 Found {len(links)} links and {len(buttons)} buttons")
-
-                    if page_changed:
-                        candidate_links = {}
-                        for link in links:
-                            if ctx.should_process_url(link, session.pending_link_queue):
-                                candidate_links[link] = links[link]
-
-                        if candidate_links:
-                            selected_links = await self._filter_relevant_links(
-                                candidate_links,
-                                markdown[:500] if markdown else "",
-                                ctx,
-                                current_url=session.current_url
-                            )
-
-                            for link in candidate_links:
-                                ctx.mark_evaluated(link)
-
-                            for link in selected_links:
-                                session.pending_link_queue.append(link)
-
-                            self.logger.info(f"🔗 Added {len(selected_links)} navigation/structure links to queue")
-
-                    candidate_buttons = []
-                    for button_text in buttons:
-                        if not ctx.has_button_assessed(session.current_url, button_text):
-                            candidate_buttons.append({button_text: buttons[button_text]})
-
-                    if not candidate_buttons:
-                        self.logger.info("🤔 No worthy buttons. Moving to next page.")
-                        page_active = False
-                        continue
-
-                    chosen_button = await self._choose_best_interaction(candidate_buttons, markdown[:500] if markdown else "", ctx)
-
-                    assessed_button_texts = [list(btn.keys())[0] for btn in candidate_buttons]
-                    ctx.mark_buttons_assessed(session.current_url, assessed_button_texts)
-
-                    if not chosen_button:
-                        self.logger.info("🤔 No worthy buttons. Moving to next page.")
-                        page_active = False
-                        continue
-
-                    self.logger.info(f"🖱️ Clicking: [{chosen_button.get_text()}]")
-                    ctx.mark_interacted(session.current_url, chosen_button.get_text())
-
-                    report = await self.browser.click_and_observe(session.handle, chosen_button)
-
-                    if report.new_tabs:
-                        self.logger.info(f"✨ New Tab(s): {len(report.new_tabs)}")
-                        for new_tab_handle in report.new_tabs:
-                            new_session = TabSession(handle=new_tab_handle, current_url="", depth=session.depth + 1)
-                            answer = await self._run_search_lifecycle_old(new_session, ctx)
-                            if answer:
-                                return answer
-                            await self.browser.close_tab(new_tab_handle)
-
-                    if report.is_dom_changed or report.is_url_changed:
-                        self.logger.info("🔄 Page changed. Re-assessing.")
-                        page_changed = True
-                        if report.is_url_changed:
-                            session.current_url = self.browser.get_tab_url(session.handle)
-                        continue
-
-                    page_changed = False
-                    continue
-
-        return None
+    
 
     # ==========================================
     # 3. 小脑决策辅助

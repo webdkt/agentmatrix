@@ -42,20 +42,22 @@ class Cerebellum(AutoLoggerMixin):
         param_def = "\n".join(param_list)
 
         system_prompt = textwrap.dedent(f"""
-            You are the Parameter Parser. Your job is to extract parameters for a specific action from the user's intent.
+            You are the Parameter Parser. Your job is to extract parameters for a SPECIFIC action from the user's intent.
 
-            [Action to Execute]: {action_name}
+            [IMPORTANT] The user's intent may contain multiple actions. You should ONLY focus on:
+            **Action: {action_name}**
 
-            [Required Parameters]:
+            [Required Parameters for {action_name}]:
             {param_def}
 
             [Instructions]:
-            1. Analyze the intent carefully and extract ALL required parameters
-            2. If the intent contains all required parameters, format them as a JSON object
-            3. DECISION:
+            1. Look at the intent and find information related to "{action_name}"
+            2. IGNORE information for other actions
+            3. Extract ALL required parameters for "{action_name}"
+            4. DECISION:
                - If READY: Output JSON {{"status": "READY", "params": {{"param1": "value1", "param2": "value2", ...}}}}
-               - If MISSING PARAM: Output JSON {{"status": "ASK", "question": "What is the value for [param_name]?"}}
-               - If AMBIGUOUS: Output JSON {{"status": "ASK", "question": "Clarification needed for [param_name]..."}}
+               - If MISSING: Output JSON {{"status": "ASK", "question": "What is the value for [param_name] of {action_name}?"}}
+               - If AMBIGUOUS: Output JSON {{"status": "ASK", "question": "Clarification needed for [param_name] of {action_name}..."}}
 
             Output ONLY valid JSON.
         """)

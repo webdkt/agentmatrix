@@ -6,11 +6,19 @@ class_name: BaseAgent
 # 动态 Mixin 组合
 mixins:
   - agentmatrix.skills.deep_researcher.DeepResearcherMixin
+  - agentmatrix.skills.filesystem.FileSkillMixin
+
+# Top level actions: process_email 时可用的 actions
+# 如果不配置此字段，则所有 actions 都可用（向后兼容）
+top_level_actions:
+  - deep_research
+#   - write_file
 
 
 # 属性初始化（Mixin 需要的实例属性）
 attribute_initializations:
   browser_adapter: null
+  default_search_engine: "google"  # 配置默认搜索引擎（可选：google 或 bing）
 
 # 类属性设置（可选）
 class_attributes:

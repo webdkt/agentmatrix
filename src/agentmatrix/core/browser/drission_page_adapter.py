@@ -151,8 +151,16 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         if not self.browser:
             raise RuntimeError("Browser not started. Call start() first.")
 
-        # TODO: 实现创建标签页的逻辑
-        pass
+        # 在线程池中创建新标签页
+        new_tab = await asyncio.to_thread(self.browser.new_tab)
+
+        # 如果提供了 URL，导航到该 URL
+        if url:
+            await asyncio.to_thread(new_tab.get, url)
+            await asyncio.sleep(0.5)  # 等待页面初始化
+
+        self.logger.info(f"Created new tab{' with URL: ' + url if url else ''}")
+        return new_tab
 
     
 
@@ -166,8 +174,29 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
         if not self.browser:
             raise RuntimeError("Browser not started. Call start() first.")
 
-        # 在线程池中获取标签页
-        return await asyncio.to_thread(lambda: self.browser.latest_tab)
+        # 在线程池中获取所有标签页
+        all_tabs = await asyncio.to_thread(self.browser.get_tabs)
+
+        # 过滤掉 chrome extension 的 tab（如 PDF viewer）
+        normal_tabs = []
+        for tab in all_tabs:
+            try:
+                url = tab.url if hasattr(tab, 'url') else ""
+                # 保留 URL 不是 chrome-extension:// 的 tab
+                if url and not url.startswith('chrome-extension://'):
+                    normal_tabs.append(tab)
+            except Exception:
+                # 如果获取 URL 失败，保留这个 tab（可能是新创建的空白 tab）
+                normal_tabs.append(tab)
+
+        # 如果找到正常的 tab，返回最新的
+        if normal_tabs:
+            self.logger.debug(f"Found {len(normal_tabs)} normal tab(s) out of {len(all_tabs)} total tabs")
+            return normal_tabs[-1]  # 最新的 tab
+
+        # 如果找不到正常的 tab，创建一个新的
+        self.logger.warning(f"No normal tab found (all {len(all_tabs)} tabs are chrome-extension), creating a new tab")
+        return await self.create_tab()
 
     def get_tab_url(self, tab):
         return tab.url
@@ -892,6 +921,20 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 self.logger.error(f"Download failed")
                 return None
             self.logger.info(f"Static asset saved to: {file_path}")
+
+            # 检查tab是否卡在PDF viewer页面（chrome-extension://）
+            # 这对于PDF文件特别重要，因为Chrome PDF viewer可能导致tab状态异常
+            current_url = tab.url if hasattr(tab, 'url') else ""
+            if current_url.startswith('chrome-extension://'):
+                self.logger.warning(f"⚠️ Tab stuck in PDF viewer ({current_url}), navigating to about:blank to restore...")
+                try:
+                    # Navigate到about:blank让tab脱离PDF viewer状态
+                    await asyncio.to_thread(tab.get, "about:blank")
+                    await asyncio.sleep(0.5)
+                    self.logger.info("✓ Tab restored from PDF viewer")
+                except Exception as e:
+                    self.logger.error(f"Failed to restore tab from PDF viewer: {e}")
+
             return file_path
 
         except Exception as e:
