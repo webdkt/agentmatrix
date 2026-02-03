@@ -72,7 +72,8 @@ class MicroAgent(AutoLoggerMixin):
         available_actions: List[str],
         max_steps: Optional[int] = None,
         initial_history: Optional[List[Dict]] = None,
-        result_params: Optional[Dict[str, str]] = None
+        result_params: Optional[Dict[str, str]] = None,
+        yellow_pages: Optional[str] = None
     ) -> Any:
         """
         执行任务（可重复调用）
@@ -84,6 +85,7 @@ class MicroAgent(AutoLoggerMixin):
             max_steps: 最大步数（可选，默认使用 default_max_steps）
             initial_history: 初始对话历史（用于恢复记忆，可选）
             result_params: 返回值参数描述（可选），用于指定 finish_task 的参数结构
+            yellow_pages: 黄页信息（可选），包含其他agent的描述和如何调用它们
 
         Returns:
             Any: 最终结果
@@ -95,6 +97,7 @@ class MicroAgent(AutoLoggerMixin):
         self.persona = persona
         self.task = task
         self.available_actions = available_actions
+        self.yellow_pages = yellow_pages
         self.max_steps = max_steps or self.default_max_steps
 
         # 重置执行状态
@@ -163,22 +166,33 @@ class MicroAgent(AutoLoggerMixin):
 
     def _build_system_prompt(self) -> str:
         """构建 System Prompt"""
-        prompt = f"""{self.persona}
+        prompt = f"""你是 {self.persona}
 
-###  YOUR TOOLKIT (The Dashboard)
+### 操作环境 (The Cockpit)
 
+你目前在一个文本化的系统环境中存在。你是这个系统的意识部分，系统则是你的身体。
 
-You have access to the following actions:
+**基本物理规则:**
+1. 你是**基于信号**的实体。你不会持续存在，你只会**接收到信号**时**醒来**。
+2. 你需要**生成一个明确的动作信号**来**完成你的意图**。
+3. 一旦你发出动作信号，你将**冻结**并等待**身体**返回执行结果的信号（反馈）。
+4. 你的身体是强大的，但它**无法感知**你的对话历史或思考。除非你明确地告诉它。
+5. 身体每次只能执行一个action, 需要你明确的告诉它是哪一个。
+6. 你可以有复杂的思考和规划，但只会客观冷静的观察评估action的真实结果，根据动作的实际结果而不是期望来决定你的下一步计划。
+
+### 你的工具箱 (可用action)
+
 {self._format_actions_list()}
 
-Instructions:
-1. Think step by step about what needs to be done
-2. When you need to use an action, include the action name in your response
-3. The system will negotiate parameters with you if needed
-4. When you have completed the task, use the action: finish_task
-
-
 """
+
+        # 如果提供了黄页信息，添加黄页部分
+        if self.yellow_pages:
+            prompt += f"""### 黄页（你的同事）
+
+{self.yellow_pages}
+"""
+
         return prompt
 
 
@@ -196,17 +210,12 @@ Instructions:
 
     def _format_task_message(self) -> str:
         """格式化任务消息"""
-        msg = f"[TASK]\n{self.task}\n"
+        msg = f"[NEW INPUT]\n{self.task}\n"
 
-        #if self.task_context:
-        #    msg += f"\n[CONTEXT]\n"
-        #    msg += json.dumps(self.task_context, ensure_ascii=False, indent=2)
-
-        msg += "\n\nPlease complete this task step by step."
         return msg
 
     async def _run_loop(self):
-        """执行主循环"""
+        """执行主循环 - 支持批量 action 执行"""
         for self.step_count in range(1, self.max_steps + 1):
             self.logger.debug(f"Step {self.step_count}/{self.max_steps}")
 
@@ -214,40 +223,61 @@ Instructions:
             thought = await self._think()
             self.logger.debug(f"Thought: {thought[:200]}...")
 
-            # 2. 识别 action
-            action_name = self._detect_action(thought)
+            # 2. 检测 actions（多个，保持顺序）
+            action_names = self._detect_actions(thought)
 
-            if action_name == "finish_task":
-                # finish_task: 执行并直接返回结果
-                result = await self._execute_action(action_name, thought)
-                self.result = result
-                self.return_action_name = action_name
-                break
-
-            elif action_name == "rest_n_wait":
-
-                self.return_action_name = action_name
+            # 3. 没有检测到 action
+            if not action_names:
                 self._add_message("assistant", thought)
-                self.result = {}
-                break
-
-            elif action_name:
-                # 执行普通 action
-                try:
-                    result = await self._execute_action(action_name, thought)
-                    self._add_message("assistant", thought)
-                    self._add_message("user", f"Action '{action_name}' executed. Result: {result}")
-                except Exception as e:
-                    self.logger.exception(f"Action {action_name} failed")
-                    self._add_message("assistant", thought)
-                    self._add_message("user", f"Action '{action_name}' failed with error: {str(e)}")
-
-                    
-            else:
-                # 没有检测到 action，只是思考
-                self._add_message("assistant", thought)
-                # 提示需要采取行动
                 self._add_message("user", "Please use an available action to proceed.")
+                continue
+
+            self.logger.debug(f"Detected actions: {action_names}")
+
+            # 4. 记录 assistant 的思考（只记录一次）
+            self._add_message("assistant", thought)
+
+            # 5. 顺序执行所有 actions
+            execution_results = []
+            should_break_loop = False  # 标记是否需要退出主循环
+
+            for action_name in action_names:
+                # === 处理特殊 actions ===
+                if action_name == "finish_task":
+                    # 执行 finish_task
+                    result = await self._execute_action("finish_task", thought)
+                    self.result = result
+                    self.return_action_name = "finish_task"
+                    should_break_loop = True
+                    # 不记录 execution_results，直接退出
+                    break  # ← 退出 for action_names 循环
+
+                elif action_name == "rest_n_wait":
+                    # rest_n_wait 不需要执行，直接等待
+                    self.return_action_name = "rest_n_wait"
+                    should_break_loop = True
+                    break  # ← 退出 for action_names 循环
+
+                # === 执行普通 actions ===
+                else:
+                    try:
+                        result = await self._execute_action(action_name, thought)
+                        execution_results.append(f"[{action_name} 执行成功]: {result}")
+                        self.logger.debug(f"✅ {action_name} succeeded")
+                    except Exception as e:
+                        error_msg = str(e)
+                        execution_results.append(f"[{action_name} 执行失败]: {error_msg}")
+                        self.logger.warning(f"❌ {action_name} failed: {error_msg}")
+
+            # 6. 反馈给 Brain（只有普通 actions 才反馈）
+            if execution_results:
+                combined_result = "\n".join(execution_results)
+                self._add_message("user", combined_result)
+                self.logger.debug(f"Batch execution result:\n{combined_result}")
+
+            # 7. 检查是否需要退出主循环
+            if should_break_loop:
+                break
 
         else:
             # 超过最大步数
@@ -259,30 +289,49 @@ Instructions:
         response = await self.brain.think(self.messages)
         return response['reply']
 
-    def _detect_action(self, thought: str) -> Optional[str]:
+    def _detect_actions(self, thought: str) -> List[str]:
         """
-        从思考内容中检测 action
+        使用正则表达式检测多个 action（完整单词匹配）
 
-        策略：
-        1. 查找可用的 action 名字
-        2. 返回第一个匹配到的 action
-        3. 如果没有匹配，返回 None
+        即使 action name 前后有中文，也能正确匹配
+
+        Example:
+            "我要用web_search搜索" → ["web_search"]
+            "使用send_email发送" → ["send_email"]
+            "先搜索，然后完成" → ["web_search", "finish_task"]
         """
-        thought_lower = thought.lower()
+        import re
 
-        # 按优先级检查（避免部分匹配问题）
-        # 先检查较长的名字
-        sorted_actions = sorted(
-            self.available_actions,
-            key=lambda x: len(x),
-            reverse=True
-        )
+        # 正则：匹配连续的字母、下划线、数字（标识符格式）
+        # [a-zA-Z_]: 必须以字母或下划线开头
+        # [a-zA-Z0-9_]*: 后续可以是字母、数字、下划线
+        action_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)'
 
-        for action_name in sorted_actions:
-            if action_name.lower() in thought_lower:
-                return action_name
+        # 提取所有匹配的字符串
+        matches = re.finditer(action_pattern, thought)
 
-        return None
+        # 按出现顺序记录 (position, action_name)
+        detected = []
+        seen = set()  # 去重（保留第一次出现）
+
+        for match in matches:
+            action_name = match.group(1)
+            position = match.start()
+
+            # 转小写（action names 通常是 snake_case）
+            action_name_lower = action_name.lower()
+
+            # 只保留有效的 action names
+            if action_name_lower in self.available_actions:
+                if action_name_lower not in seen:
+                    detected.append((position, action_name_lower))
+                    seen.add(action_name_lower)
+
+        # 按出现位置排序
+        detected.sort(key=lambda x: x[0])
+
+        # 返回 action 名称列表
+        return [action for _, action in detected]
 
     async def _execute_action(self, action_name: str, thought: str) -> Any:
         """

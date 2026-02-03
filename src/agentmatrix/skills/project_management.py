@@ -72,34 +72,34 @@ class ProjectManagementMixin:
         # [倒数第一】assistant msg (intent + action = update_board)
 
 
-        if len(session.history) > 10:
+        if len(session["history"]) > 10:
             # history[0] = System, history[1] = Anchor
             # 切片范围：从索引 2 到 最后（不包含即将生成的 Feedback）
-            msgs_to_archive = session.history[2:]
+            msgs_to_archive = session["history"][2:]
             self._archive_history(msgs_to_archive, reason=f"Board Update: {summary[:20]}...")
 
-            # 3. 构造新的“中间层” (The Compressed State)
+            # 3. 构造新的"中间层" (The Compressed State)
             # 用 System 角色或者 Assistant 角色都可以。
-            # 用 System 角色更像“上帝视角的旁白”，用 Assistant 角色更像“我自己的笔记”。
+            # 用 System 角色更像"上帝视角的旁白"，用 Assistant 角色更像"我自己的笔记"。
             # 这里推荐用 System 格式，以此区隔于普通的对话。
             board_msg = {
-                "role": "assistant", 
+                "role": "assistant",
                 "content": textwrap.dedent(f"""
                     Latest project status
-                    
+
                     ### 📌 CURRENT PROJECT BOARD
                     {self.project_board}
-                    
+
                 """)
             }
-            
+
             # 4. 重组 History
             # [System Prompt] + [Anchor Task] + [New Board]
             # 注意：这里我们只取前两个。如果 history 长度不足 2（比如刚开始就 update），要做保护
-            base_history = session.history[:2] 
+            base_history = session["history"][:2]
             #从
             # 覆盖 Session History
-            session.history = base_history + [board_msg]
+            session["history"] = base_history + [board_msg]
             
             # 5. 返回结果
             # 这个返回值会被 BaseAgent 追加到 history 的末尾，成为新的激活信号

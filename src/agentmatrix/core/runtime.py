@@ -201,8 +201,7 @@ class AgentMatrix(AutoLoggerMixin):
 
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
             self.echo(f">>> Agent {agent.name} 已注册到邮局！")
-            self.logger.info(f"Agent {agent.name} prompt:")
-            self.logger.info(f"{agent.get_prompt()}")
+            
         
     
         # 4. 恢复投递

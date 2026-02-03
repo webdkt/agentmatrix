@@ -146,6 +146,16 @@ class CrawlerHelperMixin:
         # 下载 PDF 到本地
         pdf_path = await self.browser.save_static_asset(tab, original_url)
 
+        # 检查tab是否卡在PDF viewer页面（chrome-extension://）
+        # 在开始长时间PDF转换前检查，避免转换完成后tab已经异常
+        current_url = tab.url if hasattr(tab, 'url') else ""
+        if current_url.startswith('chrome-extension://'):
+            self.logger.warning(f"⚠️ Tab卡在PDF viewer页面 ({current_url})，正在修复...")
+            # Navigate到about:blank让tab脱离PDF viewer状态
+            await self.browser.navigate(tab, "about:blank")
+            await asyncio.sleep(0.5)
+            self.logger.info("✓ Tab已修复，脱离PDF viewer状态")
+
         # 调用 PDF 转换（在线程池中执行，避免阻塞）
         markdown = await asyncio.to_thread(
             self._convert_pdf_to_markdown_text,
@@ -309,7 +319,8 @@ class CrawlerHelperMixin:
 
     async def get_markdown_via_jina(self, url: str, timeout: int = 30) -> str:
         """
-        通过 r.jina.ai 免费API获取页面的 Markdown 格式
+        通过 r.jina.ai API获取页面的 Markdown 格式
+        支持使用 JINA_API_KEY 环境变量（如果配置了则使用，否则使用免费API）
 
         Args:
             url: 目标页面URL
@@ -319,12 +330,26 @@ class CrawlerHelperMixin:
             Markdown 格式的页面内容
         """
         import aiohttp
+        import os
 
         jina_url = f"https://r.jina.ai/{url}"
 
+        # 获取 API Key（可选）
+        api_key = os.getenv("JINA_API_KEY")
+
+        # 设置请求头
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+            self.logger.debug(f"Using Jina API key for request")
+
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(jina_url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+                async with session.get(
+                    jina_url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=timeout)
+                ) as response:
                     response.raise_for_status()
                     markdown = await response.text()
                     return markdown

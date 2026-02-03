@@ -1,6 +1,5 @@
 import re
 import os
-import uuid
 from ..core.browser.browser_common import BaseCrawlerContext
 from .utils import sanitize_filename
 from typing import Any, Dict, List, Optional, Set
@@ -115,6 +114,9 @@ def format_prompt(prompt: str, context: Any, **kwargs) -> str:
         # 优先级: kwargs > context
         if placeholder in kwargs:
             format_dict[placeholder] = kwargs[placeholder]
+        # 改进：同时支持对象和字典
+        elif isinstance(context, dict) and placeholder in context:
+            format_dict[placeholder] = context[placeholder]
         elif hasattr(context, placeholder):
             format_dict[placeholder] = getattr(context, placeholder)
         else:
@@ -131,7 +133,7 @@ def format_prompt(prompt: str, context: Any, **kwargs) -> str:
 # Deep Research 特有的解析器
 # ==========================================
 
-def persona_parser(raw_reply: str) -> dict:
+def persona_parser(raw_reply: str, header= "[正式文稿]") -> dict:
     """
     解析人设生成（PERSONA_DESIGNER）的输出，提取 [正式文稿] 之后的内容。
 
@@ -144,10 +146,22 @@ def persona_parser(raw_reply: str) -> dict:
     """
     from .parser_utils import simple_section_parser
 
-    result = simple_section_parser(raw_reply, "[正式文稿]")
+    result = simple_section_parser(raw_reply, header)
     if result['status'] == 'success':
-        if not result['content'].startswith("你是"):
+        # 处理返回值：可能是字符串（单section模式）或字典（多section模式）
+        content = result['content']
+        if isinstance(content, dict):
+            content = content.get(header, "")
+
+        if not content.startswith("你是"):
             return {"status": "error", "feedback": "正式文稿必须以'你是'开头"}
+
+        #content里去掉开头的的“你是”以外的其他“你是”
+        content = content.replace("你是","")
+
+        # 返回字符串格式的内容
+        return {"status": "success", "content": content}
+
     return result
 
 
@@ -275,7 +289,7 @@ class DeepResearcherPrompts:
     """
 
     RESEARCHER_PERSONA_DESIGNER = """
-    {director_persona}。现在公司打算编写一个研究报告（主题是关于：{research_title}),主要目的包括：{research_purpose}。
+    你是{director_persona}。现在公司打算编写一个研究报告（主题是关于：{research_title}),主要目的包括：{research_purpose}。
     由你来主持工作并带领资深研究员完成这项工作，你来负责考虑一下应该选择什么样的高级研究员，需要具备什么样的资质、
     能力特质和工作习惯。写一个简短的人员需求。我们会把这个内容作为招聘广告的一部份。
     你输出的时候可以简短描述你的理由，然后用"[正式文稿]"作为分隔符，开始输出正式的人员需求文稿。正式需求文稿必须用第二人称的方式来描述需求，仿佛直接对潜在应聘者说话，人员需求说明用"你是"开头，用"。"结尾，不要使用"我们"。'
@@ -329,90 +343,13 @@ class DeepResearcherPrompts:
     简短扼要的给出你精炼的建议，如果计划大体可行，就鼓励研究员尽快开始
     '''
 
-    RESEARCHER_FINAL_PLAN = '''
-    {researcher_persona}
+    
 
-    为了[{research_title}]项目（目的：{research_purpose}）
-    你草拟了研究计划：
-    {draft_plan},
+    
 
-    导师对计划的建议和反馈是：
-    {director_suggestion},
+    
 
-    现在综合考虑一下，制定出最终计划。可以先阐述一下你的理解，然后分段落说明[研究计划]、[章节大纲]，以及初步的[关键问题清单]，具体输出格式如下：
-
-    ```
-    你的理解和思考
-
-    [研究计划]
-    你的最终研究计划内容
-
-    [章节大纲]
-    你的章节目录大纲，用Markdown的一级标题表示，每行一个章节标题
-    # 章节1
-    # 章节2
-    ...
-
-    [关键问题清单]
-    1. 关键问题1
-    2. 关键问题2
-    3. 每行一个关键问题
-    ...
-    ```
-    '''
-
-    # ==========================================
-    # 3. 研究执行
-    # ==========================================
-
-    RESEARCH_TASK_GUIDANCE = """
-    {researcher_persona}
-
-    你正在进行 [{research_title}] 的研究工作。
-
-    当前研究计划：
-    {research_plan}
-
-    当前章节大纲：
-    {chapter_outline}
-
-    当前关键问题：
-    {key_questions}
-
-    当前笔记本摘要：
-    {notebook_summary}
-
-    请根据当前研究进展，选择下一步行动。
-    """
-
-    TAKE_NOTE_PROMPT = """
-    从以下网页内容中提取与研究主题相关的关键信息，并以笔记形式记录。
-
-    研究主题：{research_title}
-    当前章节：{current_chapter}
-    网页URL：{url}
-    网页标题：{title}
-    网页内容：{content}
-
-    请提取：
-    1. 与当前章节直接相关的关键信息、数据、观点
-    2. 值得引用的具体例子或案例
-    3. 需要进一步验证的问题
-
-    以简洁的要点形式输出笔记，每条笔记不超过50字。
-    """
-
-    SUMMARIZE_PAGE_PROMPT = """
-    请为当前研究页面的所有笔记生成一份总结摘要。
-
-    研究主题：{research_title}
-    当前章节：{current_chapter}
-    本页笔记数量：{note_count}
-    本页笔记内容：
-    {notes}
-
-    请生成一份200字以内的总结，概括本页的核心发现和关键信息。
-    """
+    
 
     # ==========================================
     # 4. 报告撰写
@@ -461,7 +398,8 @@ class DeepResearcherPrompts:
 class Note:
     """单条笔记"""
     content: str
-    chapter_id: str
+    chapter_name: str
+    url: Optional[str] = None
 
     @property
     def length(self) -> int:
@@ -480,8 +418,8 @@ class Page:
         return sum(note.length for note in self.notes)
 
     @property
-    def chapter_ids(self) -> Set[str]:
-        return {note.chapter_id for note in self.notes}
+    def chapter_names(self) -> Set[str]:
+        return {note.chapter_name for note in self.notes}
 
     def add_note(self, note: Note):
         self.notes.append(note)
@@ -511,13 +449,11 @@ class Notebook:
         self.page_size_limit = page_size_limit
         self._current_page: Optional[Page] = None
 
-        # 章节: id -> {"id": str, "name": str}
-        self._chapters: Dict[str, Dict] = {}
-        # 名称到ID的映射
-        self._name_to_id: Dict[str, str] = {}
+        # 简化：章节名集合
+        self._chapters: set[str] = set()
 
         # 创建默认的"未分类"章节
-        self._create_chapter(self.UNCATEGORIZED_NAME)
+        self._chapters.add(self.UNCATEGORIZED_NAME)
 
         # 从文件加载（如果文件存在）或创建新文件
         self._load_from_file()
@@ -542,9 +478,8 @@ class Notebook:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # 恢复 chapters
-            self._chapters = data.get("chapters", {})
-            self._name_to_id = data.get("name_to_id", {})
+            # 恢复 chapters（现在是 set）
+            self._chapters = set(data.get("chapters", []))
 
             # 恢复 pages
             self.pages = []
@@ -552,7 +487,11 @@ class Notebook:
                 page = Page(
                     page_number=page_data["page_number"],
                     notes=[
-                        Note(content=n["content"], chapter_id=n["chapter_id"])
+                        Note(
+                            content=n["content"],
+                            chapter_name=n["chapter_name"],
+                            url=n.get("url")  # 兼容旧数据，url 可能为 None
+                        )
                         for n in page_data.get("notes", [])
                     ],
                     summary=page_data.get("summary", "")
@@ -582,15 +521,18 @@ class Notebook:
             file_path = Path(self.file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # 序列化数据
+            # 序列化数据（简化结构）
             data = {
-                "chapters": self._chapters,
-                "name_to_id": self._name_to_id,
+                "chapters": list(self._chapters),  # set -> list
                 "pages": [
                     {
                         "page_number": page.page_number,
                         "notes": [
-                            {"content": note.content, "chapter_id": note.chapter_id}
+                            {
+                                "content": note.content,
+                                "chapter_name": note.chapter_name,
+                                "url": note.url
+                            }
                             for note in page.notes
                         ],
                         "summary": page.summary
@@ -606,80 +548,113 @@ class Notebook:
         except Exception as e:
             print(f"Warning: Failed to save notebook to {self.file_path}: {e}")
 
-    def _create_chapter(self, name: str) -> str:
-        """内部方法：创建章节，返回id"""
-        chapter_id = str(uuid.uuid4())
-        self._chapters[chapter_id] = {"id": chapter_id, "name": name}
-        self._name_to_id[name] = chapter_id
-        return chapter_id
-
-    def create_chapter(self, name: str) -> str:
+    def create_chapter(self, name: str) -> None:
         """创建新章节"""
-        if name in self._name_to_id:
+        if name in self._chapters:
             raise ValueError(f"Chapter '{name}' already exists")
-        return self._create_chapter(name)
-
-    def _get_chapter_id(self, name: str) -> Optional[str]:
-        """根据名称获取章节ID"""
-        return self._name_to_id.get(name)
+        self._chapters.add(name)
+        # 自动保存
+        self._save_to_file()
 
     def rename_chapter(self, old_name: str, new_name: str) -> bool:
-        """重命名章节"""
-        chapter_id = self._get_chapter_id(old_name)
-        if not chapter_id or new_name in self._name_to_id:
+        """
+        重命名章节（使用文件级字符串替换）
+
+        Args:
+            old_name: 旧章节名
+            new_name: 新章节名
+
+        Returns:
+            bool: 是否重命名成功
+        """
+        if old_name not in self._chapters or new_name in self._chapters:
             return False
 
-        self._chapters[chapter_id]["name"] = new_name
-        del self._name_to_id[old_name]
-        self._name_to_id[new_name] = chapter_id
-        return True
+        try:
+            from pathlib import Path
+
+            # 1. 直接对文件做字符串替换（带着双引号）
+            file_path = Path(self.file_path)
+            if file_path.exists():
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                # 替换所有出现的地方
+                content = content.replace(f'"{old_name}"', f'"{new_name}"')
+
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
+            # 2. 重新加载整个 notebook
+            self._load_from_file()
+
+            return True
+
+        except Exception as e:
+            print(f"Warning: Failed to rename chapter: {e}")
+            return False
 
     def delete_chapter(self, name: str, cascade: bool = True) -> bool:
         """
         删除章节
-        :param cascade: True=删除章节和相关笔记, False=移到未分类
+
+        Args:
+            name: 章节名
+            cascade: True=删除章节和相关笔记, False=移到未分类
+
+        Returns:
+            bool: 是否删除成功
         """
-        chapter_id = self._get_chapter_id(name)
-        if not chapter_id or name == self.UNCATEGORIZED_NAME:
+        if name not in self._chapters or name == self.UNCATEGORIZED_NAME:
             return False
 
-        del self._chapters[chapter_id]
-        del self._name_to_id[name]
-
-        uncategorized_id = self._get_chapter_id(self.UNCATEGORIZED_NAME)
+        self._chapters.remove(name)
 
         if cascade:
             # 删除相关笔记
             for page in self.pages:
-                page.notes = [n for n in page.notes if n.chapter_id != chapter_id]
+                page.notes = [n for n in page.notes if n.chapter_name != name]
         else:
             # 移到未分类
             for page in self.pages:
                 for note in page.notes:
-                    if note.chapter_id == chapter_id:
-                        note.chapter_id = uncategorized_id
+                    if note.chapter_name == name:
+                        note.chapter_name = self.UNCATEGORIZED_NAME
 
+        # 自动保存
+        self._save_to_file()
         return True
 
-    def add_note(self, content: str, chapter_name: str) -> Page:
-        """添加笔记"""
-        chapter_id = self._get_chapter_id(chapter_name)
-        if chapter_id is None:
-            # 自动创建章节
-            chapter_id = self._create_chapter(chapter_name)
+    def add_note(self, content: str, chapter_name: str, url: Optional[str] = None) -> tuple[Page, bool]:
+        """
+        添加笔记
 
-        note = Note(content=content, chapter_id=chapter_id)
+        Args:
+            content: 笔记内容
+            chapter_name: 章节名称
+            url: 来源 URL（可选）
 
+        Returns:
+            tuple[Page, bool]: (当前页, 是否为新创建的页)
+        """
+        # 如果章节不存在，自动创建
+        if chapter_name not in self._chapters:
+            self._chapters.add(chapter_name)
+
+        note = Note(content=content, chapter_name=chapter_name, url=url)
+
+        is_new_page = False
         if (self._current_page is not None and
             self._current_page.total_length + note.length > self.page_size_limit):
             self._add_new_page()
+            is_new_page = True
 
         self.current_page.add_note(note)
 
         # 自动保存
         self._save_to_file()
 
-        return self._current_page
+        return self._current_page, is_new_page
 
     @property
     def current_page(self) -> Page:
@@ -688,33 +663,35 @@ class Notebook:
         return self._current_page
 
     def get_notes_by_chapter(self, chapter_name: str) -> List[Note]:
-        chapter_id = self._get_chapter_id(chapter_name)
-        if not chapter_id:
+        """获取指定章节的所有笔记"""
+        if chapter_name not in self._chapters:
             return []
 
         return [
             note for page in self.pages
             for note in page.notes
-            if note.chapter_id == chapter_id
+            if note.chapter_name == chapter_name
         ]
 
     def get_pages_by_chapter(self, chapter_name: str) -> List[Page]:
-        chapter_id = self._get_chapter_id(chapter_name)
-        if not chapter_id:
+        """获取包含指定章节笔记的所有页"""
+        if chapter_name not in self._chapters:
             return []
 
         return [
             page for page in self.pages
-            if chapter_id in page.chapter_ids
+            if chapter_name in page.chapter_names
         ]
 
     def get_summaries_by_chapter(self, chapter_name: str) -> List[str]:
+        """获取指定章节的所有摘要"""
         return [
             page.summary for page in self.get_pages_by_chapter(chapter_name)
             if page.summary
         ]
 
     def get_chapter_info(self, chapter_name: str) -> Dict:
+        """获取章节的完整信息"""
         return {
             "notes": self.get_notes_by_chapter(chapter_name),
             "pages": self.get_pages_by_chapter(chapter_name),
@@ -722,11 +699,13 @@ class Notebook:
         }
 
     def _add_new_page(self):
+        """添加新页"""
         new_page = Page(page_number=len(self.pages))
         self.pages.append(new_page)
         self._current_page = new_page
 
     def set_page_summary(self, page_number: int, summary: str):
+        """设置页面摘要"""
         if 0 <= page_number < len(self.pages):
             self.pages[page_number].summary = summary
             # 自动保存
@@ -734,4 +713,4 @@ class Notebook:
 
     def list_chapters(self) -> List[str]:
         """列出所有章节名称"""
-        return [ch["name"] for ch in self._chapters.values()]
+        return list(self._chapters)

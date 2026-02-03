@@ -33,7 +33,9 @@ class LLMClient(AutoLoggerMixin):
     async def think_with_retry(self,
                                     initial_messages: Union[str, List[str]],
                                     parser: callable,
-                                    max_retries: int = 3, **parser_kwargs) -> any:
+                                    max_retries: int = 3,
+                                    debug: bool = True,
+                                    **parser_kwargs) -> any:
         """
         A generic micro-agent that interacts with an LLM in a loop until the
         output is successfully parsed.
@@ -43,6 +45,7 @@ class LLMClient(AutoLoggerMixin):
             parser (callable): A function that takes a raw LLM reply string and
                             returns a dict following the Parser Contract.
             max_retries (int): The maximum number of attempts before failing.
+            debug (bool): If True, output detailed debug information including LLM input/output.
 
         Returns:
             The "data" field from the successful parser result.
@@ -50,44 +53,56 @@ class LLMClient(AutoLoggerMixin):
         Raises:
             ValueError: If the LLM fails to produce a parsable response after all retries.
         """
-        
+
         if isinstance(initial_messages, str):
             #如果messages 是string,就包装成open ai chat messages 的格式
             messages =[{"role": "user", "content": initial_messages}]
         else:
             messages = initial_messages
-        self.logger.debug(f"Micro-Agent: Initial messages: {messages}")
+
+        if debug:
+            self.logger.debug(f"=== think_with_retry DEBUG START ===")
+            self.logger.debug(f"Initial messages ({len(messages)} messages):")
+            for i, msg in enumerate(messages):
+                self.logger.debug(f"  [{i}] {msg.get('role')}: {msg.get('content')[:200]}{'...' if len(msg.get('content', '')) > 200 else ''}")
+        
         for attempt in range(max_retries):
-            self.logger.debug(f"Micro-Agent: Invoking LLM, attempt {attempt + 1}/{max_retries}.")
-            
             try:
                 response = await self.think(messages=messages)
                 raw_reply = response['reply']
 
+                if debug:
+                    self.logger.debug(f"\nLLM Response (raw_reply):")
+                    self.logger.debug(f"  {raw_reply[:500]}...")
+                    
+
                 # Delegate parsing to the provided parser function
                 parsed_result = parser(raw_reply, **parser_kwargs)
 
+                if debug:
+                    self.logger.debug(f"\nParser result:")
+                    self.logger.debug(f"  {parsed_result}")
+                    
+
                 if parsed_result.get("status") == "success":
-                    self.logger.debug("Micro-Agent: Parser reported SUCCESS.")
+                    
                     # 统一返回格式：{"status": "success", "content": ...}
                     if "content" in parsed_result:
                         return parsed_result["content"]
                     else:
                         # 没有内容字段，返回空字典
                         return {}
-                
+
                 elif parsed_result.get("status") == "error":
                     feedback = parsed_result.get("feedback", "Your previous response was invalid. Please try again.")
-                    self.logger.warning(f"Micro-Agent: Parser reported ERROR. Feedback: {feedback}")
-                    
                     # Append the failed response and the corrective feedback for the next attempt
                     messages.append({"role": "assistant", "content": raw_reply})
                     messages.append({"role": "user", "content": feedback})
-                    
+
                     if attempt == max_retries - 1:
                         # Final attempt failed
                         raise ValueError("LLM failed to produce a valid response after all retries.")
-                
+
                 else:
                     # The parser itself is faulty
                     raise TypeError("Parser function returned an invalid contract response.")

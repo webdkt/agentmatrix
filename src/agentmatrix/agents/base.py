@@ -18,17 +18,21 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
     _log_from_attr = "name" # 日志名字来自 self.name 属性
 
     _custom_log_level = logging.DEBUG 
+    
+    # 默认在 process_email 中始终可用的 actions（不需要在 YAML 中配置）
+    DEFAULT_TOP_LEVEL_ACTIONS = ["rest_n_wait", "send_email"]
+    
     def __init__(self, profile):
         self.name = profile["name"]
         self.description = profile["description"]
-        self.prompt_template = profile.get("prompt_template", "base")
-        self.full_prompt = profile["full_prompt"] 
-        # full_prompt是 prompte loaded from prompate_template, 
-        # 后面会和system_prompt合并，然后再替换其他变量生成最终的system prompt
-        self.system_prompt = profile["system_prompt"] #system_prompt is actually persona prompt
+        self.system_prompt = profile["system_prompt"]  # 基本人设，从 YAML 加载
         self.profile = profile
         self.instruction_to_caller = profile["instruction_to_caller"]
         self.backend_model = profile.get("backend_model", "default_llm")
+        
+        # 配置 process_email 时可用的 top level actions
+        # 如果不配置，则使用所有 actions（向后兼容）
+        self.top_level_actions = profile.get("top_level_actions", None)
         self.brain = None
         self.status = "IDLE"
         self.last_received_email = None #最后收到的信
@@ -153,20 +157,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
 
         return workspace
 
-    def get_prompt(self):
-        """生成给 LLM 的完整 Prompt"""
-        prompt = self.full_prompt
-        prompt =prompt.replace("{{ name }}", self.name)
-        prompt =prompt.replace("{{ description }}", self.description)
-        prompt =prompt.replace("{{ system_prompt }}", self.system_prompt)
-        yellow_page = self.post_office.yellow_page_exclude_me(self.name)
-        prompt =prompt.replace("{{ yellow_page }}", yellow_page)
-        
-        return prompt
 
-        
-
-    
 
     def _generate_tools_prompt(self):
         """生成给 SLM 看的 Prompt"""
@@ -280,19 +271,30 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         task = str(email)
 
         # 3. 准备 available actions
-        # BaseAgent 使用所有 actions（包括 send_email）
-        available_actions = list(self.actions_map.keys())
+        # 如果配置了 top_level_actions，则使用配置 + 默认 actions
+        # 否则使用所有 actions（向后兼容）
+        if self.top_level_actions is not None:
+            # 合并配置的 actions 和默认 actions
+            available_actions = list(set(self.top_level_actions + self.DEFAULT_TOP_LEVEL_ACTIONS))
+            # 过滤掉实际不存在的 actions
+            available_actions = [a for a in available_actions if a in self.actions_map]
+            self.logger.debug(f"Using configured top_level_actions: {available_actions}")
+        else:
+            # 向后兼容：使用所有 actions
+            available_actions = list(self.actions_map.keys())
+            self.logger.debug(f"Using all actions (backward compatible): {available_actions}")
 
         # 4. 执行 Micro Agent
         # 传入之前的 history（恢复记忆）
         micro_core = self._get_micro_core()
 
         result = await micro_core.execute(
-            persona=self.get_prompt(),
+            persona=self.system_prompt,
             task=task,
             available_actions=available_actions,
             max_steps=100,
-            initial_history=session["history"]  # 恢复记忆！
+            initial_history=session["history"],  # 恢复记忆！
+            yellow_pages=self.post_office.yellow_page_exclude_me(self.name)
         )
 
         # 5. 更新 session 的 history
@@ -582,7 +584,8 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         available_actions: Optional[List[str]] = None,
         max_steps: int = 50,
         exclude_actions: Optional[List[str]] = None,
-        result_params: Optional[Dict[str, str]] = None
+        result_params: Optional[Dict[str, str]] = None,
+        yellow_pages: Optional[str] = None
     ) -> Any:
         """
         运行一个 Micro Agent 来处理子任务
@@ -597,6 +600,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             max_steps: 最大步数
             exclude_actions: 要排除的 actions（默认排除等待类 actions）
             result_params: 返回值参数描述（可选），用于指定 finish_task 的参数结构
+            yellow_pages: 黄页信息（可选），包含其他agent的描述和如何调用它们
 
         Returns:
             Any: Micro Agent 的执行结果
@@ -658,7 +662,8 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             available_actions=available_actions,
             max_steps=max_steps,
             initial_history=None,  # 新对话，不需要恢复记忆
-            result_params=result_params  # 新增：传递 result_params
+            result_params=result_params,  # 传递 result_params
+            yellow_pages=yellow_pages  # 传递 yellow_pages
         )
 
         return result

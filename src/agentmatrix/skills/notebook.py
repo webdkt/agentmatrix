@@ -18,7 +18,7 @@ class NotebookMixin:
     async def search_in_diary(self, query):
         max_count = 10 #最多检查 10 封邮件
         session = self.current_session
-        user_session_id = session.user_session_id
+        user_session_id = session["user_session_id"]
         partial_results = []
         for index in range(max_count):
             mails = self.post_office.get_mails_by_range(user_session_id, self.name, start=index, end=index +1)
@@ -98,7 +98,7 @@ class NotebookMixin:
         with open(notebook_filepath, "a") as f:
             f.write(json.dumps(note_record) + "\n")
         session = self.current_session
-        user_session_id = session.user_session_id
+        user_session_id = session["user_session_id"]
 
         await self.vector_db.add_documents("notebook", [content], 
             metadatas={"created_at": current_timestamp,
@@ -125,7 +125,7 @@ class NotebookMixin:
     )
     async def search_notebook(self, query):
         session = self.current_session
-        user_session_id = session.user_session_id
+        user_session_id = session["user_session_id"]
         where = {
                     "$and": [
                         {"user_session_id": user_session_id},
