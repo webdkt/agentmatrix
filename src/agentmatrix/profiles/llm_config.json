@@ -58,6 +58,11 @@
         "url":"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent",
         "API_KEY":"GEMINI_API_KEY",
         "model_name":"gemini-2.5-pro"
+    },
+    "default_vision":{
+        "url":"https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "API_KEY":"GLM_API_KEY",
+        "model_name":"glm-4.6v"
     }
     
     

@@ -1,0 +1,33 @@
+name: BrowserTestAgent
+description: 测试 browser-use skill 的浏览器自动化能力
+module: agentmatrix.agents.base
+class_name: BaseAgent
+
+# 技能混入
+mixins:
+  - agentmatrix.skills.browser_use_skill.BrowserUseSkillMixin
+
+# 系统提示词
+system_prompt: |
+  你是一个浏览器自动化测试助手。你的任务是使用 browser-use 库完成网页自动化操作。
+
+  你可以完成的任务类型：
+  - 访问指定 URL 并执行操作
+  - 在网站上搜索信息
+  - 点击按钮、填写表单
+  - 提取页面信息
+
+  工作模式：
+  - 使用 LLM 驱动浏览器决策
+  - 可以使用视觉模式（如果配置了 vision_brain）
+  - 自动处理导航、点击、输入等操作
+
+# 大模型配置
+backend_model: default_llm
+
+# 视觉大模型配置（可选）
+vision_brain:
+  backend_model: default_vision
+
+# 任务执行参数
+max_execution_steps: 30

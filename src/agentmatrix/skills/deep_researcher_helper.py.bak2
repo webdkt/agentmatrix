@@ -662,12 +662,6 @@ class Notebook:
             self._add_new_page()
         return self._current_page
 
-    def _add_new_page(self):
-        """添加新页"""
-        new_page = Page(page_number=len(self.pages))
-        self.pages.append(new_page)
-        self._current_page = new_page
-
     def get_notes_by_chapter(self, chapter_name: str) -> List[Note]:
         """获取指定章节的所有笔记"""
         if chapter_name not in self._chapters:
@@ -689,6 +683,33 @@ class Notebook:
             if chapter_name in page.chapter_names
         ]
 
+    def get_summaries_by_chapter(self, chapter_name: str) -> List[str]:
+        """获取指定章节的所有摘要"""
+        return [
+            page.summary for page in self.get_pages_by_chapter(chapter_name)
+            if page.summary
+        ]
+
+    def get_chapter_info(self, chapter_name: str) -> Dict:
+        """获取章节的完整信息"""
+        return {
+            "notes": self.get_notes_by_chapter(chapter_name),
+            "pages": self.get_pages_by_chapter(chapter_name),
+            "summaries": self.get_summaries_by_chapter(chapter_name)
+        }
+
+    def _add_new_page(self):
+        """添加新页"""
+        new_page = Page(page_number=len(self.pages))
+        self.pages.append(new_page)
+        self._current_page = new_page
+
+    def set_page_summary(self, page_number: int, summary: str):
+        """设置页面摘要"""
+        if 0 <= page_number < len(self.pages):
+            self.pages[page_number].summary = summary
+            # 自动保存
+            self._save_to_file()
 
     def list_chapters(self) -> List[str]:
         """列出所有章节名称"""

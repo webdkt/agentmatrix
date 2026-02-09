@@ -219,6 +219,8 @@ class SessionManager(AutoLoggerMixin):
         """
         保存 session 的 history 和元数据到磁盘（不包含 context）
 
+        使用原子写入防止中断时文件损坏
+
         Args:
             session: session dict（包含元数据和 history）
         """
@@ -246,12 +248,36 @@ class SessionManager(AutoLoggerMixin):
             "history": session["history"]
         }
 
-        # 异步写入 history.json
-        await asyncio.to_thread(
-            lambda p=history_file, d=history_data: json.dump(d, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-        )
+        # 原子写入：先写入临时文件，然后重命名
+        def atomic_write(file_path, data):
+            import tempfile
+            import shutil
 
-        self.logger.debug(f"💾 Saved session history {session['session_id'][:8]}")
+            # 1. 写入临时文件
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=str(file_path.parent),
+                prefix=".tmp_",
+                suffix=".json"
+            )
+            try:
+                with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+
+                # 2. 原子重命名（OS 保证原子性）
+                shutil.move(temp_path, str(file_path))
+            except Exception as e:
+                # 清理临时文件
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+                raise e
+
+        # 异步执行原子写入
+        import os
+        await asyncio.to_thread(atomic_write, history_file, history_data)
+
+        self.logger.debug(f"💾 Saved session history {session['session_id'][:8]} (atomic)")
 
     async def _save_session_context(self, session: dict):
         """

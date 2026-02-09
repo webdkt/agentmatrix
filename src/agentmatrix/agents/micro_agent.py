@@ -71,9 +71,12 @@ class MicroAgent(AutoLoggerMixin):
         task: str,
         available_actions: List[str],
         max_steps: Optional[int] = None,
+        max_time: Optional[float] = None,
         initial_history: Optional[List[Dict]] = None,
         result_params: Optional[Dict[str, str]] = None,
-        yellow_pages: Optional[str] = None
+        yellow_pages: Optional[str] = None,
+        session: Optional[Dict] = None,
+        session_manager = None
     ) -> Any:
         """
         执行任务（可重复调用）
@@ -83,9 +86,12 @@ class MicroAgent(AutoLoggerMixin):
             task: 任务描述
             available_actions: 可用的 action 名称列表
             max_steps: 最大步数（可选，默认使用 default_max_steps）
+            max_time: 最大执行时间（分钟）（可选，None 表示不限制时间）
             initial_history: 初始对话历史（用于恢复记忆，可选）
-            result_params: 返回值参数描述（可选），用于指定 finish_task 的参数结构
+            result_params: 返回值参数描述（可选），用于指定 all_finished 的参数结构
             yellow_pages: 黄页信息（可选），包含其他agent的描述和如何调用它们
+            session: session 对象（可选），用于持久化对话历史
+            session_manager: session_manager 对象（可选），用于保存 session
 
         Returns:
             Any: 最终结果
@@ -99,36 +105,50 @@ class MicroAgent(AutoLoggerMixin):
         self.available_actions = available_actions
         self.yellow_pages = yellow_pages
         self.max_steps = max_steps or self.default_max_steps
+        self.max_time = max_time  # 可以是 None
+
+        # 保存 session 和 session_manager 引用
+        self.session = session
+        self.session_manager = session_manager
+
+        # 硬限制：如果都没有设置，最多 1024 步（确保总是会返回）
+        if self.max_steps is None and self.max_time is None:
+            self.max_steps = 1024
+            self.logger.info("未设置步数和时间限制，使用硬限制 max_steps=1024")
 
         # 重置执行状态
         self.step_count = 0
         self.result = None
 
-        # 确保 finish_task 在 action_registry 中
-        if "finish_task" not in self.action_registry:
-            self.action_registry["finish_task"] = finish_task
-
-        # 动态更新 finish_task 的元数据
+        # finish_task 现在从 BaseAgent 继承，已在 action_registry 中
+        # 动态更新 finish_task 的元数据（如果提供了 result_params）
         if result_params:
-            # 更新参数描述
-            finish_task._action_param_infos = result_params
+            # 获取 finish_task 方法
+            finish_task_method = self.action_registry.get("all_finished")  # 注意：这里改为 "all_finished"
 
-            # 动态生成 description，包含参数的自然语言描述
-            param_descriptions = ", ".join(result_params.values())
-            finish_task._action_desc = (
-                f"完成任务并返回最终结果。需要提供：{param_descriptions}"
-            )
-        else:
-            # 默认模式
-            finish_task._action_param_infos = {"result": "最终结果的描述（可选）"}
-            finish_task._action_desc = "完成任务并返回最终结果。当你觉得任务已经完成时，调用此 action。"
+            if finish_task_method:
+                # 更新参数描述
+                finish_task_method._action_param_infos = result_params
 
-        # 确保 finish_task 在可用列表中
-        if "finish_task" not in available_actions:
-            available_actions.append("finish_task")
+                # 动态生成 description，包含参数的自然语言描述
+                param_descriptions = ", ".join(result_params.values())
+                finish_task_method._action_desc = (
+                    f"完成所有任务并返回最终结果。需要提供：{param_descriptions}"
+                )
+
+        # 确保 all_finished 在可用列表中
+        if "all_finished" not in available_actions:
+            available_actions.append("all_finished")
 
         # 恢复或初始化对话历史
-        if initial_history:
+        # 优先从 session 获取，否则使用 initial_history
+        if session:
+            # 从 session 获取 history
+            self.messages = session.get("history", []).copy()
+            self.logger.info(f"Micro Agent {self.name} loaded {len(self.messages)} messages from session")
+            # 添加新的任务输入
+            self._add_message("user", f"\n[NEW INPUT]\n{self._format_task_message()}")
+        elif initial_history:
             # 恢复记忆：复制历史记录
             self.messages = initial_history.copy()
             self.logger.info(f"Micro Agent {self.name} restoring memory with {len(initial_history)} messages")
@@ -173,12 +193,14 @@ class MicroAgent(AutoLoggerMixin):
 你目前在一个文本化的系统环境中存在。你是这个系统的意识部分，系统则是你的身体。
 
 **基本物理规则:**
-1. 你是**基于信号**的实体。你不会持续存在，你只会**接收到信号**时**醒来**。
-2. 你需要**生成一个明确的动作信号**来**完成你的意图**。
-3. 一旦你发出动作信号，你将**冻结**并等待**身体**返回执行结果的信号（反馈）。
+1. 你是**基于信号**的实体。你接受信号，对其思考然后决定你的意图和动作，并等待动作的结果作为新的信号。你从来不编造或者假设信号和动作结果，只是冷静的观察和反应
+2. 你需要**提供一个明确的动作信号**来**完成你的意图**。
+3. 一旦你发出动作信号，你将等待**身体**返回执行结果的信号（反馈）。
 4. 你的身体是强大的，但它**无法感知**你的对话历史或思考。除非你明确地告诉它。
 5. 身体每次只能执行一个action, 需要你明确的告诉它是哪一个。
-6. 你可以有复杂的思考和规划，但只会客观冷静的观察评估action的真实结果，根据动作的实际结果而不是期望来决定你的下一步计划。
+6. 你可以有复杂的思考和规划，但只会客观冷静的观察评估action的实际结果，根据动作的实际结果而不是期望来决定你的下一步计划。
+7. 如果你收到邮件，你有义务尽力去满足邮件里的要求，并**回复邮件**。任何未回复的邮件，都是一个未完成的事项
+
 
 ### 你的工具箱 (可用action)
 
@@ -215,9 +237,44 @@ class MicroAgent(AutoLoggerMixin):
         return msg
 
     async def _run_loop(self):
-        """执行主循环 - 支持批量 action 执行"""
-        for self.step_count in range(1, self.max_steps + 1):
-            self.logger.debug(f"Step {self.step_count}/{self.max_steps}")
+        """执行主循环 - 支持批量 action 执行和时间限制"""
+        import time
+        start_time = time.time()
+
+        # 确定最大步数（可能为 None，表示只受时间限制）
+        max_steps = self.max_steps
+        step_count = 0
+
+        # 将分钟转换为秒
+        max_time_seconds = self.max_time * 60 if self.max_time else None
+
+        while True:
+            # 检查步数限制
+            if max_steps and step_count >= max_steps:
+                self.logger.warning(f"达到最大步数 ({max_steps})")
+                self.result = "未完成，达到最大步数限制"
+                break
+
+            # 检查时间限制
+            if max_time_seconds:
+                elapsed = time.time() - start_time
+                if elapsed >= max_time_seconds:
+                    self.logger.warning(f"达到最大时间 ({self.max_time}分钟)，已执行 {step_count} 步")
+                    self.result = "未完成，达到最大时间限制"
+                    break
+
+            step_count += 1
+            self.step_count = step_count
+
+            # 计算已用时间（用于日志）
+            elapsed = time.time() - start_time if max_time_seconds else 0
+            step_info = f"Step {step_count}"
+            if max_steps:
+                step_info += f"/{max_steps}"
+            if self.max_time:
+                elapsed_minutes = elapsed / 60
+                step_info += f" (时间: {elapsed_minutes:.1f}分钟/{self.max_time}分钟)"
+            self.logger.debug(step_info)
 
             # 1. Think
             thought = await self._think()
@@ -243,11 +300,11 @@ class MicroAgent(AutoLoggerMixin):
 
             for action_name in action_names:
                 # === 处理特殊 actions ===
-                if action_name == "finish_task":
+                if action_name == "all_finished":
                     # 执行 finish_task
-                    result = await self._execute_action("finish_task", thought)
+                    result = await self._execute_action("all_finished", thought)
                     self.result = result
-                    self.return_action_name = "finish_task"
+                    self.return_action_name = "all_finished"
                     should_break_loop = True
                     # 不记录 execution_results，直接退出
                     break  # ← 退出 for action_names 循环
@@ -278,11 +335,6 @@ class MicroAgent(AutoLoggerMixin):
             # 7. 检查是否需要退出主循环
             if should_break_loop:
                 break
-
-        else:
-            # 超过最大步数
-            self.logger.warning(f"Reached max steps ({self.max_steps})")
-            self.result = None
 
     async def _think(self) -> str:
         """调用 Brain 进行思考"""
@@ -379,8 +431,17 @@ class MicroAgent(AutoLoggerMixin):
         return result
 
     def _add_message(self, role: str, content: str):
-        """添加消息到对话历史"""
+        """
+        添加消息到对话历史
+
+        如果有 session，自动保存到 session
+        """
         self.messages.append({"role": role, "content": content})
+
+        # 如果有 session，自动保存
+        if self.session and self.session_manager:
+            self.session["history"] = self.messages.copy()
+            self.session_manager.save_session(self.session)
 
     def get_history(self) -> List[Dict]:
         """
@@ -390,39 +451,3 @@ class MicroAgent(AutoLoggerMixin):
             List[Dict]: 完整的对话历史（包括初始历史 + 新增对话）
         """
         return self.messages
-
-
-# ============================================================================
-# 通用的 finish_task action
-# ============================================================================
-
-async def finish_task(**kwargs):
-    """
-    [TERMINAL ACTION] 完成任务并返回最终结果
-
-    当你认为任务已经完成时，调用此 action。
-    根据提供的参数返回结构化结果。
-
-    Returns:
-        - 如果只有一个 result 参数：返回字符串（向后兼容）
-        - 如果有多个参数：返回字典
-    """
-    # 如果是简单模式（只有一个 result），返回字符串以保持兼容
-    if len(kwargs) == 1 and "result" in kwargs:
-        return kwargs["result"]
-    # 否则返回字典
-    return kwargs
-
-
-# 附加基础元数据
-finish_task._is_action = True
-finish_task._action_desc = "完成任务并返回最终结果。当你觉得任务已经完成时，调用此 action。"
-finish_task._action_param_infos = {"result": "最终结果的描述（可选）"}
-
-
-# finish_task 的注册信息（用于添加到 action_registry）
-FINISH_TASK_INFO = {
-    "description": finish_task._action_desc,
-    "param_infos": finish_task._action_param_infos,
-    "method": finish_task
-}

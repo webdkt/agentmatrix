@@ -115,6 +115,140 @@ class LLMClient(AutoLoggerMixin):
         # This line should theoretically be unreachable
         raise RuntimeError("Micro-Agent loop exited unexpectedly.")
 
+    async def look_and_retry(self,
+                            prompt: str,
+                            image: str,
+                            parser: callable,
+                            max_retries: int = 3,
+                            debug: bool = True,
+                            **parser_kwargs) -> any:
+        """
+        Vision version of think_with_retry - interacts with a Vision LLM in a loop
+        until the output is successfully parsed.
+
+        Almost identical to think_with_retry, but:
+        - Uses think_with_image() instead of think()
+        - User messages must use format: {"role": "user", "content": [{"type": "text", "text": "..."}]}
+          (to match the multi-modal content format expected by vision APIs)
+
+        Args:
+            prompt (str): The text prompt to send to the Vision LLM.
+            image (str): Base64 encoded image string.
+            parser (callable): A function that takes a raw LLM reply string and
+                            returns a dict following the Parser Contract.
+            max_retries (int): The maximum number of attempts before failing.
+            debug (bool): If True, output detailed debug information including LLM input/output.
+
+        Returns:
+            The "content" field from the successful parser result.
+
+        Raises:
+            ValueError: If the Vision LLM fails to produce a parsable response after all retries.
+        """
+        # Initial message with proper multi-modal format
+        messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+
+        if debug:
+            print(f"\n{'='*80}")
+            print(f"🔄 look_and_retry 开始 (最多 {max_retries} 次尝试)")
+            print(f"{'='*80}")
+            print(f"📝 Prompt (前200字符): {prompt[:200]}{'...' if len(prompt) > 200 else ''}")
+            print(f"📸 图片大小: {len(image)} bytes (base64)")
+            print(f"{'='*80}\n")
+
+        for attempt in range(max_retries):
+            try:
+                if debug:
+                    print(f"\n{'─'*80}")
+                    print(f"🔄 第 {attempt + 1}/{max_retries} 次尝试")
+                    print(f"{'─'*80}")
+
+                # Always use think_with_image (it handles the multi-modal format)
+                raw_reply = await self.think_with_image(
+                    messages=messages,
+                    image=image
+                )
+
+                if debug:
+                    print(f"📥 Vision LLM 原始回复:")
+                    print(f"{'─'*80}")
+                    print(raw_reply[:500] + ('...' if len(raw_reply) > 500 else ''))
+                    print(f"{'─'*80}\n")
+
+                # Delegate parsing to the provided parser function
+                parsed_result = parser(raw_reply, **parser_kwargs)
+
+                if debug:
+                    print(f"🔍 Parser 解析结果:")
+                    print(f"{'─'*80}")
+                    for key, value in parsed_result.items():
+                        print(f"  {key}: {value}")
+                    print(f"{'─'*80}\n")
+
+                if parsed_result.get("status") == "success":
+                    if debug:
+                        print(f"✅ 解析成功！")
+                        print(f"{'='*80}\n")
+                    # 统一返回格式：{"status": "success", "content": ...}
+                    if "content" in parsed_result:
+                        return parsed_result["content"]
+                    else:
+                        # 没有内容字段，返回空字典
+                        return {}
+
+                elif parsed_result.get("status") == "error":
+                    feedback = parsed_result.get("feedback", "Your previous response was invalid. Please try again.")
+
+                    if debug:
+                        print(f"❌ 解析失败")
+                        print(f"📝 错误反馈: {feedback[:300]}{'...' if len(feedback) > 300 else ''}")
+                        print(f"🔄 准备重试...\n")
+
+                    # Append assistant response (plain text)
+                    messages.append({"role": "assistant", "content": raw_reply})
+                    # Append user feedback (must use multi-modal format with only text, no image)
+                    messages.append({
+                        "role": "user",
+                        "content": [{"type": "text", "text": feedback}]
+                    })
+
+                    if attempt == max_retries - 1:
+                        # Final attempt failed
+                        if debug:
+                            print(f"\n{'='*80}")
+                            print(f"❌ 达到最大重试次数 ({max_retries})，仍然失败")
+                            print(f"最后错误: {feedback}")
+                            print(f"{'='*80}\n")
+                        raise ValueError(f"Vision LLM failed to produce a valid response after {max_retries} retries. Last error: {feedback}")
+
+                else:
+                    # The parser itself is faulty
+                    raise TypeError("Parser function returned an invalid contract response.")
+
+            except ValueError:
+                # Re-raise ValueError (from final attempt failure)
+                raise
+            except Exception as e:
+                if debug:
+                    print(f"⚠️  意外错误: {str(e)}")
+                    print(f"🔄 准备重试...\n")
+                self.logger.exception(f"look_and_retry: An unexpected error occurred during invocation attempt {attempt + 1}.")
+                if attempt == max_retries - 1:
+                    if debug:
+                        print(f"\n{'='*80}")
+                        print(f"❌ 达到最大重试次数，发生异常")
+                        print(f"异常: {str(e)}")
+                        print(f"{'='*80}\n")
+                    raise
+                # If not the last attempt, add feedback and continue
+                messages.append({
+                    "role": "user",
+                    "content": [{"type": "text", "text": f"Error occurred: {str(e)}. Please try again."}]
+                })
+
+        # This line should theoretically be unreachable
+        raise RuntimeError("look_and_retry loop exited unexpectedly.")
+
     async def dialog_with_retry(
         self,
         producer_task: str,
@@ -280,6 +414,382 @@ class LLMClient(AutoLoggerMixin):
         if "googleapis.com" in self.url or "gemini" in self.model_name.lower():
             return await self._async_stream_think_gemini(messages, **kwargs)
         return await self.async_stream_think(messages, **kwargs)
+
+    async def think_with_image(
+        self,
+        messages: Union[str, List[Dict[str, str]]],
+        image: str,
+        **kwargs
+    ) -> str:
+        """
+        带图片的异步调用大模型API（支持视觉的模型，如 GPT-4V, Claude 3.5 Sonnet, Gemini Pro Vision）
+
+        Args:
+            messages: 消息列表（OpenAI 格式）或单个字符串
+            image: base64 编码的图片数据（不含 data:image/... 前缀）
+            **kwargs: 额外的参数（temperature, max_tokens 等）
+
+        Returns:
+            str: LLM 的文本回复
+
+        Raises:
+            Exception: 如果 API 调用失败
+
+        Example:
+            result = await llm_client.think_with_image(
+                messages="描述这张图片",
+                image="iVBORw0KGgoAAAANSUhEUgAAAAUA..."
+            )
+        """
+        # 统一消息格式
+        if isinstance(messages, str):
+            # 单个字符串，直接使用
+            text_content = messages
+            is_multi_turn = False
+        else:
+            # 检查是否是多轮对话（有多条消息，且包含 assistant 消息）
+            has_assistant = any(msg.get("role") == "assistant" for msg in messages)
+            is_multi_turn = has_assistant and len(messages) > 1
+
+            if is_multi_turn:
+                # 多轮对话：直接传递给 _think_with_image_openai_multi_turn
+                is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
+                if is_gemini:
+                    return await self._think_with_image_gemini_multi_turn(messages, image, **kwargs)
+                else:
+                    return await self._think_with_image_openai_multi_turn(messages, image, **kwargs)
+            else:
+                # 单轮对话：检查是否是 multi-modal 格式
+                first_msg = messages[0]
+                content = first_msg.get("content", "")
+
+                if isinstance(content, list):
+                    # 已经是 multi-modal 格式 [{"type": "text", "text": "..."}]
+                    # 直接传递给多轮方法处理
+                    is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
+                    if is_gemini:
+                        return await self._think_with_image_gemini_multi_turn(messages, image, **kwargs)
+                    else:
+                        return await self._think_with_image_openai_multi_turn(messages, image, **kwargs)
+                else:
+                    # 普通字符串格式，合并所有文本内容（向后兼容）
+                    text_content = "\n".join([
+                        msg.get("content", "") for msg in messages
+                    ])
+
+        # 检测是 Gemini 还是 OpenAI 格式（单轮）
+        if not is_multi_turn:
+            is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
+            if is_gemini:
+                return await self._think_with_image_gemini(text_content, image, **kwargs)
+            else:
+                return await self._think_with_image_openai(text_content, image, **kwargs)
+
+    async def _think_with_image_openai(
+        self,
+        text_prompt: str,
+        image_base64: str,
+        **kwargs
+    ) -> str:
+        """
+        使用 OpenAI Vision API 格式调用（兼容 GPT-4V, Claude 等）
+        """
+        try:
+            # 构造支持图片的消息格式
+            message_content = [
+                {
+                    "type": "text",
+                    "text": text_prompt
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{image_base64}",
+                        "detail": kwargs.get("detail", "high")  # low, high, auto
+                    }
+                }
+            ]
+
+            messages = [{"role": "user", "content": message_content}]
+
+            # 构造请求数据
+            data = {
+                "messages": messages,
+                "model": self.model_name,
+                "stream": True,
+                **{k: v for k, v in kwargs.items() if k != "detail"}
+            }
+
+            final_content = ""
+            buffer = ""
+
+            timeout = aiohttp.ClientTimeout(total=120)
+
+            async with aiohttp.ClientSession(headers=self.headers, timeout=timeout, trust_env=True) as session:
+                async with session.post(self.url, json=data) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        raise Exception(f"Vision API Error {resp.status}: {error_text}")
+
+                    # 流式解析
+                    async for chunk in resp.content.iter_chunked(1024):
+                        if not chunk:
+                            continue
+                        text = chunk.decode("utf-8", errors="ignore")
+                        buffer += text
+                        lines = buffer.split("\n")
+                        buffer = lines[-1]
+
+                        for line in lines[:-1]:
+                            line = line.strip()
+                            if not line or not line.startswith("data: "):
+                                continue
+
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                continue
+
+                            try:
+                                payload = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+
+                            if "choices" in payload and payload["choices"]:
+                                delta = payload["choices"][0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    final_content += content
+
+            return final_content
+
+        except aiohttp.ClientError as e:
+            self.logger.exception(f"Vision API 请求失败: {str(e)}")
+            raise Exception(f"Vision API 网络错误: {str(e)}")
+        except Exception as e:
+            self.logger.exception(f"Vision API 调用失败")
+            raise Exception(f"Vision API 调用失败: {str(e)}")
+
+    async def _think_with_image_openai_multi_turn(
+        self,
+        messages: List[Dict],
+        image_base64: str,
+        **kwargs
+    ) -> str:
+        """
+        使用 OpenAI Vision API 格式进行多轮对话
+
+        Args:
+            messages: 消息列表，格式为:
+                [
+                    {"role": "user", "content": [{"type": "text", "text": "..."}]},
+                    {"role": "assistant", "content": "..."},
+                    {"role": "user", "content": [{"type": "text", "text": "..."}]}
+                ]
+            image_base64: Base64 编码的图片（只在第一条 user 消息中添加）
+            **kwargs: 额外参数
+        """
+        try:
+            # 转换消息格式：为第一条 user 消息添加图片
+            formatted_messages = []
+            first_user_done = False
+
+            for msg in messages:
+                role = msg.get("role")
+                content = msg.get("content")
+
+                if role == "user":
+                    if isinstance(content, list):
+                        # 已经是 multi-modal 格式
+                        if not first_user_done:
+                            # 第一条 user 消息，添加图片
+                            content.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{image_base64}",
+                                    "detail": kwargs.get("detail", "high")
+                                }
+                            })
+                            first_user_done = True
+                        formatted_messages.append({"role": role, "content": content})
+                    else:
+                        # 纯文本，转换为 multi-modal 格式
+                        if not first_user_done:
+                            # 第一条 user 消息，添加图片
+                            formatted_messages.append({
+                                "role": role,
+                                "content": [
+                                    {"type": "text", "text": content},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:image/png;base64,{image_base64}",
+                                            "detail": kwargs.get("detail", "high")
+                                        }
+                                    }
+                                ]
+                            })
+                            first_user_done = True
+                        else:
+                            # 后续 user 消息，只有文本
+                            formatted_messages.append({
+                                "role": role,
+                                "content": [{"type": "text", "text": content}]
+                            })
+                else:
+                    # assistant 或 system 消息，直接添加
+                    formatted_messages.append({"role": role, "content": content})
+
+            # 构造请求数据
+            data = {
+                "messages": formatted_messages,
+                "model": self.model_name,
+                "stream": True,
+                **{k: v for k, v in kwargs.items() if k != "detail"}
+            }
+
+            final_content = ""
+            buffer = ""
+            timeout = aiohttp.ClientTimeout(total=120)
+            async with aiohttp.ClientSession(headers=self.headers, timeout=timeout, trust_env=True) as session:
+                async with session.post(self.url, json=data) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        raise Exception(f"Vision API Error {resp.status}: {error_text}")
+
+                    # 流式解析
+                    async for chunk in resp.content.iter_chunked(1024):
+                        if not chunk:
+                            continue
+                        text = chunk.decode("utf-8", errors="ignore")
+                        buffer += text
+                        lines = buffer.split("\n")
+                        buffer = lines[-1]
+                        for line in lines[:-1]:
+                            line = line.strip()
+                            if not line or not line.startswith("data: "):
+                                continue
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                continue
+                            try:
+                                payload = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+                            if "choices" in payload and payload["choices"]:
+                                delta = payload["choices"][0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    final_content += content
+
+            return final_content
+
+        except aiohttp.ClientError as e:
+            self.logger.exception(f"Vision API 多轮对话请求失败: {str(e)}")
+            raise Exception(f"Vision API 多轮对话网络错误: {str(e)}")
+        except Exception as e:
+            self.logger.exception(f"Vision API 多轮对话调用失败")
+            raise Exception(f"Vision API 多轮对话调用失败: {str(e)}")
+
+    async def _think_with_image_gemini(
+        self,
+        text_prompt: str,
+        image_base64: str,
+        **kwargs
+    ) -> str:
+        """
+        使用 Gemini Vision API 格式调用
+        """
+        try:
+            # Gemini 格式：parts 数组，包含文本和图片
+            content_parts = [
+                {"text": text_prompt},
+                {
+                    "inline_data": {
+                        "mime_type": "image/png",
+                        "data": image_base64
+                    }
+                }
+            ]
+
+            data = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": content_parts
+                    }
+                ],
+                "generationConfig": self._construct_gemini_config(**kwargs)
+            }
+
+            final_content = ""
+            buffer = ""
+            brace_count = 0
+            in_string = False
+            escape = False
+
+            timeout = aiohttp.ClientTimeout(total=120)
+
+            async with aiohttp.ClientSession(headers=self.gemini_headers, timeout=timeout, trust_env=True) as session:
+                async with session.post(self.url, json=data) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        raise Exception(f"Gemini Vision Error {resp.status}: {error_text}")
+
+                    # Gemini 流式解析（JSON Array Stream）
+                    async for chunk in resp.content.iter_chunked(1024):
+                        if not chunk:
+                            continue
+                        text = chunk.decode("utf-8", errors="ignore")
+
+                        for char in text:
+                            # 简易 JSON 对象提取器
+                            if char == '[' and brace_count == 0:
+                                continue
+                            if char == ']' and brace_count == 0:
+                                continue
+                            if char == ',' and brace_count == 0:
+                                continue
+
+                            buffer += char
+
+                            if char == '"' and not escape:
+                                in_string = not in_string
+                            if char == '\\' and not escape:
+                                escape = True
+                            else:
+                                escape = False
+
+                            if not in_string:
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+
+                                if brace_count == 0 and buffer.strip():
+                                    try:
+                                        obj = json.loads(buffer)
+                                        candidates = obj.get("candidates", [])
+                                        if candidates:
+                                            content_obj = candidates[0].get("content", {})
+                                            parts = content_obj.get("parts", [])
+
+                                            for part in parts:
+                                                part_text = part.get("text", "")
+                                                final_content += part_text
+
+                                    except json.JSONDecodeError:
+                                        pass
+                                    finally:
+                                        buffer = ""
+
+            return final_content
+
+        except aiohttp.ClientError as e:
+            self.logger.exception(f"Gemini Vision API 请求失败: {str(e)}")
+            raise Exception(f"Gemini Vision API 网络错误: {str(e)}")
+        except Exception as e:
+            self.logger.exception(f"Gemini Vision API 调用失败")
+            raise Exception(f"Gemini Vision API 调用失败: {str(e)}")
     
     def _to_gemini_messages(self, messages: list[dict[str, str]]) -> dict:
         """
@@ -433,6 +943,152 @@ class LLMClient(AutoLoggerMixin):
             self.logger.exception("Gemini调用失败")
             raise Exception(f"Gemini调用失败: {str(e)}")
 
+    async def _think_with_image_gemini_multi_turn(
+        self,
+        messages: List[Dict],
+        image_base64: str,
+        **kwargs
+    ) -> str:
+        """
+        使用 Gemini Vision API 格式进行多轮对话
+
+        Args:
+            messages: 消息列表，格式为:
+                [
+                    {"role": "user", "content": [{"type": "text", "text": "..."}]},
+                    {"role": "assistant", "content": "..."},
+                    {"role": "user", "content": [{"type": "text", "text": "..."}]}
+                ]
+            image_base64: Base64 编码的图片（只在第一条 user 消息中添加）
+            **kwargs: 额外参数
+        """
+        try:
+            # 转换消息格式：为第一条 user 消息添加图片
+            contents = []
+            first_user_done = False
+
+            for msg in messages:
+                role = msg.get("role")
+                content = msg.get("content")
+
+                # Gemini 的 role 映射: user -> user, assistant -> model
+                gemini_role = "model" if role == "assistant" else role
+
+                if role == "user":
+                    parts = []
+                    if isinstance(content, list):
+                        # 已经是 multi-modal 格式
+                        if not first_user_done:
+                            # 第一条 user 消息，添加图片
+                            parts.extend(content)  # 复制所有 parts（text）
+                            parts.append({
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": image_base64
+                                }
+                            })
+                            first_user_done = True
+                        else:
+                            # 后续 user 消息，只有文本
+                            parts.extend(content)
+                    else:
+                        # 纯文本
+                        parts.append({"text": content})
+                        if not first_user_done:
+                            # 第一条 user 消息，添加图片
+                            parts.append({
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": image_base64
+                                }
+                            })
+                            first_user_done = True
+
+                    contents.append({
+                        "role": gemini_role,
+                        "parts": parts
+                    })
+                else:
+                    # assistant (model) 消息
+                    contents.append({
+                        "role": gemini_role,
+                        "parts": [{"text": content}]
+                    })
+
+            data = {
+                "contents": contents,
+                "generationConfig": self._construct_gemini_config(**kwargs)
+            }
+
+            final_content = ""
+            final_reasoning = ""
+            buffer = ""
+            brace_count = 0
+            in_string = False
+            escape = False
+            timeout = aiohttp.ClientTimeout(total=120)
+            async with aiohttp.ClientSession(headers=self.gemini_headers, timeout=timeout, trust_env=True) as session:
+                async with session.post(self.url, json=data) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        raise Exception(f"Gemini Vision Error {resp.status}: {error_text}")
+
+                    # Gemini 流式解析（JSON Array Stream）
+                    async for chunk in resp.content.iter_chunked(1024):
+                        if not chunk:
+                            continue
+                        text = chunk.decode("utf-8", errors="ignore")
+                        for char in text:
+                            # 简易 JSON 对象提取器
+                            if char == '[' and brace_count == 0:
+                                continue
+                            if char == ']' and brace_count == 0:
+                                continue
+                            if char == ',' and brace_count == 0:
+                                continue
+                            buffer += char
+
+                            if char == '\\' and not escape:
+                                escape = True
+                                continue
+
+                            if char == '"' and not escape:
+                                in_string = not in_string
+                            else:
+                                escape = False
+
+                            if not in_string:
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        try:
+                                            obj = json.loads(buffer)
+                                            buffer = ""
+
+                                            candidate = obj.get("candidates", [{}])[0]
+                                            content = candidate.get("content", {})
+                                            parts = content.get("parts", [])
+
+                                            for part in parts:
+                                                if "text" in part:
+                                                    final_content += part["text"]
+                                                elif "thought" in part:
+                                                    final_reasoning += part["thought"]
+
+                                        except json.JSONDecodeError:
+                                            pass
+
+            return final_content
+
+        except aiohttp.ClientError as e:
+            self.logger.exception(f"Gemini Vision 多轮对话请求失败: {str(e)}")
+            raise Exception(f"Gemini Vision 多轮对话网络错误: {str(e)}")
+        except Exception as e:
+            self.logger.exception(f"Gemini Vision 多轮对话调用失败")
+            raise Exception(f"Gemini Vision 多轮对话调用失败: {str(e)}")
+
     async def async_stream_think(self, messages: list[dict[str, str]], **kwargs) -> Dict[str, str]:
         """
         异步流式调用大模型API，实时打印响应内容（使用 aiohttp）
@@ -448,10 +1104,16 @@ class LLMClient(AutoLoggerMixin):
 
             final_reasoning_content = ""
             final_content = ""
-            
+
             buffer = ""
 
-            timeout = aiohttp.ClientTimeout(total=120)
+            # 超时配置：
+            # - total=None: 不限制总时间，LLM 输出多久都可以（只要在持续输出）
+            # - sock_read=300: 单次读取超时 5 分钟，如果 5 分钟内没有收到任何数据 chunk，才认为超时
+            timeout = aiohttp.ClientTimeout(
+                total=None,      # 不限制总时长，允许 LLM 长时间输出
+                sock_read=300    # 单次读取超时 5 分钟（宽容的网络容错）
+            )
             async with aiohttp.ClientSession(headers=self.headers, timeout=timeout, trust_env=True) as session:
                 async with session.post(self.url, json=data) as resp:
                     if resp.status != 200:

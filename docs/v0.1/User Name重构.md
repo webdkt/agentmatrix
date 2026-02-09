@@ -150,7 +150,7 @@ User agent 有几个区别于其他 agent 的特征：
 #### **3. UI 中的特殊过滤**
 - Web 界面从 agent 列表过滤 "User"（app.js 第 79 行）
 - User 获得特殊的头像显示（单字母 "U" 而非 2 字母）
-- 对话历史是 "User 视角"（来自 User 的消息在左侧，其他在右侧）
+- 对话历史是 "User 视角"（来自 User 的消息在左边，其他在右边）
 
 #### **4. 数据库查询**
 - 特殊 SQL 查询过滤 `sender = 'User' OR recipient = 'User'`

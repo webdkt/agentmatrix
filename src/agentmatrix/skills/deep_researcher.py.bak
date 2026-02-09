@@ -107,7 +107,6 @@ class DeepResearcherMixin(WebSearcherMixin):
         await self.update_session_context(
             research_title=research_title,
             research_purpose=research_purpose,
-            research_overall_summary="",  # 项目整体总结（初始化为空）
             notebook_file=notebook_file  # 保存路径，用于数据持久化
         )
 
@@ -239,17 +238,15 @@ class DeepResearcherMixin(WebSearcherMixin):
     # Stage 3: 研究循环 (Research Loop)
     # ==========================================
 
-    async def _do_research_task(self, task_content: str, max_steps: int = 30, max_time: float = 30.0) -> str:
+    async def _do_research_task(self, task_content: str) -> str:
         """
-        执行单个研究任务（可能多轮短会话）
+        执行单个研究任务（Micro Agent）
 
         Args:
             task_content: 任务内容
-            max_steps: 每轮最大步数（可选，默认 30）
-            max_time: 每轮最大时间（分钟）（可选，默认 30.0）
 
         Returns:
-            执行结果（最后一轮的结果）
+            执行结果（Micro Agent 的最终输出）
         """
         self.logger.info(f"📌 开始执行任务：{task_content}")
 
@@ -257,98 +254,90 @@ class DeepResearcherMixin(WebSearcherMixin):
         self.set_transient("current_research_task", task_content)
 
         ctx = self.get_session_context()
+        plan = ctx.get("research_plan", [])
 
-        # 任务级别的循环（多轮短会话）
-        round_count = 0
-        while True:
-            round_count += 1
-            self.logger.info(f"\n--- 第 {round_count} 轮 ---")
-
-            # 执行一轮
-            try:
-                # 获取当前任务的总结
-                current_task_data = self._find_task_by_content(task_content)
-                current_summary = current_task_data.get("summary", "") if current_task_data else ""
-
-                # 获取项目整体总结
-                overall_summary = ctx.get("research_overall_summary", "")
-
-                # 获取研究蓝图文本
-                blueprint_text = self._get_research_blueprint_text()
-
-                # 构建 Micro Agent 任务描述
-                research_task_prompt = f"""
-
-目前进行的研究：
-{blueprint_text}
-
-【项目整体纪要】
-{overall_summary if overall_summary else "（暂无项目整体总结）"}
-
-**【当前任务】**：{task_content}
-
-【当前任务纪要】
-{current_summary if current_summary else "（暂无任务总结）"}
-
-请充分思考后工作。如果发现无法完成该任务，就简短总结说明原因并保存，然后结束任务。
-重要：
-- 好记性不如烂笔头，请务必勤记笔记，不写下来的东西，都不会被记得。
-- 尽管现在只做研究不写报告，但如果有任何局部草稿、腹稿或者打算写进最终版本的内容，务必记笔记，Again, 不写下来的东西，都不会被记得
-- 纪要也只是现在记得，如果有任何内容是对将来写报告有用的，不能只更新纪要，必须记笔记。
-笔记是一切
-"""
-
-                # 执行 Micro Agent
-                result = await self._run_micro_agent(
-                    persona=ctx['researcher_persona'],
-                    task=research_task_prompt,
-                    available_actions=[
-                        "web_search",
-                        "take_note",
-                        "update_task_summary",
-                        "update_research_overall_summary",
-                        "check_task_summary",
-                        "update_research_plan",
-                        "update_chapter_outline",
-                        "finish_task",
-                        "visit_url"
-                    ],
-                    max_steps=max_steps,
-                    max_time=max_time
-                )
-
-                # 检查任务状态
-                task_data = self._find_task_by_content(task_content)
-
-                if not task_data:
-                    self.logger.warning(f"❌ 找不到任务数据：{task_content}")
-                    break
-
-                # 退出条件1: LLM 主动完成任务
-                if task_data["status"] == "completed":
-                    self.logger.info(f"✅ 任务「{task_content}」已完成（LLM 主动调用 finish_task）")
-                    break
-
-                # 退出条件2: 正常完成（非"未完成"消息）
-                if isinstance(result, str) and not result.startswith("未完成"):
-                    self.logger.info(f"✅ 任务「{task_content}」正常完成")
-                    # 主动设置状态（如果还没设置）
-                    if task_data["status"] == "pending":
-                        await self._update_task_status(task_content, "completed")
-                    break
-
-                # 否则：达到限制，继续下一轮
-                self.logger.info(f"⏸ 第 {round_count} 轮结束：{result}")
-                self.logger.info(f"⏳ 继续下一轮...")
-
-            except Exception as e:
-                self.logger.error(f"❌ 第 {round_count} 轮执行失败: {e}")
-                # 失败时标记为失败状态
-                await self._update_task_status(task_content, "failed")
+        # 获取当前任务的初始总结（如果有）
+        current_task_data = None
+        for task in plan:
+            if task["content"] == task_content:
+                current_task_data = task
                 break
 
-        self.logger.info(f"✅ 任务执行完成（共 {round_count} 轮）")
-        return result
+        current_summary = current_task_data.get("summary", "") if current_task_data else ""
+
+        # 获取研究蓝图文本（包含三要素）
+        blueprint_text = self._get_research_blueprint_text()
+
+        # 构建 Micro Agent 任务描述
+        research_task_prompt = f"""
+
+目前进行的研究的整体情况：
+{blueprint_text}
+
+现在准备进行：{task_content}
+
+请充分思考后开始。如果现有能力无法完成该任务，就简短总结说明原因并保存，然后结束任务。
+"""
+
+        # 执行 Micro Agent
+        try:
+            result = await self._run_micro_agent(
+                persona=ctx['researcher_persona'],
+                task=research_task_prompt,
+                available_actions=[
+                    "web_search",
+                    "take_note",
+                    "update_task_summary",
+                    "check_task_summary",
+                    "update_research_plan",
+                    "update_chapter_outline",
+                    "finish_task",
+                    "visit_url"
+                ],
+                max_steps=20  # 每个任务最多 20 步
+            )
+
+            self.logger.info(f"✅ 任务完成：{task_content}")
+
+            # 标记任务为 completed
+            await self._mark_task_completed(task_content)
+
+            # 检查任务是否有 summary，如果没有就用 result 作为 summary
+            ctx = self.get_session_context()
+            plan = ctx.get("research_plan", [])
+
+            for task in plan:
+                if task["content"] == task_content:
+                    # 如果任务没有 summary 或者 summary 为空
+                    if not task.get("summary") or not task.get("summary").strip():
+                        self.logger.info(f"任务没有 summary，使用 Micro Agent 的返回结果作为 summary")
+                        # 更新任务的 summary
+                        task["summary"] = result.strip()
+                        # 保存到 session context
+                        await self.update_session_context(research_plan=plan)
+                        self.logger.info(f"✓ 已为任务设置 summary（{len(result)} 字符）")
+                    break
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"❌ 任务执行失败：{task_content}，错误：{e}")
+
+            # 即使失败也要设置 summary，记录错误信息
+            ctx = self.get_session_context()
+            plan = ctx.get("research_plan", [])
+
+            for task in plan:
+                if task["content"] == task_content:
+                    # 设置错误 summary
+                    error_summary = f"任务执行失败：{str(e)}"
+                    task["summary"] = error_summary
+                    # 保存到 session context
+                    await self.update_session_context(research_plan=plan)
+                    self.logger.info(f"✓ 已为失败任务设置错误 summary")
+                    break
+
+            raise
 
     async def _research_loop(self):
         """
@@ -356,33 +345,41 @@ class DeepResearcherMixin(WebSearcherMixin):
 
         工作流程：
         1. 循环获取下一个 pending 任务
-        2. 调用 _do_research_task 执行任务（内部支持多轮短会话）
-        3. 继续下一个任务，直到所有任务完成
+        2. 为每个任务创建 Micro Agent 执行研究
+        3. Micro Agent 调用 finish_task 后返回
+        4. 标记任务为 completed
+        5. 继续下一个任务，直到所有任务完成
         """
-        self.logger.info("🔍 进入研究循环")
+        self.logger.info("🔍 进入研究循环（新架构）")
 
+        ctx = self.get_session_context()
+
+        
         task_count = 0
         while True:
-            # 获取下一个 pending 任务（返回完整的任务数据）
-            current_task_data = self._get_next_pending_task()
+            # 1. 获取下一个 pending 任务
+            current_task = self._get_next_pending_task()
 
-            if not current_task_data:
+            if not current_task:
                 self.logger.info("✅ 所有研究任务已完成")
                 break
 
-            current_task = current_task_data["content"]  # 提取任务内容
             task_count += 1
             self.logger.info(f"\n{'='*60}")
             self.logger.info(f"任务 {task_count}: {current_task}")
             self.logger.info(f"{'='*60}")
 
-            # 执行任务（内部会处理多轮短会话）
+            # 2. 执行任务（Micro Agent）
             try:
-                await self._do_research_task(current_task)
-                self.logger.info(f"✅ 任务 {task_count} 执行完成")
+                result = await self._do_research_task(current_task)
+                self.logger.info(f"任务 {task_count} 执行完成")
+
+                
 
             except Exception as e:
-                self.logger.error(f"❌ 任务 {task_count} 执行失败: {e}")
+                self.logger.error(f"任务 {task_count} 执行失败: {e}")
+                # 即使失败也标记为已完成，避免无限循环
+                await self._mark_task_completed(current_task)
                 # 继续下一个任务，不中断整个研究流程
                 continue
 
@@ -391,7 +388,7 @@ class DeepResearcherMixin(WebSearcherMixin):
         self.logger.info(f"研究循环完成，共执行 {task_count} 个任务")
         self.logger.info(f"{'='*60}")
 
-
+    
 
     # ==========================================
     # Stage 4: 报告撰写 (Writing Loop)
@@ -457,7 +454,7 @@ class DeepResearcherMixin(WebSearcherMixin):
         outline_text = "\n".join(chapter_outline)
 
         prompt = f"""
-你是编辑助理，正在为一项研究报告整理章节大纲。
+你是 {ctx['researcher_persona']}，正在为一项研究报告编写章节大纲。
 
 当前章节大纲（非 Markdown 格式）：
 {outline_text}
@@ -466,7 +463,7 @@ class DeepResearcherMixin(WebSearcherMixin):
 
 要求：
 1. 一级章节使用 "# " (heading 1)
-2. 如果有子章节，使用对应的heading等级（"## "、"### " 等）
+2. 如果有子章节，使用 "## " (heading 2)
 3. 保持章节的层次结构
 4. 章节名称保持不变，只添加 Markdown 标记
 
@@ -553,11 +550,6 @@ class DeepResearcherMixin(WebSearcherMixin):
 
             self.logger.info(f"✓ 章节大纲已转换为 Markdown 格式（{len(chapter_heading_map)} 个章节）")
 
-            # 打印章节映射，用于调试
-            self.logger.info(f"📋 章节映射关系：")
-            for chapter_name, heading in chapter_heading_map.items():
-                self.logger.info(f"  {heading:40s} <- {chapter_name}")
-
             return chapter_heading_map
 
         except Exception as e:
@@ -589,16 +581,11 @@ class DeepResearcherMixin(WebSearcherMixin):
         draft_folder.mkdir(parents=True, exist_ok=True)
 
         # 为每个一级章节生成草稿文件
-        top_level_count = 0
-        for original_chapter_name, markdown_heading in chapter_heading_map.items():
-            # 只处理一级章节（# 开头但不是 ##）
-            if not (markdown_heading.startswith('# ') and not markdown_heading.startswith('##')):
-                continue
+        for original_chapter_name in chapter_outline:
+            markdown_heading = chapter_heading_map[original_chapter_name]
 
-            top_level_count += 1
-
-            # 生成文件名（先清洗章节名，再加扩展名）
-            filename = sanitize_filename(original_chapter_name) + ".md"
+            # 生成文件名
+            filename = sanitize_filename(f"{original_chapter_name}.md")
             draft_file = draft_folder / filename
 
             # 初始化草稿内容：包含章节 heading
@@ -610,64 +597,22 @@ class DeepResearcherMixin(WebSearcherMixin):
 
             self.logger.info(f"✓ 创建草稿文件: {draft_file.name}")
 
-        self.logger.info(f"✓ 所有草稿文件已创建在 {draft_folder}（{top_level_count} 个一级章节）")
+        self.logger.info(f"✓ 所有草稿文件已创建在 {draft_folder}")
 
         return str(draft_folder)
-
-    def _get_child_chapters(self, top_level_chapter_name: str, chapter_heading_map: dict) -> list:
-        """
-        获取某个一级章节的所有子章节
-
-        利用 chapter_heading_map 的顺序和 markdown heading 层级：
-        - 遇到 # 开头 → 新的一级章节
-        - 之后遇到 ## 开头的 → 都是它的子章节
-        - 直到遇到下一个 # 开头 → 停止
-
-        Args:
-            top_level_chapter_name: 一级章节名称
-            chapter_heading_map: {章节名: markdown heading} 映射
-
-        Returns:
-            list: 子章节名称列表
-        """
-        children = []
-        found_parent = False
-
-        for chapter_name, heading in chapter_heading_map.items():
-            # 找到目标父章节
-            if chapter_name == top_level_chapter_name:
-                found_parent = True
-                continue
-
-            # 如果已经找到父章节
-            if found_parent:
-                # 遇到下一个一级章节（# 开头但不是 ##），停止
-                if heading.startswith('# ') and not heading.startswith('##'):
-                    break
-                # 否则就是子章节
-                children.append(chapter_name)
-
-        return children
 
     def _get_chapter_materials(
         self,
         notebook: 'Notebook',
         chapter_name: str,
-        chapter_heading_map: dict,
         batch_size: int = 3
     ) -> list:
         """
         获取章节相关的所有素材（原始 notes）
 
-        包括：
-        1. 该章节本身（一级章节）的 notes
-        2. 该章节所有子章节的 notes
-        3. 未分类的 notes
-
         Args:
             notebook: Notebook 对象
-            chapter_name: 一级章节名称
-            chapter_heading_map: {章节名: markdown heading} 映射
+            chapter_name: 章节名称
             batch_size: 每批 notes 数量（默认 3）
 
         Returns:
@@ -675,22 +620,14 @@ class DeepResearcherMixin(WebSearcherMixin):
         """
         materials = []
 
-        # 1. 获取该一级章节的所有子章节
-        child_chapters = self._get_child_chapters(chapter_name, chapter_heading_map)
+        # 1. 获取章节相关的所有原始 notes（不再看 summaries，避免信息损失）
+        chapter_notes = notebook.get_notes_by_chapter(chapter_name)
 
-        # 2. 收集所有相关章节的 notes（父章节 + 子章节）
-        all_related_chapters = [chapter_name] + child_chapters
-
-        self.logger.info(f"  章节相关子章节: {child_chapters}")
-
-        all_notes = []
-        for related_chapter in all_related_chapters:
-            chapter_notes = notebook.get_notes_by_chapter(related_chapter)
-            all_notes.extend(chapter_notes)
-
-        # 3. 获取未分类的原始 notes
+        # 2. 获取未分类的原始 notes
         uncategorized_notes = notebook.get_notes_by_chapter(notebook.UNCATEGORIZED_NAME)
-        all_notes.extend(uncategorized_notes)
+
+        # 3. 合并所有相关 notes
+        all_notes = chapter_notes + uncategorized_notes
 
         # 4. 按 batch_size 分批（每批 3 个 notes）
         for i in range(0, len(all_notes), batch_size):
@@ -724,28 +661,24 @@ class DeepResearcherMixin(WebSearcherMixin):
 
         from pathlib import Path
 
-        # 外层循环：遍历每个一级章节
+        # 外层循环：遍历每个章节
         for original_chapter_name, markdown_heading in chapter_heading_map.items():
-            # 只处理一级章节（# 开头但不是 ##）
-            if not (markdown_heading.startswith('# ') and not markdown_heading.startswith('##')):
-                continue
-
             self.logger.info(f"\n{'='*60}")
             self.logger.info(f"开始撰写章节: {original_chapter_name}")
             self.logger.info(f"{'='*60}")
 
-            # 获取草稿文件路径（先清洗章节名，再加扩展名）
-            filename = sanitize_filename(original_chapter_name) + ".md"
+            # 获取草稿文件路径
+            filename = sanitize_filename(f"{original_chapter_name}.md")
             draft_file = Path(draft_folder) / filename
 
-            # 获取该章节相关的所有素材（包括子章节）
-            materials = self._get_chapter_materials(notebook, original_chapter_name, chapter_heading_map)
+            # 获取该章节相关的所有素材
+            materials = self._get_chapter_materials(notebook, original_chapter_name)
 
             if not materials:
                 self.logger.warning(f"章节 '{original_chapter_name}' 没有相关笔记素材，跳过")
                 continue
 
-            self.logger.info(f"找到 {len(materials)} 个素材（原始笔记）")
+            self.logger.info(f"找到 {len(materials)} 个素材（页面摘要 + 未分类笔记）")
 
             # 内层循环：逐个素材更新草稿
             for idx, material_content in enumerate(materials, 1):
@@ -760,62 +693,36 @@ class DeepResearcherMixin(WebSearcherMixin):
                 else:
                     self.logger.info(f"  [{idx}/{len(materials)}] 中间迭代：补充细节...")
 
-                # 重试循环：处理 LLM 异常
-                retry_count = 0
-                while True:
-                    try:
-                        # 读取当前草稿
-                        with open(draft_file, 'r', encoding='utf-8') as f:
-                            current_draft = f.read()
+                # 读取当前草稿
+                with open(draft_file, 'r', encoding='utf-8') as f:
+                    current_draft = f.read()
 
-                        # 使用 think_with_retry 更新草稿
-                        task_prompt = self._build_draft_update_task(
-                            ctx,
-                            original_chapter_name,
-                            markdown_heading,
-                            current_draft,
-                            material_content,
-                            is_first=is_first,
-                            is_only=is_only
-                        )
+                # 使用 think_with_retry 更新草稿
+                task_prompt = self._build_draft_update_task(
+                    ctx,
+                    original_chapter_name,
+                    markdown_heading,
+                    current_draft,
+                    material_content,
+                    is_first=is_first,
+                    is_only=is_only
+                )
 
-                        # 使用 simple_section_parser 提取 [新草稿] 后的内容
-                        from .parser_utils import simple_section_parser
+                # 使用 simple_section_parser 提取 [新草稿] 后的内容
+                from .parser_utils import simple_section_parser
 
-                        updated_draft = await self.brain.think_with_retry(
-                            task_prompt,
-                            simple_section_parser,
-                            section_header="[新草稿]",
-                            max_retries=3
-                        )
+                updated_draft = await self.brain.think_with_retry(
+                    task_prompt,
+                    simple_section_parser,
+                    section_header="[新草稿]",
+                    max_retries=3
+                )
 
-                        # 保存更新后的草稿
-                        with open(draft_file, 'w', encoding='utf-8') as f:
-                            f.write(updated_draft)
+                # 保存更新后的草稿
+                with open(draft_file, 'w', encoding='utf-8') as f:
+                    f.write(updated_draft)
 
-                        self.logger.info(f"  ✓ 草稿已更新")
-                        break  # 成功，跳出重试循环
-
-                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
-                        retry_count += 1
-
-                        # 判断异常类型
-                        if isinstance(e, (asyncio.TimeoutError, asyncio.CancelledError)):
-                            error_type = "超时/取消"
-                        else:
-                            error_type = "未知错误"
-
-                        self.logger.error(f"  ✗ LLM 调用失败 ({error_type}, 第 {retry_count} 次): {str(e)[:200]}")
-
-                        if retry_count >= 10:  # 最多重试10次
-                            self.logger.error(f"  ✗ 达到最大重试次数，跳过该素材")
-                            break
-
-                        # 等待 5 分钟后重试
-                        self.logger.info(f"  ⏳ 等待 5 分钟后重试...")
-                        import asyncio
-                        await asyncio.sleep(300)  # 300 秒 = 5 分钟
-                        self.logger.info(f"  🔄 第 {retry_count + 1} 次重试...")
+                self.logger.info(f"  ✓ 草稿已更新")
 
             self.logger.info(f"✓ 章节 '{original_chapter_name}' 撰写完成")
 
@@ -901,9 +808,7 @@ class DeepResearcherMixin(WebSearcherMixin):
 4. **逻辑连贯**：确保新增内容与现有内容逻辑连贯
 5. **填充 TODO**：如果新素材可以补充之前的 [TODO]，请填充并去掉标记
 6. **避免重复**：如果素材内容已在草稿中，就跳过或做适当补充
-7. **修正错误**：如果新素材中有更正之前草稿的内容，请修正草稿中的错误信息
-8. **仔细甄别**：如果素材内容与当前章节关联不大，请不要强行添加，保持章节的聚焦和清晰
-8. **保持 Markdown 格式**：确保输出是有效的 Markdown 格式
+7. **保持 Markdown 格式**：确保输出是有效的 Markdown 格式
 """
 
         prompt = f"""
@@ -967,7 +872,7 @@ class DeepResearcherMixin(WebSearcherMixin):
         chapter_contents = []
 
         for original_chapter_name, markdown_heading in chapter_heading_map.items():
-            filename = sanitize_filename(original_chapter_name) + ".md"
+            filename = sanitize_filename(f"{original_chapter_name}.md")
             draft_file = draft_folder_path / filename
 
             with open(draft_file, 'r', encoding='utf-8') as f:
@@ -1110,7 +1015,7 @@ class DeepResearcherMixin(WebSearcherMixin):
                 {task_preview}"""
 
     @register_action(
-        description="制定并保存章节大纲，每行一个一级章节（不要包含子章节）,只写出章节标题，不要多余描述",
+        description="制定并保存章节大纲，每行一个一级章节（不要包含子章节）",
         param_infos={
             "outline": "章节大纲多行文本，每行一个一级章节。注意：只能是一级章节，不要包含子章节。例如：第一章 研究背景"
         }
@@ -1387,9 +1292,9 @@ class DeepResearcherMixin(WebSearcherMixin):
                 return f"❌ 生成新blueprint失败：{str(e)}"
 
     @register_action(
-        description="更新全局计划。可以提供完整的新任务列表替代原有任务计划，或者提供修改意见。",
+        description="更新研究计划。可以提供完整的新任务列表替代原有任务计划，或者提供修改意见",
         param_infos={
-            "new_plan": "（可选）完整的全局任务列表文本，每行一个任务。",
+            "new_plan": "（可选）完整的全新的任务列表文本，每行一个任务",
             "modification_advice": "（可选）对现有计划的修改意见"
         }
     )
@@ -1506,162 +1411,106 @@ class DeepResearcherMixin(WebSearcherMixin):
     # ==========================================
 
     @register_action(
-        description="用番茄笔记法记笔记，记录有价值的、可能对报告写作有帮助的信息。记住：任何没记录的信息在写作的时候都不会记得，好记性不如烂笔头。如果笔记属于某个章节，就提供章节名称。如果有来源信息（例如url），最好一并提供。",
+        description="用番茄笔记法记笔记，记录有价值的、可能对报告写作有帮助的信息。如果笔记属于某个章节，就提供章节名称。如果有来源信息（例如url），最好一并提供。",
         param_infos={
             "note": "笔记内容",
             "url": "来源URL",
             "chapter_name": "（可选）关联的章节名称"
         }
     )
-    async def take_note(self, note: str, url: str = "", chapter_name: str = "") -> str:
+    async def take_note(self, note: str, url: str, chapter_name: str) -> str:
         """
-        记录笔记到笔记本（支持智能章节匹配）
-
-        Args:
-            note: 笔记内容
-            url: 来源 URL（可选）
-            chapter_name: 章节名称（可选），会自动匹配到 chapter_outline
-
-        Returns:
-            str: 记录结果
+        记录笔记到笔记本
         """
+        # 添加到笔记本（自动保存）
         notebook = self._get_notebook()
         if not notebook:
             return "❌ Notebook 未初始化"
 
-        # 如果没有指定章节，添加到"未分类"
-        if not chapter_name or not chapter_name.strip():
-            notebook.add_note(note, notebook.UNCATEGORIZED_NAME, url=url if url else None)
-            return f"✓ 笔记已记录到「{notebook.UNCATEGORIZED_NAME}」"
+        notebook.add_note(note, chapter_name, url=url)
 
-        # 智能解析章节名称（返回列表，可能包含多个章节）
-        resolved_chapters = await self._resolve_chapter_names(chapter_name)
+        return f"✓ 笔记记录成功"
 
-        # 为每个章节添加笔记
-        for chapter in resolved_chapters:
-            notebook.add_note(note, chapter, url=url if url else None)
-
-        # 返回结果
-        if len(resolved_chapters) == 1:
-            return f"✓ 笔记已记录到「{resolved_chapters[0]}」"
-        else:
-            chapters_str = "、".join(resolved_chapters)
-            return f"✓ 笔记已记录到多个章节：{chapters_str}"
-
-    async def _resolve_chapter_names(self, chapter_name: str) -> list:
+    async def _summarize_page(self, page, ctx: dict):
         """
-        智能解析章节名称（支持多章节）
-
-        三级匹配策略：
-        1. 完全匹配
-        2. 局部匹配（字符串包含关系）
-        3. LLM 智能匹配（可返回多个章节）
+        使用 think_with_retry 生成页面总结
 
         Args:
-            chapter_name: 原始章节名称
-
-        Returns:
-            list: 解析后的章节名称列表（一定在 chapter_outline 中）
+            page: 要总结的 Page 对象
+            ctx: session context
         """
-        ctx = self.get_session_context()
-        chapter_outline = ctx.get("chapter_outline", [])
+        if not page.notes:
+            return
 
-        if not chapter_outline:
-            # 没有章节大纲，返回"未分类"
-            return [Notebook.UNCATEGORIZED_NAME]
+        # 构建笔记文本（每条笔记包含章节、内容和来源 URL）
+        notes_parts = []
+        for note in page.notes:
+            # 笔记内容
+            notes_parts.append(f"[{note.chapter_name}] {note.content}")
+            # 如果有 URL，添加来源
+            if note.url:
+                notes_parts.append(f" 来源url：{note.url}")
+            # 添加空行分隔
+            notes_parts.append("")
 
-        # Level 1: 完全匹配
-        if chapter_name in chapter_outline:
-            return [chapter_name]
+        notes_text = '\n'.join(notes_parts)
 
-        # Level 2: 局部匹配（字符串包含关系）
-        for outline_chapter in chapter_outline:
-            if chapter_name in outline_chapter or outline_chapter in chapter_name:
-                self.logger.debug(f"局部匹配：'{chapter_name}' -> '{outline_chapter}'")
-                return [outline_chapter]
+        # 构建总结 prompt
+        summary_prompt = f"""
+你是 {ctx['researcher_persona']}，正在进行一项关于 {ctx['research_title']} 的研究。
 
-        # Level 3: LLM 智能匹配（可返回多个章节）
-        return await self._find_matching_chapters_by_llm(chapter_name, chapter_outline)
 
-    async def _find_matching_chapters_by_llm(self, chapter_name: str, chapter_outline: list) -> list:
-        """
-        使用 LLM 智能匹配章节名称（支持多章节）
 
-        Args:
-            chapter_name: 原始章节名称
-            chapter_outline: 章节大纲列表
+研究主题：{ctx['research_title']}
+研究目的：{ctx['research_purpose']}
+你在使用番茄笔记法记笔记，现在需要为本页的所有笔记生成一份简洁的总结摘要。
 
-        Returns:
-            list: 匹配的章节名称列表，找不到则返回 ["未分类"]
-        """
-        ctx = self.get_session_context()
 
-        # 构建匹配 prompt
-        outline_list = "\n".join([f"{i+1}. {ch}" for i, ch in enumerate(chapter_outline)])
+本页笔记内容：
+{notes_text}
 
-        prompt = f"""
-你是秘书在帮导师整理笔记。
+请生成一份总结，概括本页的核心发现和关键信息。
 
-笔记被要求按下面的最新的章节大纲来归类：
-====beingn of outline====
-{outline_list}
-====end of outline====
+输出格式：
+先简要说明你的思考，然后用 [页面总结] 作为分隔符，在分隔符后输出总结内容。总结内容会用作你的Draft 0 版本。
 
-现在有一条旧笔记，写着应该属于：{chapter_name}
-
-请判断这个旧的章节名称应该对应新大纲中的哪个/哪些章节？
-
-**重要**：
-1. 如果能找到明确对应的章节，返回章节名称（如果是多个，每行一个）
-2. 如果找不到明确对应的章节，返回"{Notebook.UNCATEGORIZED_NAME}"
-3. 在[匹配结果]下输出你的选择
-
-输出样例：
+输出示例：
 ```
-（可选）你的想法
+（可选的思考过程）
 
-[匹配结果]
-你的选择的章节名称，每行一个
-如果没有匹配的章节，写"{Notebook.UNCATEGORIZED_NAME}"
+[页面总结]
+你的总结内容...
 ```
 """
 
         try:
-            # 使用 multi_section_parser 提取多行章节名
-            from .parser_utils import multi_section_parser
-
+            # 使用 think_with_retry + multi_section_parser
             sections = await self.brain.think_with_retry(
-                prompt,
+                summary_prompt,
                 multi_section_parser,
-                section_headers=["[匹配结果]"],
-                match_mode="ANY",
-                return_list=True,
-                
+                section_headers=["[页面总结]"],
+                match_mode="ALL"
             )
 
-            # sections 是一个 dict: {"[匹配结果]": ["第一章 研究背景", "第二章 文献综述"]}
-            matched_chapters = sections.get("[匹配结果]", [])
+            # 提取总结内容
+            summary = sections["[页面总结]"].strip()
 
-            # 验证返回的章节是否都在 outline 中
-            validated_chapters = []
-            for ch in matched_chapters:
-                if ch in chapter_outline:
-                    validated_chapters.append(ch)
-                else:
-                    self.logger.warning(f"LLM 返回的章节 '{ch}' 不在章节大纲中，已忽略")
-
-            # 如果验证后没有有效章节，返回"未分类"
-            if not validated_chapters:
-                self.logger.warning(f"LLM 未找到有效章节，归类为未分类")
-                return [Notebook.UNCATEGORIZED_NAME]
-
-            self.logger.debug(f"LLM 章节匹配：'{chapter_name}' -> {validated_chapters}")
-            return validated_chapters
+            # 保存到页面（会自动保存到文件）
+            notebook = self._get_notebook()
+            if notebook:
+                notebook.set_page_summary(page.page_number, summary)
+                self.logger.info(f"✓ 页面 {page.page_number} 已生成总结：{summary[:50]}...")
 
         except Exception as e:
-            self.logger.warning(f"LLM 章节匹配失败: {e}，归类为未分类")
-            return [Notebook.UNCATEGORIZED_NAME]
+            self.logger.warning(f"生成页面总结失败：{e}")
 
+    @register_action(
+        description="总结当前页面的所有笔记",
+        param_infos={
+            "page_number": "页码（可选，默认为最后一页）"
+        }
+    )
+    
 
     
 
@@ -1722,7 +1571,7 @@ class DeepResearcherMixin(WebSearcherMixin):
             {self._get_progress_summary(plan)}"""
 
     @register_action(
-        description="更新研究计划的内容（不是状态）：提供新的任务列表文本（每行一个任务），将替换当前所有未完成的任务（已完成的任务会保留）",
+        description="更新研究计划：提供新的任务列表文本（每行一个任务），将替换当前所有未完成的任务（已完成的任务会保留）",
         param_infos={
             "new_tasks": "新的任务列表文本，每行一个任务"
         }
@@ -1901,116 +1750,6 @@ class DeepResearcherMixin(WebSearcherMixin):
         return "❌ 请提供全新的总结文本或修改意见"
 
     @register_action(
-        description="更新项目总结，记录对整个研究生命周期都有重要价值的关键信息和状态，用于跨任务的知识传递和全局进度把握，保持一页纸长度",
-        param_infos={
-            "new_summary": "（可选）全新的项目总结全文",
-            "modification_advice": "（可选）对现有项目总结的修改意见"
-        }
-    )
-    async def update_research_overall_summary(
-        self,
-        new_summary: str = "",
-        modification_advice: str = ""
-    ) -> str:
-        """
-        更新项目整体总结
-
-        功能：
-        - 记录整个研究的关键发现、方向调整、重要进展
-        - 帮助 LLM 在不同任务间保持上下文连贯性
-        - 提供项目级别的"工作记忆"
-
-        处理两种情况：
-        1. new_summary 有值 → 直接替换
-        2. modification_advice 有值 → LLM 基于当前总结生成新版本
-        """
-        ctx = self.get_session_context()
-        current_overall_summary = ctx.get("research_overall_summary", "")
-
-        if not new_summary and not modification_advice:
-            return "❌ 请提供全新的项目总结文本或修改意见"
-
-        # 情况1：直接替换
-        if new_summary:
-            overall_summary = new_summary.strip()
-            if not overall_summary:
-                return "❌ 项目总结不能为空"
-
-            # 保存到 session context
-            await self.update_session_context(research_overall_summary=overall_summary)
-
-            return f"✅ 项目整体总结已更新（{len(overall_summary)} 字符）"
-
-        # 情况2：通过修改意见生成新版本
-        if modification_advice:
-            if not current_overall_summary:
-                return "❌ 当前没有项目总结，请使用 new_summary 参数创建新总结"
-
-            # 获取研究计划（作为参考）
-            plan = ctx.get("research_plan", [])
-            plan_txt = self._format_plan(plan, indent="") if plan else "（暂无研究计划）"
-
-            generate_prompt = f"""
-你是 {ctx['researcher_persona']},正在进行一项研究工作。
-
-[当前研究主题]：
-{ctx['research_title']}
-
-[研究目的]：
-{ctx['research_purpose']}
-
-[研究计划任务列表]：
-{plan_txt}
-
-[当前的项目整体总结]：
-{current_overall_summary}
-
-[总结修改意见]：
-{modification_advice}
-====END OF SUMMARY====
-
-请根据修改意见，生成更新后的项目整体总结。
-
-项目整体总结的作用：
-- 记录整个研究的关键发现、方向调整、重要进展
-- 帮助后续任务快速了解项目背景和当前状态
-- 提供项目级别的"工作记忆"
-
-请先简要说明你的理解和思考，然后用 [新总结] 作为分隔符，
-在分隔符后输出新的项目整体总结。
-
-输出格式：
-```
-你的思考过程...
-
-[新总结]
-更新后的项目整体总结内容
-```
-"""
-
-            try:
-                # 使用 think_with_retry + multi_section_parser
-                sections = await self.brain.think_with_retry(
-                    generate_prompt,
-                    multi_section_parser,
-                    section_headers=["[新总结]"],
-                    match_mode="ALL"
-                )
-
-                # 提取新总结
-                new_overall_summary = sections["[新总结]"].strip()
-
-                # 更新
-                await self.update_session_context(research_overall_summary=new_overall_summary)
-
-                return f"✅ 项目整体总结已更新（{len(new_overall_summary)} 字符）"
-
-            except Exception as e:
-                return f"❌ 生成新项目总结失败：{str(e)}"
-
-        return "❌ 请提供全新的总结文本或修改意见"
-
-    @register_action(
         description="查看某个已完成任务的总结，要指明是看哪个任务",
         param_infos={
             "task_name": "要查看的任务内容"
@@ -2032,25 +1771,24 @@ class DeepResearcherMixin(WebSearcherMixin):
         if not plan:
             return "❌ 研究计划不存在"
 
-        # 使用通用方法查找任务
-        task_data = self._find_task_by_content(task_name)
+        # 查找任务
+        for task in plan:
+            if task["content"] == task_name:
+                summary = task.get("summary", "")
+                status = task.get("status", "pending")
 
-        if not task_data:
-            formatted_plan = self._format_plan(plan)
-            return f"❌ 未找到你说的任务：{task_name}\n\n当前研究计划：\n{formatted_plan}"
+                if not summary:
+                    return f"任务「{task_name}」暂无总结（状态：{status}）"
 
-        summary = task_data.get("summary", "")
-        status = task_data.get("status", "pending")
+                return f"""任务「{task_name}」的总结：
 
-        if not summary:
-            return f"任务「{task_name}」暂无总结（状态：{status}）"
+                        状态：{status}
 
-        return f"""任务「{task_name}」的总结：
-
-                状态：{status}
-
-                {summary}
-                """
+                        {summary}
+                        """
+        formatted_plan = self._format_plan(plan)
+        
+        return f"❌ 未找到你说的任务：{task_name}\n\n当前研究计划：\n{formatted_plan}"
 
     # ==========================================
     # 辅助方法
@@ -2157,62 +1895,21 @@ class DeepResearcherMixin(WebSearcherMixin):
 
         return "\n".join(parts)
 
-    def _get_next_pending_task(self) -> Optional[dict]:
+    def _get_next_pending_task(self) -> Optional[str]:
         """
         获取下一个待进行的任务
 
         Returns:
-            dict: 下一个 pending 任务的完整数据，如果没有则返回 None
+            str: 下一个 pending 任务的内容，如果没有则返回 None
         """
         ctx = self.get_session_context()
         plan = ctx.get("research_plan", [])
 
         for task in plan:
             if task.get("status") == "pending":
-                return task
+                return task["content"]
 
         return None
-
-    def _find_task_by_content(self, task_content: str) -> Optional[dict]:
-        """
-        通过任务内容查找任务（通用方法）
-
-        Args:
-            task_content: 任务内容
-
-        Returns:
-            dict: 找到的任务数据，找不到返回 None
-        """
-        ctx = self.get_session_context()
-        plan = ctx.get("research_plan", [])
-
-        for task in plan:
-            if task["content"] == task_content:
-                return task
-
-        return None
-
-    async def _update_task_status(self, task_content: str, new_status: str) -> bool:
-        """
-        更新任务状态（通用方法）
-
-        Args:
-            task_content: 任务内容
-            new_status: 新状态（"pending", "completed"）
-
-        Returns:
-            bool: 是否更新成功
-        """
-        ctx = self.get_session_context()
-        plan = ctx.get("research_plan", [])
-
-        for task in plan:
-            if task["content"] == task_content:
-                task["status"] = new_status
-                await self.update_session_context(research_plan=plan)
-                return True
-
-        return False
 
     def _format_research_plan_with_summary(self, plan: list) -> str:
         """
@@ -2276,14 +1973,23 @@ class DeepResearcherMixin(WebSearcherMixin):
 
     async def _mark_task_completed(self, task_content: str):
         """
-        标记任务为已完成（使用通用方法）
+        标记任务为已完成
 
         Args:
             task_content: 任务内容
         """
-        success = await self._update_task_status(task_content, "completed")
-        if success:
-            self.logger.debug(f"✅ 标记任务完成：{task_content}")
+        ctx = self.get_session_context()
+        plan = ctx.get("research_plan", [])
+
+        # 找到任务并标记为 completed
+        for task in plan:
+            if task["content"] == task_content and task["status"] == "pending":
+                task["status"] = "completed"
+                break
+
+        # 保存
+        await self.update_session_context(research_plan=plan)
+        self.logger.debug(f"✅ 标记任务完成：{task_content}")
 
     def _normalize_task_text(self, task_text: str) -> str:
         """
@@ -2540,51 +2246,4 @@ class DeepResearcherMixin(WebSearcherMixin):
         )
 
         return result
-
-    # ==========================================
-    # 覆盖 BaseAgent 的 finish_task
-    # ==========================================
-
-    @register_action(
-        description="完成当前研究任务并标记为已完成",
-        param_infos={
-            "result": "任务结果描述（可选）",
-            "task_name": "要标记为完成的任务名称（可选，默认当前任务）"
-        }
-    )
-    async def finish_task(self, result: str = None, task_name: str = None) -> str:
-        """
-        完成研究任务（覆盖 BaseAgent.finish_task）
-
-        功能：
-        - 标记指定任务为 completed
-        - 返回任务完成消息
-
-        Args:
-            result: 任务结果描述（可选）
-            task_name: 要标记为完成的任务名称（可选，默认当前任务）
-
-        Returns:
-            str: 任务完成消息
-        """
-        # 1. 获取当前任务（从 transient context）
-        current_task = self.get_transient("current_research_task")
-
-        # 2. 确定要完成的任务
-        task_to_complete = task_name or current_task
-
-        if not task_to_complete:
-            return "❌ 无法确定要完成的任务"
-
-        # 3. 标记为 completed
-        await self._mark_task_completed(task_to_complete)
-
-        # 4. 记录日志
-        self.logger.info(f"✅ 任务「{task_to_complete}」已标记为完成")
-
-        # 5. 返回结果
-        if result:
-            return f"✅ 任务「{task_to_complete}」已完成：{result}"
-        else:
-            return f"✅ 任务「{task_to_complete}」已完成"
 

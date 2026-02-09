@@ -107,15 +107,17 @@ class AgentLoader(AutoLoggerMixin):
 
         # 🆕 6. 动态创建带 Mixin 的新类
         if mixin_classes:
-            # 创建新类：DynamicAgent 继承自 base_agent_class 和所有 mixin_classes
+            # 创建新类：DynamicAgent 继承自所有 mixin_classes 和 base_agent_class
+            # 注意：Mixin 必须在 base_agent_class 之前，才能覆盖基类方法
+            # 因为所有 Mixin 都没有 __init__，所以 Base.__init__ 仍会被正常调用
             dynamic_class_name = f"Dynamic{class_name}"
             agent_class = type(
                 dynamic_class_name,
-                (base_agent_class, *mixin_classes),  # 继承元组
+                (*mixin_classes, base_agent_class),  # 继承元组（Mixin 在前）
                 class_attrs  # 🆕 注入类属性
             )
             self.logger.info(f">>> 🎨 动态创建Agent类: {dynamic_class_name}")
-            self.logger.info(f">>>    继承链: {' -> '.join([c.__name__ for c in (base_agent_class, *mixin_classes)])}")
+            self.logger.info(f">>>    继承链: {' -> '.join([c.__name__ for c in (*mixin_classes, base_agent_class)])}")
             if class_attrs:
                 self.logger.info(f">>>    类属性: {class_attrs}")
         else:
@@ -165,6 +167,26 @@ class AgentLoader(AutoLoggerMixin):
             print(f"[{agent_instance.name}] Using system default SLM.")
 
         agent_instance.cerebellum = Cerebellum(slm_client, agent_instance.name)
+
+        # 🆕 11. 设置视觉大模型 (Vision Brain) - 机制和 cerebellum 一样
+        vision_config = profile.get("vision_brain")
+        vision_client = None
+
+        if vision_config:
+            # 从 vision_brain 配置块中读取 backend_model
+            vision_model = vision_config.get("backend_model", "default_vision")
+            vision_client = self._create_llm_client(vision_model)
+            print(f"[{agent_instance.name}] Using custom Vision Brain: {vision_model}")
+        else:
+            # 如果没有配置 vision_brain，使用系统默认 "default_vision"
+            try:
+                vision_client = self._create_llm_client("default_vision")
+                print(f"[{agent_instance.name}] Using system default Vision Brain (default_vision).")
+            except KeyError:
+                # 如果 llm_config 中没有 default_vision，保持为 None
+                print(f"[{agent_instance.name}] No Vision Brain configured (default_vision not found in llm_config.json).")
+
+        agent_instance.vision_brain = vision_client
 
         return agent_instance
 
