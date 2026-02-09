@@ -9,12 +9,11 @@ from dataclasses import asdict
 import inspect
 import json
 import textwrap
-from ..skills.filesystem import FileSkillMixin
 from ..core.log_util import AutoLoggerMixin
 import logging
 from pathlib import Path
 
-class BaseAgent(FileSkillMixin,AutoLoggerMixin):
+class BaseAgent(AutoLoggerMixin):
     _log_from_attr = "name" # 日志名字来自 self.name 属性
 
     _custom_log_level = logging.DEBUG 
@@ -27,16 +26,18 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         self.description = profile["description"]
         self.system_prompt = profile["system_prompt"]  # 基本人设，从 YAML 加载
         self.profile = profile
-        self.instruction_to_caller = profile["instruction_to_caller"]
+        self.instruction_to_caller = profile.get("instruction_to_caller","")
         self.backend_model = profile.get("backend_model", "default_llm")
-        
+
         # 配置 process_email 时可用的 top level actions
         # 如果不配置，则使用所有 actions（向后兼容）
         self.top_level_actions = profile.get("top_level_actions", None)
         self.brain = None
+        self.cerebellum = None
+        self.vision_brain = None  # 🆕 视觉大模型（支持图片理解的LLM）
+
         self.status = "IDLE"
         self.last_received_email = None #最后收到的信
-        self.cerebellum = None
         self._workspace_root = None
         self.post_office = None
         self.last_email_processed = True
@@ -46,7 +47,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
 
         # 标准组件
         self.inbox = asyncio.Queue()
-        
+
         # 事件回调 (Server 注入)
         self.async_event_callback: Optional[Callable] = None
 
@@ -229,14 +230,23 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                     self.last_received_email = email
                     self.last_email_processed = False
                     await self.process_email(email)
+                    # 只在正常完成后标记为 True
+                    self.last_email_processed = True
+                except asyncio.CancelledError:
+                    # 任务被取消，保持 last_email_processed = False
+                    self.logger.warning(f"Task cancelled, email {self.last_received_email.id if self.last_received_email else 'None'} not completed")
                 except Exception as e:
                     self.logger.exception(f"Failed to process email in {self.name}")
                 finally:
+                    # 无论成功、失败还是取消，都要标记任务完成
                     self.inbox.task_done()
-                    self.last_email_processed = True
             except asyncio.TimeoutError:
                 # 可选：定期任务、健康检查等
                 continue
+            except asyncio.CancelledError:
+                # 主循环被取消，退出
+                self.logger.info(f"{self.name} main loop cancelled")
+                break
             except Exception as e:
                 self.logger.exception(f"Unexpected error in {self.name} main loop")
                 await asyncio.sleep(1)  # 防止异常风暴
@@ -285,7 +295,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             self.logger.debug(f"Using all actions (backward compatible): {available_actions}")
 
         # 4. 执行 Micro Agent
-        # 传入之前的 history（恢复记忆）
+        # 传入 session（MicroAgent 会自动保存 history）
         micro_core = self._get_micro_core()
 
         result = await micro_core.execute(
@@ -293,20 +303,23 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             task=task,
             available_actions=available_actions,
             max_steps=100,
-            initial_history=session["history"],  # 恢复记忆！
+            # initial_history=session["history"],  # ← 不再需要，session 会传递
+            session=session,  # ← 传递 session
+            session_manager=self.session_manager,  # ← 传递 session_manager
             yellow_pages=self.post_office.yellow_page_exclude_me(self.name)
         )
 
-        # 5. 更新 session 的 history
-        session["history"] = micro_core.get_history()
+        # 5. 更新 session 元数据
+        # 注意：session["history"] 已经在 MicroAgent 执行过程中自动保存了
+        # 这里只更新其他元数据
         session["last_sender"] = self.name  # 更新最后发送者
 
-        # 6. 自动保存到磁盘（元数据 + history 一起）
+        # 6. 最终保存到磁盘（保险起见，虽然 MicroAgent 已经自动保存）
         try:
             await self.session_manager.save_session(session)
-            self.logger.debug(f"💾 Auto-saved session {session['session_id'][:8]}")
+            self.logger.debug(f"💾 Final save of session {session['session_id'][:8]}")
         except Exception as e:
-            self.logger.warning(f"Failed to auto-save session: {e}")
+            self.logger.warning(f"Failed to final-save session: {e}")
 
         # 只有当 result 是字符串且长度超过 100 时才切片
         if isinstance(result, str) and len(result) > 100:
@@ -582,7 +595,8 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
         persona: str,
         task: str,
         available_actions: Optional[List[str]] = None,
-        max_steps: int = 50,
+        max_steps = None,
+        max_time = None,
         exclude_actions: Optional[List[str]] = None,
         result_params: Optional[Dict[str, str]] = None,
         yellow_pages: Optional[str] = None
@@ -650,9 +664,9 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
                 if action_name not in default_exclude
             ]
 
-        # 确保 finish_task 在列表中
-        if "finish_task" not in available_actions:
-            available_actions.append("finish_task")
+        # 确保 all_finished 在列表中
+        if "all_finished" not in available_actions:
+            available_actions.append("all_finished")
 
         # 使用内置 Micro Agent（共享 _micro_core）
         # 子任务不需要恢复记忆，所以 initial_history=None
@@ -661,6 +675,7 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
             task=task,
             available_actions=available_actions,
             max_steps=max_steps,
+            max_time = max_time,
             initial_history=None,  # 新对话，不需要恢复记忆
             result_params=result_params,  # 传递 result_params
             yellow_pages=yellow_pages  # 传递 yellow_pages
@@ -826,3 +841,32 @@ class BaseAgent(FileSkillMixin,AutoLoggerMixin):
 
         self.current_session["transient_context"][key] = value
         self.logger.debug(f"💾 Set transient: {key}")
+
+    # ==========================================
+    # 通用 Actions
+    # ==========================================
+
+    @register_action(
+        description="所有任务都已完成。当你觉得没有其他要做的，就必须调用此 action。",
+        param_infos={
+            "result": "最终结果的描述（可选）"
+        }
+    )
+    async def all_finished(self, result: str = None) -> Any:
+        """
+        [TERMINAL ACTION] 完成任务并返回最终结果
+
+        这是 BaseAgent 提供的通用 finish_task action。
+        子类可以覆盖此方法以实现自定义的完成逻辑。
+
+        Args:
+            result: 任务结果描述（可选）
+
+        Returns:
+            Any: 返回给调用者的结果
+                 - 如果提供 result：返回字符串
+                 - 如果不提供：返回空字典
+        """
+        if result:
+            return result
+        return {}

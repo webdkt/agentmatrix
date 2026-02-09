@@ -396,7 +396,22 @@ function app() {
             email.showReplyBox = true;
             email.replyMode = mode;
             email.replyBody = email.replyBody || '';  // 保持已有内容或初始化为空
-            email.replyRecipient = mode === 'reply' ? email.sender : '';
+            
+            // 回复逻辑：
+            // - 如果是回复自己发的邮件，收件人保持为原来的收件人
+            // - 如果是回复 Agent 发来的邮件，收件人为该邮件的发件人
+            if (mode === 'reply') {
+                if (email.is_from_user) {
+                    // 回自己的邮件 → 收件人是原来的收件人
+                    email.replyRecipient = email.recipient;
+                } else {
+                    // 回 Agent 的邮件 → 收件人是发件人
+                    email.replyRecipient = email.sender;
+                }
+            } else {
+                // forward 模式，收件人为空让用户填写
+                email.replyRecipient = '';
+            }
         },
 
         // 隐藏回复框

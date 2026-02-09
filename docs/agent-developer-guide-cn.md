@@ -1,39 +1,28 @@
 # Agent 开发者指南
 
-本文档包含每个 Agent 和 Skill 开发者**必须知道的核心信息**。在编写你的第一个 Agent 之前请先阅读本文。
+本文档包含每个 Agent 和 Skill 开发者**必须知道的核心信息**。
 
-## 1. 核心概念
+## 1. 核心架构
 
 AgentMatrix 使用**双层架构**：
 
 ```
 BaseAgent (会话层)
-  └─ 管理对话和用户会话
-  └─ 拥有技能和能力
+  └─ 管理用户会话和对话历史
   └─ 将任务委托给 MicroAgent
+  └─ 持久化状态到 session
 
 MicroAgent (执行层)
   └─ 执行单个任务
-  └─ 继承 BaseAgent 的能力
-  └─ 有独立的执行上下文
-  └─ 完成后终止
+  └─ 临时执行上下文（执行后消失）
+  └─ 通过 think-negotiate-act 循环工作
 ```
 
-**执行流程**：
-```
-用户发送邮件
-  → BaseAgent 接收
-  → 委托给 MicroAgent
-  → MicroAgent 执行动作
-  → 返回结果给 BaseAgent
-  → BaseAgent 回复用户
-```
-
-**关键洞察**：`MicroAgent.execute()` 就像调用一个**函数**——它接收任务并返回结果。你可以递归嵌套这些调用。
+**关键洞察**：`_run_micro_agent()` 就像调用一个**函数**——接收任务并返回结果。可以递归嵌套这些调用。
 
 ## 2. 创建 Agent
 
-### 2.1 创建 YAML 配置文件
+### 2.1 YAML 配置文件
 
 最小示例 (`profiles/my_agent.yml`)：
 
@@ -70,7 +59,7 @@ cerebellum_model: gpt-3.5-turbo
 - `max_steps`：最大执行步数（默认：10）
 - `temperature`：LLM 温度（默认：0.7）
 
-### 2.2 运行你的 Agent
+### 2.2 运行 Agent
 
 ```python
 from agentmatrix import AgentMatrix
@@ -103,7 +92,7 @@ Skills 是带有 `@register_action` 装饰器方法的 Python mixin 类。
 # my_skills.py
 class MySkillMixin:
     """包含动作的技能模块"""
-    
+
     @register_action(
         description="搜索网络信息",
         param_infos={
@@ -113,44 +102,91 @@ class MySkillMixin:
     )
     async def web_search(self, query: str, num_results: int = 10) -> str:
         """搜索网络并返回结果"""
-        # 实现
         results = await self._search_api(query, num_results)
         return f"找到 {len(results)} 个结果"
 ```
 
-**关键点**：
-- Skills 是 **mixin 类**（可以组合）
-- 动作是带 `@register_action` 装饰器的 **async 方法**
-- 返回类型通常是 `str`（自然语言）或 `dict`（结构化数据）
+### 3.2 **关键：description 和 param_info 的设计原则**
 
-### 3.2 @register_action 装饰器
+这是开发 Skill 最重要的部分。
 
+#### description（给 Micro Agent 的 LLM 看）
+
+- **目的**：告诉 LLM 这个 action 能干什么、有哪些选择
+- **不要写参数名**：LLM 不知道也不需要知道参数名
+- **要充分描述功能**：让 LLM 能决定何时调用、如何描述意图
+
+**示例对比**：
+
+❌ **不好的描述**：
 ```python
-@register_action(
-    description="这个动作做什么的清晰自然语言描述",
-    param_infos={
-        "param1": "参数 1 的描述",
-        "param2": "参数 2 的描述（默认值在描述中说明）"
-    }
-)
-async def my_action(self, param1: str, param2: int = 10) -> str:
-    pass
+description="写入文件"
+# 问题：太简单，LLM 不知道有覆盖/追加两种模式
 ```
 
-**参数**：
-- `description`：这个动作做什么（自然语言）。MicroAgent 的 LLM 会读取这个描述来决定何时调用它。
-- `param_infos`：可选的参数描述字典。帮助 Cerebellum 协商参数值。
+❌ **不好的描述**：
+```python
+description="通过 target 参数控制是按文件名搜索还是在文件内容中搜索"
+# 问题：不应该提 "target 参数"，LLM 不知道什么是参数名
+```
 
-### 3.3 在 Skill 中调用 MicroAgent（关键！）
+✅ **好的描述**：
+```python
+description="写入内容到文件。支持覆盖写入或追加模式。如果要覆盖已存在的文件，必须明确说明允许覆盖"
+# 优点：
+# 1. 告诉了 LLM 有两种模式（覆盖/追加）
+# 2. 明确说明了行为约束（覆盖已存在文件需要明确说明）
+```
 
-这是**最重要的模式**：Skills 可以调用 `self._run_micro_agent()` 来执行子任务。
+✅ **好的描述**：
+```python
+description="读取文件内容。可指定读取行范围（默认读取前 200 行）。会显示文件统计信息（大小、总行数）"
+# 优点：
+# 1. 告诉了 LLM 可以指定行范围
+# 2. 说明了默认行为
+# 3. 提到了额外功能（统计信息）
+```
+
+✅ **好的描述**：
+```python
+description="搜索文件或内容。可选择按文件名搜索（支持 Glob 模式如 *.txt）或在文件内容中搜索关键词（支持正则表达式）。默认在文件内容中搜索。可选择递归或非递归搜索"
+# 优点：
+# 1. 不提参数名，直接说功能
+# 2. 给出具体示例（*.txt）
+# 3. 说明默认行为和可选项
+```
+
+#### param_info（给 Cerebellum/小脑 看）
+
+- **目的**：帮助小脑理解每个参数的含义，将 LLM 的意图映射到参数（"填空"）
+- **要清楚说明**：参数的含义、可能的值、默认值
+
+**好的 param_info**：
+```python
+param_infos={
+    "file_path": "文件路径",
+    "content": "文件内容",
+    "mode": "写入模式（可选，默认 'overwrite'）。可选值：'overwrite' 覆盖，'append' 追加",
+    "allow_overwrite": "是否允许覆盖已存在文件（可选，默认 False）。如果文件存在且mode为overwrite，必须设置为True才能覆盖"
+}
+```
+
+**检查清单**：
+- [ ] description 充分描述了功能，没有提参数名？
+- [ ] description 告诉了 LLM 有哪些选择？
+- [ ] description 说明了默认行为和约束？
+- [ ] param_info 清楚解释了每个参数的含义和可能的值？
+
+### 3.3 调用 MicroAgent
+
+Skills 可以调用 `self._run_micro_agent()` 来执行子任务。
 
 **示例：递归任务分解**
 
 ```python
 class ResearchSkillMixin:
     @register_action(
-        description="深入研究一个主题",
+        description="深入研究一个主题。可以指定研究深度，默认为2层",
         param_infos={
             "topic": "研究主题",
             "depth": "研究深度（默认2层）"
@@ -158,38 +194,27 @@ class ResearchSkillMixin:
     )
     async def deep_research(self, topic: str, depth: int = 2) -> dict:
         """通过递归调用 MicroAgent 进行研究"""
-        
+
         if depth <= 0:
             # 基础情况：简单搜索
             return await self._run_micro_agent(
                 persona="你是一个研究员",
                 task=f"搜索关于 {topic} 的信息",
-                available_actions=["web_search"],
-                result_params={
-                    "expected_schema": {
-                        "summary": "简要摘要",
-                        "key_points": ["主要观点"]
-                    }
-                }
+                available_actions=["web_search"]
             )
-        
+
         # 递归情况：分解为子主题
         subtopics_result = await self._run_micro_agent(
             persona="你是一个研究规划师",
             task=f"将 '{topic}' 分解为 3-5 个子主题",
-            available_actions=["think_only"],
-            result_params={
-                "expected_schema": {
-                    "subtopics": ["子主题列表"]
-                }
-            }
+            available_actions=["think_only"]
         )
-        
+
         # 递归研究每个子主题
         results = {}
         for subtopic in subtopics_result["subtopics"]:
             results[subtopic] = await self.deep_research(subtopic, depth - 1)
-        
+
         return {
             "topic": topic,
             "sub_research": results
@@ -204,49 +229,57 @@ await self._run_micro_agent(
     task="做这个任务",                   # 必需：它应该做什么？
     available_actions=["action1", ...], # 可选：它可以使用哪些动作？
     max_steps=10,                       # 可选：最大执行步数
-    initial_history=[],                  # 可选：之前的对话历史
-    result_params={                      # 可选：期望的输出格式
-        "expected_schema": {
-            "field1": "字段描述",
-            "field2": ["项目列表"]
-        }
-    }
+    max_time=5.0,                       # 可选：最大执行时间（分钟）
+    exclude_actions=["action2", ...]    # 可选：排除某些动作
 )
 ```
 
 **关键点**：
-- 每次 `_run_micro_agent()` 调用都会创建一个**新的隔离执行上下文**
+- 每次调用都会创建一个**新的隔离执行上下文**
 - 嵌套调用不会互相污染历史
-- 使用 `result_params["expected_schema"]` 请求结构化输出
 - 鼓励使用递归嵌套来处理复杂任务
 
-### 3.4 返回格式
+## 4. Session 管理
 
-**自然语言（最简单）**：
+BaseAgent 通过 session 管理会话状态：
+
 ```python
-async def simple_action(self, query: str) -> str:
-    return f"已处理：{query}"
+# 获取 session context
+context = self.get_session_context()
+
+# 更新 session context（自动持久化）
+await self.update_session_context(
+    key1="value1",
+    key2="value2"
+)
+
+# 获取 transient context（不持久化）
+value = self.get_transient("notebook")
+
+# 设置 transient context
+self.set_transient("notebook", notebook_obj)
 ```
 
-**结构化数据（推荐用于组合）**：
+**MicroAgent 的 session 支持**：
+
+MicroAgent 的 `execute()` 方法支持 session 参数，用于持久化对话历史：
+
 ```python
-async def structured_action(self, query: str) -> dict:
-    result = await self._run_micro_agent(
-        task=f"处理 {query}",
-        result_params={
-            "expected_schema": {
-                "status": "成功/失败",
-                "data": "结果数据",
-                "metadata": {"key": "value"}
-            }
-        }
-    )
-    return result  # 返回匹配模式的字典
+# 在 MicroAgent.execute() 层面
+result = await micro_core.execute(
+    persona="...",
+    task="...",
+    available_actions=[...],
+    session=session_obj,           # 可选：session 对象
+    session_manager=session_mgr    # 可选：session manager
+)
 ```
 
-## 4. 重要约束
+这允许 MicroAgent 在多次执行间恢复对话历史。
 
-### 4.1 状态隔离
+## 5. 重要约束
+
+### 5.1 状态隔离
 
 **✅ 应该**：在 BaseAgent 中存储会话级状态
 ```python
@@ -267,7 +300,7 @@ class MyAgent(BaseAgent):
 
 **为什么**：BaseAgent 管理多个会话。执行状态属于 MicroAgent（它是临时的）。
 
-### 4.2 MicroAgent 生命周期
+### 5.2 MicroAgent 生命周期
 
 **MicroAgent 在执行后消失**：
 ```python
@@ -284,35 +317,9 @@ result = await self._run_micro_agent(task="...")
 self.last_result = result  # OK：存储结果，不是 MicroAgent
 ```
 
-**❌ 不应该**：尝试重用 MicroAgent
-```python
-micro_agent = self._run_micro_agent(...)  # 返回结果，不是 agent
-# 你不能再次调用 micro_agent
-```
+## 6. 快速参考
 
-### 4.3 不要混用层的概念
-
-**✅ 应该**：BaseAgent 用于会话，MicroAgent 用于执行
-```python
-# 在 BaseAgent 方法中
-async def process_email(self, email):
-    session = self._get_session(email)  # 会话：BaseAgent
-    result = await self._run_micro_agent(...)  # 执行：MicroAgent
-    session.add_result(result)  # 更新会话
-```
-
-**❌ 不应该**：在 BaseAgent 中处理执行状态
-```python
-# 避免这样
-async def process_email(self, email):
-    self.step_count = 0  # 不好：在 BaseAgent 中执行
-    while self.step_count < 10:
-        # ...
-```
-
-## 5. 快速参考
-
-### 5.1 YAML 配置字段
+### 6.1 YAML 配置字段
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
@@ -327,14 +334,14 @@ async def process_email(self, email):
 | `max_steps` | 否 | 最大 MicroAgent 步数（默认：10） |
 | `temperature` | 否 | LLM 温度（默认：0.7） |
 
-### 5.2 @register_action 参数
+### 6.2 @register_action 参数
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `description` | 是 | 动作做什么的自然语言描述 |
-| `param_infos` | 否 | 参数名到描述的映射字典 |
+| `description` | 是 | **给 LLM 看的**功能描述，不要提参数名 |
+| `param_infos` | 否 | **给小脑看的**参数名到描述的映射字典 |
 
-### 5.3 _run_micro_agent() 参数
+### 6.3 _run_micro_agent() 参数
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
@@ -342,10 +349,10 @@ async def process_email(self, email):
 | `task` | 是 | 任务描述（自然语言） |
 | `available_actions` | 否 | 它可以使用的动作名称列表（默认：所有动作） |
 | `max_steps` | 否 | 最大步数（默认：来自 BaseAgent） |
-| `initial_history` | 否 | 要继续的之前的对话（默认：空） |
-| `result_params` | 否 | 输出格式规范，包括 `expected_schema` |
+| `max_time` | 否 | 最大时间（分钟） |
+| `exclude_actions` | 否 | 要排除的 actions（默认排除等待类） |
 
-## 6. 常见模式
+## 7. 常见模式
 
 ### 模式 1：简单动作
 ```python
@@ -358,11 +365,9 @@ async def simple_task(self, input: str) -> str:
 ```python
 @register_action(description="做复杂任务")
 async def complex_task(self, input: str) -> dict:
-    # 使用 MicroAgent 处理子任务
     sub_result = await self._run_micro_agent(
         persona="你是一个专家",
-        task=f"分析：{input}",
-        result_params={"expected_schema": {"analysis": "字符串"}}
+        task=f"分析：{input}"
     )
     return sub_result
 ```
@@ -373,34 +378,33 @@ async def complex_task(self, input: str) -> dict:
 async def recursive_task(self, task: str, depth: int = 0) -> dict:
     if depth > 3:
         return await self._run_micro_agent(task=f"执行：{task}")
-    
+
     # 分解
     subtasks = await self._run_micro_agent(
-        task=f"分解：{task}",
-        result_params={"expected_schema": {"subtasks": ["字符串"]}}
+        task=f"分解：{task}"
     )
-    
+
     # 递归执行
     results = {}
     for subtask in subtasks["subtasks"]:
         results[subtask] = await self.recursive_task(subtask, depth + 1)
-    
+
     return results
 ```
 
-## 7. 故障排除
+## 8. 故障排除
 
 **问题**：MicroAgent 返回意外的输出
-- **解决方案**：使用 `result_params["expected_schema"]` 指定期望的格式
+- **解决方案**：改进 description，让它更清楚
+
+**问题**：MicroAgent 选错 action
+- **解决方案**：改进 description，说明什么时候用哪个 action
+
+**问题**：Cerebellum 提取参数错误
+- **解决方案**：改进 param_info，更清楚地说明参数含义
 
 **问题**：任务耗时太长
 - **解决方案**：减少 `max_steps` 或分解为更小的子任务
-
-**问题**：上下文变得混乱
-- **解决方案**：使用递归 MicroAgent 调用——每个都有隔离的上下文
-
-**问题**：执行后无法访问 MicroAgent 状态
-- **解决方案**：捕获结果——MicroAgent 执行后就消失了
 
 ---
 

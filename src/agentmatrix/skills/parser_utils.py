@@ -215,7 +215,7 @@ def multi_section_parser(
         return {"status": "error", "feedback": f"解析失败: {str(e)}"}
 
 
-def simple_section_parser(raw_reply: str, divider: str = None) -> dict:
+def simple_section_parser(raw_reply: str, section_header: str = None) -> dict:
     """
     通用文本解析器，根据分隔符提取内容（单section模式）。
 
@@ -223,13 +223,13 @@ def simple_section_parser(raw_reply: str, divider: str = None) -> dict:
 
     Args:
         raw_reply: LLM 返回的原始回复
-        divider: 可选分隔符。如果为 None，则自动查找形如 "=====" 或 "=====text=====" 的分隔行
-                分隔行前后都至少需要2个等号
+        section_header: 可选分隔符/section标题。如果为 None，则自动查找形如 "=====" 或 "=====text=====" 的分隔行
+                       分隔行前后都至少需要2个等号
 
     Returns:
         {
             "status": "success" | "error",
-            "content": 提取的内容 (成功时),
+            "content": 提取的内容 (成功时，**直接是字符串**),
             "feedback": 错误信息 (失败时)
         }
 
@@ -243,5 +243,29 @@ def simple_section_parser(raw_reply: str, divider: str = None) -> dict:
         ... '''
         >>> result = simple_section_parser(text)
         >>> # 返回: {"status": "success", "content": "要提取的内容\\n\\n更多内容..."}
+
+        >>> # 带section_header的情况
+        >>> text2 = '''
+        ... 思考过程...
+        ... [新草稿]
+        ... 实际内容
+        ... '''
+        >>> result2 = simple_section_parser(text2, section_header="[新草稿]")
+        >>> # 返回: {"status": "success", "content": "实际内容"} （字符串，不是字典！）
     """
-    return multi_section_parser(raw_reply, section_headers=[divider] if divider else None)
+    if section_header:
+        # 使用多section模式，但提取单个section的内容
+        result = multi_section_parser(raw_reply, section_headers=[section_header])
+
+        if result["status"] == "success":
+            # 从字典中提取实际内容，返回字符串而不是字典
+            content_dict = result["content"]
+            if isinstance(content_dict, dict) and section_header in content_dict:
+                return {"status": "success", "content": content_dict[section_header]}
+            else:
+                return {"status": "error", "feedback": f"未找到section: {section_header}"}
+
+        return result
+    else:
+        # 没有section_header，使用单section模式（自动查找分隔符）
+        return multi_section_parser(raw_reply, section_headers=None)

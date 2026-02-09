@@ -5,7 +5,7 @@
 支持使用指定的 Chrome profile 路径启动浏览器。
 """
 
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any, Union, Tuple
 import time
 import os
 import hashlib
@@ -69,6 +69,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
     支持指定 Chrome profile 路径来实现会话持久化。
     """
     _custom_log_level = logging.DEBUG
+
     def __init__(self, profile_path: Optional[str] = None, download_path: Optional[str] = None):
         """
         初始化 DrissionPage 适配器。
@@ -127,6 +128,50 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             co.headless()
 
         # 在线程池中创建浏览器实例
+        self.browser = await asyncio.to_thread(ChromiumPage, addr_or_opts=co)
+
+    async def start_with_system_profile(self, headless: bool = False, use_auto_port: bool = False):
+        """
+        使用系统默认 Chrome profile 启动浏览器。
+
+        与 start() 方法的区别：
+        - start(): 使用自定义 profile_path，生成唯一端口，适合隔离环境
+        - start_with_system_profile(): 使用系统默认 profile，使用 DrissionPage 默认配置，
+          可以连接到已打开的浏览器，适合需要复用用户数据的场景
+
+        Args:
+            headless: 是否以无头模式启动浏览器
+            use_auto_port: 是否使用自动分配端口（True）或默认端口 9222（False）
+                - True: 自动分配端口，创建新的浏览器实例，不会冲突
+                - False: 使用默认端口 9222，可以连接已打开的浏览器（前提是该浏览器用 --remote-debugging-port=9222 启动）
+
+        使用说明：
+        - 如果要连接已打开的浏览器：
+          1. 确保浏览器用 --remote-debugging-port=9222 启动
+          2. 设置 use_auto_port=False
+        - 如果要创建新的浏览器实例：
+          1. 设置 use_auto_port=True
+          2. 会自动分配空闲端口并使用系统用户数据
+        """
+        os.environ["no_proxy"] = "localhost,127.0.0.1"
+
+        # 使用系统默认用户文件夹
+        # 这样可以连接到已经打开的浏览器，或者启动新的使用系统 profile 的浏览器
+        co = ChromiumOptions().use_system_user_path()
+
+        # 如果使用自动端口
+        if use_auto_port:
+            co.auto_port()
+
+        # 配置下载路径（如果指定了）
+        if self.download_path:
+            co.set_download_path(self.download_path)
+
+        if headless:
+            co.headless()
+
+        # 在线程池中创建浏览器实例
+        # DrissionPage 会使用默认端口 9222，可以连接到已打开的浏览器
         self.browser = await asyncio.to_thread(ChromiumPage, addr_or_opts=co)
 
     async def close(self):
@@ -282,74 +327,155 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
 
     async def stabilize(self, tab: TabHandle):
         """
-        [Phase 2] 页面稳定化。
+        优化后的页面稳定化：快速、无等待查找、JS 注入处理。
         """
-        if not tab:
-            return False # 防御
+        if not tab: return False
+        
+        url = tab.url
+        self.logger.info(f"⚓ Fast Stabilizing: {url}")
 
-        self.logger.info(f"⚓ Stabilizing page: {tab.url}")
+        # 1. 放入线程池执行整体逻辑，而不是每一步都切线程
+        # DrissionPage 的操作是同步阻塞的，所以我们将整个 stabilize 包裹起来
+        return await asyncio.to_thread(self._sync_stabilize_logic, tab)
 
-        # 1. 基础加载等待
+    def _sync_stabilize_logic(self, tab: TabHandle):
+        """
+        同步逻辑核心，由外部 async 包装，内部不再到处 await。
+        """
         try:
-            # DrissionPage 的 wait.load_start() 有时会卡住，不如直接 wait.doc_loaded()
-            # 设置较短超时，因为我们后面有滚动循环
-            await asyncio.to_thread(tab.wait.doc_loaded, timeout=35)
-        except Exception:
-            pass # 超时也继续，有些页面 JS 加载永远不 finish
-        try:
-            # 2. 暴力抗干扰 (Anti-Obstruction)
-            # 在滚动前先尝试清理一波明显的遮挡
-            await self._handle_popups(tab)
+            # === 步骤 1: 快速加载 ===
+            # 等待 DOM 加载，最多 10 秒，超时就不等了直接干
+            tab.wait.doc_loaded(timeout=10)
+            
+            # === 步骤 2: 第一次弹窗清理 (针对 Cookie 遮挡) ===
+            self._fast_kill_popups(tab)
 
-            # 3. 智能滚动 (Smart Scroll)
-            # 我们不仅要到底，还要确保中间的内容都被触发加载 (Lazy Load)
-            start_time = time.time()
-            max_duration = 45 # 45秒足够了
-
-            # 记录上次高度和指纹，双重校验
-            last_height = await asyncio.to_thread(tab.run_js, "return document.body.scrollHeight;")
-            no_change_count = 0
-
-            # 分段滚动策略：不像人类那样慢慢滑，直接分段跳跃
-            # 每次向下滚动一屏的高度
-            viewport_height = await asyncio.to_thread(tab.run_js, "return window.innerHeight;")
-            current_scroll_y = 0
-
-            while time.time() - start_time < max_duration:
-                # 向下滚动一屏
-                current_scroll_y += viewport_height
-                await asyncio.to_thread(tab.scroll, current_scroll_y)
-
-                # 稍微等待内容渲染
-                await asyncio.sleep(0.8)
-
-                # 检查弹窗 (滚动可能触发新的弹窗)
-                await self._handle_popups(tab)
-
+            # === 步骤 3: 快速滚动触发 Lazy Load ===
+            # 不要慢慢滑，快速到底再回滚
+            self.logger.info("⚡ Scrolling...")
+            
+            # 获取页面高度
+            total_height = tab.run_js("return document.body.scrollHeight")
+            viewport_height = tab.run_js("return window.innerHeight")
+            
+            # 优化滚动：每 800px 滚一次，每次只停 0.1-0.2 秒，足够触发网络请求了
+            # 如果页面太长（超过 20000px），限制滚动次数，防止死循环
+            max_scrolls = 30 
+            current_pos = 0
+            
+            for _ in range(max_scrolls):
+                current_pos += 800
+                tab.scroll.to_location(0, current_pos)
+                time.sleep(0.15) # 极短等待，仅为了触发 JS 事件
+                
+                # 每滚几下检查一次是否有新弹窗挡路
+                if _ % 5 == 0:
+                    self._fast_kill_popups(tab)
+                
                 # 检查是否到底
-                new_height = await asyncio.to_thread(tab.run_js, "return document.body.scrollHeight;")
-                current_pos = await asyncio.to_thread(tab.run_js, "return window.scrollY + window.innerHeight;")
+                if current_pos >= total_height:
+                    # 更新高度（应对无限滚动）
+                    new_height = tab.run_js("return document.body.scrollHeight")
+                    if new_height <= total_height:
+                        break # 真的到底了
+                    total_height = new_height
 
-                # 如果当前位置已经接近页面总高度 (允许 50px 误差)
-                if current_pos >= new_height - 50:
-                    # 再次确认高度是否真的不再增长了 (有些无限加载需要等一会)
-                    if new_height == last_height:
-                        no_change_count += 1
-                        if no_change_count >= 2: # 连续两次没变，才算真的到底了
-                            break
-                    else:
-                        no_change_count = 0 # 高度变了，重置计数
-                        last_height = new_height
-
-            # 4. 回到顶部
-            await asyncio.to_thread(tab.scroll.to_top)
-            await asyncio.sleep(0.5)
-
-            self.logger.info("✅ Page stabilized.")
+            # === 步骤 4: 最终清理与复位 ===
+            self._fast_kill_popups(tab)
+            tab.scroll.to_top()
+            time.sleep(0.5) # 给页面喘息时间重绘
+            
+            self.logger.info("✅ Page stabilized (Optimized).")
             return True
+
         except Exception as e:
-            self.logger.exception(f"Page stabilization failed: {e}")
-            return True
+            self.logger.error(f"Stabilize logic error: {e}")
+            return False
+
+    def _fast_kill_popups(self, tab: TabHandle):
+        """
+        使用混合策略秒杀弹窗
+        """
+        # 关键词库（用于策略 B）
+        accept_keywords = ['accept', 'agree', 'allow', 'consent', 'got it', 'i understand', '接受', '同意', '知道了', '确认']
+
+        # 策略 A: JS 注入点击 (最快，最准)
+        # 优先点击 "接受" 类按钮
+        # 注意：DrissionPage 的 run_js 不支持传递 Python list，所以将关键词直接硬编码到 JS 中
+        accept_keywords_js = '["accept", "agree", "allow", "consent", "got it", "i understand", "接受", "同意", "知道了", "确认"]'
+
+        js_click_accept = f"""
+        () => {{
+            const keywords = {accept_keywords_js};
+            const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"], input[type="button"], input[type="submit"]'));
+            for (const btn of buttons) {{
+                // 必须是可见的
+                const style = window.getComputedStyle(btn);
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' || btn.offsetParent === null) continue;
+
+                const text = (btn.innerText || btn.textContent || '').toLowerCase().trim();
+                // 检查文本是否包含关键词
+                if (keywords.some(k => text.includes(k))) {{
+                    console.log('Auto-clicking:', text);
+                    btn.click();
+                    return true; // 点了一个就跑，避免多点
+                }}
+            }}
+            return false;
+        }}
+        """
+
+        clicked = tab.run_js(js_click_accept)
+        if clicked:
+            self.logger.info("🔫 JS Clicked an 'Accept' button.")
+            time.sleep(0.5) # 点完等一下动画
+            return
+
+        # 策略 B: 处理常见的 Shadow DOM 或 iframe 中的 Cookie 栏
+        # DrissionPage 可以在整个 DOM (包括 shadow-root) 中查找
+        # 使用 @@text() 语法非常快
+        try:
+            # 查找没有 ID/Class 但含有特定文本的按钮
+            for kw in accept_keywords:
+                # 查找包含文本的 visible 按钮，timeout 为 0.1 表示不等待，找不到立刻过
+                btn = tab.ele(f'tag:button@@text():{kw}@@css:visibility!=hidden', timeout=0.1)
+                if btn and btn.states.is_displayed:
+                    btn.click(by_js=True) # JS 点击穿透力更强
+                    self.logger.info(f"🔫 DP Clicked 'Accept': {kw}")
+                    time.sleep(0.5)
+                    return
+        except:
+            pass
+
+        # 策略 C: 暴力关闭 (针对 X 号)
+        # 只有在找不到 "同意" 的时候才找 "关闭"，因为有些网点关闭等于拒绝，导致一直弹窗
+        close_selectors = [
+            '[aria-label="Close"]', 
+            '.close-icon',
+            'button.close',
+            'div[class*="close"]' # 风险较大，但在循环末尾可以尝试
+        ]
+        
+        try:
+            for selector in close_selectors:
+                # timeout=0 是关键，瞬间检查，不存在就下一个
+                btn = tab.ele(selector, timeout=0) 
+                if btn and btn.states.is_displayed:
+                    btn.click(by_js=True)
+                    self.logger.info(f"🔫 Clicked Close Button: {selector}")
+                    time.sleep(0.2)
+                    break
+        except:
+            pass
+
+        # 策略 D: 移除常见的遮挡层 (如果无法点击，直接删 DOM)
+        # 慎用，可能会把页面弄坏，但对于纯采集任务通常可以接受
+        # tab.run_js("""
+        #     document.querySelectorAll('.modal-backdrop, .overlay').forEach(e => e.remove());
+        #     document.body.style.overflow = 'auto'; // 恢复滚动
+        # """)
+
+    
 
     async def _handle_popups(self, tab: TabHandle):
         """
@@ -1603,3 +1729,862 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             # DrissionPage 找不到元素时会抛出异常
             self.logger.debug(f"Element not found with selector '{selector}': {e}")
             return None
+
+    # ==========================================
+    # Vision & Visual Highlighting (视觉辅助)
+    #    用于智能视觉定位的底层支持
+    # ==========================================
+
+    async def capture_screenshot(self, tab: TabHandle, full_page: bool = False) -> str:
+        """
+        捕获页面截图，返回 base64 编码的图片。
+
+        Args:
+            tab: 标签页句柄
+            full_page: 是否截取整个页面（包括滚动部分）
+
+        Returns:
+            str: base64 编码的图片数据 (PNG格式)
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        try:
+            # 使用 DrissionPage 的 as_base64 参数直接获取 base64 字符串
+            # 优先级：as_bytes > as_base64 > path
+            if full_page:
+                screenshot_base64 = await asyncio.to_thread(tab.get_screenshot, as_base64='png', full_page=True)
+            else:
+                # 视口截图，返回 base64 字符串
+                screenshot_base64 = await asyncio.to_thread(tab.get_screenshot, as_base64='png')
+
+            # 验证返回的是字符串类型
+            if not isinstance(screenshot_base64, str):
+                raise TypeError(f"Expected base64 string from get_screenshot(as_base64=True), got {type(screenshot_base64)}")
+
+            self.logger.debug(f"Screenshot captured, base64 size: {len(screenshot_base64)} chars")
+            return screenshot_base64
+
+        except Exception as e:
+            self.logger.exception(f"Failed to capture screenshot: {e}")
+            raise
+
+    async def draw_crosshair(self, tab: TabHandle, region: 'RegionBounds' = None) -> str:
+        """
+        在页面上画出十字坐标线，将页面（或指定区域）分成四个区域。
+        使用绝对定位的 div 覆盖在页面上。
+
+        Args:
+            tab: 标签页句柄
+            region: 可选的区域边界 (x, y, width, height)。如果为None，则使用全屏
+
+        Returns:
+            str: 注入的 crosshair 元素的 ID
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 如果没有指定区域，获取视口大小
+        if region is None:
+            viewport_size = await asyncio.to_thread(lambda: tab.rect.size)
+            region = RegionBounds(0, 0, viewport_size[0], viewport_size[1])
+
+        # 注入 CSS 和 HTML
+        crosshair_js = f"""
+        (function() {{
+            // 创建容器
+            const container = document.createElement('div');
+            container.id = 'agentmatrix-crosshair-container';
+            container.style.position = 'absolute';
+            container.style.left = '{region.x}px';
+            container.style.top = '{region.y}px';
+            container.style.width = '{region.width}px';
+            container.style.height = '{region.height}px';
+            container.style.pointerEvents = 'none';
+            container.style.zIndex = '999999';
+
+            // 创建竖线
+            const vLine = document.createElement('div');
+            vLine.style.position = 'absolute';
+            vLine.style.left = '50%';
+            vLine.style.top = '0';
+            vLine.style.width = '3px';
+            vLine.style.height = '100%';
+            vLine.style.backgroundColor = '#FFD700';  // 金黄色
+            vLine.style.boxShadow = '0 0 5px rgba(255, 215, 0, 0.8)';
+
+            // 创建横线
+            const hLine = document.createElement('div');
+            hLine.style.position = 'absolute';
+            hLine.style.left = '0';
+            hLine.style.top = '50%';
+            hLine.style.width = '100%';
+            hLine.style.height = '3px';
+            hLine.style.backgroundColor = '#FFD700';
+            hLine.style.boxShadow = '0 0 5px rgba(255, 215, 0, 0.8)';
+
+            container.appendChild(vLine);
+            container.appendChild(hLine);
+            document.body.appendChild(container);
+
+            return 'agentmatrix-crosshair-container';
+        }})();
+        """
+
+        try:
+            element_id = await asyncio.to_thread(tab.run_js, crosshair_js)
+            self.logger.debug(f"Crosshair drawn with ID: {element_id}")
+            return element_id
+        except Exception as e:
+            self.logger.exception(f"Failed to draw crosshair: {e}")
+            raise
+
+    async def get_viewport_size(self, tab: TabHandle) -> Tuple[int, int]:
+        """
+        获取视口大小
+
+        Args:
+            tab: 标签页句柄
+
+        Returns:
+            tuple: (width, height) 视口宽度和高度
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        js = """
+        return {
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+        """
+
+        try:
+            size = await asyncio.to_thread(tab.run_js, js)
+            return size['width'], size['height']
+        except Exception as e:
+            self.logger.error(f"Failed to get viewport size: {e}")
+            raise
+
+    async def remove_crosshair(self, tab: TabHandle):
+        """
+        移除十字坐标线。
+
+        Args:
+            tab: 标签页句柄
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        remove_js = """
+        (function() {
+            const container = document.getElementById('agentmatrix-crosshair-container');
+            if (container) {
+                container.remove();
+                return true;
+            }
+            return false;
+        })();
+        """
+
+        try:
+            removed = await asyncio.to_thread(tab.run_js, remove_js)
+            self.logger.debug(f"Crosshair removed: {removed}")
+        except Exception as e:
+            self.logger.warning(f"Failed to remove crosshair: {e}")
+
+    async def draw_boundary_box(self, tab: TabHandle, boundary: 'BoundaryProbe') -> str:
+        """
+        在页面上画出边界探测的范围框
+
+        Args:
+            tab: 标签页句柄
+            boundary: BoundaryProbe 对象，包含边界范围
+
+        Returns:
+            str: 执行结果
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 计算边界矩形的左上角和右下角
+        box_left = boundary.x_left_min
+        box_top = boundary.y_top_min
+        box_right = boundary.x_right_max
+        box_bottom = boundary.y_bottom_max
+        box_width = box_right - box_left
+        box_height = box_bottom - box_top
+
+        self.logger.debug(f"Drawing boundary box: left={box_left:.0f}, top={box_top:.0f}, width={box_width:.0f}, height={box_height:.0f}")
+
+        draw_box_js = f"""
+        (function() {{
+            // 移除旧的框
+            const oldBox = document.getElementById('agentmatrix-boundary-box');
+            if (oldBox) {{
+                oldBox.remove();
+            }}
+
+            // 创建边界框（直接添加到body）
+            const box = document.createElement('div');
+            box.id = 'agentmatrix-boundary-box';
+            box.style.position = 'fixed';
+            box.style.left = '{box_left}px';
+            box.style.top = '{box_top}px';
+            box.style.width = '{box_width}px';
+            box.style.height = '{box_height}px';
+            box.style.border = '6px solid #00FF00';
+            box.style.backgroundColor = 'transparent';
+            box.style.pointerEvents = 'none';
+            box.style.zIndex = '999999999';
+            box.style.boxShadow = '0 0 15px rgba(0, 255, 0, 0.8)';
+            box.style.display = 'block';
+            box.style.visibility = 'visible';
+
+            document.body.appendChild(box);
+
+            console.log('Boundary box added to DOM:', box.id, 'size:', box.offsetWidth, 'x', box.offsetHeight);
+
+            return 'boundary-box-drawn';
+        }})();
+        """
+
+        try:
+            result = await asyncio.to_thread(tab.run_js, draw_box_js)
+            self.logger.debug(f"Boundary box drawn: {result}")
+            return result
+        except Exception as e:
+            self.logger.warning(f"Failed to draw boundary box: {e}")
+            return f"failed: {e}"
+
+    async def draw_vertical_line(self, tab: TabHandle, region: 'RegionBounds') -> str:
+        """
+        在指定区域画出竖线（左右2分）
+
+        Args:
+            tab: 标签页句柄
+            region: 区域边界 (x, y, width, height)
+
+        Returns:
+            str: 注入的元素的 ID
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 计算竖线位置（区域中心）
+        line_x = region.x + region.width / 2
+
+        line_js = f"""
+        (function() {{
+            const container = document.createElement('div');
+            container.id = 'agentmatrix-vertical-line-container';
+            container.style.position = 'absolute';
+            container.style.left = '{region.x}px';
+            container.style.top = '{region.y}px';
+            container.style.width = '{region.width}px';
+            container.style.height = '{region.height}px';
+            container.style.pointerEvents = 'none';
+            container.style.zIndex = '999999';
+
+            const line = document.createElement('div');
+            line.style.position = 'absolute';
+            line.style.left = '50%';
+            line.style.top = '0';
+            line.style.width = '3px';
+            line.style.height = '100%';
+            line.style.backgroundColor = '#FFD700';
+            line.style.boxShadow = '0 0 5px rgba(255, 215, 0, 0.8)';
+
+            container.appendChild(line);
+            document.body.appendChild(container);
+
+            return 'agentmatrix-vertical-line-container';
+        }})();
+        """
+
+        try:
+            element_id = await asyncio.to_thread(tab.run_js, line_js)
+            self.logger.debug(f"Vertical line drawn at x={line_x:.0f}")
+            return element_id
+        except Exception as e:
+            self.logger.exception(f"Failed to draw vertical line: {e}")
+            raise
+
+    async def draw_horizontal_line(self, tab: TabHandle, region: 'RegionBounds') -> str:
+        """
+        在指定区域画出横线（上下2分）
+
+        Args:
+            tab: 标签页句柄
+            region: 区域边界 (x, y, width, height)
+
+        Returns:
+            str: 注入的元素的 ID
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 计算横线位置（区域中心）
+        line_y = region.y + region.height / 2
+
+        line_js = f"""
+        (function() {{
+            const container = document.createElement('div');
+            container.id = 'agentmatrix-horizontal-line-container';
+            container.style.position = 'absolute';
+            container.style.left = '{region.x}px';
+            container.style.top = '{region.y}px';
+            container.style.width = '{region.width}px';
+            container.style.height = '{region.height}px';
+            container.style.pointerEvents = 'none';
+            container.style.zIndex = '999999';
+
+            const line = document.createElement('div');
+            line.style.position = 'absolute';
+            line.style.left = '0';
+            line.style.top = '50%';
+            line.style.width = '100%';
+            line.style.height = '3px';
+            line.style.backgroundColor = '#FFD700';
+            line.style.boxShadow = '0 0 5px rgba(255, 215, 0, 0.8)';
+
+            container.appendChild(line);
+            document.body.appendChild(container);
+
+            return 'agentmatrix-horizontal-line-container';
+        }})();
+        """
+
+        try:
+            element_id = await asyncio.to_thread(tab.run_js, line_js)
+            self.logger.debug(f"Horizontal line drawn at y={line_y:.0f}")
+            return element_id
+        except Exception as e:
+            self.logger.exception(f"Failed to draw horizontal line: {e}")
+            raise
+
+    async def remove_vertical_line(self, tab: TabHandle):
+        """移除竖线"""
+        if not tab:
+            tab = await self.get_tab()
+
+        remove_js = """
+        (function() {
+            const container = document.getElementById('agentmatrix-vertical-line-container');
+            if (container) {
+                container.remove();
+                return true;
+            }
+            return false;
+        })();
+        """
+
+        try:
+            await asyncio.to_thread(tab.run_js, remove_js)
+            self.logger.debug("Vertical line removed")
+        except Exception as e:
+            self.logger.warning(f"Failed to remove vertical line: {e}")
+
+    async def remove_horizontal_line(self, tab: TabHandle):
+        """移除横线"""
+        if not tab:
+            tab = await self.get_tab()
+
+        remove_js = """
+        (function() {
+            const container = document.getElementById('agentmatrix-horizontal-line-container');
+            if (container) {
+                container.remove();
+                return true;
+            }
+            return false;
+        })();
+        """
+
+        try:
+            await asyncio.to_thread(tab.run_js, remove_js)
+            self.logger.debug("Horizontal line removed")
+        except Exception as e:
+            self.logger.warning(f"Failed to remove horizontal line: {e}")
+
+    async def highlight_region(self, tab: TabHandle, bounds: dict, color: str = "#FF0000", label: str = ""):
+        """
+        加亮指定的矩形区域。
+
+        Args:
+            tab: 标签页句柄
+            bounds: 区域边界 {"x": int, "y": int, "width": int, "height": int}
+            color: 边框颜色（十六进制）
+            label: 区域标签（可选）
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        highlight_js = f"""
+        (function() {{
+            const div = document.createElement('div');
+            div.style.position = 'fixed';
+            div.style.left = '{bounds['x']}px';
+            div.style.top = '{bounds['y']}px';
+            div.style.width = '{bounds['width']}px';
+            div.style.height = '{bounds['height']}px';
+            div.style.border = '3px solid {color}';
+            div.style.backgroundColor = '{color}33';  // 20% 透明度
+            div.style.pointerEvents = 'none';
+            div.style.zIndex = '999998';
+            div.style.boxShadow = '0 0 10px {color}';
+
+            // 添加标签
+            if ('{label}') {{
+                const labelDiv = document.createElement('div');
+                labelDiv.style.position = 'absolute';
+                labelDiv.style.top = '-25px';
+                labelDiv.style.left = '0';
+                labelDiv.style.backgroundColor = '{color}';
+                labelDiv.style.color = 'white';
+                labelDiv.style.padding = '2px 6px';
+                labelDiv.style.fontSize = '14px';
+                labelDiv.style.fontWeight = 'bold';
+                labelDiv.style.borderRadius = '3px';
+                labelDiv.textContent = '{label}';
+                div.appendChild(labelDiv);
+            }}
+
+            div.id = 'agentmatrix-highlight-' + Date.now() + '-' + Math.random();
+            document.body.appendChild(div);
+            return div.id;
+        }})();
+        """
+
+        try:
+            element_id = await asyncio.to_thread(tab.run_js, highlight_js)
+            self.logger.debug(f"Region highlighted: {element_id} at {bounds}")
+            return element_id
+        except Exception as e:
+            self.logger.exception(f"Failed to highlight region: {e}")
+            raise
+
+    async def highlight_elements(self, tab: TabHandle, elements: list, color: str = "#00FF00", labels: list = None):
+        """
+        加亮多个 DOM 元素。
+
+        Args:
+            tab: 标签页句柄
+            elements: PageElement 对象列表
+            color: 边框颜色（十六进制）
+            labels: 每个元素的标签列表（可选）
+
+        Returns:
+            list: 注入的 highlight 元素的 ID 列表
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        if labels is None:
+            labels = [str(i+1) for i in range(len(elements))]
+
+        highlight_ids = []
+
+        for i, element_wrapper in enumerate(elements):
+            try:
+                # 获取底层 ChromiumElement
+                chromium_element = element_wrapper.get_element()
+
+                # 获取元素位置和大小
+                rect = await asyncio.to_thread(lambda: chromium_element.rect)
+                bounds = {
+                    'x': rect.location[0],
+                    'y': rect.location[1],
+                    'width': rect.size[0],
+                    'height': rect.size[1]
+                }
+
+                # 滚动到元素可见（如果需要）
+                await asyncio.to_thread(chromium_element.scroll.to_view)
+
+                label = labels[i] if i < len(labels) else str(i+1)
+                highlight_id = await self.highlight_region(tab, bounds, color, label)
+                highlight_ids.append(highlight_id)
+
+            except Exception as e:
+                self.logger.warning(f"Failed to highlight element {i}: {e}")
+
+        self.logger.debug(f"Highlighted {len(highlight_ids)} elements")
+        return highlight_ids
+
+    async def remove_highlights(self, tab: TabHandle):
+        """
+        移除所有加亮元素。
+
+        Args:
+            tab: 标签页句柄
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        remove_js = """
+        (function() {
+            const highlights = document.querySelectorAll('[id^="agentmatrix-highlight-"]');
+            highlights.forEach(el => el.remove());
+            return highlights.length;
+        })();
+        """
+
+        try:
+            count = await asyncio.to_thread(tab.run_js, remove_js)
+            self.logger.debug(f"Removed {count} highlights")
+        except Exception as e:
+            self.logger.warning(f"Failed to remove highlights: {e}")
+
+    async def get_elements_in_bounds(self, tab: TabHandle, bounds: dict) -> list:
+        """
+        获取指定边界内的所有可交互元素。
+
+        Args:
+            tab: 标签页句柄
+            bounds: {"x": int, "y": int, "width": int, "height": int}
+
+        Returns:
+            list: PageElement 对象列表
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 先获取所有可交互元素
+        _, button_elements = await self.scan_elements(tab)
+
+        # 过滤在边界内的元素
+        elements_in_bounds = []
+        x_min, x_max = bounds['x'], bounds['x'] + bounds['width']
+        y_min, y_max = bounds['y'], bounds['y'] + bounds['height']
+
+        for text, element_wrapper in button_elements.items():
+            try:
+                chromium_element = element_wrapper.get_element()
+                rect = await asyncio.to_thread(lambda: chromium_element.rect)
+
+                elem_x, elem_y = rect.location
+                elem_w, elem_h = rect.size
+
+                # 检查元素是否与边界相交（至少有部分在边界内）
+                if (elem_x < x_max and elem_x + elem_w > x_min and
+                    elem_y < y_max and elem_y + elem_h > y_min):
+                    elements_in_bounds.append(element_wrapper)
+
+            except Exception as e:
+                self.logger.debug(f"Error checking element bounds: {e}")
+                continue
+
+        self.logger.debug(f"Found {len(elements_in_bounds)} elements in bounds {bounds}")
+        return elements_in_bounds
+
+    async def get_elements_crossed_by_line(self, tab: TabHandle, line_type: str, position: float = None) -> list:
+        """
+        获取被坐标线穿过的可交互元素。
+
+        Args:
+            tab: 标签页句柄
+            line_type: "vertical" (竖线) 或 "horizontal" (横线)
+            position: 坐标线的位置（像素）。如果为 None，使用屏幕中心
+
+        Returns:
+            list: PageElement 对象列表，按坐标排序
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        if position is None:
+            # 默认使用屏幕中心
+            viewport_size = await asyncio.to_thread(lambda: tab.rect.size)
+            if line_type == "vertical":
+                position = viewport_size[0] / 2
+            else:  # horizontal
+                position = viewport_size[1] / 2
+
+        # 获取所有可交互元素
+        _, button_elements = await self.scan_elements(tab)
+
+        crossed_elements = []
+        tolerance = 10  # 容差（像素）
+
+        for text, element_wrapper in button_elements.items():
+            try:
+                chromium_element = element_wrapper.get_element()
+                rect = await asyncio.to_thread(lambda: chromium_element.rect)
+
+                elem_x, elem_y = rect.location
+                elem_w, elem_h = rect.size
+
+                if line_type == "vertical":
+                    # 检查竖线是否穿过元素
+                    if (elem_x - tolerance <= position <= elem_x + elem_w + tolerance):
+                        crossed_elements.append((element_wrapper, elem_y))  # 保存Y坐标用于排序
+                else:  # horizontal
+                    # 检查横线是否穿过元素
+                    if (elem_y - tolerance <= position <= elem_y + elem_h + tolerance):
+                        crossed_elements.append((element_wrapper, elem_x))  # 保存X坐标用于排序
+
+            except Exception as e:
+                self.logger.debug(f"Error checking element crossed by line: {e}")
+                continue
+
+        # 按坐标排序
+        crossed_elements.sort(key=lambda x: x[1])
+
+        # 只返回元素对象
+        result = [item[0] for item in crossed_elements]
+
+        self.logger.debug(f"Found {len(result)} elements crossed by {line_type} line at {position}")
+        return result
+
+    async def get_interactive_elements(self, tab: TabHandle) -> dict:
+        """
+        获取页面上所有可交互元素（去重后）。
+
+        Args:
+            tab: 标签页句柄
+
+        Returns:
+            dict: {"links": {url: text}, "buttons": {text: PageElement}}
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        return await self.scan_elements(tab)
+    async def draw_crosshair_at(self, tab: TabHandle, x: float, y: float) -> str:
+        """
+        在指定位置画十字坐标线
+
+        Args:
+            tab: 标签页句柄
+            x: 竖线位置（像素）
+            y: 横线位置（像素）
+
+        Returns:
+            str: 注入的 crosshair 元素的 ID
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 获取视口大小
+        viewport_size = await asyncio.to_thread(lambda: tab.rect.size)
+
+        # 注入 CSS 和 HTML（参考旧代码，去掉 Promise）
+        crosshair_js = f"""
+        (function() {{
+            console.log('Drawing crosshair at x={x}, y={y}');
+
+            // 创建容器
+            const container = document.createElement('div');
+            container.id = 'agentmatrix-crosshair-container';
+            container.style.position = 'absolute';
+            container.style.left = '0px';
+            container.style.top = '0px';
+            container.style.width = '100%';
+            container.style.height = '100%';
+            container.style.pointerEvents = 'none';
+            container.style.zIndex = '999999';
+
+            // 竖线
+            const vLine = document.createElement('div');
+            vLine.style.position = 'absolute';
+            vLine.style.left = '{x}px';
+            vLine.style.top = '0px';
+            vLine.style.width = '3px';
+            vLine.style.height = '100%';
+            vLine.style.backgroundColor = '#FFD700';
+            vLine.style.boxShadow = '0 0 5px rgba(255, 215, 0, 0.8)';
+            vLine.style.opacity = '0.9';
+
+            // 横线
+            const hLine = document.createElement('div');
+            hLine.style.position = 'absolute';
+            hLine.style.left = '0px';
+            hLine.style.top = '{y}px';
+            hLine.style.width = '100%';
+            hLine.style.height = '3px';
+            hLine.style.backgroundColor = '#FFD700';
+            hLine.style.boxShadow = '0 0 5px rgba(255, 215, 0, 0.8)';
+            hLine.style.opacity = '0.9';
+
+            container.appendChild(vLine);
+            container.appendChild(hLine);
+            document.body.appendChild(container);
+
+            console.log('Crosshair appended to body');
+
+            return 'agentmatrix-crosshair-container';
+        }})();
+        """
+
+        try:
+            self.logger.info(f"About to draw crosshair at x={x:.0f}, y={y:.0f}")
+            element_id = await asyncio.to_thread(tab.run_js, crosshair_js)
+            self.logger.info(f"Crosshair drawn at ({x:.0f}, {y:.0f}), ID: {element_id}")
+            return element_id
+        except Exception as e:
+            self.logger.error(f"Failed to draw crosshair at ({x}, {y}): {e}")
+            raise
+
+    async def draw_mouse_cursor_at(self, tab: TabHandle, x: float, y: float) -> str:
+        """
+        在指定位置画鼠标光标
+
+        Args:
+            tab: 标签页句柄
+            x: 鼠标尖端位置（像素）
+            y: 鼠标尖端位置（像素）
+
+        Returns:
+            str: 注入的鼠标元素 ID
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 定义鼠标光标的形状（使用 SVG）
+        # 鼠标尖端指向 (x, y)，向左上方延伸
+        mouse_js = f"""
+        (function() {{
+            console.log('Drawing mouse cursor at x={x}, y={y}');
+
+            // 移除旧的鼠标
+            const oldMouse = document.getElementById('agentmatrix-mouse-cursor');
+            if (oldMouse) {{
+                oldMouse.remove();
+            }}
+
+            // 创建鼠标容器（使用 SVG）
+            const container = document.createElement('div');
+            container.id = 'agentmatrix-mouse-cursor';
+            container.style.position = 'absolute';
+            container.style.left = '0px';
+            container.style.top = '0px';
+            container.style.pointerEvents = 'none';
+            container.style.zIndex = '999999';
+
+            // 鼠标尺寸
+            const width = 24;
+            const height = 24;
+
+            // 标准鼠标光标：箭头 + 斜尾巴（基于Bootstrap Icons和Windows标准光标）
+            // 坐标说明：尖端(0,0) -> 左边(0,20) -> 内收(6,14) -> 尾巴(9,17) -> (9,14) -> (14,14) -> (6,6) -> 闭合
+            const svg = `
+            <svg width="${{width}}" height="${{height}}" viewBox="0 0 ${{width}} ${{height}}" xmlns="http://www.w3.org/2000/svg">
+                <polygon points="0,0 0,20 6,14 9,17 9,14 14,14 6,6"
+                         fill="white"
+                         stroke="#FF0000"
+                         stroke-width="1.5"
+                         style="filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5));"/>
+            </svg>
+            `;
+
+            container.innerHTML = svg;
+            // 尖端在 x, y，所以容器要向左上方偏移
+            container.style.left = ({x} - width) + 'px';
+            container.style.top = ({y} - height) + 'px';
+
+            document.body.appendChild(container);
+
+            console.log('Mouse cursor appended to body');
+
+            return 'agentmatrix-mouse-cursor';
+        }})();
+        """
+
+        try:
+            self.logger.info(f"About to draw mouse cursor at x={x:.0f}, y={y:.0f}")
+            element_id = await asyncio.to_thread(tab.run_js, mouse_js)
+            self.logger.info(f"Mouse cursor drawn at ({x:.0f}, {y:.0f}), ID: {element_id}")
+            return element_id
+        except Exception as e:
+            self.logger.error(f"Failed to draw mouse cursor at ({x}, {y}): {e}")
+            raise
+
+    async def get_all_clickable_elements(self, tab: TabHandle) -> list:
+        """
+        获取页面上所有可点击的元素
+
+        Args:
+            tab: 标签页句柄
+
+        Returns:
+            list: PageElement 对象列表
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # JavaScript 查找所有可点击元素
+        find_clickable_js = """
+        return (function() {
+            const clickable = [];
+            const selectors = [
+                'a[href]',
+                'button:not([disabled])',
+                'input:not([disabled])',
+                'textarea:not([disabled])',
+                'select:not([disabled])',
+                '[onclick]',
+                '[role="button"]',
+                '[contenteditable="true"]'
+            ];
+
+            selectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                    // 检查元素是否可见
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        const style = window.getComputedStyle(el);
+                        if (style.display !== 'none' && style.visibility !== 'hidden') {
+                            clickable.push(el);
+                        }
+                    }
+                });
+            });
+
+            // 去重
+            return [...new Set(clickable)];
+        })();
+        """
+
+        try:
+            chromium_elements = await asyncio.to_thread(tab.run_js, find_clickable_js)
+            self.logger.info(f"Found {len(chromium_elements) if chromium_elements else 0} clickable elements")
+
+            if not chromium_elements:
+                return []
+
+            # 转换为 DrissionPageElement 对象
+            elements = [DrissionPageElement(elem) for elem in chromium_elements]
+            return elements
+
+        except Exception as e:
+            self.logger.warning(f"Failed to get clickable elements: {e}")
+            return []
+
+    async def get_element_rect(self, tab: TabHandle, element: 'PageElement') -> dict:
+        """
+        获取元素的位置和大小
+
+        Args:
+            tab: 标签页句柄
+            element: PageElement 对象
+
+        Returns:
+            dict: {'x': x, 'y': y, 'width': w, 'height': h}
+        """
+        if not tab:
+            tab = await self.get_tab()
+
+        # 获取 Chromium 元素
+        chromium_element = element.get_element()
+
+        # 获取元素位置
+        rect = await asyncio.to_thread(lambda: chromium_element.rect)
+
+        return {
+            'x': rect.location[0],
+            'y': rect.location[1],
+            'width': rect.size[0],
+            'height': rect.size[1]
+        }

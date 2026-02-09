@@ -1,39 +1,28 @@
 # Agent Developer Guide
 
-This guide contains the **essential information** every agent and skill developer must know. Read this before writing your first agent.
+This guide contains the **essential information** every agent and skill developer must know.
 
-## 1. Core Concepts
+## 1. Core Architecture
 
 AgentMatrix uses a **dual-layer architecture**:
 
 ```
 BaseAgent (Session Layer)
-  └─ Manages conversations and user sessions
-  └─ Owns skills and capabilities
+  └─ Manages user sessions and conversation history
   └─ Delegates tasks to MicroAgent
+  └─ Persists state to session
 
 MicroAgent (Execution Layer)
   └─ Executes single tasks
-  └─ Inherits BaseAgent's capabilities
-  └─ Has isolated execution context
-  └─ Terminates when done
+  └─ Temporary execution context (disappears after execution)
+  └─ Works via think-negotiate-act loop
 ```
 
-**Execution Flow**:
-```
-User sends email
-  → BaseAgent receives it
-  → Delegates to MicroAgent
-  → MicroAgent executes actions
-  → Returns result to BaseAgent
-  → BaseAgent replies to user
-```
-
-**Key Insight**: `MicroAgent.execute()` is like calling a **function**—it takes a task and returns a result. You can nest these calls recursively.
+**Key Insight**: `_run_micro_agent()` is like calling a **function**—it takes a task and returns a result. You can nest these calls recursively.
 
 ## 2. Creating an Agent
 
-### 2.1 Create YAML Profile
+### 2.1 YAML Configuration File
 
 Minimal example (`profiles/my_agent.yml`):
 
@@ -70,7 +59,7 @@ cerebellum_model: gpt-3.5-turbo
 - `max_steps`: Maximum execution steps (default: 10)
 - `temperature`: LLM temperature (default: 0.7)
 
-### 2.2 Run Your Agent
+### 2.2 Running an Agent
 
 ```python
 from agentmatrix import AgentMatrix
@@ -102,8 +91,8 @@ Skills are Python mixin classes with `@register_action` decorated methods.
 ```python
 # my_skills.py
 class MySkillMixin:
-    """Skill module with actions"""
-    
+    """A skill module containing actions"""
+
     @register_action(
         description="Search the web for information",
         param_infos={
@@ -112,143 +101,187 @@ class MySkillMixin:
         }
     )
     async def web_search(self, query: str, num_results: int = 10) -> str:
-        """Search web and return results"""
-        # Implementation
+        """Search the web and return results"""
         results = await self._search_api(query, num_results)
         return f"Found {len(results)} results"
 ```
 
-**Key points**:
-- Skills are **mixin classes** (can be combined)
-- Actions are **async methods** decorated with `@register_action`
-- Return type is usually `str` (natural language) or `dict` (structured data)
+### 3.2 **Key: Design Principles for description and param_info**
 
-### 3.2 The @register_action Decorator
+This is the most important part of skill development.
 
+#### description (For Micro Agent's LLM)
+
+- **Purpose**: Tell the LLM what this action can do, what options are available
+- **Don't write parameter names**: LLM doesn't know or need to know parameter names
+- **Fully describe functionality**: Let the LLM decide when to call it and how to describe intent
+
+**Example Comparison**:
+
+❌ **Bad description**:
 ```python
-@register_action(
-    description="Clear natural language description of what this action does",
-    param_infos={
-        "param1": "Description of parameter 1",
-        "param2": "Description of parameter 2 (default value shown in description)"
-    }
-)
-async def my_action(self, param1: str, param2: int = 10) -> str:
-    pass
+description="Write to file"
+# Problem: Too simple, LLM doesn't know there are two modes (overwrite/append)
 ```
 
-**Parameters**:
-- `description`: What this action does (natural language). MicroAgent's LLM reads this to decide when to call it.
-- `param_infos`: Optional dictionary describing each parameter. Helps Cerebellum negotiate values.
+❌ **Bad description**:
+```python
+description="Control whether to search by filename or in file content via the target parameter"
+# Problem: Shouldn't mention "target parameter", LLM doesn't know what a parameter name is
+```
 
-### 3.3 Calling MicroAgent from Skills (Critical!)
+✅ **Good description**:
+```python
+description="Write content to file. Supports overwrite or append mode. If overwriting an existing file, must explicitly state that overwriting is allowed"
+# Strengths:
+# 1. Tells LLM there are two modes (overwrite/append)
+# 2. Clearly states behavior constraints (need explicit permission to overwrite existing files)
+```
 
-This is the **most important pattern**: Skills can call `self._run_micro_agent()` to execute subtasks.
+✅ **Good description**:
+```python
+description="Read file content. Can specify line range to read (default reads first 200 lines). Will display file statistics (size, total lines)"
+# Strengths:
+# 1. Tells LLM it can specify line range
+# 2. Explains default behavior
+# 3. Mentions additional features (statistics)
+```
+
+✅ **Good description**:
+```python
+description="Search for files or content. Can choose to search by filename (supports Glob patterns like *.txt) or search for keywords in file content (supports regex). Defaults to searching in file content. Can choose recursive or non-recursive search"
+# Strengths:
+# 1. Doesn't mention parameter names, just describes functionality
+# 2. Gives concrete examples (*.txt)
+# 3. Explains default behavior and options
+```
+
+#### param_info (For Cerebellum)
+
+- **Purpose**: Help the Cerebellum understand each parameter's meaning, map LLM intent to parameters ("fill in the blanks")
+- **Clearly explain**: Parameter meaning, possible values, default values
+
+**Good param_info**:
+```python
+param_infos={
+    "file_path": "File path",
+    "content": "File content",
+    "mode": "Write mode (optional, default 'overwrite'). Options: 'overwrite' to overwrite, 'append' to append",
+    "allow_overwrite": "Whether to allow overwriting existing files (optional, default False). If file exists and mode is overwrite, must set to True to overwrite"
+}
+```
+
+**Checklist**:
+- [ ] Does description fully explain functionality without mentioning parameter names?
+- [ ] Does description tell LLM what options are available?
+- [ ] Does description explain default behavior and constraints?
+- [ ] Does param_info clearly explain each parameter's meaning and possible values?
+
+### 3.3 Calling MicroAgent
+
+Skills can call `self._run_micro_agent()` to execute subtasks.
 
 **Example: Recursive Task Decomposition**
 
 ```python
 class ResearchSkillMixin:
     @register_action(
-        description="Research a topic in depth",
+        description="Deep research on a topic. Can specify research depth, defaults to 2 levels",
         param_infos={
             "topic": "Research topic",
-            "depth": "How many levels deep to research (default 2)"
+            "depth": "Research depth (default 2 levels)"
         }
     )
     async def deep_research(self, topic: str, depth: int = 2) -> dict:
-        """Research by recursively calling MicroAgent"""
-        
+        """Research through recursive MicroAgent calls"""
+
         if depth <= 0:
             # Base case: simple search
             return await self._run_micro_agent(
                 persona="You are a researcher",
                 task=f"Search for information about {topic}",
-                available_actions=["web_search"],
-                result_params={
-                    "expected_schema": {
-                        "summary": "Brief summary",
-                        "key_points": ["Main points"]
-                    }
-                }
+                available_actions=["web_search"]
             )
-        
+
         # Recursive case: decompose into subtopics
         subtopics_result = await self._run_micro_agent(
             persona="You are a research planner",
             task=f"Break down '{topic}' into 3-5 subtopics",
-            available_actions=["think_only"],
-            result_params={
-                "expected_schema": {
-                    "subtopics": ["List of subtopics"]
-                }
-            }
+            available_actions=["think_only"]
         )
-        
+
         # Recursively research each subtopic
         results = {}
         for subtopic in subtopics_result["subtopics"]:
             results[subtopic] = await self.deep_research(subtopic, depth - 1)
-        
+
         return {
             "topic": topic,
             "sub_research": results
         }
 ```
 
-**`_run_micro_agent()` Parameters**:
+**`_run_micro_agent()` parameters**:
 
 ```python
 await self._run_micro_agent(
-    persona="You are a ...",           # Required: Who is this MicroAgent?
-    task="Do this task",                # Required: What should it do?
-    available_actions=["action1", ...], # Optional: Which actions can it use?
-    max_steps=10,                       # Optional: Max execution steps
-    initial_history=[],                  # Optional: Previous conversation
-    result_params={                      # Optional: Expected output format
-        "expected_schema": {
-            "field1": "description",
-            "field2": ["list of items"]
-        }
-    }
+    persona="You are...",                   # Required: Who is this MicroAgent?
+    task="Do this task",                    # Required: What should it do?
+    available_actions=["action1", ...],    # Optional: What actions can it use?
+    max_steps=10,                          # Optional: Maximum execution steps
+    max_time=5.0,                          # Optional: Maximum execution time (minutes)
+    exclude_actions=["action2", ...]       # Optional: Exclude certain actions
 )
 ```
 
 **Key points**:
-- Each `_run_micro_agent()` call creates a **new isolated execution context**
+- Each call creates a **new isolated execution context**
 - Nested calls don't pollute each other's history
-- Use `result_params["expected_schema"]` to request structured output
 - Recursive nesting is encouraged for complex tasks
 
-### 3.4 Return Formats
+## 4. Session Management
 
-**Natural language (simplest)**:
+BaseAgent manages session state through sessions:
+
 ```python
-async def simple_action(self, query: str) -> str:
-    return f"Processed: {query}"
+# Get session context
+context = self.get_session_context()
+
+# Update session context (auto-persisted)
+await self.update_session_context(
+    key1="value1",
+    key2="value2"
+)
+
+# Get transient context (not persisted)
+value = self.get_transient("notebook")
+
+# Set transient context
+self.set_transient("notebook", notebook_obj)
 ```
 
-**Structured data (recommended for composition)**:
+**MicroAgent session support**:
+
+MicroAgent's `execute()` method supports session parameters for persisting conversation history:
+
 ```python
-async def structured_action(self, query: str) -> dict:
-    result = await self._run_micro_agent(
-        task=f"Process {query}",
-        result_params={
-            "expected_schema": {
-                "status": "success/failed",
-                "data": "Result data",
-                "metadata": {"key": "value"}
-            }
-        }
-    )
-    return result  # Returns dict matching schema
+# At the MicroAgent.execute() level
+result = await micro_core.execute(
+    persona="...",
+    task="...",
+    available_actions=[...],
+    session=session_obj,           # Optional: session object
+    session_manager=session_mgr    # Optional: session manager
+)
 ```
 
-## 4. Important Constraints
+This allows MicroAgent to restore conversation history across multiple executions.
 
-### 4.1 State Isolation
+## 5. Important Constraints
 
-**✅ DO**: Store session-level state in BaseAgent
+### 5.1 State Isolation
+
+**✅ Should**: Store session-level state in BaseAgent
 ```python
 class MyAgent(BaseAgent):
     def __init__(self, profile):
@@ -256,18 +289,18 @@ class MyAgent(BaseAgent):
         self.user_preferences = {}  # OK: session-level state
 ```
 
-**❌ DON'T**: Store execution state in BaseAgent
+**❌ Should not**: Store execution state in BaseAgent
 ```python
 # Avoid this
 class MyAgent(BaseAgent):
     def __init__(self, profile):
         super().__init__(profile)
-        self.current_step = 0  # BAD: execution state
+        self.current_step = 0  # Bad: execution state
 ```
 
-**Why**: BaseAgent manages multiple sessions. Execution state belongs in MicroAgent (which is temporary).
+**Why**: BaseAgent manages multiple sessions. Execution state belongs to MicroAgent (which is temporary).
 
-### 4.2 MicroAgent Lifecycle
+### 5.2 MicroAgent Lifecycle
 
 **MicroAgent disappears after execution**:
 ```python
@@ -278,44 +311,18 @@ result = await self._run_micro_agent(task="Do something")
 # Don't try to access its internal state
 ```
 
-**✅ DO**: Capture the result
+**✅ Should**: Capture results
 ```python
 result = await self._run_micro_agent(task="...")
-self.last_result = result  # OK: store result, not MicroAgent
+self.last_result = result  # OK: storing result, not MicroAgent
 ```
 
-**❌ DON'T**: Try to reuse MicroAgent
-```python
-micro_agent = self._run_micro_agent(...)  # Returns result, not agent
-# You can't call micro_agent again
-```
+## 6. Quick Reference
 
-### 4.3 Don't Mix Layers
-
-**✅ DO**: Use BaseAgent for session, MicroAgent for execution
-```python
-# In BaseAgent method
-async def process_email(self, email):
-    session = self._get_session(email)  # Session: BaseAgent
-    result = await self._run_micro_agent(...)  # Execution: MicroAgent
-    session.add_result(result)  # Update session
-```
-
-**❌ DON'T**: Handle execution state in BaseAgent
-```python
-# Avoid this
-async def process_email(self, email):
-    self.step_count = 0  # BAD: execution in BaseAgent
-    while self.step_count < 10:
-        # ...
-```
-
-## 5. Quick Reference
-
-### 5.1 YAML Profile Fields
+### 6.1 YAML Configuration Fields
 
 | Field | Required | Description |
-|-------|----------|-------------|
+|------|----------|-------------|
 | `name` | Yes | Unique agent identifier |
 | `description` | Yes | What this agent does |
 | `module` | Yes | Python module path (e.g., `agentmatrix.agents.base`) |
@@ -327,14 +334,14 @@ async def process_email(self, email):
 | `max_steps` | No | Maximum MicroAgent steps (default: 10) |
 | `temperature` | No | LLM temperature (default: 0.7) |
 
-### 5.2 @register_action Parameters
+### 6.2 @register_action Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `description` | Yes | Natural language description of what the action does |
-| `param_infos` | No | Dictionary mapping parameter names to descriptions |
+| `description` | Yes | **For LLM**: Functional description, don't mention parameter names |
+| `param_infos` | No | **For Cerebellum**: Dictionary mapping parameter names to descriptions |
 
-### 5.3 _run_micro_agent() Parameters
+### 6.3 _run_micro_agent() Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
@@ -342,65 +349,62 @@ async def process_email(self, email):
 | `task` | Yes | Task description (natural language) |
 | `available_actions` | No | List of action names it can use (default: all actions) |
 | `max_steps` | No | Maximum steps (default: from BaseAgent) |
-| `initial_history` | No | Previous conversation to continue (default: empty) |
-| `result_params` | No | Output format specification, including `expected_schema` |
+| `max_time` | No | Maximum time (minutes) |
+| `exclude_actions` | No | Actions to exclude (default excludes waiting actions) |
 
-## 6. Common Patterns
+## 7. Common Patterns
 
 ### Pattern 1: Simple Action
 ```python
-@register_action(description="Do simple task")
+@register_action(description="Do a simple task")
 async def simple_task(self, input: str) -> str:
     return f"Processed: {input}"
 ```
 
 ### Pattern 2: Action with MicroAgent Subtask
 ```python
-@register_action(description="Do complex task")
+@register_action(description="Do a complex task")
 async def complex_task(self, input: str) -> dict:
-    # Use MicroAgent for subtask
     sub_result = await self._run_micro_agent(
-        persona="You are a specialist",
-        task=f"Analyze: {input}",
-        result_params={"expected_schema": {"analysis": "string"}}
+        persona="You are an expert",
+        task=f"Analyze: {input}"
     )
     return sub_result
 ```
 
 ### Pattern 3: Recursive Decomposition
 ```python
-@register_action(description="Break down and execute")
+@register_action(description="Decompose and execute")
 async def recursive_task(self, task: str, depth: int = 0) -> dict:
     if depth > 3:
-        return await self._run_micro_agent(task=f"Do: {task}")
-    
+        return await self._run_micro_agent(task=f"Execute: {task}")
+
     # Decompose
     subtasks = await self._run_micro_agent(
-        task=f"Break down: {task}",
-        result_params={"expected_schema": {"subtasks": ["string"]}}
+        task=f"Decompose: {task}"
     )
-    
+
     # Recursively execute
     results = {}
     for subtask in subtasks["subtasks"]:
         results[subtask] = await self.recursive_task(subtask, depth + 1)
-    
+
     return results
 ```
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 **Problem**: MicroAgent returns unexpected output
-- **Solution**: Use `result_params["expected_schema"]` to specify expected format
+- **Solution**: Improve description to make it clearer
 
-**Problem**: Task takes too long
-- **Solution**: Reduce `max_steps` or decompose into smaller subtasks
+**Problem**: MicroAgent chooses wrong action
+- **Solution**: Improve description to explain when to use which action
 
-**Problem**: Context is getting cluttered
-- **Solution**: Use recursive MicroAgent calls—each has isolated context
+**Problem**: Cerebellum extracts parameters incorrectly
+- **Solution**: Improve param_info to explain parameter meanings more clearly
 
-**Problem**: Can't access MicroAgent state after execution
-- **Solution**: Capture the result instead—MicroAgent is gone after execution
+**Problem**: Tasks take too long
+- **Solution**: Reduce `max_steps` or break into smaller subtasks
 
 ---
 
