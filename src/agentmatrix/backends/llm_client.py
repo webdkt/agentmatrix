@@ -1,24 +1,38 @@
 import json
 import traceback
-from typing import Dict, Union, List, Optional
+from typing import Dict, Union, List, Optional, TYPE_CHECKING
 import aiohttp
 from ..core.log_util import AutoLoggerMixin
 import logging
 
+if TYPE_CHECKING:
+    from ..core.log_config import LogConfig
+
 class LLMClient(AutoLoggerMixin):
 
     _custom_log_level = logging.DEBUG
-    def __init__(self, url: str, api_key: str,model_name: str):
+    def __init__(self, url: str, api_key: str, model_name: str,
+                 parent_logger: Optional[logging.Logger] = None,
+                 log_config: Optional['LogConfig'] = None):
         """
         初始化LLM客户端
-        
+
         Args:
             url (str): 大模型API的URL
             api_key (str): API密钥
+            model_name (str): 模型名称
+            parent_logger (Optional[logging.Logger]): 父组件的logger（用于共享日志）
+            log_config (Optional[LogConfig]): 日志配置
         """
         self.url = url
         self.api_key = api_key
         self.model_name = model_name
+
+        # 使用父 logger（不创建独立日志文件）
+        self._parent_logger = parent_logger
+        self._log_config = log_config
+        self._log_prefix_template = log_config.prefix if log_config else ""
+
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -26,6 +40,13 @@ class LLMClient(AutoLoggerMixin):
         self.gemini_headers = {
             "Content-Type": "application/json",
             "x-goog-api-key": self.api_key
+        }
+
+    def _get_log_context(self) -> dict:
+        """提供日志上下文变量"""
+        return {
+            "model": self.model_name,
+            "name": self.model_name
         }
 
     # In AdvancedMarkdownEditingMixin class

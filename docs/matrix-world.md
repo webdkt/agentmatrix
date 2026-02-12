@@ -1,3 +1,5 @@
+NEED REVIEW
+
 # Matrix World Architecture
 
 ## Overview
@@ -370,7 +372,7 @@ await matrix.post_office.send_email(email)
    │     ├─ Detect action from output
    │     ├─ Negotiate parameters (via Cerebellum)
    │     ├─ Execute action
-   │     └─ Repeat until finish_task or max_steps
+   │     └─ Repeat until all_finished or max_steps
    ├─ MicroAgent returns result
    └─ Send reply email
    │

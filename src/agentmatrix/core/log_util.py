@@ -1,7 +1,10 @@
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .log_config import LogConfig
 
 
 # 1. 定义过滤器：决定什么能上控制台
@@ -25,7 +28,7 @@ class ConsoleDisplayFilter(logging.Filter):
 class LogFactory:
     _log_dir = "./logs"
     _formatter = logging.Formatter(
-        '%(asctime)s - [%(threadName)s] - %(name)s - %(levelname)s - %(message)s'
+        '%(asctime)s - %(levelname)s - %(message)s'
     )
     _default_level = logging.INFO  # 全局默认日志级别
 
@@ -83,20 +86,30 @@ class LogFactory:
 class AutoLoggerMixin:
     """
     智能日志 Mixin。
-    
+
+    支持两种模式：
+    1. 独立日志模式：创建自己的日志文件
+    2. 共享日志模式：使用父组件的 logger（通过 _parent_logger）
+
     优先级策略：
-    1. 如果设置了 _log_from_attr = "xxx"，则文件名取 self.xxx + ".log"
-    2. 如果设置了 _custom_log_filename = "yyy.log"，则文件名为 "yyy.log"
-    3. 默认使用 类名.log
+    1. 如果设置了 _parent_logger，则直接使用（不创建新文件）
+    2. 如果设置了 _log_from_attr = "xxx"，则文件名取 self.xxx + ".log"
+    3. 如果设置了 _custom_log_filename = "yyy.log"，则文件名为 "yyy.log"
+    4. 默认使用 类名.log
     """
-    
+
     # 【配置项 1】指定从哪个实例属性获取名字 (例如 "name", "id")
     _log_from_attr: Optional[str] = None
-    
+
     # 【配置项 2】指定固定的文件名
     _custom_log_filename: Optional[str] = None
 
     _custom_log_level: Optional[int] = None
+
+    # 【新增】支持共享父 logger
+    _parent_logger: Optional[logging.Logger] = None
+    _log_config: Optional['LogConfig'] = None
+    _log_prefix_template: str = ""
 
     @property
     def logger(self) -> logging.Logger:
@@ -106,26 +119,32 @@ class AutoLoggerMixin:
         return self._internal_logger
 
     def _init_logger(self):
+        # 如果有 parent_logger，直接使用（不创建新文件）
+        if self._parent_logger:
+            self._internal_logger = self._parent_logger
+            return
+
+        # 否则创建新的 logger（原有逻辑）
         filename = self._determine_log_filename()
-        
+
         # 这里的 logger_name 很关键：
         # 如果是基于实例属性（如name='ABC'），logger_name 最好也叫 'ABC'，
         # 这样 logging 模块能正确区分不同的 logger 对象。
         # 如果是基于类名，就用类名。
-        
+
         # 为了保证唯一性，我们使用 "类名_文件名" 作为 logger 内部的 key
         logger_name = f"{self.__class__.__name__}_{filename}"
-        
+
         # 将 mixin 中定义的级别传给工厂
         self._internal_logger = LogFactory.get_logger(
-            logger_name, 
-            filename, 
+            logger_name,
+            filename,
             level=self._custom_log_level
         )
 
     def _determine_log_filename(self) -> str:
         """核心逻辑：决定日志文件名"""
-        
+
         # 策略 1: 基于实例属性 (例如 self.name)
         if self._log_from_attr:
             if hasattr(self, self._log_from_attr):
@@ -144,6 +163,41 @@ class AutoLoggerMixin:
         # 策略 3: 默认类名
         return f"{self.__class__.__name__}.log"
 
+    def _get_log_prefix(self) -> str:
+        """获取当前日志前缀（支持动态变量）"""
+        if not self._log_prefix_template:
+            return ""
+
+        # 收集可用的变量
+        context = self._get_log_context()
+        return self._log_prefix_template.format(**context)
+
+    def _get_log_context(self) -> dict:
+        """收集日志上下文变量（子类可覆盖）"""
+        return {}
+
+    def _log(self, level: int, msg: str, *args, **kwargs):
+        """增强的日志方法
+
+        支持：
+        1. 检查是否启用（通过 _log_config.enabled）
+        2. 检查级别（通过 _log_config.level）
+        3. 自动添加前缀（通过 _log_prefix_template）
+        """
+        # 检查是否启用
+        if self._log_config and not self._log_config.enabled:
+            return
+
+        # 检查级别
+        if self._log_config and level < self._log_config.level:
+            return
+
+        # 添加前缀
+        prefix = self._get_log_prefix()
+        prefixed_msg = f"{prefix} {msg}" if prefix else msg
+
+        self.logger.log(level, prefixed_msg, *args, **kwargs)
+
     def echo(self, msg: str, *args, **kwargs):
         """
         专用方法：既写日志文件，也输出到控制台。
@@ -153,6 +207,6 @@ class AutoLoggerMixin:
         if 'extra' not in kwargs:
             kwargs['extra'] = {}
         kwargs['extra']['echo'] = True
-        
+
         # 调用原生 logger
         self.logger.info(msg, *args, **kwargs)

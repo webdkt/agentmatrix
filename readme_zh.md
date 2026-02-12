@@ -265,7 +265,7 @@ MicroAgent 执行:
   2. 从 LLM 输出检测动作
   3. 协商参数（通过 Cerebellum）
   4. 执行动作
-  5. 重复直到 finish_task 或达到步数上限
+  5. 重复直到 all_finished 或达到步数上限
     ↓
 MicroAgent 返回结果
     ↓

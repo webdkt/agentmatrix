@@ -4,6 +4,7 @@ from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
 from ..core.session_manager import SessionManager
+from ..core.session_context import SessionContext
 import traceback
 from dataclasses import asdict
 import inspect
@@ -78,40 +79,19 @@ class BaseAgent(AutoLoggerMixin):
                 workspace_root=value
             )
 
-    def _get_micro_core(self):
-        """
-        获取或创建内置 Micro Agent
-
-        Returns:
-            MicroAgent: Micro Agent 实例
-        """
-        if self._micro_core is None:
-            from .micro_agent import MicroAgent
-            self._micro_core = MicroAgent(
-                brain=self.brain,
-                cerebellum=self.cerebellum,
-                action_registry=self.actions_map,
-                name=f"{self.name}",
-                default_max_steps=100
-            )
-            self.logger.info(f"Micro Agent {self._micro_core.name} created")
-        return self._micro_core
-        
-
         
 
     def _scan_methods(self):
         """扫描并生成元数据"""
         for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
             if getattr(method, "_is_action", False):
-                
+
                 # 1. 提取基础信息
                 desc = method._action_desc
                 param_infos = method._action_param_infos
-                
-                
-                
-                self.actions_map[name] = method
+
+                # 2. 存储未绑定的函数（让 MicroAgent 可以重新绑定）
+                self.actions_map[name] = method.__func__
                 self.actions_meta[name] = {
                     "action": name,
                     "description": desc,
@@ -264,6 +244,14 @@ class BaseAgent(AutoLoggerMixin):
         self.current_session = session
         self.current_user_session_id = session["user_session_id"]
 
+        # 创建 SessionContext 对象（包装 session["context"]）
+        self._session_context = SessionContext(
+            persistent=True,
+            session_manager=self.session_manager,
+            session=session,
+            initial_data=session.get("context", {})
+        )
+
         # 设置当前 session 目录
         if self.workspace_root:
             from pathlib import Path
@@ -299,6 +287,7 @@ class BaseAgent(AutoLoggerMixin):
         micro_core = self._get_micro_core()
 
         result = await micro_core.execute(
+            run_label= 'Process Email',
             persona=self.system_prompt,
             task=task,
             available_actions=available_actions,
@@ -328,47 +317,6 @@ class BaseAgent(AutoLoggerMixin):
             result_preview = result if result else 'No result'
         self.logger.debug(f"Email processing completed. Result: {result_preview}")
         self.logger.info(f"Session {session['session_id'][:8]} now has {len(session['history'])} messages")
-
-    def _add_message_to_history(self, email: Email):
-        # 如果是新 Session，注入 System Prompt
-        session = self.current_session
-        if len(session["history"]) == 0:
-            session["history"].append({"role": "system", "content": self.get_prompt()})
-
-        # 注入用户/同事的邮件
-
-        content =  "[INCOMING MAIL]\n"
-        content+= f"{email}"
-        session["history"].append({"role": "user", "content": content})
-
-    def _add_intention_feedback_to_history(self, intention, action_name,  result=None):
-        session = self.current_session
-        # 把动作执行结果反馈给 LLM
-        msg_body =  "[BODY FEEDBACK]\n"
-        if result:
-
-            msg_body +=f"Action: '{action_name}'\n"
-            msg_body +=textwrap.dedent(f"""Result:
-                {result}
-            """)
-        else:
-            msg_body +=f" '{action_name}'\n"
-        session["history"].append({"role": "assistant", "content": intention})
-        session["history"].append({"role": "user", "content": msg_body})
-
-    
-
-
-    def _add_brain_intention_to_history(self, intention):
-        session = self.current_session
-        session["history"].append({"role": "assistant", "content": intention})
-
-    def _add_question_to_brain(self, question):
-        session = self.current_session
-
-        session["history"].append({"role": "user", "content": f"[INTERNAL QUERY]: {question}\n"})
-
-
 
     def _get_llm_context(self, session: dict) -> List[Dict]:
         """
@@ -590,113 +538,18 @@ class BaseAgent(AutoLoggerMixin):
         # 3. 如果都没找到，抛出异常
         raise FileNotFoundError(f"File not found in any workspace: {filename}")
 
-    async def _run_micro_agent(
-        self,
-        persona: str,
-        task: str,
-        available_actions: Optional[List[str]] = None,
-        max_steps = None,
-        max_time = None,
-        exclude_actions: Optional[List[str]] = None,
-        result_params: Optional[Dict[str, str]] = None,
-        yellow_pages: Optional[str] = None
-    ) -> Any:
-        """
-        运行一个 Micro Agent 来处理子任务
-
-        这是 BaseAgent 中使用 Micro Agent 的便捷方法
-        Micro Agent 继承 BaseAgent 的所有 actions（默认），是 BaseAgent 的临时"人格"
-
-        Args:
-            persona: 角色/身份描述（覆盖 BaseAgent 的 persona）
-            task: 任务描述
-            available_actions: 可用的 action 名称列表（None = 使用所有 BaseAgent 的 actions）
-            max_steps: 最大步数
-            exclude_actions: 要排除的 actions（默认排除等待类 actions）
-            result_params: 返回值参数描述（可选），用于指定 finish_task 的参数结构
-            yellow_pages: 黄页信息（可选），包含其他agent的描述和如何调用它们
-
-        Returns:
-            Any: Micro Agent 的执行结果
-                 - 如果 result_params 为 None，返回字符串（向后兼容）
-                 - 如果有 result_params，返回 Dict[str, Any]
-                 - 如果出错或超时，返回 None 或 {"error": str}
-
-        Example:
-            # 使用所有 actions（默认）
-            result = await self._run_micro_agent(
-                persona="You are a code analysis expert...",
-                task="Analyze the project structure",
-                max_steps=30
-            )
-
-            # 指定部分 actions
-            result = await self._run_micro_agent(
-                persona="You are a researcher...",
-                task="Research this topic",
-                available_actions=["web_search", "read_file", "finish_task"],
-                max_steps=20
-            )
-
-            # 使用结构化返回（新功能）
-            result = await self._run_micro_agent(
-                persona="You are a code reviewer...",
-                task="Review this code",
-                result_params={
-                    "summary": "审查总结",
-                    "issues": "问题列表",
-                    "score": "评分 (0-100)"
-                }
-            )
-            # result = {"summary": "...", "issues": [...], "score": 85}
-        """
-        from .micro_agent import MicroAgent
-
-        # 默认排除等待类 actions（这些会导致 Micro Agent 无法正常返回）
-        default_exclude = ["rest_n_wait", "take_a_break"]
-        if exclude_actions:
-            default_exclude.extend(exclude_actions)
-
-        # 如果没有指定 available_actions，使用 BaseAgent 的所有 actions（排除等待类）
-        if available_actions is None:
-            available_actions = [
-                action_name for action_name in self.actions_map.keys()
-                if action_name not in default_exclude
-            ]
-
-        # 确保 all_finished 在列表中
-        if "all_finished" not in available_actions:
-            available_actions.append("all_finished")
-
-        # 使用内置 Micro Agent（共享 _micro_core）
-        # 子任务不需要恢复记忆，所以 initial_history=None
-        result = await self._get_micro_core().execute(
-            persona=persona,
-            task=task,
-            available_actions=available_actions,
-            max_steps=max_steps,
-            max_time = max_time,
-            initial_history=None,  # 新对话，不需要恢复记忆
-            result_params=result_params,  # 传递 result_params
-            yellow_pages=yellow_pages  # 传递 yellow_pages
-        )
-
-        return result
-
     # ==========================================
     # Session Context 管理
     # ==========================================
 
-    def get_session_context(self) -> dict:
+    def get_session_context(self):
         """
         获取当前session的context
 
         Returns:
-            dict: session context字典，如果不存在返回空字典
+            SessionContext: session context 对象（可持久化）
         """
-        if not hasattr(self, 'current_session') or not self.current_session:
-            return {}
-        return self.current_session.get("context", {})
+        return self._session_context
 
     async def set_session_context(self, context: dict):
         """
@@ -705,24 +558,15 @@ class BaseAgent(AutoLoggerMixin):
         Args:
             context: 要设置的context字典
         """
-        if not hasattr(self, 'current_session') or not self.current_session:
-            self.logger.warning("No active session to set context")
-            return
-
-        self.current_session["context"] = context
-
-        # 自动保存到磁盘
-        try:
-            await self.session_manager.save_session(self.current_session)
-            self.logger.debug(f"💾 Saved session context")
-        except Exception as e:
-            self.logger.warning(f"Failed to save session context: {e}")
+        # 清空并更新
+        self._session_context.clear()
+        await self._session_context.update(**context)
 
     async def update_session_context(self, **kwargs):
         """
         更新当前session的context（部分更新/合并）
 
-        注意：此方法会自动保存context到磁盘，但不保存history（性能优化）
+        注意：此方法会自动保存context到磁盘（通过 SessionContext 自动持久化）
 
         Args:
             **kwargs: 要更新的context字段
@@ -733,37 +577,16 @@ class BaseAgent(AutoLoggerMixin):
                 current_step="planning"
             )
         """
-        if not hasattr(self, 'current_session') or not self.current_session:
-            self.logger.warning("No active session to update context")
-            return
-
-        if "context" not in self.current_session:
-            self.current_session["context"] = {}
-
-        # 合并更新
-        self.current_session["context"].update(kwargs)
-
-        # 只保存 context（不保存 history，性能优化）
-        try:
-            await self.session_manager.save_session_context_only(self.current_session)
-            self.logger.debug(f"💾 Saved session context: {list(kwargs.keys())}")
-        except Exception as e:
-            self.logger.warning(f"Failed to save session context: {e}")
+        # 委托给 SessionContext.update()（会自动持久化）
+        await self._session_context.update(**kwargs)
+        self.logger.debug(f"💾 Updated session context: {list(kwargs.keys())}")
 
     async def clear_session_context(self):
         """清除当前session的context"""
-        if not hasattr(self, 'current_session') or not self.current_session:
-            self.logger.warning("No active session to clear context")
-            return
-
-        self.current_session["context"] = {}
-
-        # 自动保存到磁盘
-        try:
-            await self.session_manager.save_session_context_only(self.current_session)
-            self.logger.debug(f"💾 Cleared session context")
-        except Exception as e:
-            self.logger.warning(f"Failed to clear session context: {e}")
+        # 清空并持久化
+        self._session_context.clear()
+        await self._session_context.update()  # 触发持久化
+        self.logger.debug(f"💾 Cleared session context")
 
     def get_session_folder(self) -> Optional[str]:
         """
@@ -856,7 +679,7 @@ class BaseAgent(AutoLoggerMixin):
         """
         [TERMINAL ACTION] 完成任务并返回最终结果
 
-        这是 BaseAgent 提供的通用 finish_task action。
+        这是 BaseAgent 提供的通用 all_finished action。
         子类可以覆盖此方法以实现自定义的完成逻辑。
 
         Args:

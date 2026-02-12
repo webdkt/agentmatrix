@@ -1,3 +1,5 @@
+NEED REVIEW
+
 # Agent and Micro Agent Design
 
 ## Overview
@@ -153,7 +155,7 @@ When a user sends an email to BaseAgent:
    │  ├─ Detect action from LLM output
    │  ├─ Negotiate parameters (via Cerebellum)
    │  ├─ Execute action
-   │  └─ Repeat until finish_task or step limit
+   │  └─ Repeat until all_finished or step limit
    └─ Return result to BaseAgent
 
 3. BaseAgent updates session
@@ -345,7 +347,7 @@ async def _run_loop(self):
         action_name = self._detect_action(thought)
 
         # 3. Execute or finish
-        if action_name == "finish_task":
+        if action_name == "all_finished":
             result = await self._execute_action(action_name, thought)
             self.result = result
             break  # Return to BaseAgent
@@ -374,7 +376,7 @@ def _detect_action(self, thought: str) -> Optional[str]:
 
 - Actions sorted by length (longest first) to avoid partial matches
 - Returns `None` if no action detected
-- Returns `"finish_task"` to terminate execution
+- Returns `"all_finished"` to terminate execution
 
 ### Action Execution with Parameter Negotiation
 

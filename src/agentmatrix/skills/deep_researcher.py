@@ -1,3 +1,4 @@
+"!!! 过时待删除或者重做 !!!"
 """
 Deep Researcher Skill - 深度研究技能
 
@@ -14,6 +15,7 @@ import os
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from ..core.action import register_action
+from ..agents.micro_agent import MicroAgent
 from .deep_researcher_helper import (
     ResearchContext,
     Notebook,
@@ -190,7 +192,10 @@ class DeepResearcherMixin(WebSearcherMixin):
 
         # 执行 Micro Agent
         try:
-            result = await self._run_micro_agent(
+            # 直接创建 MicroAgent
+            micro_agent = MicroAgent(parent=self)
+            result = await micro_agent.execute(
+                run_label="planning_stage",
                 persona=ctx["researcher_persona"],
                 task=planning_task,
                 available_actions=[
@@ -298,8 +303,13 @@ class DeepResearcherMixin(WebSearcherMixin):
 笔记是一切
 """
 
+                # 创建独立的子上下文用于这个研究任务
+                task_name = f"task_{sanitize_filename(task_content[:50])}"
+                task_context = self.working_context.create_child(task_name, use_timestamp=True)
+
                 # 执行 Micro Agent
-                result = await self._run_micro_agent(
+                micro_agent = MicroAgent(parent=self, working_context=task_context)
+                result = await micro_agent.execute(
                     persona=ctx['researcher_persona'],
                     task=research_task_prompt,
                     available_actions=[
@@ -310,11 +320,12 @@ class DeepResearcherMixin(WebSearcherMixin):
                         "check_task_summary",
                         "update_research_plan",
                         "update_chapter_outline",
-                        "finish_task",
+                        "all_finished",
                         "visit_url"
                     ],
                     max_steps=max_steps,
-                    max_time=max_time
+                    max_time=max_time,
+                    run_label=f"research_round_{round_count}"  # 执行标签
                 )
 
                 # 检查任务状态
@@ -326,7 +337,7 @@ class DeepResearcherMixin(WebSearcherMixin):
 
                 # 退出条件1: LLM 主动完成任务
                 if task_data["status"] == "completed":
-                    self.logger.info(f"✅ 任务「{task_content}」已完成（LLM 主动调用 finish_task）")
+                    self.logger.info(f"✅ 任务「{task_content}」已完成（LLM 主动调用 all_finished）")
                     break
 
                 # 退出条件2: 正常完成（非"未完成"消息）
@@ -2542,7 +2553,7 @@ class DeepResearcherMixin(WebSearcherMixin):
         return result
 
     # ==========================================
-    # 覆盖 BaseAgent 的 finish_task
+    # 覆盖 BaseAgent 的 all_finished
     # ==========================================
 
     @register_action(
@@ -2552,9 +2563,9 @@ class DeepResearcherMixin(WebSearcherMixin):
             "task_name": "要标记为完成的任务名称（可选，默认当前任务）"
         }
     )
-    async def finish_task(self, result: str = None, task_name: str = None) -> str:
+    async def all_finished(self, result: str = None, task_name: str = None) -> str:
         """
-        完成研究任务（覆盖 BaseAgent.finish_task）
+        完成研究任务（覆盖 BaseAgent.all_finished）
 
         功能：
         - 标记指定任务为 completed

@@ -63,6 +63,21 @@
         "url":"https://open.bigmodel.cn/api/paas/v4/chat/completions",
         "API_KEY":"GLM_API_KEY",
         "model_name":"glm-4.6v"
+    },
+    "browser-use-llm2": {
+        "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "API_KEY": "GLM_API_KEY",
+        "model_name": "glm-4.6"
+    },
+    "browser-use-llm": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-chat"
+    },
+    "deepseek_chat": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "API_KEY": "DEEPSEEK_API_KEY",
+        "model_name": "deepseek-chat"
     }
     
     

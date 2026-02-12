@@ -1,3 +1,4 @@
+"!!! 过时待删除或者重做 !!!"
 import asyncio
 import time
 import os,json,textwrap

@@ -1,3 +1,4 @@
+NEED UPDATE
 # AgentMatrix Skill 单独测试标准流程
 
 ## 适用场景
@@ -34,7 +35,7 @@ class MinimalTestAgent(BaseAgent, DeepResearcherMixin):
 
 **为什么 BaseAgent 在前？**
 - BaseAgent 提供完整的 session 管理、action 注册、工具方法
-- 测试场景不需要 Mixin 覆盖 BaseAgent 的方法（如 `finish_task`）
+- 测试场景不需要 Mixin 覆盖 BaseAgent 的方法（如 `all_finished`）
 - 这样设计：测试 Agent 获得基础能力 + Skill 功能
 
 **与 Loader 的区别**：
@@ -411,17 +412,6 @@ test_session_folder = "/path/to/existing/session"
 context = json.load(open(f"{test_session_folder}/context.json"))
 ```
 
-### Q: 如何测试异步方法？
-
-A: 使用 `asyncio.run()`：
-
-```python
-async def main():
-    result = await test_agent.async_method()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
 
 ### Q: 如何 Mock Brain 响应？
 

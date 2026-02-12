@@ -1,3 +1,4 @@
+"!!! 过时待淘汰 !!!"
 import asyncio
 import time
 import os

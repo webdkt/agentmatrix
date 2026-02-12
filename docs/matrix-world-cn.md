@@ -1,3 +1,5 @@
+NEED REVIEW
+
 # Matrix World 架构
 
 ## 概述
@@ -370,7 +372,7 @@ await matrix.post_office.send_email(email)
    │     ├─ 从输出中检测动作
    │     ├─ 协商参数(通过 Cerebellum)
    │     ├─ 执行动作
-   │     └─ 重复直到 finish_task 或 max_steps
+   │     └─ 重复直到 all_finished 或 max_steps
    ├─ MicroAgent 返回结果
    └─ 发送回复邮件
    │

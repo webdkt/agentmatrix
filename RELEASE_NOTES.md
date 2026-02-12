@@ -27,7 +27,7 @@ MicroAgent 现在支持在一次思考中检测和执行多个 actions，显著�
 - 使用正则表达式 `r'([a-zA-Z_][a-zA-Z0-9_]*)'` 进行精确匹配
 - 支持完整单词匹配，避免部分误识别
 - 自动去重但保持原始顺序
-- 特殊 actions（finish_task, rest_n_wait）在循环内部处理
+- 特殊 actions（all_finished, rest_n_wait）在循环内部处理
 
 #### 2. **可配置的默认搜索引擎**
 Agent 现在可以通过 Profile YAML 配置默认搜索引擎，无需在每次调用时手动指定。
