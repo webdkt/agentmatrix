@@ -255,6 +255,7 @@ class WebSearcherV2Mixin(BrowserUseSkillMixin, FileOperationSkillMixin):
 
         round_count = 0
         total_time = 0.0  # 总时间（分钟）
+        previous_round_tmp_result = ""  # 上一轮的临时结果（如果需要传递）
 
         while True:
             round_count += 1
@@ -321,6 +322,8 @@ class WebSearcherV2Mixin(BrowserUseSkillMixin, FileOperationSkillMixin):
 
 [目前的白板]
 {dashboard}
+
+{previous_round_tmp_result}
 =======END OF BOARD=====
 
 现在决定下一步动作
@@ -375,6 +378,7 @@ class WebSearcherV2Mixin(BrowserUseSkillMixin, FileOperationSkillMixin):
 
                 # 否则继续下一轮
                 self.logger.info(f"⏸ 第 {round_count} 轮结束，继续下一轮...")
+                previous_round_tmp_result = f"<<一些临时记录>>\n{result}"
 
             except Exception as e:
                 self.logger.error(f"❌ 第 {round_count} 轮执行失败: {e}")

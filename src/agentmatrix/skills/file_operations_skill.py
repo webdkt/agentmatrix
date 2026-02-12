@@ -120,12 +120,12 @@ class FileOperationSkillMixin:
             return await target._read_unix(file_path, start_line, end_line, working_context)
 
     @register_action(
-        description="写入文件内容。支持覆盖或追加模式",
+        description="写入文件内容。默认覆盖模式。",
         param_infos={
             "file_path": "文件路径",
             "content": "文件内容",
             "mode": "写入模式，'overwrite' 覆盖或 'append' 追加（默认overwrite）",
-            "allow_overwrite": "是否允许覆盖已存在文件（默认False）"
+            "allow_overwrite": "（可选）是否允许覆盖已存在文件（默认False）"
         }
     )
     async def write(
