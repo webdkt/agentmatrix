@@ -267,7 +267,7 @@ MicroAgent executes:
   2. Detect action from LLM output
   3. Negotiate parameters (via Cerebellum)
   4. Execute action
-  5. Repeat until finish_task or max_steps
+  5. Repeat until all_finished or max_steps
     ↓
 MicroAgent returns result
     ↓

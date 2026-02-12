@@ -10,8 +10,8 @@ mixins:
   - agentmatrix.skills.notebook.NotebookMixin
 
 # Top level actions: process_email 时可用的 actions
-# 未列出的 actions 可以通过 _run_micro_agent 在子任务中使用
-# rest_n_wait, send_email, finish_task 始终可用，无需配置
+# 未列出的 actions 可以通过创建 MicroAgent 在子任务中使用
+# rest_n_wait, send_email, all_finished 始终可用，无需配置
 top_level_actions:
   - create_project_board
   - add_task
@@ -26,6 +26,24 @@ top_level_actions:
 attribute_initializations:
   project_board: null
   vector_db: null
+
+# 日志配置（可选）
+# 如果不配置，所有组件默认启用，级别为 DEBUG
+logging:
+  # 组件级配置（可选）
+  # 如果不配置某个组件，它将使用默认设置
+  components:
+    # brain: 默认启用，级别 DEBUG
+    # cerebellum: 可以调整级别
+    cerebellum:
+      level: INFO  # 减少小脑的日志噪音
+
+    # vision_brain: 默认启用，可以关闭
+    # vision_brain:
+    #   enabled: false
+
+    # micro_agent: 默认启用，使用 [MICRO-{label}] 前缀
+    # 可以自定义前缀或关闭
 
 instruction_to_caller: |
   直接发送自然语言指令。

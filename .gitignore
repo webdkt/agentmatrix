@@ -190,3 +190,4 @@ test/test
 MyWorld/
 tests/jian_api.txt
 tests/
+.matrix/

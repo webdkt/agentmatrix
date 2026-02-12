@@ -1,3 +1,4 @@
+"!!! 过时待删除或者重做 !!!"
 import os
 import asyncio
 import urllib.parse

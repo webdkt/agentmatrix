@@ -1,3 +1,4 @@
+"!!! 过时待删除或者重做 !!!"
 # Think-With-Retry Pattern
 
 ## Overview

@@ -11,9 +11,13 @@ Session Manager - 管理 agent 的 session 状态和持久化
 import asyncio
 import json
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
 from datetime import datetime
 from ..core.log_util import AutoLoggerMixin
+import logging
+
+if TYPE_CHECKING:
+    from ..core.log_config import LogConfig
 
 
 class SessionManager(AutoLoggerMixin):
@@ -25,10 +29,27 @@ class SessionManager(AutoLoggerMixin):
 
     _log_from_attr = "name"
 
-    def __init__(self, agent_name: str, workspace_root: Optional[str] = None):
+    def __init__(self, agent_name: str, workspace_root: Optional[str] = None,
+                 parent_logger: Optional[logging.Logger] = None,
+                 log_config: Optional['LogConfig'] = None):
+        """
+        初始化 SessionManager
+
+        Args:
+            agent_name: 所属Agent的名称
+            workspace_root: 工作区根路径
+            parent_logger: 父组件的logger（可选，用于共享日志）
+            log_config: 日志配置（可选）
+        """
         self.name = f"{agent_name}_SessionManager"
         self.agent_name = agent_name
         self.workspace_root = workspace_root
+
+        # 可选：使用父 logger（如果不提供则创建独立日志文件）
+        if parent_logger and log_config:
+            self._parent_logger = parent_logger
+            self._log_config = log_config
+            self._log_prefix_template = log_config.prefix if log_config else ""
 
         # 内存缓存
         self.sessions: Dict[str, dict] = {}  # session_id → session dict
