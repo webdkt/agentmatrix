@@ -47,11 +47,13 @@ class BrowserUseSkillMixin:
         "deepseek": [  # DeepSeek
             "deepseek-reasoner",
         ],
+        "xiaomi":["mimo-v2-flash"]
     }
 
     # 厂商识别规则
     VENDOR_PATTERNS = {
         "zhipu": ["glm", "bigmodel"],
+        "xiaomi": ["xiaomi", "mimo"],
         "deepseek": ["deepseek"],
     }
 
@@ -174,6 +176,8 @@ class BrowserUseSkillMixin:
             # 根据厂商创建对应的 wrapper
             if vendor == "zhipu":
                 llm = self._create_glm_chat_wrapper(base_llm)
+            elif vendor == "mimo":
+                llm = self._create_mimo_chat_wrapper(base_llm)
             elif vendor == "deepseek":
                 # DeepSeek thinking 模型的处理
                 # TODO: 实现 DeepSeek thinking 模型的 wrapper
@@ -240,6 +244,60 @@ class BrowserUseSkillMixin:
                     self._base_llm.get_client().chat.completions.create = original_create
 
         return GLMChatOpenAIWrapper(base_llm)
+
+    def _create_mimo_chat_wrapper(self, base_llm):
+        """
+        创建支持 Mimo thinking 参数的自定义 ChatOpenAI wrapper
+
+        这个 wrapper 会拦截 API 调用，并为 Mimo thinking 模型添加 extra_body={
+        "thinking": {"type": "disabled"}
+    }参数
+        """
+        from typing import Any, TypeVar
+        from browser_use.llm.messages import BaseMessage
+        from browser_use.llm.views import ChatInvokeCompletion
+        from functools import wraps
+
+        T = TypeVar('T')
+
+        class MimoChatOpenAIWrapper:
+            """Wrapper for GLM models that disables thinking mode"""
+
+            def __init__(self, base_llm):
+                self._base_llm = base_llm
+
+            def __getattr__(self, name):
+                """将所有其他属性访问委托给 base_llm"""
+                return getattr(self._base_llm, name)
+
+            async def ainvoke(self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any):
+                """
+                调用模型，自动添加 thinking={"type": "disabled"} 参数
+
+                使用 monkey patching 技术临时修改 openai client 的 completions.create 方法
+                """
+                original_create = self._base_llm.get_client().chat.completions.create
+
+                @wraps(original_create)
+                async def patched_create(*args, **create_kwargs):
+                    # 添加 GLM 特定的 thinking 参数
+                    # 参考: https://docs.bigmodel.cn/cn/guide/capabilities/thinking
+                    create_kwargs = create_kwargs.copy()
+                    create_kwargs['extra_body'] = {"thinking": {"type": "disabled"}}
+                    return await original_create(*args, **create_kwargs)
+
+                # 临时替换 create 方法
+                self._base_llm.get_client().chat.completions.create = patched_create
+
+                try:
+                    # 调用原始的 ainvoke
+                    result = await self._base_llm.ainvoke(messages, output_format, **kwargs)
+                    return result
+                finally:
+                    # 恢复原始 create 方法
+                    self._base_llm.get_client().chat.completions.create = original_create
+
+        return MimoChatOpenAIWrapper(base_llm)
 
     def _get_browser_use_llm(self):
         """
@@ -515,179 +573,7 @@ class BrowserUseSkillMixin:
         self._browser_use_agent.add_new_task(task)
         return self._browser_use_agent
 
-    @register_action(
-        description="""使用浏览器上网，查找获取信息""",
-        param_infos={
-            "url": "要访问的网页URL（起始页面）",
-            "task": "自然语言任务描述"
-        }
-    )
-    async def browser_navigate(
-        self,
-        url: str,
-        task: str,
-        headless: bool = False,
-        max_actions: int = 10
-    ) -> str:
-        """
-        使用 browser-use Agent 执行浏览器自动化任务
-
-        此方法会：
-        1. 使用 LLM (think_with_retry) 优化你的任务描述
-        2. 创建 browser-use Agent 并执行任务
-        3. 返回执行结果
-
-        Args:
-            url: 要访问的网页 URL（起始页面）
-            task: 自然语言描述的任务（会自动优化）
-            headless: 是否使用无头模式（True=隐藏浏览器，False=显示浏览器）
-            max_actions: 最大执行步数
-
-        Returns:
-            任务执行结果（字符串格式）
-        """
-        if hasattr(self, 'root_agent'):
-            llm = self.root_agent._get_browser_use_llm()
-        else:
-            # self 是 BaseAgent，直接调用
-            llm = self._get_browser_use_llm()
     
-
-        # ========== 使用 think_with_retry 优化任务描述 ==========
-        self.logger.info("开始优化任务描述...")
-
-        # 构建 task 优化 prompt
-        task_optimization_prompt = f"""你是 browser-use task 优化专家。请将以下用户任务转换为符合 browser-use 最佳实践的 task 描述。
-
-用户任务：{task}
-
-目标 URL：{url}
-
-browser-use Prompting Guide 原则：
-1. Be Specific - 使用编号步骤（1. 2. 3.）明确每个操作
-2. Name Actions Directly - 直接引用 action 名称（如 extract, click, scroll, input, navigate, search）
-3. Provide Error Recovery - 提供失败时的备选方案（如 "If page times out, refresh and retry"）
-4. Use Emphasis - 使用 NEVER/ALLAYS 等强调词约束关键行为
-5. Google May Not Available - 如果涉及使用google，必须提示当Google不可用时要尽早及时换成Bing
-
-可用的 browser-use Actions：
-- navigate: 导航到指定 URL
-- search: 搜索引擎搜索（google, bing）
-- search_page: 在页面内容中搜索文本或正则
-- extract: 提取页面内容（支持 JSON Schema，例如 "extract product titles and prices"）
-- click: 点击元素（支持索引或坐标）
-- input: 输入文本（支持清除或追加）
-- scroll: 滚动页面（上/下，指定页数）
-- send_keys: 发送键盘快捷键（如 "Tab Tab Enter"）
-- done: 完成任务并返回结果
-- screenshot: 截图
-- switch_tab/close_tab: 标签页管理
-
-Task 优化示例：
-用户任务："搜索 Python 教程并提取前5个结果"
-优化后：
-"1. Navigate to {url}
-2. Use search action to search for 'Python tutorials'
-3. Wait for results to load
-4. Use extract action to extract the first 5 result titles and links
-5. Return the results in a structured format"
-
-请生成优化后的 task 描述，放在 [OPTIMIZED_TASK] section 中。
-"""
-
-        try:
-            # 使用 brain 的 think_with_retry 优化 task
-            optimized_task = await self.brain.think_with_retry(
-                task_optimization_prompt,
-                simple_section_parser,
-                section_header="[OPTIMIZED_TASK]",
-                max_retries=2
-            )
-
-            self.logger.info(f"✓ 任务描述已优化")
-            self.logger.debug(f"  原始任务：{task}")
-            self.logger.debug(f"  优化任务：{optimized_task}")
-
-            # 使用优化后的任务
-            full_task = optimized_task
-
-        except Exception as e:
-            # 如果优化失败，回退到原始任务
-            self.logger.warning(f"⚠ 任务描述优化失败: {e}，使用原始任务")
-            full_task = task
-
-        # 构建完整任务描述（包含 URL）
-        full_task = f"{full_task}\n\n目标网址：{url}"
-
-        self.logger.info(f"BrowserUseSkill 开始任务")
-        self.logger.info(f"  URL: {url}")
-        self.logger.info(f"  任务: {task}")
-        self.logger.info(f"  最大动作数: {max_actions}")
-
-        try:
-            # 获取浏览器（根据 headless 参数决定是否显示界面）
-            # 通过 root_agent 调用，因为 self 可能是 MicroAgent
-            if hasattr(self, 'root_agent'):
-                browser = await self.root_agent._get_browser(headless=headless)
-            else:
-                browser = await self._get_browser(headless=headless)
-
-            # 创建 Agent，在 task 中直接说明目标 URL
-            # browser-use 会自动从 task 中提取 URL 并导航
-            agent = Agent(
-                task=f"{full_task}\n\n目标网址：{url}",
-                llm=llm,
-                browser=browser,
-                use_vision=False,  # 暂时不使用视觉模式
-                max_actions=max_actions,
-                use_judge=False
-            )
-
-            # 执行任务
-            history = await agent.run()
-
-            # 获取最终结果
-            final_result = history.final_result()
-
-            # 清理结果中的 Simple judge note（经常不准确）
-            import re
-            final_result = re.sub(r'\[Simple judge:.*?\]', '', final_result, flags=re.DOTALL).strip()
-
-            # 获取当前浏览器停留的 URL
-            try:
-                current_url = history.urls()[-1] if history.urls() else None
-            except Exception:
-                current_url = None
-
-            # 🆕 保存最后访问的 URL（供 WebSearcherV2 使用）
-            if current_url:
-                # 通过 root_agent 保存，确保 WebSearcherV2 能读取到
-                if hasattr(self, 'root_agent'):
-                    self.root_agent._last_browser_url = current_url
-                else:
-                    self._last_browser_url = current_url
-                self.logger.debug(f"浏览器当前 URL: {current_url}")
-
-            # 构建返回结果（使用显示用的 URL）
-            current_url_display = current_url if current_url else "未知"
-
-            # 构建返回结果
-            result_parts = []
-            if final_result:
-                result_parts.append(f"【最终结果】\n{final_result}")
-            else:
-                result_parts.append("任务已完成，未返回结构化结果")
-
-            result_parts.append(f"\n【当前页面】\n{current_url_display}")
-
-            self.logger.info("BrowserUseSkill 任务完成")
-            return "\n".join(result_parts)
-
-        
-        except Exception as e:
-            error_msg = f"未知错误: {type(e).__name__}: {e}"
-            self.logger.error(error_msg, exc_info=True)
-            return f"任务执行失败: {error_msg}"
 
 
     @register_action(

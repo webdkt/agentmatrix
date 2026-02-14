@@ -54,6 +54,11 @@
         "API_KEY":"MIMO_API_KEY",
         "model_name":"mimo-v2-flash"
     },
+    "browser-use-llm":{
+        "url":"https://api.xiaomimimo.com/v1/chat/completions",
+        "API_KEY":"MIMO_API_KEY",
+        "model_name":"mimo-v2-flash"
+    },
     "gemini-3-pro":{
         "url":"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent",
         "API_KEY":"GEMINI_API_KEY",
@@ -69,7 +74,7 @@
         "API_KEY": "GLM_API_KEY",
         "model_name": "glm-4.6"
     },
-    "browser-use-llm": {
+    "browser-use-llm1": {
         "url": "https://api.deepseek.com/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "deepseek-chat"

@@ -13,6 +13,7 @@ import textwrap
 from ..core.log_util import AutoLoggerMixin
 import logging
 from pathlib import Path
+from .micro_agent import MicroAgent
 
 class BaseAgent(AutoLoggerMixin):
     _log_from_attr = "name" # 日志名字来自 self.name 属性
@@ -59,12 +60,46 @@ class BaseAgent(AutoLoggerMixin):
 
         self._scan_methods()
 
-        # 创建内置 Micro Agent（用于执行）
-        # 注意：brain 和 cerebellum 是外部注入的，所以这里先不创建
-        # 会在第一次使用时延迟初始化
-        self._micro_core = None
+        # working_context（指向 private_workspace）
+        # 注意：此时 private_workspace 可能还是 None（因为没有 user_session_id）
+        # 会在 process_email 中更新
+        self._working_context = None
 
         self.logger.info(f"Agent {self.name} 初始化完成")
+
+    def _update_working_context(self):
+        """
+        更新 working_context，指向 private_workspace
+
+        应该在 process_email 开始时调用，因为 private_workspace 依赖 current_user_session_id
+        """
+        from ..core.working_context import WorkingContext
+
+        if self.private_workspace:
+            self._working_context = WorkingContext(
+                base_dir=str(self.private_workspace),
+                current_dir=str(self.private_workspace)
+            )
+            self.logger.debug(f"Updated working_context: {self._working_context.base_dir}")
+        else:
+            self._working_context = None
+
+    def _get_top_level_actions(self):
+        available_actions = None
+        if self.top_level_actions is not None:
+            # 合并配置的 actions 和默认 actions
+            available_actions = list(set(self.top_level_actions + self.DEFAULT_TOP_LEVEL_ACTIONS))
+            # 过滤掉实际不存在的 actions
+            available_actions = [a for a in available_actions if a in self.actions_map]
+            self.logger.info(f"{self.name} will use configured top_level_actions: {available_actions}")
+        else:
+            # 向后兼容：使用所有 actions
+            available_actions = list(self.actions_map.keys())
+            self.logger.debug(f"{self.name} will use all actions : {available_actions}")
+        return available_actions
+
+
+    
 
     @property
     def workspace_root(self):
@@ -244,6 +279,9 @@ class BaseAgent(AutoLoggerMixin):
         self.current_session = session
         self.current_user_session_id = session["user_session_id"]
 
+        # 更新 working_context（指向 private_workspace）
+        self._update_working_context()
+
         # 创建 SessionContext 对象（包装 session["context"]）
         self._session_context = SessionContext(
             persistent=True,
@@ -271,20 +309,15 @@ class BaseAgent(AutoLoggerMixin):
         # 3. 准备 available actions
         # 如果配置了 top_level_actions，则使用配置 + 默认 actions
         # 否则使用所有 actions（向后兼容）
-        if self.top_level_actions is not None:
-            # 合并配置的 actions 和默认 actions
-            available_actions = list(set(self.top_level_actions + self.DEFAULT_TOP_LEVEL_ACTIONS))
-            # 过滤掉实际不存在的 actions
-            available_actions = [a for a in available_actions if a in self.actions_map]
-            self.logger.debug(f"Using configured top_level_actions: {available_actions}")
-        else:
-            # 向后兼容：使用所有 actions
-            available_actions = list(self.actions_map.keys())
-            self.logger.debug(f"Using all actions (backward compatible): {available_actions}")
+        available_actions = self._get_available_actions()
 
         # 4. 执行 Micro Agent
-        # 传入 session（MicroAgent 会自动保存 history）
-        micro_core = self._get_micro_core()
+        # 每次创建新的 MicroAgent（使用最新的 working_context）
+        micro_core = MicroAgent(
+            parent=self,
+            working_context=self._working_context,  # ← 传入最新的 working_context
+            name=self.name
+        )
 
         result = await micro_core.execute(
             run_label= 'Process Email',

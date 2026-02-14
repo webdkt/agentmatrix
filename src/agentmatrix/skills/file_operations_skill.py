@@ -222,24 +222,36 @@ class FileOperationSkillMixin:
         Args:
             command: shell 命令
         """
-        from ..core.working_context import WorkingContext
-
-        # self = MicroAgent (调用者)
-        working_context = getattr(self, 'working_context', None)
-        if not working_context or not isinstance(working_context, WorkingContext):
-            return "错误：缺少 working_context"
-
-        # 通过 root_agent 调用实现方法（和 browser_use_skill 一样）
-        if hasattr(self, 'root_agent'):
-            target_agent = self.root_agent
-        else:
-            target_agent = self
-
         # 根据平台选择实现（传入 working_context）
         if platform.system() == "Windows":
-            return await target_agent._shell_cmd_windows(command, working_context)
+            return await self.root_agent._shell_cmd_windows(command, self.working_context)
         else:
-            return await target_agent._shell_cmd_unix(command, working_context)
+            return await self.root_agent._shell_cmd_unix(command, self.working_context)
+
+    @register_action(
+        description="字符串替换：在文件中查找并替换字符串。",
+        param_infos={
+            "file_path": "文件路径",
+            "old_pattern": "要替换的旧字符串",
+            "new_string": "新字符串",
+            "use_regex": "是否使用正则表达式（默认false）"
+        }
+    )
+    async def string_replace(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool = False) -> str:
+        """
+        在文件中查找并替换字符串
+
+        Args:
+            file_path: 文件路径
+            old_pattern: 要替换的旧字符串
+            new_string: 新字符串
+            use_regex: 是否使用正则表达式（默认false）
+        """
+        # 调用平台实现
+        if platform.system() == "Windows":
+            return await self.root_agent._string_replace_windows(file_path, old_pattern, new_string, use_regex, self.working_context)
+        else:
+            return await self.root_agent._string_replace_unix(file_path, old_pattern, new_string, use_regex, self.working_context)
 
     # ==================== Unix 实现 ====================
 
@@ -345,6 +357,43 @@ class FileOperationSkillMixin:
         # 执行命令（使用 working_context.current_dir 作为工作目录）
         return await self._run_shell_unix(command, f"执行命令: {command}", working_context)
 
+    async def _string_replace_unix(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool, working_context) -> str:
+        """Unix 字符串替换实现"""
+        import re
+
+        # 读取文件内容
+        abs_path = self._resolve_path(file_path, working_context)
+        if abs_path.startswith("错误："):
+            return abs_path
+
+        if not os.path.exists(abs_path):
+            return f"错误：文件不存在: {abs_path}"
+
+        try:
+            with open(abs_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            if use_regex:
+                new_content = re.sub(old_pattern, new_string, content)
+            else:
+                new_content = content.replace(old_pattern, new_string)
+
+            with open(abs_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            old_preview = old_pattern[:20] + "..." if len(old_pattern) > 20 else old_pattern
+            new_preview = new_string[:20] + "..." if len(new_string) > 20 else new_string
+
+            return f"""> 已替换 '{file_path}'
+
+旧字符串：{old_preview}
+新字符串：{new_preview}
+
+使用正则：{use_regex}"""
+
+        except Exception as e:
+            return f"❌ 替换失败：{str(e)}"
+
     # ==================== Windows 实现 ====================
 
     async def _list_dir_windows(self, base_dir: str, recursive: bool, working_context) -> str:
@@ -443,6 +492,43 @@ class FileOperationSkillMixin:
 
         # 执行命令（使用 working_context.current_dir 作为工作目录）
         return await self._run_shell_windows(command, f"执行命令: {command}", working_context)
+
+    async def _string_replace_windows(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool, working_context) -> str:
+        """Windows 字符串替换实现"""
+        import re
+
+        # 读取文件内容
+        abs_path = self._resolve_path(file_path, working_context)
+        if abs_path.startswith("错误："):
+            return abs_path
+
+        if not os.path.exists(abs_path):
+            return f"错误：文件不存在: {abs_path}"
+
+        try:
+            with open(abs_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            if use_regex:
+                new_content = re.sub(old_pattern, new_string, content)
+            else:
+                new_content = content.replace(old_pattern, new_string)
+
+            with open(abs_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            old_preview = old_pattern[:20] + "..." if len(old_pattern) > 20 else old_pattern
+            new_preview = new_string[:20] + "..." if len(new_string) > 20 else new_string
+
+            return f"""> 已替换 '{file_path}'
+
+旧字符串：{old_preview}
+新字符串：{new_preview}
+
+使用正则：{use_regex}"""
+
+        except Exception as e:
+            return f"❌ 替换失败：{str(e)}"
 
     # ==================== 辅助方法 ====================
 
