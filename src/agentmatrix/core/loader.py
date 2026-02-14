@@ -38,15 +38,7 @@ class AgentLoader(AutoLoggerMixin):
                 if os.getenv(api_key) is not None:
                     config["API_KEY"] = os.getenv(api_key)
 
-        prompts_path = os.path.join(self.profile_path, "prompts")
-        self.prompts = {}
-        for prompt_txt in os.listdir(prompts_path):
-            if prompt_txt.endswith(".txt"):
-                self.logger.info(f">>> 加载Prompt模板 {prompt_txt}...")
-                with open(os.path.join(prompts_path, prompt_txt), "r", encoding='utf-8') as f:
-                    self.prompts[prompt_txt[:-4]] = f.read()
-
-        self.logger.info(self.prompts)
+        
 
     def _parse_value(self, value):
         """
@@ -129,16 +121,7 @@ class AgentLoader(AutoLoggerMixin):
                 self.logger.info(f">>>    设置类属性: {class_attrs}")
             agent_class = base_agent_class
 
-        # 7. 注入 prompt template
-        if "prompte_template" not in profile:
-            profile["prompt_template"] = "base"
-        prompt_template_name = profile.get("prompt_template")
-        self.logger.info(f">>> 加载Prompt模板 {prompt_template_name}...")
-        if prompt_template_name in self.prompts:
-            prompt = self.prompts[prompt_template_name]
-            profile["full_prompt"] = prompt
-        else:
-            raise ValueError(f"加载Agent {file_path} 失败，Prompt 模板 {prompt_template_name} 未找到。")
+        
 
         # 8. 实例化 Agent
         agent_instance = agent_class(profile.copy())
@@ -230,10 +213,7 @@ class AgentLoader(AutoLoggerMixin):
 
         agent_instance.vision_brain = vision_client
 
-        # ========== 13. 设置 MicroAgent 日志配置 ==========
-        micro_config = LogConfig.from_dict(component_configs.get("micro_agent"))
-        micro_config.prefix = micro_config.prefix or "[MICRO-{label}]"
-        agent_instance._micro_agent_log_config = micro_config
+        
 
         # ========== 14. 设置 SessionManager（带日志配置，可选）==========
         # 这个会在 workspace_root 设置时创建，暂时跳过

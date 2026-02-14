@@ -663,7 +663,7 @@ async def get_agent(agent_name: str):
         "description": getattr(agent, 'description', 'No description'),
         "instruction": getattr(agent, 'instruction_to_caller', ''),
         "backend_model": getattr(agent, 'backend_model', 'default_llm'),
-        "system_prompt": getattr(agent, 'system_prompt', '')[:200] + '...' if len(getattr(agent, 'system_prompt', '')) > 200 else getattr(agent, 'system_prompt', '')
+        
     }
 
 

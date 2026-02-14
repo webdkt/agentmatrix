@@ -164,7 +164,7 @@ class FileOperationSkillMixin:
             return await target._write_unix(file_path, content, mode, allow_overwrite, working_context)
 
     @register_action(
-        description="搜索文件或内容。支持按文件名或文件内容搜索",
+        description="搜索文件或文件里的内容。支持按文件名或文件内容搜索",
         param_infos={
             "pattern": "搜索模式（文件名模式或文本内容）",
             "target": "搜索目标，'content' 表示在文件内容中搜索，'filename' 表示按文件名搜索（默认content）",
@@ -172,7 +172,7 @@ class FileOperationSkillMixin:
             "recursive": "是否递归搜索（默认True）"
         }
     )
-    async def search(
+    async def search_file(
         self,
         pattern: str,
         target: str = "content",
@@ -237,7 +237,7 @@ class FileOperationSkillMixin:
             "use_regex": "是否使用正则表达式（默认false）"
         }
     )
-    async def string_replace(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool = False) -> str:
+    async def replace_string_in_file(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool = False) -> str:
         """
         在文件中查找并替换字符串
 
@@ -274,6 +274,38 @@ class FileOperationSkillMixin:
         # 检查文件是否存在
         if not os.path.exists(abs_path):
             return f"错误：文件不存在: {abs_path}"
+
+        # PDF 文件特殊处理
+        if self._is_pdf_file(file_path):
+            try:
+                # 获取缓存文件路径
+                cache_path = await self._get_pdf_cache_path(abs_path, working_context)
+
+                # 检查缓存是否需要更新
+                need_convert = True
+                if os.path.exists(cache_path):
+                    # 比较修改时间
+                    pdf_mtime = os.path.getmtime(abs_path)
+                    cache_mtime = os.path.getmtime(cache_path)
+                    if cache_mtime >= pdf_mtime:
+                        need_convert = False
+
+                # 如果需要转换
+                if need_convert:
+                    # 转换 PDF 到 Markdown
+                    markdown_text = await self._convert_pdf_to_markdown_text(abs_path)
+
+                    # 保存到缓存文件
+                    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                    with open(cache_path, 'w', encoding='utf-8') as f:
+                        f.write(markdown_text)
+
+                # 读取缓存文件
+                abs_path = cache_path
+                file_path = f"{file_path} (Markdown 缓存)"
+
+            except Exception as e:
+                return f"错误：PDF 处理失败: {e}\n  文件: {abs_path}"
 
         # 读取文件
         try:
@@ -349,7 +381,7 @@ class FileOperationSkillMixin:
     async def _shell_cmd_unix(self, command: str, working_context) -> str:
         """Unix 执行 shell 命令实现"""
         # 白名单检查
-        whitelist = {'ls', 'cat', 'head', 'tail', 'sed', 'grep', 'find', 'echo', 'wc'}
+        whitelist = {'ls', 'cat', 'head', 'tail', 'sed', 'grep', 'find', 'echo', 'wc', 'mkdir'}
         cmd_parts = command.split()
         if not cmd_parts or cmd_parts[0] not in whitelist:
             return f"错误：命令 '{cmd_parts[0] if cmd_parts else ''}' 不在白名单中"
@@ -415,6 +447,38 @@ class FileOperationSkillMixin:
         # 检查文件是否存在
         if not os.path.exists(abs_path):
             return f"错误：文件不存在: {abs_path}"
+
+        # PDF 文件特殊处理
+        if self._is_pdf_file(file_path):
+            try:
+                # 获取缓存文件路径
+                cache_path = await self._get_pdf_cache_path(abs_path, working_context)
+
+                # 检查缓存是否需要更新
+                need_convert = True
+                if os.path.exists(cache_path):
+                    # 比较修改时间
+                    pdf_mtime = os.path.getmtime(abs_path)
+                    cache_mtime = os.path.getmtime(cache_path)
+                    if cache_mtime >= pdf_mtime:
+                        need_convert = False
+
+                # 如果需要转换
+                if need_convert:
+                    # 转换 PDF 到 Markdown
+                    markdown_text = await self._convert_pdf_to_markdown_text(abs_path)
+
+                    # 保存到缓存文件
+                    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                    with open(cache_path, 'w', encoding='utf-8') as f:
+                        f.write(markdown_text)
+
+                # 读取缓存文件
+                abs_path = cache_path
+                file_path = f"{file_path} (Markdown 缓存)"
+
+            except Exception as e:
+                return f"错误：PDF 处理失败: {e}\n  文件: {abs_path}"
 
         # 读取文件（Python 跨平台）
         try:
@@ -485,7 +549,7 @@ class FileOperationSkillMixin:
     async def _shell_cmd_windows(self, command: str, working_context) -> str:
         """Windows 执行 shell 命令实现"""
         # 白名单检查
-        whitelist = {'dir', 'type', 'findstr', 'echo'}
+        whitelist = {'dir', 'type', 'findstr', 'echo', 'mkdir'}
         cmd_parts = command.split()
         if not cmd_parts or cmd_parts[0] not in whitelist:
             return f"错误：命令 '{cmd_parts[0] if cmd_parts else ''}' 不在白名单中"
@@ -727,3 +791,91 @@ class FileOperationSkillMixin:
 
         except Exception as e:
             return f"错误：执行命令失败: {e}\n  命令: {cmd}"
+
+    # ==================== PDF 处理辅助方法 ====================
+
+    def _is_pdf_file(self, file_path: str) -> bool:
+        """
+        检测文件是否为 PDF
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            bool: 是否为 PDF 文件
+        """
+        return file_path.lower().endswith('.pdf')
+
+    async def _get_pdf_cache_path(self, pdf_path: str, working_context) -> str:
+        """
+        获取 PDF 缓存文件的路径
+
+        缓存位置：{current_dir}/temp/.pdf_cache/{pdf_filename}.md
+
+        Args:
+            pdf_path: PDF 文件路径
+            working_context: MicroAgent 的 working_context
+
+        Returns:
+            str: 缓存文件的绝对路径
+        """
+        import os
+
+        # 创建缓存目录：temp/.pdf_cache/
+        cache_dir = os.path.join(working_context.current_dir, "temp", ".pdf_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # 使用 PDF 文件名作为缓存文件名
+        pdf_filename = os.path.basename(pdf_path)
+        cache_filename = f"{pdf_filename}.md"
+
+        return os.path.join(cache_dir, cache_filename)
+
+    async def _convert_pdf_to_markdown_text(self, pdf_path: str) -> str:
+        """
+        将 PDF 文件转换为 Markdown 文本
+
+        移植自 crawler_helpers.py，改为异步版本
+
+        Args:
+            pdf_path: PDF 文件的绝对路径
+
+        Returns:
+            str: Markdown 格式的文本
+
+        Raises:
+            Exception: PDF 转换失败
+        """
+        from marker.converters.pdf import PdfConverter
+        from marker.models import create_model_dict
+        from marker.output import text_from_rendered
+        import fitz
+
+        try:
+            # 获取 PDF 总页数
+            with fitz.open(pdf_path) as doc:
+                total_pages = len(doc)
+
+            # 使用 asyncio.to_thread 避免阻塞
+            def _convert():
+                # 初始化 marker 模型
+                converter = PdfConverter(
+                    artifact_dict=create_model_dict(),
+                )
+
+                # 执行转换
+                rendered = converter(pdf_path)
+
+                # 从渲染结果中提取文本
+                text, _, images = text_from_rendered(rendered)
+
+                return text
+
+            # 在线程池中执行转换（避免阻塞）
+            import asyncio
+            text = await asyncio.to_thread(_convert)
+
+            return text
+
+        except Exception as e:
+            raise Exception(f"PDF 转换失败: {e}")
