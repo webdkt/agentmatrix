@@ -26,7 +26,16 @@ class BaseAgent(AutoLoggerMixin):
     def __init__(self, profile):
         self.name = profile["name"]
         self.description = profile["description"]
-        self.system_prompt = profile["system_prompt"]  # 基本人设，从 YAML 加载
+
+        # 加载 persona 配置（多个 persona，按阶段或功能分类）
+        self.persona_config = profile.get("persona", {"base":""})
+
+        # 加载其他 prompts（如 task_prompt）
+        self.other_prompts = profile.get("prompts", {})
+
+        # Prompt 模板缓存
+        self._prompt_cache = {}
+
         self.profile = profile
         self.instruction_to_caller = profile.get("instruction_to_caller","")
         self.backend_model = profile.get("backend_model", "default_llm")
@@ -63,7 +72,7 @@ class BaseAgent(AutoLoggerMixin):
         # working_context（指向 private_workspace）
         # 注意：此时 private_workspace 可能还是 None（因为没有 user_session_id）
         # 会在 process_email 中更新
-        self._working_context = None
+        self.working_context = None
 
         self.logger.info(f"Agent {self.name} 初始化完成")
 
@@ -76,13 +85,13 @@ class BaseAgent(AutoLoggerMixin):
         from ..core.working_context import WorkingContext
 
         if self.private_workspace:
-            self._working_context = WorkingContext(
+            self.working_context = WorkingContext(
                 base_dir=str(self.private_workspace),
                 current_dir=str(self.private_workspace)
             )
-            self.logger.debug(f"Updated working_context: {self._working_context.base_dir}")
+            self.logger.debug(f"Updated working_context: {self.working_context.base_dir}")
         else:
-            self._working_context = None
+            self.working_context = None
 
     def _get_top_level_actions(self):
         available_actions = None
@@ -98,8 +107,87 @@ class BaseAgent(AutoLoggerMixin):
             self.logger.debug(f"{self.name} will use all actions : {available_actions}")
         return available_actions
 
+    def get_persona(self, persona_name: str = "base", **kwargs) -> str:
+        """
+        获取并渲染 persona
 
-    
+        Args:
+            persona_name: persona 名称（如 "planner", "researcher"）
+            **kwargs: 模板变量（如 round_count=1, blueprint_content="..."）
+
+        Returns:
+            渲染后的 persona 字符串
+
+        Raises:
+            ValueError: persona 不存在
+            KeyError: 缺少必需的变量
+        """
+        template = self.persona_config.get(persona_name.lower(), "")
+
+        # 直接渲染，缺变量会抛出 KeyError
+        return template.format(**kwargs)
+
+    def get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+        """
+        获取并渲染 skill prompt
+
+        Args:
+            skill_name: skill 名称（如 "browser_use"）
+            prompt_name: prompt 名称（如 "task_optimization"）
+            **kwargs: 模板变量
+
+        Returns:
+            渲染后的 prompt 字符串
+
+        Raises:
+            FileNotFoundError: prompt 文件不存在
+            KeyError: 缺少必需的变量
+        """
+        # 从文件加载（带缓存）
+        return self._load_skill_prompt(skill_name, prompt_name, **kwargs)
+
+    def _load_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+        """
+        从文件加载 skill prompt
+
+        文件路径：src/agentmatrix/prompts/skills/{skill_name}/{prompt_name}.txt
+
+        Args:
+            skill_name: skill 名称
+            prompt_name: prompt 名称
+            **kwargs: 模板变量
+
+        Returns:
+            渲染后的 prompt 字符串
+
+        Raises:
+            FileNotFoundError: prompt 文件不存在
+            KeyError: 缺少必需的变量
+        """
+        from pathlib import Path
+
+        # 确定 prompts 目录
+        current_file = Path(__file__)
+        agentmatrix_root = current_file.parent.parent
+        prompts_dir = agentmatrix_root / "prompts" / "skills" / skill_name
+        prompt_file = prompts_dir / f"{prompt_name}.txt"
+
+        # 检查文件存在
+        if not prompt_file.exists():
+            raise FileNotFoundError(f"Prompt file not found: {prompt_file}")
+
+        # 读取模板（带缓存）
+        cache_key = f"{skill_name}/{prompt_name}"
+        if cache_key not in self._prompt_cache:
+            with open(prompt_file, 'r', encoding='utf-8') as f:
+                self._prompt_cache[cache_key] = f.read()
+
+        template = self._prompt_cache[cache_key]
+
+        # 直接渲染，缺变量会抛出 KeyError
+        return template.format(**kwargs)
+
+
 
     @property
     def workspace_root(self):
@@ -309,19 +397,21 @@ class BaseAgent(AutoLoggerMixin):
         # 3. 准备 available actions
         # 如果配置了 top_level_actions，则使用配置 + 默认 actions
         # 否则使用所有 actions（向后兼容）
-        available_actions = self._get_available_actions()
+        available_actions = self._get_top_level_actions()
 
         # 4. 执行 Micro Agent
         # 每次创建新的 MicroAgent（使用最新的 working_context）
         micro_core = MicroAgent(
             parent=self,
-            working_context=self._working_context,  # ← 传入最新的 working_context
+            working_context=self.working_context,  # ← 传入最新的 working_context
             name=self.name
         )
+        persona = self.get_persona()
+        
 
         result = await micro_core.execute(
             run_label= 'Process Email',
-            persona=self.system_prompt,
+            persona=persona,
             task=task,
             available_actions=available_actions,
             max_steps=100,
@@ -395,7 +485,7 @@ class BaseAgent(AutoLoggerMixin):
     @register_action(
         "发邮件给同事，这是和其他人沟通的唯一方式", 
         param_infos={
-            "to": "收件人 (e.g. 'User', 'Planner', 'Coder')",
+            "to": "收件人 (e.g. 'User')",
             "body": "邮件内容",
             "subject": "邮件主题 (可选，如果不填，系统会自动截取 body 的前20个字)"
         }

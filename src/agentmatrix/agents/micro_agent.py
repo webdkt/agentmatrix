@@ -114,6 +114,30 @@ class MicroAgent(AutoLoggerMixin):
         # 日志
         self.logger.info(f"MicroAgent '{self.name}' initialized (parent: {parent.name})")
 
+    def get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+        """
+        获取 skill prompt（从 parent Agent）
+
+        为什么 MicroAgent 也需要这个方法：
+        - Mixin 的 action 运行时注入到 MicroAgent
+        - action 里的 self 是 MicroAgent
+        - 但 skill 的其他方法在 Agent 上
+        - 统一 API，避免混淆
+
+        Args:
+            skill_name: skill 名称
+            prompt_name: prompt 名称
+            **kwargs: 模板变量
+
+        Returns:
+            渲染后的 prompt 字符串
+
+        Raises:
+            AttributeError: parent 没有 get_skill_prompt 方法
+        """
+        # 直接调用 parent 的方法
+        return self.parent.get_skill_prompt(skill_name, prompt_name, **kwargs)
+
     def _find_root_agent(self, parent: Union['BaseAgent', 'MicroAgent']) -> 'BaseAgent':
         """
         递归找到最外层的 BaseAgent
@@ -300,7 +324,10 @@ class MicroAgent(AutoLoggerMixin):
             self.messages = session.get("history", []).copy()
             self._log(logging.INFO, f"Loaded {len(self.messages)} messages from session")
             # 添加新的任务输入
-            self._add_message("user", self._format_task_message())
+            if len(self.messages) >0:
+                self._add_message("user", self._format_task_message())
+            else:
+                self._initialize_conversation()
         elif initial_history:
             # 恢复记忆：复制历史记录
             self.messages = initial_history.copy()
@@ -537,13 +564,42 @@ class MicroAgent(AutoLoggerMixin):
             # 6. 反馈给 Brain（只有普通 actions 才反馈）
             if execution_results:
                 combined_result = "\n".join(execution_results)
-                self._add_message("user", f"[💡Body Feedback]:\n {combined_result}")
-                
+
+                # Hook：子类可重写来增强反馈
+                enhanced_feedback = await self._prepare_feedback_message(
+                    combined_result,
+                    step_count,
+                    start_time
+                )
+
+                self._add_message("user", enhanced_feedback)
+
                 self.result = combined_result #有进展就保存一下，最后的结果，下面如果超时或者超轮次退出，就用这个未完成结果。
 
             # 7. 检查是否需要退出主循环
             if should_break_loop:
                 break
+
+    async def _prepare_feedback_message(
+        self,
+        combined_result: str,
+        step_count: int,
+        start_time: float
+    ) -> str:
+        """
+        准备反馈消息（Hook 方法）
+
+        子类可以重写此方法来增强反馈（如添加时间提示）
+
+        Args:
+            combined_result: 所有 action 的执行结果
+            step_count: 当前步数
+            start_time: 循环开始时间
+
+        Returns:
+            反馈消息字符串
+        """
+        return f"[💡Body Feedback]:\n {combined_result}"
 
     async def _think(self) -> str:
         """调用 Brain 进行思考"""

@@ -63,29 +63,23 @@ class BrowserUseSkillMixin:
 
         Returns:
             str: llm_config.json 的绝对路径
+
+        路径规则：
+        - workspace_root 指向 MyWorld/workspace
+        - llm_config.json 在 MyWorld/agents/llm_config.json
         """
-        # 假设配置文件在标准位置: src/agentmatrix/profiles/llm_config.json
-        try:
-            # 从当前文件路径推断
-            current_file = Path(__file__)
-            profiles_dir = current_file.parent.parent / "profiles"
-            config_path = profiles_dir / "llm_config.json"
+        if not (hasattr(self, 'workspace_root') and self.workspace_root):
+            raise ValueError("workspace_root 未设置，无法确定 llm_config.json 路径")
 
-            if config_path.exists():
-                return str(config_path)
+        # 从 workspace_root 推断：workspace 是 MyWorld 的子目录
+        # 所以 agents 目录是 workspace 的兄弟目录
+        workspace_root_path = Path(self.workspace_root)
+        config_path = workspace_root_path.parent / "agents" / "llm_config.json"
 
-            # 备选：从 workspace_root 推断
-            if hasattr(self, 'workspace_root') and self.workspace_root:
-                config_path = Path(self.workspace_root) / "src" / "agentmatrix" / "profiles" / "llm_config.json"
-                if config_path.exists():
-                    return str(config_path)
+        if not config_path.exists():
+            raise FileNotFoundError(f"llm_config.json 不存在: {config_path}")
 
-            # 默认路径
-            return str(profiles_dir / "llm_config.json")
-
-        except Exception as e:
-            self.logger.warning(f"无法确定 llm_config.json 路径: {e}，使用默认路径")
-            return "src/agentmatrix/profiles/llm_config.json"
+        return str(config_path)
 
     def _create_llm_client_for_browser_use(self, config_name: str):
         """
