@@ -190,6 +190,137 @@ class FileSkillMixin:
             return f"Error reading shared file: {str(e)}"
 
     @register_action(
+        "字符串替换：在文件中查找并替换字符串。",
+        param_infos={
+            "file_path": "文件路径",
+            "old_pattern": "要替换的旧字符串（支持正则表达式）",
+            "new_string": "新字符串",
+            "use_regex": "是否使用正则表达式（默认false）"
+        }
+    )
+    async def string_replace(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool = False) -> str:
+        """
+        在文件中查找并替换字符串。
+
+        支持两种模式：
+        1. 普通替换：使用字符串的 replace() 方法
+        2. 正则替换：使用 re.sub() 方法
+
+        Args:
+            file_path: 文件路径（可以是相对路径）
+            old_pattern: 要替换的旧字符串
+            new_string: 新字符串
+            use_regex: 是否使用正则表达式（默认false）
+
+        Returns:
+            操作结果描述
+        """
+        try:
+            import re
+
+            # 读取文件内容
+            content = await self.read_shared_file(file_path)
+
+            if use_regex:
+                # 正则替换
+                new_content = re.sub(old_pattern, new_string, content)
+            else:
+                # 普通替换
+                new_content = content.replace(old_pattern, new_string)
+
+            # 写回文件
+            result = await self.write_shared_file(
+                file_path,
+                new_content,
+                mode="overwrite",
+                allow_overwrite=True
+            )
+
+            old_preview = old_pattern[:20] + "..." if len(old_pattern) > 20 else old_pattern
+            new_preview = new_string[:20] + "..." if len(new_string) > 20 else new_string
+
+            return f"""✅ 已替换 '{file_path}'
+
+旧字符串：{old_preview}
+新字符串：{new_preview}
+
+使用正则：{use_regex}"""
+
+        except Exception as e:
+            return f"❌ 替换失败：{str(e)}"
+
+    @register_action(
+        "创建文件：在共享工作区创建新文件。",
+        param_infos={
+            "relative_path": "文件相对路径",
+            "initial_content": "（可选）初始内容"
+        }
+    )
+    async def create_file(self, relative_path: str, initial_content: str = "") -> str:
+        """
+        在共享工作区创建新文件。
+
+        Args:
+            relative_path: 文件相对路径
+            initial_content: 初始内容（可选，默认为空）
+
+        Returns:
+            操作结果描述
+        """
+        try:
+            workspace = self.current_workspace
+            file_path = self._resolve_path(workspace, relative_path)
+
+            # 自动创建父目录
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 如果文件不存在，创建新文件
+            if not file_path.exists():
+                if initial_content:
+                    file_path.write_text(initial_content, encoding='utf-8')
+                    return f"""✅ 已创建文件：{relative_path}
+
+内容长度：{len(initial_content)} 字符"""
+                else:
+                    file_path.touch()
+                    return f"✅ 已创建空文件：{relative_path}"
+            else:
+                return f"⚠️ 文件已存在：{relative_path}"
+
+        except Exception as e:
+            return f"❌ 创建文件失败：{str(e)}"
+
+    @register_action(
+        "追加内容：在文件末尾追加内容。",
+        param_infos={
+            "file_path": "文件路径",
+            "content": "要追加的内容"
+        }
+    )
+    async def append_to_file(self, file_path: str, content: str) -> str:
+        """
+        在文件末尾追加内容。
+
+        Args:
+            file_path: 文件路径（可以是相对路径）
+            content: 要追加的内容
+
+        Returns:
+            操作结果描述
+        """
+        try:
+            # 使用 write 的 append 模式
+            result = await self.write_shared_file(
+                file_path,
+                content,
+                mode="append",
+                allow_overwrite=True
+            )
+            return result
+        except Exception as e:
+            return f"❌ 追加失败：{str(e)}"
+
+    @register_action(
         "写入内容到共享工作区的文件。",
         param_infos={
             "relative_path": "文件相对路径",

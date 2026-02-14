@@ -109,6 +109,7 @@ class MicroAgent(AutoLoggerMixin):
         self.default_max_steps = default_max_steps
         self.messages: List[Dict] = []  # 对话历史
         self.run_label: Optional[str] = None  # 执行标识
+        self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
 
         # 日志
         self.logger.info(f"MicroAgent '{self.name}' initialized (parent: {parent.name})")
@@ -205,7 +206,8 @@ class MicroAgent(AutoLoggerMixin):
         yellow_pages: Optional[str] = None,
         session: Optional[Dict] = None,
         session_manager = None,
-        simple_mode: bool = False
+        simple_mode: bool = False,
+        exit_actions = [] # 如果运行哪些动作就退出主循环（all_finished 一定会退出）
 
     ) -> Any:
         """
@@ -309,20 +311,19 @@ class MicroAgent(AutoLoggerMixin):
             # 新对话：初始化
             self.messages = []
             self._initialize_conversation()
-
-        self._log(logging.DEBUG, f"Starting execution with {len(self.messages)} messages")
+        self._log(logging.INFO, f"Start to '{self.run_label}' with {len(self.messages)} initial messages")
         self._log(logging.DEBUG, f"Available actions: {available_actions}"  )
         self._log(logging.DEBUG, f"Messages:\n{self._format_messages_for_debug(self.messages)}")
 
         try:
             # 执行 think-negotiate-act 循环
-            await self._run_loop()
+            await self._run_loop(exit_actions)
 
             # 计算执行时间
             duration = time.time() - start_time
 
             # ========== 记录结束 ==========
-            self._log(logging.INFO, f"MicroAgent '{self.run_label}' completed in {duration:.2f}s ({self.step_count} steps)")
+            self._log(logging.INFO, f"'{self.run_label}' completed in {duration:.2f}s ({self.step_count} steps)")
             self._log(logging.INFO, f"{'='*60}")
 
             # 返回结果
@@ -330,7 +331,7 @@ class MicroAgent(AutoLoggerMixin):
 
         except Exception as e:
             duration = time.time() - start_time
-            self._log(logging.ERROR, f"MicroAgent '{self.run_label}' failed after {duration:.2f}s")
+            self._log(logging.ERROR, f"'{self.run_label}' failed after {duration:.2f}s")
             self._log(logging.ERROR, f"Error: {str(e)}")
             return {"error": str(e)}
 
@@ -440,10 +441,11 @@ class MicroAgent(AutoLoggerMixin):
 
         return "\n".join(lines)
 
-    async def _run_loop(self):
+    async def _run_loop(self, exit_actions=[]):
         """执行主循环 - 支持批量 action 执行和时间限制"""
         start_time = time.time()
-
+        if isinstance(exit_actions, str):
+            exit_actions = [exit_actions]
         # 确定最大步数（可能为 None，表示只受时间限制）
         max_steps = self.max_steps
         step_count = 0
@@ -512,9 +514,9 @@ class MicroAgent(AutoLoggerMixin):
                     # 不记录 execution_results，直接退出
                     break  # ← 退出 for action_names 循环
 
-                elif action_name == "rest_n_wait":
+                elif action_name in exit_actions:
                     # rest_n_wait 不需要执行，直接等待
-                    self.return_action_name = "rest_n_wait"
+                    self.return_action_name = action_name
                     should_break_loop = True
                     break  # ← 退出 for action_names 循环
 
@@ -802,7 +804,7 @@ write, send_mail, write
             async def brain_clarification(question: str) -> str:
                 temp_msgs = self.messages.copy()
                 temp_msgs.append({"role": "assistant", "content": thought})
-                temp_msgs.append({"role": "user", "content": f"[PARAMETER CLARIFICATION] {question}"})
+                temp_msgs.append({"role": "user", "content": f"[❓NEED CLARIFICATION] {question}"})
                 response = await self.brain.think(temp_msgs)
                 return response['reply']
 
@@ -822,7 +824,15 @@ write, send_mail, write
 
         # 4. 执行方法（使用 bound_method）
         self._log(logging.DEBUG, f"[{self.run_label}] Executing {action_name} (task {action_index}/{len(action_list)})")
-        result = await bound_method(**params)
+        result=""
+        try:
+            result = await bound_method(**params)
+        except Exception as e:
+            result = f"Error executing {action_name}: {str(e)}"
+        finally:
+
+        # 记录最后执行的 action 名字
+            self.last_action_name = action_name
 
         return result
 
