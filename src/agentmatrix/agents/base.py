@@ -65,12 +65,14 @@ class BaseAgent(AutoLoggerMixin):
         # Runtime 引用 (由 AgentMatrix 注入)
         self.runtime = None
 
-        self.actions_map = {} # name -> method
-        self.actions_meta = {} # name -> metadata (给小脑看)
+        # ✨ 新架构：使用 action_registry 代替 actions_map
+        self.action_registry = {}  # name -> bound_method (新架构)
+        self.actions_meta = {}  # name -> metadata (给小脑看)
         self.current_session = None
         self.current_user_session_id = None
 
-        self._scan_methods()
+        # 扫描 BaseAgent 自身的 actions（不包含 skills）
+        self._scan_all_actions()
 
         # working_context（指向 private_workspace）
         # 注意：此时 private_workspace 可能还是 None（因为没有 user_session_id）
@@ -105,11 +107,11 @@ class BaseAgent(AutoLoggerMixin):
             # 合并配置的 actions 和默认 actions
             available_actions = list(set(self.top_level_actions + self.DEFAULT_TOP_LEVEL_ACTIONS))
             # 过滤掉实际不存在的 actions
-            available_actions = [a for a in available_actions if a in self.actions_map]
+            available_actions = [a for a in available_actions if a in self.action_registry]
             self.logger.info(f"{self.name} will use configured top_level_actions: {available_actions}")
         else:
             # 向后兼容：使用所有 actions
-            available_actions = list(self.actions_map.keys())
+            available_actions = list(self.action_registry.keys())
             self.logger.debug(f"{self.name} will use all actions : {available_actions}")
         return available_actions
 
@@ -210,22 +212,32 @@ class BaseAgent(AutoLoggerMixin):
 
         
 
-    def _scan_methods(self):
-        """扫描并生成元数据"""
-        for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
-            if getattr(method, "_is_action", False):
+    def _scan_all_actions(self):
+        """
+        扫描所有 actions（新架构）
 
-                # 1. 提取基础信息
-                desc = method._action_desc
-                param_infos = method._action_param_infos
+        扫描自身及其父类的所有 @register_action 方法，
+        并存储到 action_registry（已绑定的方法）。
+        """
+        import inspect
 
-                # 2. 存储未绑定的函数（让 MicroAgent 可以重新绑定）
-                self.actions_map[name] = method.__func__
-                self.actions_meta[name] = {
-                    "action": name,
-                    "description": desc,
-                    "params": param_infos
-                }
+        for cls in self.__class__.__mro__:
+            for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+                if hasattr(method, '_is_action') and method._is_action:
+                    # 只存储第一次遇到的（避免重复）
+                    if name not in self.action_registry:
+                        # 存储已绑定的方法（直接可调用）
+                        self.action_registry[name] = getattr(self, name)
+
+                        # 提取元数据
+                        desc = method._action_desc
+                        param_infos = method._action_param_infos
+
+                        self.actions_meta[name] = {
+                            "action": name,
+                            "description": desc,
+                            "params": param_infos
+                        }
 
     @property
     def private_workspace(self) -> Path:
