@@ -5,12 +5,15 @@ Browser-Use Skill - 基于 browser-use 的浏览器自动化技能
 
 配置要求:
 - 需要在 llm_config.json 中配置 browser-use-llm（优先）或 deepseek-chat（回退）
-- 推荐使用支持结构化输出的模型（如 glm-4.6）
+- 推荐使用支持结构化输出的模型（如 OpenAI GPT-4o）
 
-Thinking 模式控制:
-- GLM thinking 模型（如 glm-4.6v）会自动添加 thinking={"type": "disabled"} 参数
-- 避免输出 <thinking> 标签导致 JSON 解析错误
-- 参考文档: https://docs.bigmodel.cn/cn/guide/capabilities/thinking
+国产模型兼容性:
+- 自动检测 GLM、Mimo、DeepSeek 等国产模型
+- 针对这些模型启用兼容性模式：
+  * dont_force_structured_output=True - 禁用强制结构化输出
+  * remove_min_items_from_schema=True - 移除 JSON schema 中的 minItems
+  * remove_defaults_from_schema=True - 移除 JSON schema 中的默认值
+- 对于 Mimo 等需要 extra_body 传递 thinking 参数的模型，会自动使用包装器
 """
 import asyncio
 import os
@@ -18,6 +21,7 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 from ..core.action import register_action
 from ..skills.parser_utils import simple_section_parser
+from ..core.exceptions import LLMServiceUnavailableError
 from browser_use import Agent
 
 class BrowserUseSkillMixin:
@@ -28,32 +32,48 @@ class BrowserUseSkillMixin:
     - 使用 LLM 驱动浏览器决策
     - 支持会话持久化（Chrome profile）
     - 自动处理导航、点击、输入等操作
+    - **自动兼容国产模型**（GLM、Mimo、DeepSeek 等）
 
     配置要求:
     - 在 llm_config.json 中配置 browser-use-llm（优先）
     - 如果没有配置，回退到 deepseek-chat
-    - 推荐使用支持结构化输出的模型（如 glm-4.6）
+
+    国产模型兼容性:
+    - 自动检测模型厂商（从 model_name 或 URL）
+    - 启用 browser-use 的 JSON schema 兼容性参数
+    - 针对 thinking 模型自动禁用 thinking 模式
     """
 
-    # 厂商及其 thinking 模型列表
-    # 用于自动检测并禁用 thinking 模式，避免 JSON 解析错误
-    THINKING_MODELS = {
-        "zhipu": [  # 智谱 AI
-            "glm-4.6v",
-            "glm-4.7",
-            "glm-4.6",
-            "glm-4.7-FlashX",
-        ],
-        "deepseek": [  # DeepSeek
-            "deepseek-reasoner",
-        ],
-        "xiaomi":["mimo-v2-flash"]
+    # 国产模型配置
+    # 这些模型对结构化输出和 JSON schema 支持有限，需要特殊处理
+    CHINESE_LLM_CONFIG = {
+        # Zhipu AI (智谱)
+        "glm": {
+            "dont_force_structured_output": True,
+            "remove_min_items_from_schema": True,
+            "remove_defaults_from_schema": True,
+            "use_extra_body": False,  # GLM 使用 thinking 参数直接传递
+        },
+        # Xiaomi Mimo
+        "mimo": {
+            "dont_force_structured_output": True,
+            "remove_min_items_from_schema": True,
+            "remove_defaults_from_schema": True,
+            "use_extra_body": True,   # Mimo 使用 extra_body 传递 thinking 参数
+        },
+        # DeepSeek (如果需要)
+        "deepseek": {
+            "dont_force_structured_output": True,
+            "remove_min_items_from_schema": True,
+            "remove_defaults_from_schema": True,
+            "use_extra_body": False,
+        },
     }
 
-    # 厂商识别规则
+    # 厂商识别规则（从模型名称或 URL 识别）
     VENDOR_PATTERNS = {
-        "zhipu": ["glm", "bigmodel"],
-        "xiaomi": ["xiaomi", "mimo"],
+        "glm": ["glm", "bigmodel", "zhipu"],
+        "mimo": ["xiaomi", "mimo"],
         "deepseek": ["deepseek"],
     }
 
@@ -107,11 +127,10 @@ class BrowserUseSkillMixin:
             llm_client: AgentMatrix 的 LLMClient 实例
 
         Returns:
-            browser-use 的 LLM 实例（ChatOpenAI 或 ChatDeepSeek，支持供应商特定参数）
+            browser-use 的 LLM 实例（使用 ChatOpenAI，支持国产模型兼容性参数）
         """
         try:
             from browser_use.llm.openai.chat import ChatOpenAI as BUChatOpenAI
-            from browser_use.llm import ChatDeepSeek
         except ImportError:
             raise ImportError(
                 "使用 BrowserUseSkill 需要安装 browser-use: "
@@ -130,7 +149,7 @@ class BrowserUseSkillMixin:
         if url and url.endswith("/chat/completions"):
             url = url[:-len("/chat/completions")]
 
-        # 检测厂商和是否为 thinking 模型
+        # 检测厂商（从模型名称或 URL）
         model_lower = model_name.lower()
         url_lower = url.lower() if url else ""
 
@@ -140,68 +159,69 @@ class BrowserUseSkillMixin:
                 vendor = v
                 break
 
-        # 根据厂商创建对应的 LLM 实例
-        if vendor == "deepseek":
-            # DeepSeek 使用 ChatDeepSeek 类
-            self.logger.info(f"使用 ChatDeepSeek 类")
-            base_llm = ChatDeepSeek(
-                model=model_name,
-                api_key=api_key,
-                base_url=url,
-                temperature=0.1,
-            )
-        else:
-            # GLM 和其他使用 ChatOpenAI 类
-            self.logger.info(f"使用 ChatOpenAI 类")
-            base_llm = BUChatOpenAI(
-                model=model_name,
-                api_key=api_key,
-                base_url=url,
-                temperature=0.1,
-                max_completion_tokens=4096,
+        # 准备 ChatOpenAI 的基础参数
+        llm_kwargs = {
+            "model": model_name,
+            "api_key": api_key,
+            "base_url": url,
+            "temperature": 0.1,
+            "max_completion_tokens": 4096,
+        }
+
+        # 如果是国产模型，添加兼容性参数
+        if vendor and vendor in self.CHINESE_LLM_CONFIG:
+            config = self.CHINESE_LLM_CONFIG[vendor]
+            llm_kwargs.update({
+                "dont_force_structured_output": config["dont_force_structured_output"],
+                "remove_min_items_from_schema": config["remove_min_items_from_schema"],
+                "remove_defaults_from_schema": config["remove_defaults_from_schema"],
+            })
+
+            self.logger.info(
+                f"检测到国产模型 ({vendor})，启用兼容性模式："
+                f"dont_force_structured_output={config['dont_force_structured_output']}, "
+                f"remove_min_items_from_schema={config['remove_min_items_from_schema']}, "
+                f"remove_defaults_from_schema={config['remove_defaults_from_schema']}"
             )
 
-        # 如果是 thinking 模型，创建对应的 wrapper
-        if vendor and model_name in self.THINKING_MODELS.get(vendor, []):
-            self.logger.info(
-                f"检测到 {vendor} 的 thinking 模型 {model_name}，"
-                f"创建自定义 wrapper 以禁用 thinking 模式"
-            )
-            # 根据厂商创建对应的 wrapper
-            if vendor == "zhipu":
-                llm = self._create_glm_chat_wrapper(base_llm)
-            elif vendor == "mimo":
-                llm = self._create_mimo_chat_wrapper(base_llm)
-            elif vendor == "deepseek":
-                # DeepSeek thinking 模型的处理
-                # TODO: 实现 DeepSeek thinking 模型的 wrapper
-                self.logger.warning(
-                    f"DeepSeek thinking 模型 {model_name} 暂未实现 wrapper，"
-                    f"建议使用非 thinking 模型（如 deepseek-chat）"
+            # 如果需要使用 extra_body 传递 thinking 参数（Mimo）
+            if config.get("use_extra_body", False):
+                self.logger.info(f"使用 ChatOpenAI with extra_body for {vendor}")
+                llm = self._create_llm_with_extra_body(
+                    BUChatOpenAI, llm_kwargs, vendor
                 )
-                llm = base_llm
             else:
-                llm = base_llm
+                # 直接使用 ChatOpenAI
+                llm = BUChatOpenAI(**llm_kwargs)
         else:
-            llm = base_llm
+            # 非国产模型，使用默认配置
+            self.logger.info(f"使用标准 ChatOpenAI 配置")
+            llm = BUChatOpenAI(**llm_kwargs)
 
         return llm
 
-    def _create_glm_chat_wrapper(self, base_llm):
+    def _create_llm_with_extra_body(self, llm_class, llm_kwargs, vendor):
         """
-        创建支持 GLM thinking 参数的自定义 ChatOpenAI wrapper
+        创建支持 extra_body 参数的 LLM 实例
 
-        这个 wrapper 会拦截 API 调用，并为 GLM thinking 模型添加 thinking={"type": "disabled"} 参数
+        用于像 Mimo 这样需要通过 extra_body 传递 thinking 参数的模型
+
+        Args:
+            llm_class: ChatOpenAI 类
+            llm_kwargs: ChatOpenAI 的参数
+            vendor: 厂商名称（用于日志）
+
+        Returns:
+            包装后的 LLM 实例
         """
         from typing import Any, TypeVar
         from browser_use.llm.messages import BaseMessage
-        from browser_use.llm.views import ChatInvokeCompletion
         from functools import wraps
 
         T = TypeVar('T')
 
-        class GLMChatOpenAIWrapper:
-            """Wrapper for GLM models that disables thinking mode"""
+        class LLMWithExtraBodyWrapper:
+            """Wrapper for models that need extra_body parameter"""
 
             def __init__(self, base_llm):
                 self._base_llm = base_llm
@@ -212,7 +232,7 @@ class BrowserUseSkillMixin:
 
             async def ainvoke(self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any):
                 """
-                调用模型，自动添加 thinking={"type": "disabled"} 参数
+                调用模型，自动添加 extra_body 参数
 
                 使用 monkey patching 技术临时修改 openai client 的 completions.create 方法
                 """
@@ -220,62 +240,7 @@ class BrowserUseSkillMixin:
 
                 @wraps(original_create)
                 async def patched_create(*args, **create_kwargs):
-                    # 添加 GLM 特定的 thinking 参数
-                    # 参考: https://docs.bigmodel.cn/cn/guide/capabilities/thinking
-                    create_kwargs = create_kwargs.copy()
-                    create_kwargs['thinking'] = {"type": "disabled"}
-                    return await original_create(*args, **create_kwargs)
-
-                # 临时替换 create 方法
-                self._base_llm.get_client().chat.completions.create = patched_create
-
-                try:
-                    # 调用原始的 ainvoke
-                    result = await self._base_llm.ainvoke(messages, output_format, **kwargs)
-                    return result
-                finally:
-                    # 恢复原始 create 方法
-                    self._base_llm.get_client().chat.completions.create = original_create
-
-        return GLMChatOpenAIWrapper(base_llm)
-
-    def _create_mimo_chat_wrapper(self, base_llm):
-        """
-        创建支持 Mimo thinking 参数的自定义 ChatOpenAI wrapper
-
-        这个 wrapper 会拦截 API 调用，并为 Mimo thinking 模型添加 extra_body={
-        "thinking": {"type": "disabled"}
-    }参数
-        """
-        from typing import Any, TypeVar
-        from browser_use.llm.messages import BaseMessage
-        from browser_use.llm.views import ChatInvokeCompletion
-        from functools import wraps
-
-        T = TypeVar('T')
-
-        class MimoChatOpenAIWrapper:
-            """Wrapper for GLM models that disables thinking mode"""
-
-            def __init__(self, base_llm):
-                self._base_llm = base_llm
-
-            def __getattr__(self, name):
-                """将所有其他属性访问委托给 base_llm"""
-                return getattr(self._base_llm, name)
-
-            async def ainvoke(self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any):
-                """
-                调用模型，自动添加 thinking={"type": "disabled"} 参数
-
-                使用 monkey patching 技术临时修改 openai client 的 completions.create 方法
-                """
-                original_create = self._base_llm.get_client().chat.completions.create
-
-                @wraps(original_create)
-                async def patched_create(*args, **create_kwargs):
-                    # 添加 GLM 特定的 thinking 参数
-                    # 参考: https://docs.bigmodel.cn/cn/guide/capabilities/thinking
+                    # 添加 extra_body 参数
                     create_kwargs = create_kwargs.copy()
                     create_kwargs['extra_body'] = {"thinking": {"type": "disabled"}}
                     return await original_create(*args, **create_kwargs)
@@ -291,7 +256,11 @@ class BrowserUseSkillMixin:
                     # 恢复原始 create 方法
                     self._base_llm.get_client().chat.completions.create = original_create
 
-        return MimoChatOpenAIWrapper(base_llm)
+        # 创建基础 LLM 实例
+        base_llm = llm_class(**llm_kwargs)
+
+        # 返回包装后的实例
+        return LLMWithExtraBodyWrapper(base_llm)
 
     def _get_browser_use_llm(self):
         """
@@ -337,7 +306,75 @@ class BrowserUseSkillMixin:
         self._browser_use_llm = self._create_browser_use_llm_from_client(llm_client)
 
         return self._browser_use_llm
-    
+
+    async def _check_browser_llm_available(self) -> bool:
+        """
+        检查 browser-use-llm 服务是否可用
+
+        Returns:
+            bool: 服务是否可用
+        """
+        try:
+            # 创建一个临时的 LLMClient 进行测试
+            config_name = "browser-use-llm"
+
+            # 尝试创建 browser-use-llm 的 client
+            try:
+                llm_client = self._create_llm_client_for_browser_use(config_name)
+            except Exception:
+                # 如果 browser-use-llm 不存在，尝试 deepseek-chat
+                config_name = "deepseek-chat"
+                llm_client = self._create_llm_client_for_browser_use(config_name)
+
+            # 发送一个最小的测试请求
+            test_messages = [{"role": "user", "content": "hi"}]
+
+            # 设置短超时（10秒）
+            response = await asyncio.wait_for(
+                llm_client.think(messages=test_messages),
+                timeout=10.0
+            )
+
+            # 检查响应
+            if response and 'reply' in response:
+                self.logger.debug(f"✓ browser-use-llm ({config_name}) is available")
+                return True
+            else:
+                self.logger.warning(f"✗ browser-use-llm ({config_name}) returned invalid response")
+                return False
+
+        except asyncio.TimeoutError:
+            self.logger.warning(f"✗ browser-use-llm ({config_name}) timeout")
+            return False
+        except LLMServiceUnavailableError:
+            self.logger.warning(f"✗ browser-use-llm ({config_name}) service unavailable")
+            return False
+        except Exception as e:
+            self.logger.warning(f"✗ browser-use-llm check failed: {str(e)}")
+            return False
+
+    async def _wait_for_browser_llm_recovery(self):
+        """等待 browser-use-llm 服务恢复（轮询方式）"""
+        check_interval = 5  # 每 5 秒检查一次
+        waited_seconds = 0
+
+        self.logger.info("⏳ Waiting for browser-use-llm recovery...")
+
+        while True:
+            await asyncio.sleep(check_interval)
+            waited_seconds += check_interval
+
+            # 检查是否恢复
+            if await self._check_browser_llm_available():
+                self.logger.info(f"✅ browser-use-llm recovered after {waited_seconds}s")
+                break
+
+            # 每 30 秒打印一次日志
+            if waited_seconds % 30 == 0:
+                self.logger.warning(
+                    f"⏳ Still waiting for browser-use-llm... ({waited_seconds}s elapsed)"
+                )
+
     async def _get_browser(self, headless: bool = False):
         """
         获取或创建 browser-use 的 Browser 实例
@@ -494,7 +531,36 @@ class BrowserUseSkillMixin:
         Returns:
             Agent: 新创建的 Agent 实例
         """
-        llm = self._get_browser_use_llm()
+        # 添加重试机制处理 browser-use-llm 服务异常
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                llm = self._get_browser_use_llm()
+                break  # 成功获取 LLM，退出循环
+            except LLMServiceUnavailableError as e:
+                retry_count += 1
+                self.logger.warning(
+                    f"⚠️  browser-use-llm 服务错误 (创建 Agent，尝试 {retry_count}/{max_retries}): {str(e)}"
+                )
+
+                if retry_count >= max_retries:
+                    raise ValueError(
+                        f"browser-use-llm 服务不可用，无法创建 Agent。已重试 {max_retries} 次。"
+                    )
+
+                # 等待服务恢复
+                await asyncio.sleep(3)
+                if await self._check_browser_llm_available():
+                    self.logger.info("✅ browser-use-llm 已恢复，继续创建 Agent...")
+                    continue
+
+                self.logger.warning("🔄 等待 browser-use-llm 恢复...")
+                await self._wait_for_browser_llm_recovery()
+                self.logger.info("✅ browser-use-llm 已恢复，继续创建 Agent...")
+                continue
+
         browser = await self._get_browser(headless=headless)
 
         # 创建 Agent，使用默认参数
@@ -573,7 +639,7 @@ class BrowserUseSkillMixin:
     @register_action(
         description="""操作浏览器，简单描述对浏览器做什么，例如访问某个网站，查看当前页面内容，点击某个按钮等等针对浏览器的操作,可以一次一个动作，也可以一次描述多个动作。""",
         param_infos={
-            "task": "自然语言任务描述",
+            "task": "对浏览器器的具体操作和要求，包括访问哪里，要获取什么数据等等，注意区别用户描述里哪些是具体针对浏览器的，哪些是做这些事情的最终目的。这个参数应该只包含针对浏览器的操作描述，不需要包含更高级最终意图的描述。",
             "headless": "是否无头模式（默认False，显示浏览器窗口）"
         }
     )
@@ -590,7 +656,7 @@ class BrowserUseSkillMixin:
             llm = self._get_browser_use_llm()
 
         
-
+        '''
         # ========== 使用 think_with_retry 优化任务描述 ==========
         self.logger.info("开始优化任务描述...")
 
@@ -622,6 +688,7 @@ Task 优化示例：
 **重要**
 避免不必要的优化，如果用户的任务很简洁、明确，且已经基本符合 browser-use 的最佳实践，就不需要修改。
 优化的目的是让任务更适合 browser-use 执行，而不是为了优化而优化。
+并且要求browser-use尽快返回结果，不要执行很久很长。
 
 请生成优化后的 task 描述，放在 [OPTIMIZED_TASK] section 中，如果无需优化也在[OTIMIZED_TASK]下写下原始输入。
 
@@ -654,63 +721,104 @@ Task 优化示例：
             # 如果优化失败，回退到原始任务
             self.logger.warning(f"⚠ 任务描述优化失败: {e}，使用原始任务")
             full_task = task
+        '''
 
         # 构建完整任务描述（包含 URL）
-        full_task = f"{full_task}"
+        full_task = task + "\n用完的tab尽早关闭。不要做太多重复尝试，尽早返回结果" #f"{full_task}"
+
 
         self.logger.info(f"BrowserUseSkill 开始任务")
 
         self.logger.info(f"  任务: {task}")
 
-        try:
-            # 获取或创建 Agent（会自动复用）
-            if hasattr(self, 'root_agent'):
-                agent = await self.root_agent._get_or_create_agent(full_task, headless)
-            else:
-                agent = await self._get_or_create_agent(full_task, headless)
+        # ========== 添加重试循环处理 browser-use-llm 服务异常 ==========
+        max_retries = 3  # 最多重试 3 次
+        retry_count = 0
 
-            # 执行任务
-            history = await agent.run()
-
-            # 获取最终结果
-            final_result = history.final_result()
-
-            # 清理结果中的 Simple judge note（经常不准确）
-            import re
-            final_result = re.sub(r'\[Simple judge:.*?\]', '', final_result, flags=re.DOTALL).strip()
-
-            # 获取当前浏览器停留的 URL
+        while retry_count < max_retries:
             try:
-                current_url = history.urls()[-1] if history.urls() else None
-            except Exception:
-                current_url = None
-
-            # 🆕 保存最后访问的 URL（供 WebSearcherV2 使用）
-            if current_url:
-                # 通过 root_agent 保存，确保 WebSearcherV2 能读取到
+                # 获取或创建 Agent（会自动复用）
                 if hasattr(self, 'root_agent'):
-                    self.root_agent._last_browser_url = current_url
+                    agent = await self.root_agent._get_or_create_agent(full_task, headless)
                 else:
-                    self._last_browser_url = current_url
-                self.logger.debug(f"浏览器当前 URL: {current_url}")
+                    agent = await self._get_or_create_agent(full_task, headless)
 
-            # 构建返回结果（使用显示用的 URL）
-            current_url_display = current_url if current_url else "未知"
+                # 执行任务（关键调用）
+                history = await agent.run()
 
-            # 构建返回结果
-            result_parts = []
-            if final_result:
-                result_parts.append(f"【最终结果】\n{final_result}")
+                # 成功执行，退出重试循环
+                break
+
+            except LLMServiceUnavailableError as e:
+                # browser-use-llm 服务异常
+                retry_count += 1
+                self.logger.warning(
+                    f"⚠️  browser-use-llm 服务错误 (尝试 {retry_count}/{max_retries}): {str(e)}"
+                )
+
+                # 如果已经重试多次，放弃
+                if retry_count >= max_retries:
+                    error_msg = f"browser-use-llm 服务不可用，已重试 {max_retries} 次仍失败"
+                    self.logger.error(error_msg)
+                    return f"任务执行失败: {error_msg}"
+
+                # 等待一小段时间让服务稳定（3秒）
+                await asyncio.sleep(3)
+
+                # 检查服务状态
+                if await self._check_browser_llm_available():
+                    # 已恢复，重试
+                    self.logger.info("✅ browser-use-llm 已恢复，重试...")
+                    continue
+
+                # 仍不可用，进入等待模式
+                self.logger.warning("🔄 browser-use-llm 不可用，进入等待模式...")
+                await self._wait_for_browser_llm_recovery()
+
+                # 恢复后重试
+                self.logger.info("✅ browser-use-llm 已恢复，重新执行任务")
+                continue
+
+            except Exception as e:
+                # 其他异常，直接返回错误
+                error_msg = f"未知错误: {type(e).__name__}: {e}"
+                self.logger.error(error_msg, exc_info=True)
+                return f"任务执行失败: {error_msg}"
+
+        # ========== 执行成功后的处理 ==========
+        # 获取最终结果
+        final_result = history.final_result()
+
+        # 清理结果中的 Simple judge note（经常不准确）
+        import re
+        final_result = re.sub(r'\[Simple judge:.*?\]', '', final_result, flags=re.DOTALL).strip()
+
+        # 获取当前浏览器停留的 URL
+        try:
+            current_url = history.urls()[-1] if history.urls() else None
+        except Exception:
+            current_url = None
+
+        # 🆕 保存最后访问的 URL（供 WebSearcherV2 使用）
+        if current_url:
+            # 通过 root_agent 保存，确保 WebSearcherV2 能读取到
+            if hasattr(self, 'root_agent'):
+                self.root_agent._last_browser_url = current_url
             else:
-                result_parts.append("任务已完成，未返回结果")
+                self._last_browser_url = current_url
+            self.logger.debug(f"浏览器当前 URL: {current_url}")
 
-            result_parts.append(f"\n【当前页面】\n{current_url_display}")
+        # 构建返回结果（使用显示用的 URL）
+        current_url_display = current_url if current_url else "未知"
 
-            self.logger.info("BrowserUseSkill 任务完成")
-            return "\n".join(result_parts)
+        # 构建返回结果
+        result_parts = []
+        if final_result:
+            result_parts.append(f"【最终结果】\n{final_result}")
+        else:
+            result_parts.append("任务已完成，未返回结果")
 
-        
-        except Exception as e:
-            error_msg = f"未知错误: {type(e).__name__}: {e}"
-            self.logger.error(error_msg, exc_info=True)
-            return f"任务执行失败: {error_msg}"
+        result_parts.append(f"\n【当前页面】\n{current_url_display}")
+
+        self.logger.info("BrowserUseSkill 任务完成")
+        return "\n".join(result_parts)

@@ -1,26 +1,36 @@
 from enum import Enum
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Callable
 import json
 
+
+class SkillType(Enum):
+    """Skill 类型"""
+    PYTHON_METHOD = "python_method"  # Python 可执行方法
+    MD_DOCUMENT = "md_document"      # skills.md 定义的文档技能（TODO）
 
 
 @dataclass
 class ActionMetadata:
     name: str
-    description: str    
+    description: str
     # 存储生成的 JSON Schema，给 SLM 看
-    json_schema: Dict[str, Any] 
+    json_schema: Dict[str, Any]
+
+    # 🆕 新架构字段
+    skill_type: SkillType = SkillType.PYTHON_METHOD
+    implementation: Optional[Callable] = None  # Python 实现（仅 PYTHON_METHOD） 
 
 def register_action(
-    description: str, 
-    param_infos: Dict[str, str] = None 
+    description: str,
+    param_infos: Dict[str, str] = None,
+    skill_type: SkillType = SkillType.PYTHON_METHOD  # 🆕 新参数（默认向后兼容）
 ):
     """
     Args:
         description: 函数功能的自然语言描述
-        type: 动作流类型
         param_infos: 参数名 -> 参数含义的映射 (e.g. {"to": "目标Agent名字"})
+        skill_type: 技能类型（PYTHON_METHOD 或 MD_DOCUMENT）
     """
     if param_infos is None:
         param_infos = {}
@@ -29,6 +39,7 @@ def register_action(
         func._is_action = True
         func._action_desc = description
         func._action_param_infos = param_infos
+        func._skill_type = skill_type  # 🆕
         return func
     return decorator
 

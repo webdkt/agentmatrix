@@ -20,7 +20,7 @@ from ..core.events import AgentEvent
 from ..core.action import register_action
 from ..core.session_manager import SessionManager
 from ..core.session_context import SessionContext
-
+import asyncio
 from pathlib import Path
 from .micro_agent import MicroAgent
 
@@ -77,6 +77,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         # === 初始化循环变量 ===
         round_count = 1
         start_time = time.time()
+        history_before_loop = session.get("history", []).copy()
 
         # === 外层循环：多轮执行 ===
         while True:
@@ -86,11 +87,11 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
             # 1. 检测当前阶段
             phase = await self._detect_phase()
             persona =  self.get_persona(phase)
-            self.logger.debug(f"Current phase: {phase}, using persona: {persona}")
+            #self.logger.debug(f"Current phase: {phase}, using persona: {persona}")
             
 
         
-            history = session.get("history", [])
+            history = history_before_loop.copy()
             if history:
                 for item in history:
                     if item["role"] == "user":
@@ -102,6 +103,8 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
                             end = content.find("==== END OF WHITEBOARD ====") + len("==== END OF WHITEBOARD ====")
                             item["content"] = content[:start] + content[end:]
                 session["history"] = history
+                asyncio.create_task(self.session_manager.save_session(self.session)) #This effectively restore history to begin of while True loop.  
+                # 也就是说，每次ResearchMicroAgent的execute，都是同样的session history 起点，不同的是whiteboard，和所有其他文件
 
 
             current_whiteboard = await self.read_whiteboard()
@@ -126,7 +129,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
 
             
 
-            # 6. 执行 MicroAgent
+            # 6. 执行 MicroAgent,  execute 内部也是一个永久循环，直到运行 rest_n_wait, take_a_break, all_finished
             result = await micro_core.execute(
                 run_label=f'Round {round_count} - {phase}',
                 persona=persona,
@@ -148,6 +151,13 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
             if last_action in ["rest_n_wait", "all_finished"]:
                 # 正常退出：保存 session（下次用户发邮件时继续）
                 self.logger.info(f"💾 Saving session and exiting outer loop (action: {last_action})")
+                #这个时候篡改一下session hisotry
+                old_history_length = len(history_before_loop)
+                new_history = session["history"].copy()
+                #取new_history 的0到old_history_length，以及最后一条，拼接在一起， 相当于new_history比old_history多了两条
+                session["history"] = new_history[:old_history_length] + new_history[-1:]
+
+
                 await self.session_manager.save_session(session)
 
                 if last_action == "all_finished":
@@ -186,7 +196,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
             return f"ask_ai 失败: {str(e)}"
 
     @register_action(
-        description="休息一会，工作很久就需要休息，提高效率",
+        description="必须执行这个动作才是真的休息一会",
         param_infos={}
     )
     async def take_a_break(self):
@@ -207,10 +217,10 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         """
         
         blueprint_path = self.private_workspace / "research_blueprint.md"
-        final_writing_plan_path = self.private_workspace / "final_writing_plan.md"
+        draft_path = self.private_workspace / "draft"
         report_path = self.private_workspace / "final_report.md"
 
-        if final_writing_plan_path.exists():
+        if draft_path.exists():
             self.logger.info("📝 Phase detected: WRITER (final_writing_plan.md exists)")
             return "writer"
         elif blueprint_path.exists():
@@ -235,7 +245,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
             return f'''
             [💡NEW EMAIL] 
             {email}
-            ==== END OF EMAIL ====
+            
             
             {whiteboard}
 
@@ -246,13 +256,13 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
             return f'''
             [💡 NEW EMAIL] 
             {email}
-            ==== END OF EMAIL ====
+            
 
-            收到邮件后似乎已经工作了一阵子。
+            
 
             {whiteboard}
 
-            现在决定你的下一步
+            现在继续你的工作
             '''
 
         
@@ -359,14 +369,14 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
 
     
     @register_action(
-        description="更新白板内容，可以选择全文替换或者智能修改（提供修改意见）",
+        description="更新白板内容，默认全部擦掉重写，如果只是更新局部或者添加内容，要明确指出",
         param_infos={
-            "new_content": "（可选）完整的新白板内容（纯文本）",    
-            "modification_feedback": "（可选）对当前白板的修改意见"
+            "full_new_content": "（可选）完整的新白板内容",    
+            "partial_edit": "（可选）对当前白板的局部修改或添加，需要明确指出改哪里改什么"
         }
     )
     
-    async def update_whiteboard(self, new_content: str = "", modification_feedback: str = "") -> str:
+    async def update_whiteboard(self, full_new_content: str = "", partial_edit: str = "") -> str:
         """
         更新 whiteboard（Micro Agent 调用）
 
@@ -381,9 +391,9 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         Returns:
             确认消息
         """
-        new_content = new_content.strip()
-        modification_feedback = modification_feedback.strip()
-        if not new_content and not modification_feedback:
+        full_new_content = full_new_content.strip()
+        partial_edit = partial_edit.strip()
+        if not full_new_content and not partial_edit:
             return "❌ 请提供完整的白板内容或修改意见"
 
         whiteboard_path = os.path.join(self.working_context.current_dir, "whiteboard.md")
@@ -395,14 +405,14 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         
         # 模式1：全文替换
         #直接overwrite 方式写入
-        if new_content:
+        if full_new_content:
             with open(whiteboard_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+                f.write(full_new_content)
 
             
 
         # 模式2：智能修改
-        elif modification_feedback:
+        elif partial_edit:
             # 读取当前 whiteboard 内容
             
             
@@ -423,7 +433,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
 {existing_content}
 
 项目经理的修改意见：
-{modification_feedback}
+{partial_edit}
 
 请根据修改意见，生成更新后的白板内容。
 
@@ -446,17 +456,17 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
                     match_mode="ALL"
                 )
 
-                new_content = result["[正式文稿]"].strip()    
+                full_new_content = result["[正式文稿]"].strip()    
 
             # 更新
                 with open(whiteboard_path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
+                    f.write(full_new_content)
 
             except Exception as e:
                 self.logger.error(f"智能修改 dashboard 失败: {e}")
                 return f"❌ 生成新白板失败：{str(e)}"
 
-        word_count = len(new_content)
+        word_count = len(full_new_content)
         word_percent = min(word_count / 2000, 1)
         if word_percent ==1:
             return(f"✅ 白板已更新 ⚠️ WHITEBOARD FULL,REDUCE BEFORE ADDING MORE")

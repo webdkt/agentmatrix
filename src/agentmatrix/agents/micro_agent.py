@@ -19,6 +19,7 @@ import time
 from ..core.log_util import AutoLoggerMixin
 from ..core.working_context import WorkingContext
 from ..core.session_context import SessionContext
+from ..core.exceptions import LLMServiceUnavailableError
 
 if TYPE_CHECKING:
     from .base import BaseAgent
@@ -48,6 +49,7 @@ class MicroAgent(AutoLoggerMixin):
         name: Optional[str] = None,
         default_max_steps: int = 50,
         independent_session_context: bool = False,
+        available_skills: Optional[List[str]] = None,  # 🆕 可用技能列表
     ):
         """
         初始化 Micro Agent
@@ -63,7 +65,12 @@ class MicroAgent(AutoLoggerMixin):
             independent_session_context: 是否使用独立的 session context（默认 False）
                 - False: 共享 parent 的 session_context（可持久化）
                 - True:  创建新的 session_context（不可持久化）
+            available_skills: 可用技能列表（如 ["file", "browser"]）
         """
+        # 🆕 动态组合 Skill Mixins（新架构核心）
+        if available_skills:
+            self.__class__ = self._create_dynamic_class(available_skills)
+
         # 基本信息
         self.name = name or f"MicroAgent_{uuid.uuid4().hex[:8]}"
         self.parent = parent
@@ -88,16 +95,9 @@ class MicroAgent(AutoLoggerMixin):
         self.brain = parent.brain
         self.cerebellum = parent.cerebellum
 
-        # action_registry: BaseAgent 用 actions_map，MicroAgent 用 action_registry
-        if hasattr(parent, 'actions_map'):
-            self.action_registry = parent.actions_map
-        else:
-            self.action_registry = parent.action_registry
-
-        # ========== 扫描当前 MicroAgent 自己的 actions ==========
-        # MicroAgent 可以定义自己的 actions（如 FileMicroAgent）
-        # 需要将这些 actions 合并到 action_registry 中
-        self._scan_own_actions()
+        # ========== 🆕 扫描所有 actions（新架构）==========
+        self.action_registry = {}
+        self._scan_all_actions()
 
         # logger: 直接使用 parent 的 logger（不创建新日志文件）
         self._internal_logger = parent.logger  # 绕过 AutoLoggerMixin 的懒加载
@@ -110,7 +110,7 @@ class MicroAgent(AutoLoggerMixin):
         self.messages: List[Dict] = []  # 对话历史
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
-
+        self.max_steps = 1024
         # 日志
         self.logger.info(f"MicroAgent '{self.name}' initialized (parent: {parent.name})")
 
@@ -156,39 +156,62 @@ class MicroAgent(AutoLoggerMixin):
         # current 现在是 BaseAgent（没有 parent 属性）
         return current
 
-    def _scan_own_actions(self):
+    def _create_dynamic_class(self, available_skills: List[str]) -> type:
         """
-        扫描当前 MicroAgent 类自己的 actions 并合并到 action_registry
+        动态创建包含 Skill Mixins 的类
 
-        某些 MicroAgent（如 FileMicroAgent）定义了自己的 actions，
-        这些 actions 不在 parent 的 action_registry 中，需要单独扫描。
+        Args:
+            available_skills: 技能名称列表（如 ["file", "browser"]）
+
+        Returns:
+            type: 动态创建的类
+
+        Example:
+            available_skills = ["file", "browser"]
+            返回：type('DynamicAgent_MicroAgent_abc123',
+                     (MicroAgent, FileSkillMixin, BrowserSkillMixin),
+                     {})
+        """
+        from ..skills.registry import SKILL_REGISTRY
+
+        # 获取指定的 Mixin 类
+        mixin_classes = SKILL_REGISTRY.get_python_mixins(available_skills)
+
+        if not mixin_classes:
+            self.logger.warning(f"  ⚠️  没有找到可用的 Skills: {available_skills}")
+            return self.__class__
+
+        # 记录日志
+        for mixin in mixin_classes:
+            self.logger.debug(f"  🧩 混入 Skill Mixin: {mixin.__name__}")
+
+        # 动态创建类（Python 的 type 函数）
+        # type(name, bases, dict)
+        dynamic_class = type(
+            f'DynamicAgent_{self.name}',  # 类名
+            (self.__class__,) + tuple(mixin_classes),  # 继承链
+            {}  # 额外的类属性（空）
+        )
+
+        return dynamic_class
+
+    def _scan_all_actions(self):
+        """
+        扫描自身（包括继承链）的所有 @register_action 方法
+
+        由于已经混入了 Skill Mixins，这些方法都在 self 上
+        不再需要从 parent 的 actions_map 继承
         """
         import inspect
 
-        # 创建一个新的字典（避免直接修改 parent 的 action_registry）
-        merged_registry = dict(self.action_registry)
-
-        # 扫描当前实例的所有方法
-        for name in dir(self):
-            # 跳过私有属性
-            if name.startswith('_'):
-                continue
-
-            # 获取方法（未绑定的函数）
-            method = getattr(self.__class__, name, None)
-
-            # 检查是否是方法并且有 action 装饰器
-            if inspect.isfunction(method) and getattr(method, '_is_action', False):
-                # 将这个 action 添加到合并的 registry 中
-                merged_registry[name] = method
-
-                # 记录日志（只在第一次添加时记录）
-                if name not in self.action_registry:
-                    self.logger.debug(f"  [MicroAgent] 添加自有 action: {name}")
-
-        # 更新 action_registry 为合并后的版本
-        # 注意：这里需要创建一个新的字典对象，而不是引用
-        self.action_registry = merged_registry
+        # 遍历 self 的类及其所有父类（MRO - Method Resolution Order）
+        for cls in self.__class__.__mro__:
+            for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+                if hasattr(method, '_is_action') and method._is_action:
+                    # 只存储每个 action 一次（最底层的实现）
+                    if name not in self.action_registry:
+                        self.action_registry[name] = method
+                        self.logger.debug(f"  ✅ 注册 Action: {name} (来自 {cls.__name__})")
 
     @property
     def session_folder(self) -> str:
@@ -469,7 +492,7 @@ class MicroAgent(AutoLoggerMixin):
         return "\n".join(lines)
 
     async def _run_loop(self, exit_actions=[]):
-        """执行主循环 - 支持批量 action 执行和时间限制"""
+        """执行主循环 - 支持批量 action 执行和时间限制，添加 LLM 服务异常处理"""
         start_time = time.time()
         if isinstance(exit_actions, str):
             exit_actions = [exit_actions]
@@ -482,7 +505,7 @@ class MicroAgent(AutoLoggerMixin):
 
         while True:
             # 检查步数限制
-            if max_steps and step_count >= max_steps:
+            if step_count >= max_steps:
                 self.logger.warning(f"达到最大步数 ({max_steps})")
                 self.result = "未完成，达到最大步数限制，最后的状态如下：\n" + self.result
                 break
@@ -508,77 +531,150 @@ class MicroAgent(AutoLoggerMixin):
                 step_info += f" (时间: {elapsed_minutes:.1f}分钟/{self.max_time}分钟)"
             self.logger.debug(step_info)
 
-            # 1. Think
-            thought = await self._think()
-            self.logger.debug(f"Thought: {thought}")
+            try:
+                # 1. Think
+                thought = await self._think()
+                self.logger.debug(f"Thought: {thought}")
 
-            # 2. 检测 actions（多个，保持顺序）
-            action_names = await self._detect_actions(thought)
+                # 2. 检测 actions（多个，保持顺序）
+                action_names = await self._detect_actions(thought)
 
-            # 3. 没有检测到 action
-            if not action_names:
+                # 3. 没有检测到 action
+                if not action_names:
+                    self._add_message("assistant", thought)
+                    self._add_message("user", "[❗️Body Feedback] 未检测到可用动作，如果无事可做，请回复 all_finished")
+                    continue
+
+                self.logger.debug(f"Detected actions: {action_names}")
+
+                # 4. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", thought)
-                self._add_message("user", "[❗️Body Feedback] 未检测到可用动作，如果无事可做，请回复 all_finished")
-                continue
 
-            self.logger.debug(f"Detected actions: {action_names}")
+                # 5. 顺序执行所有 actions
+                execution_results = []
+                should_break_loop = False  # 标记是否需要退出主循环
 
-            # 4. 记录 assistant 的思考（只记录一次）
-            self._add_message("assistant", thought)
+                for idx, action_name in enumerate(action_names, start=1):
+                    # === 处理特殊 actions ===
+                    if action_name == "all_finished":
+                        # 执行 all_finished
+                        result = await self._execute_action("all_finished", thought, idx, action_names)
+                        self.result = result
+                        self.return_action_name = "all_finished"
+                        should_break_loop = True
+                        # 不记录 execution_results，直接退出
+                        break  # ← 退出 for action_names 循环
 
-            # 5. 顺序执行所有 actions
-            execution_results = []
-            should_break_loop = False  # 标记是否需要退出主循环
+                    elif action_name in exit_actions:
+                        # rest_n_wait 不需要执行，直接等待
+                        self.return_action_name = action_name
+                        should_break_loop = True
+                        break  # ← 退出 for action_names 循环
 
-            for idx, action_name in enumerate(action_names, start=1):
-                # === 处理特殊 actions ===
-                if action_name == "all_finished":
-                    # 执行 all_finished
-                    result = await self._execute_action("all_finished", thought, idx, action_names)
-                    self.result = result
-                    self.return_action_name = "all_finished"
-                    should_break_loop = True
-                    # 不记录 execution_results，直接退出
-                    break  # ← 退出 for action_names 循环
+                    # === 执行普通 actions ===
+                    else:
+                        try:
+                            result = await self._execute_action(action_name, thought, idx, action_names)
+                            if result!="NOT_TO_RUN":
+                                execution_results.append(f"[{action_name} Done]:\n {result}")
+                            self.logger.debug(f"✅ {action_name} done")
+                            self.logger.debug(result)
 
-                elif action_name in exit_actions:
-                    # rest_n_wait 不需要执行，直接等待
-                    self.return_action_name = action_name
-                    should_break_loop = True
-                    break  # ← 退出 for action_names 循环
+                        except Exception as e:
+                            error_msg = str(e)
+                            execution_results.append(f"[{action_name} Failed]:\n {error_msg}")
+                            self.logger.warning(f"❌ {action_name} failed: {error_msg}")
 
-                # === 执行普通 actions ===
-                else:
-                    try:
-                        result = await self._execute_action(action_name, thought, idx, action_names)
-                        if result!="NOT_TO_RUN":
-                            execution_results.append(f"[{action_name} Done]:\n {result}")
-                        self.logger.debug(f"✅ {action_name} done")
-                        self.logger.debug(result)
+                # 6. 反馈给 Brain（只有普通 actions 才反馈）
+                if execution_results:
+                    combined_result = "\n".join(execution_results)
 
-                    except Exception as e:
-                        error_msg = str(e)
-                        execution_results.append(f"[{action_name} Failed]:\n {error_msg}")
-                        self.logger.warning(f"❌ {action_name} failed: {error_msg}")
+                    # Hook：子类可重写来增强反馈
+                    enhanced_feedback = await self._prepare_feedback_message(
+                        combined_result,
+                        step_count,
+                        start_time
+                    )
 
-            # 6. 反馈给 Brain（只有普通 actions 才反馈）
-            if execution_results:
-                combined_result = "\n".join(execution_results)
+                    self._add_message("user", enhanced_feedback)
 
-                # Hook：子类可重写来增强反馈
-                enhanced_feedback = await self._prepare_feedback_message(
-                    combined_result,
-                    step_count,
-                    start_time
+                    self.result = combined_result #有进展就保存一下，最后的结果，下面如果超时或者超轮次退出，就用这个未完成结果。
+
+                # 7. 检查是否需要退出主循环
+                if should_break_loop:
+                    break
+
+            except LLMServiceUnavailableError as e:
+                # ========== LLM 服务异常处理 ==========
+                self.logger.warning(
+                    f"⚠️  LLM service error in step {step_count}: {str(e)}"
                 )
 
-                self._add_message("user", enhanced_feedback)
+                # 等待一小段时间（3秒），确保 monitor 完成至少一次检查
+                # monitor 最多 60 秒检查一次，但通常服务故障会很快被发现
+                self.logger.debug("Waiting for monitor to update service status...")
+                await asyncio.sleep(3)
 
-                self.result = combined_result #有进展就保存一下，最后的结果，下面如果超时或者超轮次退出，就用这个未完成结果。
+                # 检查服务状态
+                if self._is_llm_available():
+                    # 服务已恢复，重试当前步骤
+                    self.logger.info("✅ Service recovered, retrying current step")
+                    step_count -= 1  # 抵消上面的 +=1，重新执行这一步
+                    continue
 
-            # 7. 检查是否需要退出主循环
-            if should_break_loop:
+                # 服务确实不可用，进入等待模式
+                self.logger.warning("🔄 Service still unavailable, entering wait mode...")
+                await self._wait_for_llm_recovery()
+
+                # 恢复后重试当前步骤
+                self.logger.info("✅ Service recovered after wait, retrying current step")
+                step_count -= 1  # 抵消上面的 +=1，重新执行这一步
+                continue
+
+    def _is_llm_available(self) -> bool:
+        """
+        检查 LLM 服务是否可用
+
+        Returns:
+            bool: 服务是否可用
+        """
+        # 向后兼容：如果没有 runtime，假设服务可用
+        if not hasattr(self.root_agent, 'runtime') or self.root_agent.runtime is None:
+            return True
+
+        # 通过 runtime 访问 monitor
+        monitor = self.root_agent.runtime.llm_monitor
+        if monitor is None:
+            return True
+
+        return monitor.llm_available.is_set()
+
+    async def _wait_for_llm_recovery(self):
+        """等待 LLM 服务恢复（轮询方式）"""
+        monitor = self.root_agent.runtime.llm_monitor
+        if monitor is None:
+            # 如果没有 monitor，直接返回
+            return
+
+        check_interval = 5  # 每 5 秒检查一次
+        waited_seconds = 0
+
+        self.logger.info("⏳ Waiting for LLM service recovery...")
+
+        while True:
+            await asyncio.sleep(check_interval)
+            waited_seconds += check_interval
+
+            # 检查是否恢复
+            if monitor.llm_available.is_set():
+                self.logger.info(f"✅ LLM service recovered after {waited_seconds}s")
                 break
+
+            # 每 30 秒打印一次日志
+            if waited_seconds % 30 == 0:
+                self.logger.warning(
+                    f"⏳ Still waiting for LLM service... ({waited_seconds}s elapsed)"
+                )
 
     async def _prepare_feedback_message(
         self,
@@ -804,15 +900,14 @@ write, send_mail, write
         action_list: List[str]
     ) -> Any:
         """
-        执行 action（动态绑定到 MicroAgent）
+        执行 action（新架构：直接调用，无需动态绑定）
 
         流程：
-        1. 获取原始方法（未绑定的）
-        2. 动态绑定到 self（MicroAgent 实例）
-        3. 通过 cerebellum 解析参数（带任务上下文）
-        4. 调用绑定后的方法
+        1. 从 action_registry 获取方法（已经在 self 上）
+        2. 通过 cerebellum 解析参数（带任务上下文）
+        3. 直接调用方法（self 已经正确指向最终的 MicroAgent 实例）
 
-        关键：通过 types.MethodType 让 action 方法的 self 指向 MicroAgent
+        关键改进：不再需要 types.MethodType 动态绑定
 
         Args:
             action_name: 要执行的 action 名称
@@ -820,19 +915,14 @@ write, send_mail, write
             action_index: 当前是第几个 action（从 1 开始）
             action_list: 完整的 action 列表
         """
-        # 1. 获取原始方法（未绑定的函数）
+        # 1. 获取方法（已经在 self 上，无需绑定）
         if action_name not in self.action_registry:
             raise ValueError(f"Action '{action_name}' not found in registry")
 
-        raw_method = self.action_registry[action_name]
+        method = self.action_registry[action_name]
 
-        # ========== 关键：动态绑定到 self（MicroAgent）==========
-        # raw_method 现在是未绑定的函数（来自 BaseAgent.actions_map）
-        # 直接绑定到当前 MicroAgent 实例
-        bound_method = types.MethodType(raw_method, self)
-
-        # 2. 获取参数信息（从 bound_method）
-        param_schema = getattr(bound_method, "_action_param_infos", {})
+        # 2. 获取参数信息（从 method）
+        param_schema = getattr(method, "_action_param_infos", {})
 
         # 3. 如果有参数，通过 cerebellum 解析
         if param_schema:
@@ -878,11 +968,11 @@ write, send_mail, write
         else:
             params = {}
 
-        # 4. 执行方法（使用 bound_method）
+        # 3. 执行方法（✅ 直接调用，无需动态绑定）
         self._log(logging.DEBUG, f"[{self.run_label}] Executing {action_name} (task {action_index}/{len(action_list)})")
         result=""
         try:
-            result = await bound_method(**params)
+            result = await method(**params)
         except Exception as e:
             result = f"Error executing {action_name}: {str(e)}"
         finally:

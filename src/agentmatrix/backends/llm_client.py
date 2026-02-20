@@ -4,6 +4,12 @@ from typing import Dict, Union, List, Optional, TYPE_CHECKING
 import aiohttp
 from ..core.log_util import AutoLoggerMixin
 import logging
+from ..core.exceptions import (
+    LLMServiceUnavailableError,
+    LLMServiceTimeoutError,
+    LLMServiceConnectionError,
+    LLMServiceAPIError
+)
 
 if TYPE_CHECKING:
     from ..core.log_config import LogConfig
@@ -583,11 +589,24 @@ class LLMClient(AutoLoggerMixin):
 
             return final_content
 
+        except aiohttp.ClientConnectorError as e:
+            self.logger.exception(f"Vision API connection error: {str(e)}")
+            raise LLMServiceConnectionError(f"Vision API connection failed: {str(e)}")
+        except asyncio.TimeoutError as e:
+            self.logger.exception(f"Vision API timeout")
+            raise LLMServiceTimeoutError(f"Vision API timeout: {str(e)}")
         except aiohttp.ClientError as e:
-            self.logger.exception(f"Vision API 请求失败: {str(e)}")
-            raise Exception(f"Vision API 网络错误: {str(e)}")
+            self.logger.exception(f"Vision API network error: {str(e)}")
+            raise LLMServiceConnectionError(f"Vision API network error: {str(e)}")
         except Exception as e:
             self.logger.exception(f"Vision API 调用失败")
+            # 检查是否是服务不可用相关的错误
+            error_msg = str(e).lower()
+            if any(code in error_msg for code in ['502', '503', '504']):
+                raise LLMServiceAPIError(
+                    f"Vision API service unavailable: {str(e)}",
+                    status_code=int(error_msg.split()[-1]) if error_msg.split()[-1].isdigit() else None
+                )
             raise Exception(f"Vision API 调用失败: {str(e)}")
 
     async def _think_with_image_openai_multi_turn(
@@ -704,11 +723,24 @@ class LLMClient(AutoLoggerMixin):
 
             return final_content
 
+        except aiohttp.ClientConnectorError as e:
+            self.logger.exception(f"Vision API multi-turn connection error: {str(e)}")
+            raise LLMServiceConnectionError(f"Vision API multi-turn connection failed: {str(e)}")
+        except asyncio.TimeoutError as e:
+            self.logger.exception(f"Vision API multi-turn timeout")
+            raise LLMServiceTimeoutError(f"Vision API multi-turn timeout: {str(e)}")
         except aiohttp.ClientError as e:
-            self.logger.exception(f"Vision API 多轮对话请求失败: {str(e)}")
-            raise Exception(f"Vision API 多轮对话网络错误: {str(e)}")
+            self.logger.exception(f"Vision API multi-turn network error: {str(e)}")
+            raise LLMServiceConnectionError(f"Vision API multi-turn network error: {str(e)}")
         except Exception as e:
             self.logger.exception(f"Vision API 多轮对话调用失败")
+            # 检查是否是服务不可用相关的错误
+            error_msg = str(e).lower()
+            if any(code in error_msg for code in ['502', '503', '504']):
+                raise LLMServiceAPIError(
+                    f"Vision API multi-turn service unavailable: {str(e)}",
+                    status_code=int(error_msg.split()[-1]) if error_msg.split()[-1].isdigit() else None
+                )
             raise Exception(f"Vision API 多轮对话调用失败: {str(e)}")
 
     async def _think_with_image_gemini(
@@ -805,11 +837,24 @@ class LLMClient(AutoLoggerMixin):
 
             return final_content
 
+        except aiohttp.ClientConnectorError as e:
+            self.logger.exception(f"Gemini Vision API connection error: {str(e)}")
+            raise LLMServiceConnectionError(f"Gemini Vision API connection failed: {str(e)}")
+        except asyncio.TimeoutError as e:
+            self.logger.exception(f"Gemini Vision API timeout")
+            raise LLMServiceTimeoutError(f"Gemini Vision API timeout: {str(e)}")
         except aiohttp.ClientError as e:
-            self.logger.exception(f"Gemini Vision API 请求失败: {str(e)}")
-            raise Exception(f"Gemini Vision API 网络错误: {str(e)}")
+            self.logger.exception(f"Gemini Vision API network error: {str(e)}")
+            raise LLMServiceConnectionError(f"Gemini Vision API network error: {str(e)}")
         except Exception as e:
             self.logger.exception(f"Gemini Vision API 调用失败")
+            # 检查是否是服务不可用相关的错误
+            error_msg = str(e).lower()
+            if any(code in error_msg for code in ['502', '503', '504']):
+                raise LLMServiceAPIError(
+                    f"Gemini Vision API service unavailable: {str(e)}",
+                    status_code=int(error_msg.split()[-1]) if error_msg.split()[-1].isdigit() else None
+                )
             raise Exception(f"Gemini Vision API 调用失败: {str(e)}")
     
     def _to_gemini_messages(self, messages: list[dict[str, str]]) -> dict:
@@ -960,8 +1005,33 @@ class LLMClient(AutoLoggerMixin):
                 "reply": final_content
             }
 
+        except aiohttp.ClientConnectorError as e:
+            # Gemini 连接错误
+            self.logger.error(f"Gemini connection error: {str(e)}")
+            raise LLMServiceConnectionError(
+                f"Failed to connect to Gemini service: {str(e)}"
+            )
+        except asyncio.TimeoutError as e:
+            # Gemini 超时
+            self.logger.error(f"Gemini request timeout")
+            raise LLMServiceTimeoutError(
+                f"Gemini request timeout: {str(e)}"
+            )
+        except aiohttp.ClientError as e:
+            # 其他 Gemini 网络错误
+            self.logger.error(f"Gemini client error: {str(e)}")
+            raise LLMServiceConnectionError(
+                f"Gemini network error: {str(e)}"
+            )
         except Exception as e:
             self.logger.exception("Gemini调用失败")
+            # 检查是否是服务不可用相关的错误
+            error_msg = str(e).lower()
+            if any(code in error_msg for code in ['502', '503', '504']):
+                raise LLMServiceAPIError(
+                    f"Gemini service unavailable: {str(e)}",
+                    status_code=int(error_msg.split()[-1]) if error_msg.split()[-1].isdigit() else None
+                )
             raise Exception(f"Gemini调用失败: {str(e)}")
 
     async def _think_with_image_gemini_multi_turn(
@@ -1103,11 +1173,24 @@ class LLMClient(AutoLoggerMixin):
 
             return final_content
 
+        except aiohttp.ClientConnectorError as e:
+            self.logger.exception(f"Gemini Vision multi-turn connection error: {str(e)}")
+            raise LLMServiceConnectionError(f"Gemini Vision multi-turn connection failed: {str(e)}")
+        except asyncio.TimeoutError as e:
+            self.logger.exception(f"Gemini Vision multi-turn timeout")
+            raise LLMServiceTimeoutError(f"Gemini Vision multi-turn timeout: {str(e)}")
         except aiohttp.ClientError as e:
-            self.logger.exception(f"Gemini Vision 多轮对话请求失败: {str(e)}")
-            raise Exception(f"Gemini Vision 多轮对话网络错误: {str(e)}")
+            self.logger.exception(f"Gemini Vision multi-turn network error: {str(e)}")
+            raise LLMServiceConnectionError(f"Gemini Vision multi-turn network error: {str(e)}")
         except Exception as e:
             self.logger.exception(f"Gemini Vision 多轮对话调用失败")
+            # 检查是否是服务不可用相关的错误
+            error_msg = str(e).lower()
+            if any(code in error_msg for code in ['502', '503', '504']):
+                raise LLMServiceAPIError(
+                    f"Gemini Vision multi-turn service unavailable: {str(e)}",
+                    status_code=int(error_msg.split()[-1]) if error_msg.split()[-1].isdigit() else None
+                )
             raise Exception(f"Gemini Vision 多轮对话调用失败: {str(e)}")
 
     async def async_stream_think(self, messages: list[dict[str, str]], **kwargs) -> Dict[str, str]:
@@ -1178,11 +1261,34 @@ class LLMClient(AutoLoggerMixin):
                 "reply": final_content
             }
 
+        except aiohttp.ClientConnectorError as e:
+            # 连接错误（DNS 失败、连接被拒绝等）
+            self.logger.error(f"LLM connection error: {str(e)}")
+            raise LLMServiceConnectionError(
+                f"Failed to connect to LLM service: {str(e)}"
+            )
+        except asyncio.TimeoutError as e:
+            # 超时错误
+            self.logger.error(f"LLM request timeout")
+            raise LLMServiceTimeoutError(
+                f"LLM request timeout: {str(e)}"
+            )
         except aiohttp.ClientError as e:
-            traceback.print_exc()
-            raise Exception(f"API请求失败: {str(e)}")
+            # 其他 aiohttp 错误
+            self.logger.error(f"LLM client error: {str(e)}")
+            raise LLMServiceConnectionError(
+                f"LLM network error: {str(e)}"
+            )
         except Exception as e:
+            # 其他未知错误
             traceback.print_exc()
-            raise Exception(f"未知错误: {str(e)}")
+            # 检查是否是服务不可用相关的错误
+            error_msg = str(e).lower()
+            if any(code in error_msg for code in ['502', '503', '504']):
+                raise LLMServiceAPIError(
+                    f"LLM service unavailable: {str(e)}",
+                    status_code=int(error_msg.split()[-1]) if error_msg.split()[-1].isdigit() else None
+                )
+            raise Exception(f"Unknown error: {str(e)}")
 
 

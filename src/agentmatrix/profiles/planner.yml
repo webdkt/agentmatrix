@@ -1,6 +1,6 @@
 name: Planner
 description: 一个计划者，能够根据用户的指令生成计划。
-module: agentmatrix.agents.base
+module: agentmatrix.agents.base_agent
 class_name: BaseAgent
 
 # 动态 Mixin 组合

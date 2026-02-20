@@ -62,6 +62,9 @@ class BaseAgent(AutoLoggerMixin):
         # 事件回调 (Server 注入)
         self.async_event_callback: Optional[Callable] = None
 
+        # Runtime 引用 (由 AgentMatrix 注入)
+        self.runtime = None
+
         self.actions_map = {} # name -> method
         self.actions_meta = {} # name -> metadata (给小脑看)
         self.current_session = None
@@ -75,6 +78,24 @@ class BaseAgent(AutoLoggerMixin):
         self.working_context = None
 
         self.logger.info(f"Agent {self.name} 初始化完成")
+
+        # 🆕 注册新架构的 Skill Mixins
+        self._register_new_skills()
+
+    def _register_new_skills(self):
+        """
+        注册新架构的 Skill Mixins
+
+        导入 Skill 类会触发 @register_skill 装饰器，
+        自动将它们注册到 SKILL_REGISTRY
+        """
+        try:
+            from ..skills.file_skill import FileSkillMixin
+            from ..skills.browser_skill import BrowserSkillMixin
+            # 注册由装饰器自动完成
+            self.logger.debug(f"New architecture skills registered")
+        except ImportError as e:
+            self.logger.warning(f"Failed to register new skills: {e}")
 
     def _update_working_context(self):
         """
@@ -399,12 +420,16 @@ class BaseAgent(AutoLoggerMixin):
         # 否则使用所有 actions（向后兼容）
         available_actions = self._get_top_level_actions()
 
+        # 3.5 准备 available_skills（🆕 新架构）
+        available_skills = self.profile.get("skills", [])
+
         # 4. 执行 Micro Agent
         # 每次创建新的 MicroAgent（使用最新的 working_context）
         micro_core = MicroAgent(
             parent=self,
             working_context=self.working_context,  # ← 传入最新的 working_context
-            name=self.name
+            name=self.name,
+            available_skills=available_skills  # 🆕 传递可用技能列表
         )
         persona = self.get_persona()
         
