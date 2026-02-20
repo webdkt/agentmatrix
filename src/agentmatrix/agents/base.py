@@ -86,14 +86,18 @@ class BaseAgent(AutoLoggerMixin):
         """
         注册新架构的 Skill Mixins
 
-        导入 Skill 类会触发 @register_skill 装饰器，
-        自动将它们注册到 SKILL_REGISTRY
+        手动导入并注册到 SKILL_REGISTRY
         """
         try:
             from ..skills.file_skill import FileSkillMixin
             from ..skills.browser_skill import BrowserSkillMixin
-            # 注册由装饰器自动完成
-            self.logger.debug(f"New architecture skills registered")
+            from ..skills.registry import SKILL_REGISTRY
+
+            # 手动注册 Skill Mixins
+            SKILL_REGISTRY.register_python_mixin("file", FileSkillMixin)
+            SKILL_REGISTRY.register_python_mixin("browser", BrowserSkillMixin)
+
+            self.logger.debug(f"New architecture skills registered: {list(SKILL_REGISTRY._python_mixins.keys())}")
         except ImportError as e:
             self.logger.warning(f"Failed to register new skills: {e}")
 
