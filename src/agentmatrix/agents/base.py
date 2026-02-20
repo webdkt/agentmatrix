@@ -79,27 +79,8 @@ class BaseAgent(AutoLoggerMixin):
 
         self.logger.info(f"Agent {self.name} 初始化完成")
 
-        # 🆕 注册新架构的 Skill Mixins
-        self._register_new_skills()
-
-    def _register_new_skills(self):
-        """
-        注册新架构的 Skill Mixins
-
-        手动导入并注册到 SKILL_REGISTRY
-        """
-        try:
-            from ..skills.file_skill import FileSkillMixin
-            from ..skills.browser_skill import BrowserSkillMixin
-            from ..skills.registry import SKILL_REGISTRY
-
-            # 手动注册 Skill Mixins
-            SKILL_REGISTRY.register_python_mixin("file", FileSkillMixin)
-            SKILL_REGISTRY.register_python_mixin("browser", BrowserSkillMixin)
-
-            self.logger.debug(f"New architecture skills registered: {list(SKILL_REGISTRY._python_mixins.keys())}")
-        except ImportError as e:
-            self.logger.warning(f"Failed to register new skills: {e}")
+        # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
+        # 不再需要手动注册，移除 _register_new_skills() 方法
 
     def _update_working_context(self):
         """
