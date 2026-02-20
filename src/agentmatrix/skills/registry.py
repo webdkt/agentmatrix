@@ -6,7 +6,7 @@ Skill Registry - 统一的技能注册中心
 2. MD Document Skills: 从 skills.md 加载的文档技能（TODO）
 """
 
-from typing import Dict, List, Optional, type
+from typing import Dict, List, Optional, Type
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,12 +17,12 @@ class SkillRegistry:
 
     def __init__(self):
         # Python Mixin 注册表: skill_name -> mixin_class
-        self._python_mixins: Dict[str, type] = {}
+        self._python_mixins: Dict[str, Type] = {}
 
         # MD Document Action 注册表: skill_name -> List[ActionMetadata] (TODO)
         self._md_actions: Dict[str, List] = {}
 
-    def register_python_mixin(self, name: str, mixin_class: type):
+    def register_python_mixin(self, name: str, mixin_class: Type):
         """
         注册 Python Mixin Skill
 
@@ -33,7 +33,7 @@ class SkillRegistry:
         self._python_mixins[name] = mixin_class
         logger.debug(f"  ✅ 注册 Python Mixin: {name} -> {mixin_class.__name__}")
 
-    def get_python_mixins(self, skill_names: List[str]) -> List[type]:
+    def get_python_mixins(self, skill_names: List[str]) -> List[Type]:
         """
         获取指定的 Python Mixin 类
 
@@ -41,7 +41,7 @@ class SkillRegistry:
             skill_names: Skill 名称列表
 
         Returns:
-            List[type]: Mixin 类列表
+            List[Type]: Mixin 类列表
         """
         mixins = []
         for name in skill_names:
