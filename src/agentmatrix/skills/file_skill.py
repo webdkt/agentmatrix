@@ -82,14 +82,83 @@ class FileSkillMixin:
             return await self._read_unix(file_path, start_line, end_line, working_context)
 
     @register_action(
-        description="写入文件内容。默认覆盖模式。",
+        description="搜索文件或文件里的内容。支持按文件名或文件内容搜索",
         param_infos={
-            "file_path": "文件路径",
-            "content": "文件内容",
-            "mode": "写入模式，'overwrite' 覆盖或 'append' 追加（默认overwrite）",
-            "allow_overwrite": "（可选）是否允许覆盖已存在文件（默认False）"
+            "pattern": "搜索模式（文件名模式或文本内容）",
+            "target": "搜索目标，'content' 表示在文件内容中搜索，'filename' 表示按文件名搜索（默认content）",
+            "directory": "搜索目录（可选，默认当前目录）",
+            "recursive": "是否递归搜索（默认True）"
         }
     )
+    async def search_file(
+        self,
+        pattern: str,
+        target: str = "content",
+        directory: Optional[str] = None,
+        recursive: bool = True
+    ) -> str:
+        """搜索文件或内容"""
+        from ..core.working_context import WorkingContext
+
+        working_context = self.working_context
+        if not working_context or not isinstance(working_context, WorkingContext):
+            return "错误：缺少 working_context"
+
+        base_dir = directory or working_context.current_dir
+
+        if platform.system() == "Windows":
+            return await self._search_windows(pattern, target, base_dir, recursive, working_context)
+        else:
+            return await self._search_unix(pattern, target, base_dir, recursive, working_context)
+
+    @register_action(
+        description="执行 bash 命令或脚本",
+        param_infos={
+            "command": "bash 命令或脚本（多行脚本用 \\n 分隔）",
+            "timeout": "超时时间（秒，默认30）"
+        }
+    )
+    async def bash(self, command: str, timeout: int = 30) -> str:
+        """执行 bash 命令或脚本（简化版，仅支持基本命令）"""
+        from ..core.working_context import WorkingContext
+
+        working_context = self.working_context
+        if not working_context or not isinstance(working_context, WorkingContext):
+            return "错误：缺少 working_context"
+
+        # 简化版：直接执行，不做复杂验证
+        if platform.system() == "Windows":
+            return await self._run_shell_windows(command, working_context, timeout)
+        else:
+            return await self._run_shell_unix(command, working_context, timeout)
+
+    @register_action(
+        description="字符串替换：在文件中查找并替换字符串。",
+        param_infos={
+            "file_path": "文件路径",
+            "old_pattern": "要替换的旧字符串",
+            "new_string": "新字符串",
+            "use_regex": "是否使用正则表达式（默认false）"
+        }
+    )
+    async def replace_string_in_file(
+        self,
+        file_path: str,
+        old_pattern: str,
+        new_string: str,
+        use_regex: bool = False
+    ) -> str:
+        """在文件中查找并替换字符串"""
+        from ..core.working_context import WorkingContext
+
+        working_context = self.working_context
+        if not working_context or not isinstance(working_context, WorkingContext):
+            return "错误：缺少 working_context"
+
+        if platform.system() == "Windows":
+            return await self._string_replace_windows(file_path, old_pattern, new_string, use_regex, working_context)
+        else:
+            return await self._string_replace_unix(file_path, old_pattern, new_string, use_regex, working_context)
     async def write(
         self,
         file_path: str,
@@ -218,7 +287,7 @@ class FileSkillMixin:
 
         return abs_path
 
-    async def _run_shell_unix(self, cmd: str, working_context) -> str:
+    async def _run_shell_unix(self, cmd: str, working_context, timeout: int = 30) -> str:
         """执行 Unix shell 命令"""
         try:
             import subprocess
@@ -228,7 +297,7 @@ class FileSkillMixin:
                 capture_output=True,
                 text=True,
                 cwd=working_context.current_dir,
-                timeout=30
+                timeout=timeout
             )
             output = result.stdout
             if result.stderr:
@@ -244,7 +313,7 @@ class FileSkillMixin:
         except Exception as e:
             return f"错误：执行命令失败: {e}\n  命令: {cmd}"
 
-    async def _run_shell_windows(self, cmd: str, working_context) -> str:
+    async def _run_shell_windows(self, cmd: str, working_context, timeout: int = 30) -> str:
         """执行 Windows shell 命令"""
         try:
             import subprocess
@@ -254,7 +323,7 @@ class FileSkillMixin:
                 capture_output=True,
                 text=True,
                 cwd=working_context.current_dir,
-                timeout=30
+                timeout=timeout
             )
             output = result.stdout
             if result.stderr:
@@ -269,3 +338,65 @@ class FileSkillMixin:
             return f"错误：命令执行超时\n  命令: {cmd}"
         except Exception as e:
             return f"错误：执行命令失败: {e}\n  命令: {cmd}"
+
+    async def _search_unix(self, pattern: str, target: str, base_dir: str, recursive: bool, working_context) -> str:
+        """Unix 搜索实现"""
+        if target == "filename":
+            # 按文件名搜索（使用 find）
+            cmd = f"find {base_dir}"
+            if not recursive:
+                cmd += " -maxdepth 1"
+            cmd += f" -name '{pattern}'"
+        else:
+            # 在文件内容中搜索（使用 grep）
+            if recursive:
+                cmd = f"grep -rn '{pattern}' {base_dir}"
+            else:
+                cmd = f"grep -n '{pattern}' {base_dir}/*"
+
+        return await self._run_shell_unix(cmd, working_context)
+
+    async def _search_windows(self, pattern: str, target: str, base_dir: str, recursive: bool, working_context) -> str:
+        """Windows 搜索实现"""
+        if target == "filename":
+            # 按文件名搜索
+            cmd = f"dir /s /b {base_dir} | findstr /i \"{pattern}\""
+        else:
+            # 在文件内容中搜索
+            recursive_flag = "/s" if recursive else ""
+            cmd = f'findstr {recursive_flag} /n /i /c:"{pattern}" *'
+
+        return await self._run_shell_windows(cmd, working_context)
+
+    async def _string_replace_unix(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool, working_context) -> str:
+        """Unix 字符串替换实现"""
+        import re
+
+        # 读取文件内容
+        abs_path = self._resolve_path(file_path, working_context)
+        if abs_path.startswith("错误："):
+            return abs_path
+
+        if not os.path.exists(abs_path):
+            return f"错误：文件不存在: {abs_path}"
+
+        try:
+            with open(abs_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            if use_regex:
+                new_content = re.sub(old_pattern, new_string, content)
+            else:
+                new_content = content.replace(old_pattern, new_string)
+
+            with open(abs_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            return f"""字符串已替换"""
+
+        except Exception as e:
+            return f"❌ 替换失败：{str(e)}"
+
+    async def _string_replace_windows(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool, working_context) -> str:
+        """Windows 字符串替换实现（与 Unix 相同）"""
+        return await self._string_replace_unix(file_path, old_pattern, new_string, use_regex, working_context)

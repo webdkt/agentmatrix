@@ -67,13 +67,13 @@ class MicroAgent(AutoLoggerMixin):
                 - True:  创建新的 session_context（不可持久化）
             available_skills: 可用技能列表（如 ["file", "browser"]）
         """
+        # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
+        self.name = name or f"MicroAgent_{uuid.uuid4().hex[:8]}"
+        self.parent = parent
+
         # 🆕 动态组合 Skill Mixins（新架构核心）
         if available_skills:
             self.__class__ = self._create_dynamic_class(available_skills)
-
-        # 基本信息
-        self.name = name or f"MicroAgent_{uuid.uuid4().hex[:8]}"
-        self.parent = parent
 
         # ========== working_context ==========
         # 使用传入的或 parent 的
