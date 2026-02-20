@@ -1,449 +1,560 @@
-NEED UPDATE
-# AgentMatrix Skill 单独测试标准流程
+# AgentMatrix Skill 单独测试标准流程（新架构）
 
 ## 适用场景
 
-- 需要测试完整的 Skill 方法（如 `writing_loop`）
-- 需要真实的 LLM 调用
-- 需要加载真实的测试数据（context.json, notebook.json 等）
+- 需要测试完整的 Skill 方法（如 FileSkill, BrowserSkill）
+- 需要验证 Skill 的所有 actions
+- 需要测试 Skill 与其他组件的集成
 
 ## 核心原理（5分钟理解）
 
-### 为什么这样设计？
+### 新架构设计
 
 ```
-BaseAgent (完整基础平台)
-  ↓ 提供基础能力
-TestAgent (测试外壳)
-  ↓ 继承 SkillMixin
-SkillMixin (目标功能模块)
+SKILL_REGISTRY (统一注册中心)
+  ↓ Lazy Load by Name
+MicroAgent (动态类组合)
+  ↓ 继承 Skill Mixins
+FileSkillMixin / BrowserSkillMixin (可插拔功能模块)
 ```
 
-- **BaseAgent**：提供完整的基础平台（session 管理、action 注册、工具方法）
-- **SkillMixin**：可插拔的功能模块（如 DeepResearcherMixin）
-- **TestAgent**：最小化依赖注入，只提供测试需要的数据
+**关键特性：**
+- **Lazy Load**：根据名字自动发现并加载 `{name}_skill.py`
+- **动态类组合**：MicroAgent 在运行时动态继承 Skill Mixins
+- **无 Hardcode**：添加新 skill 无需修改 BaseAgent 或 MicroAgent
+- **统一接口**：`SKILL_REGISTRY.get_skills(skill_names)`
+
+### 名字约定
+
+```
+skill_name: "file"
+  ↓
+模块: agentmatrix.skills.file_skill
+类名: FileSkillMixin
+```
 
 ### 关键架构规则
 
-#### 1. 继承顺序
+#### 1. Lazy Load 机制
 
+**注册表初始为空：**
 ```python
-class MinimalTestAgent(BaseAgent, DeepResearcherMixin):
-    #                  ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
-    #                  基础框架       目标功能
+# 开始时注册表为空
+SKILL_REGISTRY._python_mixins = {}  # 空
 ```
 
-**为什么 BaseAgent 在前？**
-- BaseAgent 提供完整的 session 管理、action 注册、工具方法
-- 测试场景不需要 Mixin 覆盖 BaseAgent 的方法（如 `all_finished`）
-- 这样设计：测试 Agent 获得基础能力 + Skill 功能
+**首次请求时自动导入：**
+```python
+# 用户请求 "file" skill
+result = SKILL_REGISTRY.get_skills(["file"])
 
-**与 Loader 的区别**：
-- Loader 创建：`type("Agent", (*mixins, BaseAgent), {})` → Mixin 在前，允许覆盖
-- 手动定义：`class Agent(BaseAgent, Mixin)` → BaseAgent 在前，Mixin 不覆盖
+# 自动执行：
+# 1. import agentmatrix.skills.file_skill
+# 2. 获取 FileSkillMixin 类
+# 3. 缓存到 _python_mixins["file"]
+```
 
-#### 2. 接口实现的真相
+**后续请求直接使用缓存：**
+```python
+# 第二次请求直接从缓存获取
+result = SKILL_REGISTRY.get_skills(["file"])  # 无需重新导入
+```
 
-**BaseAgent 已经提供了这些方法**：
-- ✅ `get_session_context()` - 从 `self.current_session` 读取
-- ✅ `update_session_context(**kwargs)` - 更新并持久化到文件
-- ✅ `get_transient(key)` - 从 `self.transient_context` 读取
-- ✅ `set_transient(key, value)` - 写入 `self.transient_context`
-- ✅ `get_session_folder()` - 从 session 配置读取
+#### 2. MicroAgent 动态类组合
 
-**测试 Agent 为什么需要重新实现？**
-- BaseAgent 的方法依赖完整的 session 管理机制（`self.current_session`）
-- 测试场景是**静态注入**，直接提供数据即可
-- 重新实现是为了返回**测试数据**，而不是触发完整的 session 加载流程
+```python
+# micro_agent.py
+def _create_dynamic_class(self, available_skills: List[str]) -> type:
+    from ..skills.registry import SKILL_REGISTRY
 
-## 完整代码模板（可复制）
+    # 1. Lazy Load 获取 Mixins
+    result = SKILL_REGISTRY.get_skills(available_skills)
+    mixin_classes = result.python_mixins
+
+    # 2. 动态创建类
+    dynamic_class = type(
+        f'DynamicAgent_{self.name}',
+        (self.__class__,) + tuple(mixin_classes),  # (MicroAgent, FileSkillMixin, ...)
+        {}
+    )
+
+    # 3. 替换当前实例的类
+    self.__class__ = dynamic_class
+```
+
+**效果：**
+```python
+# 之前
+agent = MicroAgent()  # 只有基础方法
+
+# 之后
+agent = MicroAgent(available_skills=["file", "browser"])
+agent.__class__.__mro__
+# (DynamicAgent_Agent, MicroAgent, FileSkillMixin, BrowserSkillMixin, ...)
+```
+
+#### 3. Action 扫描（新架构）
+
+**BaseAgent 和 MicroAgent 都使用相同机制：**
+
+```python
+def _scan_all_actions(self):
+    """扫描所有 @register_action 方法"""
+    import inspect
+
+    for cls in self.__class__.__mro__:  # 遍历继承链
+        for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+            if hasattr(method, '_is_action') and method._is_action:
+                # 存储已绑定的方法（直接可调用）
+                self.action_registry[name] = getattr(self, name)
+```
+
+**关键改进：**
+- ✅ 使用 `action_registry` 代替 `actions_map`
+- ✅ 存储已绑定的方法（直接调用），无需动态绑定
+- ✅ 统一扫描机制（BaseAgent 和 MicroAgent 相同）
+- ✅ `self` 始终指向最终实例
+
+## 测试方法
+
+### 方法 1：集成测试（推荐）
+
+**适用场景：** 测试 Skill 与 MicroAgent 的集成
 
 ```python
 """
-测试 [Skill名称] 的 [具体功能]
+测试 FileSkill（新架构）
 
-设计原则：
-1. 继承 BaseAgent 获得基础框架
-2. 继承 SkillMixin 获得目标功能
-3. 只注入测试数据，不实现业务逻辑
+集成测试：验证 Skill 与 MicroAgent 的完整集成
 """
+
+import asyncio
+import sys
+import tempfile
+from pathlib import Path
+
+# 添加项目路径
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+from agentmatrix.agents.micro_agent import MicroAgent
+from agentmatrix.core.working_context import WorkingContext
+from agentmatrix.core.log_util import AutoLoggerMixin
+
+
+class MockParent(AutoLoggerMixin):
+    """模拟 parent Agent（BaseAgent）"""
+
+    _log_from_attr = "name"
+
+    def __init__(self):
+        self.name = "MockParent"
+        self._init_logger()
+
+        # 模拟 BaseAgent 的属性
+        self.brain = None
+        self.cerebellum = None
+        self.working_context = None
+
+        # 注册 Skill（测试环境需要手动注册）
+        from agentmatrix.skills.file_skill import FileSkillMixin
+        from agentmatrix.skills.registry import SKILL_REGISTRY
+        SKILL_REGISTRY.register_python_mixin("file", FileSkillMixin)
+
+    def _get_log_context(self):
+        return {"name": self.name}
+
+
+async def test_file_skill():
+    """测试 FileSkill 功能"""
+
+    # 1. 创建临时工作目录
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+
+        # 创建测试文件
+        test_file = temp_path / "test.txt"
+        test_file.write_text("Hello, World!")
+
+        # 创建 WorkingContext
+        working_context = WorkingContext(
+            base_dir=str(temp_path),
+            current_dir=str(temp_path)
+        )
+
+        # 2. 创建 Mock Parent
+        mock_parent = MockParent()
+
+        # 3. 创建 MicroAgent（新架构：动态继承 FileSkillMixin）
+        micro_agent = MicroAgent(
+            parent=mock_parent,
+            working_context=working_context,
+            name="TestAgent",
+            available_skills=["file"]  # 🆕 新架构参数
+        )
+
+        # 4. 验证继承链
+        from agentmatrix.skills.file_skill import FileSkillMixin
+        assert isinstance(micro_agent, FileSkillMixin)
+
+        # 5. 测试 actions
+        result = await micro_agent.list_dir()
+        assert "test.txt" in result
+
+        result = await micro_agent.read("test.txt")
+        assert "Hello, World!" in result
+
+        print("✅ 所有测试通过！")
+
+
+if __name__ == "__main__":
+    asyncio.run(test_file_skill())
+```
+
+### 方法 2：单元测试（Skill 独立测试）
+
+**适用场景：** 只测试 Skill 的单个方法
+
+```python
+"""
+测试 FileSkill 单元功能
+"""
+
+import asyncio
+import sys
+import tempfile
+from pathlib import Path
+
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+from agentmatrix.skills.file_skill import FileSkillMixin
+from agentmatrix.core.working_context import WorkingContext
+from agentmatrix.core.log_util import AutoLoggerMixin
+
+
+class TestAgent(AutoLoggerMixin, FileSkillMixin):
+    """测试 Agent：直接继承 Skill Mixin"""
+
+    _log_from_attr = "name"
+
+    def __init__(self, working_context):
+        self.name = "TestAgent"
+        self._init_logger()
+        self.working_context = working_context
+
+    def _get_log_context(self):
+        return {"name": self.name}
+
+
+async def test_file_read():
+    """测试文件读取"""
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # 创建测试文件
+        test_file = Path(temp_dir) / "test.txt"
+        test_file.write_text("Test Content")
+
+        # 创建 WorkingContext
+        working_context = WorkingContext(
+            base_dir=temp_dir,
+            current_dir=temp_dir
+        )
+
+        # 创建测试 Agent
+        agent = TestAgent(working_context)
+
+        # 测试 read action
+        result = await agent.read("test.txt")
+        assert "Test Content" in result
+
+        print("✅ 单元测试通过！")
+
+
+if __name__ == "__main__":
+    asyncio.run(test_file_read())
+```
+
+### 方法 3：验证 Lazy Load
+
+**适用场景：** 验证 Lazy Load 机制工作正常
+
+```python
+"""
+测试 Lazy Load 机制
+"""
+
+import sys
+from pathlib import Path
+
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+from agentmatrix.skills.registry import SKILL_REGISTRY
+
+
+def test_lazy_load():
+    """测试 Lazy Load 机制"""
+
+    print("=" * 60)
+    print("测试 Lazy Load 机制")
+    print("=" * 60)
+
+    # 1. 初始状态为空
+    print("\n1️⃣ 初始状态（应该为空）:")
+    print(f"   Python Mixins: {list(SKILL_REGISTRY._python_mixins.keys())}")
+    assert len(SKILL_REGISTRY._python_mixins) == 0
+
+    # 2. Lazy load "file" skill
+    print("\n2️⃣ Lazy load \"file\" skill:")
+    result = SKILL_REGISTRY.get_skills(["file"])
+    print(f"   结果: {result}")
+    assert "file" in SKILL_REGISTRY._python_mixins
+    assert len(result.python_mixins) == 1
+
+    # 3. Lazy load "browser" skill
+    print("\n3️⃣ Lazy load \"browser\" skill:")
+    result = SKILL_REGISTRY.get_skills(["browser"])
+    print(f"   结果: {result}")
+    assert "browser" in SKILL_REGISTRY._python_mixins
+
+    # 4. 缓存测试（第二次加载应该使用缓存）
+    print("\n4️⃣ 缓存测试（第二次加载 \"file\"）:")
+    result = SKILL_REGISTRY.get_skills(["file"])
+    print(f"   结果: {result} (应该直接从缓存获取)")
+
+    # 5. 加载不存在的 skill
+    print("\n5️⃣ 加载不存在的 skill (\"nonexistent\"):")
+    result = SKILL_REGISTRY.get_skills(["nonexistent"])
+    print(f"   结果: {result}")
+    assert len(result.failed_skills) == 1
+    assert "nonexistent" in result.failed_skills
+
+    print("\n" + "=" * 60)
+    print("✅ Lazy Load 机制测试完成！")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    test_lazy_load()
+```
+
+## 新旧架构对比
+
+### 旧架构
+
+```python
+# ❌ Hardcode 注册
+class BaseAgent:
+    def _register_new_skills(self):
+        from ..skills.file_skill import FileSkillMixin
+        from ..skills.browser_skill import BrowserSkillMixin
+
+        SKILL_REGISTRY.register_python_mixin("file", FileSkillMixin)
+        SKILL_REGISTRY.register_python_mixin("browser", BrowserSkillMixin)
+
+# ❌ 动态绑定
+def _execute_action(self, action_name):
+    raw_method = self.actions_map[action_name]
+    bound_method = types.MethodType(raw_method, self)  # 重新绑定
+    return bound_method(**kwargs)
+```
+
+**问题：**
+- ❌ Hardcode：添加新 skill 需要修改 BaseAgent
+- ❌ 复杂：需要动态绑定，self 指向混乱
+- ❌ 不灵活：无法支持未来的 MD Document Skills
+
+### 新架构
+
+```python
+# ✅ Lazy Load
+SKILL_REGISTRY.get_skills(["file", "browser"])
+# 自动导入：agentmatrix.skills.file_skill.FileSkillMixin
+
+# ✅ 直接调用（已绑定的方法）
+def _execute_action(self, action_name):
+    method = self.action_registry[action_name]
+    return method(**kwargs)  # 直接调用，无需重新绑定
+```
+
+**优势：**
+- ✅ Lazy Load：按名字自动发现，无需 hardcode
+- ✅ 简单：直接调用已绑定的方法
+- ✅ 统一：BaseAgent 和 MicroAgent 使用相同机制
+- ✅ 扩展性：同时支持 Python Mixin 和 MD Document Skills
+
+## 完整示例：创建新 Skill
+
+### 1. 创建 Skill 文件
+
+```python
+# src/agentmatrix/skills/my_custom_skill.py
+
+from ..core.action import register_action
+
+class MyCustomSkillMixin:
+    """自定义技能 Mixin"""
+
+    @register_action(
+        description="做一个自定义操作",
+        param_infos={
+            "param1": "参数1说明",
+            "param2": "参数2说明（可选）"
+        }
+    )
+    async def custom_action(self, param1: str, param2: str = None) -> str:
+        """
+        执行自定义操作
+
+        Args:
+            param1: 必需参数
+            param2: 可选参数
+
+        Returns:
+            操作结果
+        """
+        # 实现你的逻辑
+        result = f"执行了自定义操作：{param1}"
+        if param2:
+            result += f"，{param2}"
+
+        return result
+```
+
+### 2. 使用新 Skill
+
+```python
+# 在 profile.yml 中配置
+skills:
+  - file
+  - browser
+  - my_custom  # 🆕 添加你的 skill
+```
+
+```python
+# 在代码中使用
+agent = MicroAgent(
+    parent=parent,
+    working_context=working_context,
+    name="MyAgent",
+    available_skills=["file", "browser", "my_custom"]  # 🆕 自动发现并加载
+)
+
+# 直接调用
+result = await agent.custom_action(param1="test")
+```
+
+### 3. 测试新 Skill
+
+```python
+# tests/integration/test_my_custom_skill.py
 
 import asyncio
 import sys
 from pathlib import Path
 
-# 添加项目路径
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from agentmatrix.core.loader import AgentLoader
-from agentmatrix.skills.[skill_module] import [TargetSkillMixin]
-from agentmatrix.agents.base import BaseAgent
+from agentmatrix.agents.micro_agent import MicroAgent
+from agentmatrix.core.working_context import WorkingContext
+from agentmatrix.core.log_util import AutoLoggerMixin
 
 
-class MinimalTestAgent(BaseAgent, [TargetSkillMixin]):
-    """最小化测试 Agent"""
+class MockParent(AutoLoggerMixin):
+    def __init__(self):
+        self.name = "MockParent"
+        self._init_logger()
+        self.brain = None
+        self.cerebellum = None
+        self.working_context = None
 
-    def __init__(self, context: dict, brain, session_folder: str, cerebellum=None, **kwargs):
-        # 1. 调用 BaseAgent 最小初始化
-        minimal_profile = {
-            "name": "TestAgent",
-            "description": "测试功能",
-            "system_prompt": context.get("persona", "")
-        }
-        super().__init__(minimal_profile)
-
-        # 2. 注入测试数据（关键！）
-        self._session_context = context  # 替代 current_session
-        self.brain = brain
-        self.cerebellum = cerebellum  # 可选：使用 MicroAgent 的 Skill 需要
-        self.current_session_folder = session_folder
-
-        # 3. 注入 Skill 需要的数据
-        for key, value in kwargs.items():
-            if key == "notebook":
-                self._transient_context = {"notebook": value}
-            else:
-                setattr(self, key, value)
-
-        # 4. 设置 workspace_root（如果 Skill 需要文件操作）
-        self.workspace_root = str(Path(session_folder).parent.parent)
-
-    # 接口实现：返回测试数据（而不是真实 session）
-    def get_session_context(self):
-        """返回测试 context"""
-        return self._session_context
-
-    async def update_session_context(self, **kwargs):
-        """更新测试 context（内存，不持久化）"""
-        self._session_context.update(kwargs)
+        # 注册新 skill
+        from agentmatrix.skills.my_custom_skill import MyCustomSkillMixin
+        from agentmatrix.skills.registry import SKILL_REGISTRY
+        SKILL_REGISTRY.register_python_mixin("my_custom", MyCustomSkillMixin)
 
 
-async def main():
-    """主测试流程"""
+async def test_my_custom_skill():
+    """测试自定义 Skill"""
 
-    # 1. 配置路径
-    test_session_folder = "/path/to/test/data"
-    llm_config_path = "/path/to/llm_config.json"
-    profile_path = "/path/to/profiles"  # 用于加载环境变量
+    # 创建 WorkingContext
+    working_context = WorkingContext(base_dir="/tmp", current_dir="/tmp")
 
-    # 2. 加载测试数据
-    import json
-    with open(f"{test_session_folder}/context.json", 'r') as f:
-        context = json.load(f)
+    # 创建 Mock Parent
+    mock_parent = MockParent()
 
-    # 3. 加载 Brain
-    loader = AgentLoader(profile_path=profile_path, llm_config_path=llm_config_path)
-    brain = loader._create_llm_client("default_llm")
-
-    # 可选：加载 Cerebellum（Skill 使用 MicroAgent 时需要）
-    cerebellum = None
-    # from agentmatrix.core.cerebellum import Cerebellum
-    # cerebellum_client = loader._create_llm_client("default_slm")
-    # cerebellum = Cerebellum(backend_client=cerebellum_client, agent_name="TestAgent")
-
-    # 4. 创建测试 Agent
-    test_agent = MinimalTestAgent(
-        context=context,
-        brain=brain,
-        session_folder=test_session_folder,
-        cerebellum=cerebellum,  # 可选
-        # Skill 特定数据
-        notebook=Notebook(file_path=f"{test_session_folder}/notebook.json")
+    # 创建 MicroAgent（包含自定义 skill）
+    agent = MicroAgent(
+        parent=mock_parent,
+        working_context=working_context,
+        name="TestAgent",
+        available_skills=["my_custom"]
     )
 
-    # 5. 执行测试
-    result = await test_agent.[目标方法]()
+    # 测试自定义 action
+    result = await agent.custom_action(param1="test", param2="extra")
+    assert "test" in result
+    assert "extra" in result
 
-    print(f"✅ 测试完成，结果: {result}")
+    print("✅ 自定义 Skill 测试通过！")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(test_my_custom_skill())
 ```
 
-## 关键步骤详解
+## 常见问题
 
-### 步骤1：配置路径
+### Q1: 为什么测试环境需要手动注册 Skill？
+
+**A:** 测试环境不经过完整的 BaseAgent 初始化流程，所以需要手动注册。生产环境中，SKILL_REGISTRY 会自动 Lazy Load。
+
+### Q2: 如何确认 Skill 被正确加载？
+
+**A:** 检查继承链：
 
 ```python
-test_session_folder  # 测试数据目录（包含 context.json, notebook.json 等）
-llm_config_path      # LLM 配置文件
-profile_path         # Agent profiles 目录（用于加载环境变量）
+from agentmatrix.skills.file_skill import FileSkillMixin
+
+assert isinstance(agent, FileSkillMixin)
+print(agent.__class__.__mro__)
+# (DynamicAgent_Agent, MicroAgent, FileSkillMixin, ...)
 ```
 
-### 步骤2：加载数据
+### Q3: 如何测试加载失败的 Skill？
+
+**A:** 检查 `failed_skills`：
 
 ```python
-# Session context（必须）
-context = json.load(open("context.json"))
-
-# Skill 特定数据（如 Notebook）
-from agentmatrix.skills.deep_researcher_helper import Notebook
-notebook = Notebook(file_path="notebook.json")
+result = SKILL_REGISTRY.get_skills(["nonexistent"])
+assert "nonexistent" in result.failed_skills
 ```
 
-### 步骤3：加载 Brain
+### Q4: 如何同时测试多个 Skills？
+
+**A:** 在 `available_skills` 中指定多个：
 
 ```python
-loader = AgentLoader(profile_path=profile_path, llm_config_path=llm_config_path)
-brain = loader._create_llm_client("default_llm")
-
-# 可选：加载 Cerebellum（Skill 使用 MicroAgent 时需要）
-cerebellum = None
-# from agentmatrix.core.cerebellum import Cerebellum
-# cerebellum_client = loader._create_llm_client("default_slm")
-# cerebellum = Cerebellum(backend_client=cerebellum_client, agent_name="TestAgent")
-```
-
-**LLM 配置选择**：
-- `default_llm` - 大语言模型（推理用）
-- `default_slm` - 小语言模型（快速任务、参数协商）
-- `default_vision` - 视觉模型
-
-### 步骤4：创建 Agent
-
-```python
-test_agent = MinimalTestAgent(
-    context=context,
-    brain=brain,
-    session_folder=test_session_folder,
-    notebook=notebook  # Skill 特定数据
+agent = MicroAgent(
+    parent=mock_parent,
+    working_context=working_context,
+    name="TestAgent",
+    available_skills=["file", "browser"]  # 多个 skills
 )
-```
-
-### 步骤5：执行测试
-
-```python
-result = await test_agent.[目标方法]()
-```
-
-## 最小化实现清单
-
-测试 Agent **必须实现**的方法：
-
-```python
-def get_session_context(self):
-    """返回测试 context（必须）"""
-    return self._session_context
-```
-
-**可选实现**：
-
-```python
-async def update_session_context(self, **kwargs):
-    """更新测试 context（如果 Skill 会更新 context）"""
-    self._session_context.update(kwargs)
-```
-
-**BaseAgent 已提供，无需实现**：
-- ✅ `get_transient(key)` - 从 `self.transient_context` 读取
-- ✅ `set_transient(key, value)` - 写入 `self.transient_context`
-- ✅ `get_session_folder()` - 返回 session 文件夹
-
-## 实战案例：test_writing_loop.py
-
-### 测试目标
-测试 `DeepResearcherMixin._writing_loop()` 方法
-
-### 完整实现
-
-```python
-class MinimalTestAgent(BaseAgent, DeepResearcherMixin):
-    def __init__(self, context, notebook, brain, session_folder, cerebellum=None):
-        # 调用 BaseAgent 最小初始化
-        minimal_profile = {
-            "name": "TestWriter",
-            "description": "测试 writing loop",
-            "system_prompt": context.get("researcher_persona", "")
-        }
-        super().__init__(minimal_profile)
-
-        # 注入测试数据
-        self._session_context = context
-        self._notebook = notebook
-        self.brain = brain
-        self.cerebellum = cerebellum  # DeepResearcher 暂不需要，但保留接口
-        self._session_folder = session_folder
-        self._transient_context = {"notebook": notebook}
-        self.workspace_root = str(Path(session_folder).parent.parent)
-
-    def get_session_context(self):
-        return self._session_context
-
-    async def update_session_context(self, **kwargs):
-        self._session_context.update(kwargs)
-        self.logger.info(f"✓ Session context updated: {list(kwargs.keys())}")
-
-    def get_session_folder(self):
-        return self._session_folder
-```
-
-### 执行测试
-
-```python
-# 加载数据
-context = json.load(open("context.json"))
-notebook = Notebook(file_path="notebook.json")
-
-# 加载 Brain
-loader = AgentLoader(profile_path="/path/to/profiles", llm_config_path="/path/to/llm_config.json")
-brain = loader._create_llm_client("default_llm")
-
-# 创建测试 Agent
-test_agent = MinimalTestAgent(context, notebook, brain, test_session_folder)
-
-# 执行测试
-result = await test_agent._writing_loop()
-```
-
-## 数据注入模式
-
-### 模式 A：基础数据注入
-
-```python
-def __init__(self, context, brain, session_folder, cerebellum=None):
-    super().__init__(minimal_profile)
-
-    self._session_context = context
-    self.brain = brain
-    self.cerebellum = cerebellum  # 可选
-    self._session_folder = session_folder
-    self.workspace_root = str(Path(session_folder).parent.parent)
-```
-
-### 模式 B：Skill 数据注入（transient_context）
-
-```python
-def __init__(self, context, notebook, brain, session_folder, cerebellum=None):
-    # ... 基础初始化 ...
-
-    # Skill 需要的数据放入 transient_context
-    self._transient_context = {"notebook": notebook}
-```
-
-### 模式 C：混合注入（推荐）
-
-```python
-def __init__(self, context, notebook, brain, session_folder, cerebellum=None, **kwargs):
-    super().__init__(minimal_profile)
-
-    # 基础数据
-    self._session_context = context
-    self.brain = brain
-    self.cerebellum = cerebellum  # 可选
-    self._session_folder = session_folder
-    self.workspace_root = str(Path(session_folder).parent.parent)
-
-    # Skill 特定数据（通过 kwargs）
-    for key, value in kwargs.items():
-        if key == "notebook":
-            self._transient_context = {"notebook": value}
-        else:
-            setattr(self, key, value)
-```
-
-## 快速检查清单
-
-测试代码编写完成后，检查：
-
-- [ ] 是否继承了 `BaseAgent` 和目标 `SkillMixin`？
-- [ ] 是否调用了 `super().__init__(minimal_profile)`？
-- [ ] 是否注入了 `brain`？
-- [ ] **是否注入了 `cerebellum`（Skill 使用 MicroAgent 时需要）？**
-- [ ] 是否注入了 `_session_context` 或 `current_session_folder`？
-- [ ] 是否实现了 `get_session_context()`？
-- [ ] 是否设置了 `workspace_root`（如果 Skill 需要文件操作）？
-- [ ] Skill 需要的数据（如 notebook）是否已注入？
-
-## 调试技巧
-
-### 1. 打印章节映射（验证数据加载）
-
-```python
-# 在 Skill 方法中添加日志
-self.logger.info(f"📋 章节映射：")
-for name, heading in chapter_heading_map.items():
-    self.logger.info(f"  {heading:40s} <- {name}")
-```
-
-### 2. 检查方法是否被调用
-
-```python
-def get_session_context(self):
-    print(f"DEBUG: get_session_context called, returning {len(self._session_context)} keys")
-    return self._session_context
-```
-
-### 3. 验证继承关系
-
-```python
-# 打印 MRO（Method Resolution Order）
-print(MinimalTestAgent.__mro__)
-# 应该看到：(MinimalTestAgent, BaseAgent, DeepResearcherMixin, ...)
-```
-
-### 4. 检查数据注入
-
-```python
-# 在 __init__ 后打印
-print(f"DEBUG: _session_context has {len(self._session_context)} keys")
-print(f"DEBUG: _transient_context has {len(self._transient_context)} keys")
-print(f"DEBUG: brain = {self.brain}")
-print(f"DEBUG: _session_folder = {self._session_folder}")
-```
-
-## 常见问题 FAQ
-
-### Q: 如何处理环境变量？
-
-A: 使用 `AgentLoader` 加载 profile_path，它会自动加载 `.env` 文件：
-
-```python
-loader = AgentLoader(profile_path="/path/to/profiles", llm_config_path="/path/to/llm_config.json")
-```
-
-### Q: 如何复用现有测试数据？
-
-A: 直接使用已存在的 session 文件夹：
-
-```python
-test_session_folder = "/path/to/existing/session"
-context = json.load(open(f"{test_session_folder}/context.json"))
-```
-
-
-### Q: 如何 Mock Brain 响应？
-
-A: 创建 Mock LLMClient（适用于单元测试）：
-
-```python
-class MockLLMClient:
-    async def think(self, messages):
-        return {"reply": "测试响应"}
 ```
 
 ## 总结
 
-### 核心原则
+**新架构核心优势：**
+1. **Lazy Load**：按需加载，无需 hardcode
+2. **动态组合**：运行时动态继承 Skill Mixins
+3. **统一机制**：BaseAgent 和 MicroAgent 使用相同的 action 扫描
+4. **简化调用**：直接调用已绑定方法，无需动态绑定
+5. **易于扩展**：添加新 skill 只需创建文件，无需修改现有代码
 
-1. **继承 BaseAgent**：获得完整的基础框架
-2. **继承 SkillMixin**：获得目标功能
-3. **注入测试数据**：通过属性注入，不实现业务逻辑
-4. **最小化实现**：只实现 `get_session_context()` 等必要接口
-
-### 设计优势
-
-- ✅ **避免复制代码**：直接使用现有实现
-- ✅ **自动同步改进**：原代码优化自动受益
-- ✅ **维护简单**：无需两边修改
-- ✅ **测试真实**：最接近实际使用场景
-
-### 使用流程
-
-1. 复制本文档的代码模板
-2. 修改 Skill 模块和类名
-3. 修改测试数据路径
-4. 运行测试
-
-**不再需要**：从头研究如何加载 LLM、如何创建 Agent、如何实现接口等。
+**测试要点：**
+1. 集成测试：验证 Skill 与 MicroAgent 的集成
+2. 单元测试：直接继承 Skill Mixin 进行测试
+3. Lazy Load 测试：验证按名字自动发现机制
