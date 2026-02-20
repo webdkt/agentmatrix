@@ -59,6 +59,8 @@ class AgentMatrix(AutoLoggerMixin):
         self._prepare_agents()
         self.echo(">>> 加载世界状态...")
         self.load_matrix()
+        self.echo(">>> 启动 LLM 服务监控...")
+        self._start_llm_monitor()
 
     def get_user_agent_name(self) -> str:
         """Get the configured user agent name"""
@@ -96,11 +98,54 @@ class AgentMatrix(AutoLoggerMixin):
         for agent in self.agents.values():
             agent.async_event_callback = self.async_event_callback
 
+        # 保存 loader 以获取 llm_config（用于创建监控器）
+        self.loader = loader
+        self.llm_monitor = None
+        self.monitor_task = None
+
+    def _start_llm_monitor(self):
+        """启动 LLM 服务监控器"""
+        from .service_monitor import LLMServiceMonitor
+
+        # 获取 llm_config
+        llm_config = self.loader.llm_config
+
+        # 创建监控器
+        self.llm_monitor = LLMServiceMonitor(
+            llm_config=llm_config,
+            check_interval=60,  # 每分钟检查一次
+            parent_logger=self.logger
+        )
+
+        # 启动监控任务
+        self.monitor_task = asyncio.create_task(self.llm_monitor.start())
+
+        # 为每个 Agent 注入 runtime 引用
+        for agent in self.agents.values():
+            agent.runtime = self
+
+        self.echo(f">>> LLM Service Monitor started (interval: 60s)")
+
 
 
     async def save_matrix(self):
         """一键休眠"""
         self.echo(">>> 正在冻结世界...")
+
+        # 1. 先停止 LLM 监控器
+        if self.llm_monitor:
+            await self.llm_monitor.stop()
+            self.echo(">>> LLM monitor stopped")
+
+        if self.monitor_task:
+            self.monitor_task.cancel()
+            try:
+                await self.monitor_task
+            except asyncio.CancelledError:
+                pass
+            self.monitor_task = None
+
+        # 2. 暂停邮局
         self.post_office.pause()
         # 2. 取消所有正在运行的agent任务
         for task in self.running_agent_tasks:

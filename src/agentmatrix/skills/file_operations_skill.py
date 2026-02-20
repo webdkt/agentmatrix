@@ -19,6 +19,77 @@ from typing import Optional
 from ..core.action import register_action
 
 
+# ==================== Bash 安全白名单 ====================
+
+# 分级白名单（Unix）
+BASH_WHITELIST_UNIX = {
+    # ===== 等级 1: 完全安全（无副作用）=====
+    "safe": {
+        # 文本查看
+        "cat", "head", "tail", "less", "more",
+        # 搜索
+        "grep", "egrep", "fgrep",
+        # 排序和统计
+        "sort", "uniq", "wc", "nl",
+        # 文本处理
+        "cut", "tr", "sed", "awk",
+        # 系统信息（只读）
+        "pwd", "date", "whoami", "hostname", "uname",
+        "df", "du", "free", "uptime",
+        # 进程查看
+        "ps", "top",
+        # 文件列表
+        "ls", "ll", "dir",
+        # 回显
+        "echo", "printf",
+    },
+
+    # ===== 等级 2: 需要参数限制（有文件操作）=====
+    "restricted": {
+        # 创建目录
+        "mkdir",
+        # 创建文件
+        "touch",
+        # 删除文件（需要额外检查）
+        "rm",
+        # 复制/移动（需要路径检查）
+        "cp", "mv",
+        # 压缩
+        "tar", "gzip", "gunzip", "zip", "unzip",
+        # 权限（需要严格限制）
+        "chmod",
+        # 查找文件
+        "find",
+        # 链接
+        "ln",
+    },
+
+    # ===== 等级 3: 需要谨慎使用（开发工具）=====
+    "caution": {
+        # 开发工具
+        "python3", "python", "node",
+        # 版本控制
+        "git",
+        # 网络工具
+        "curl", "wget",
+        # 包管理
+        "pip", "pip3", "npm",
+    },
+}
+
+# 白名单（Windows）
+BASH_WHITELIST_WINDOWS = {
+    "safe": {
+        "dir", "type", "echo",
+        "findstr", "where",
+    },
+    "restricted": {
+        "mkdir", "del", "copy", "move", "ren",
+    },
+}
+
+
+
 class FileOperationSkillMixin:
     """
     File Operation Skill Mixin (新版本)
@@ -208,25 +279,50 @@ class FileOperationSkillMixin:
             return await target_agent._search_unix(pattern, target, directory, recursive, working_context)
 
     @register_action(
-        description="执行 shell 命令（仅限白名单命令）",
+        description="""执行 bash 命令或脚本
+""",
         param_infos={
-            "command": "要执行的 shell 命令"
+            "command": "bash 命令或脚本（多行脚本用 \\n 分隔）",
+            "timeout": "超时时间（秒，默认30）"
         }
     )
-    async def shell_cmd(self, command: str) -> str:
+    async def bash(self, command: str, timeout: int = 30) -> str:
         """
-        直接执行 shell 命令（仅限白名单命令）
-
-        白名单命令：ls, cat, grep, sed, find (Unix) 或 dir, type, findstr (Windows)
+        执行 bash 命令或脚本（安全模式）
 
         Args:
-            command: shell 命令
+            command: bash 命令或脚本
+            timeout: 超时时间（秒，默认30）
+
+        Returns:
+            执行结果
         """
-        # 根据平台选择实现（传入 working_context）
-        if platform.system() == "Windows":
-            return await self.root_agent._shell_cmd_windows(command, self.working_context)
+        # 通过 root_agent 访问辅助方法
+        if hasattr(self, 'root_agent'):
+            target = self.root_agent
         else:
-            return await self.root_agent._shell_cmd_unix(command, self.working_context)
+            # self 是 BaseAgent，直接调用
+            target = self
+
+        # 1. 预处理：移除注释
+        cleaned_command = target._remove_bash_comments(command)
+
+        # 2. 语法检查（仅 Unix）
+        if platform.system() != "Windows":
+            is_valid, syntax_error = await target._validate_bash_syntax(cleaned_command)
+            if not is_valid:
+                return f"❌ 脚本语法错误：\n{syntax_error}"
+
+        # 3. 命令白名单验证
+        is_allowed, allow_error = await target._validate_bash_command(cleaned_command)
+        if not is_allowed:
+            return f"❌ 命令验证失败：\n{allow_error}"
+
+        # 4. 执行命令（根据平台选择实现）
+        if platform.system() == "Windows":
+            return await target._bash_windows(cleaned_command, self.working_context, timeout)
+        else:
+            return await target._bash_unix(cleaned_command, self.working_context, timeout)
 
     @register_action(
         description="字符串替换：在文件中查找并替换字符串。",
@@ -252,6 +348,169 @@ class FileOperationSkillMixin:
             return await self.root_agent._string_replace_windows(file_path, old_pattern, new_string, use_regex, self.working_context)
         else:
             return await self.root_agent._string_replace_unix(file_path, old_pattern, new_string, use_regex, self.working_context)
+
+    # ==================== 辅助方法（Bash 安全）====================
+
+    def _remove_bash_comments(self, script: str) -> str:
+        """
+        移除 bash 脚本中的注释行
+
+        规则：
+        - 保留 shebang (#!)
+        - 移除以 # 开头的行
+        - 移除行尾的 # 注释
+        - 保留字符串中的 #
+        """
+        lines = []
+        for line in script.split('\n'):
+            # 保留 shebang
+            if line.strip().startswith('#!'):
+                lines.append(line)
+                continue
+
+            # 移除注释行
+            stripped = line.strip()
+            if stripped.startswith('#'):
+                continue
+
+            # 移除行尾注释（但要小心字符串中的 #）
+            # 简化版：只在非引号内的 # 移除
+            in_single_quote = False
+            in_double_quote = False
+            result = []
+            i = 0
+            while i < len(line):
+                char = line[i]
+                if char == "'" and not in_double_quote and (i == 0 or line[i-1] != '\\'):
+                    in_single_quote = not in_single_quote
+                elif char == '"' and not in_single_quote and (i == 0 or line[i-1] != '\\'):
+                    in_double_quote = not in_double_quote
+                elif char == '#' and not in_single_quote and not in_double_quote:
+                    # 找到注释，跳过剩余部分
+                    break
+                result.append(char)
+                i += 1
+
+            cleaned = ''.join(result).rstrip()
+            if cleaned:
+                lines.append(cleaned)
+
+        return '\n'.join(lines)
+
+    async def _validate_bash_syntax(self, script: str) -> tuple[bool, str]:
+        """
+        验证 bash 脚本语法
+
+        Returns:
+            (is_valid, error_message)
+        """
+        import subprocess
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+            f.write(script)
+            temp_path = f.name
+
+        try:
+            result = subprocess.run(
+                ['bash', '-n', temp_path],  # -n 只检查语法，不执行
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode == 0:
+                return True, ""
+            else:
+                return False, result.stderr
+        except subprocess.TimeoutExpired:
+            return False, "语法检查超时"
+        except FileNotFoundError:
+            # bash 不存在（可能是 Windows），跳过检查
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+        finally:
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+
+    async def _validate_bash_command(self, command: str) -> tuple[bool, str]:
+        """
+        验证 bash 命令是否在白名单中
+
+        Returns:
+            (is_allowed, error_message)
+        """
+        # 获取平台对应的白名单
+        if platform.system() == "Windows":
+            whitelist = BASH_WHITELIST_WINDOWS
+        else:
+            whitelist = BASH_WHITELIST_UNIX
+
+        # 解析命令中的所有命令（处理管道、分号等）
+        commands = self._parse_command_tokens(command)
+
+        if not commands:
+            return True, ""  # 空命令
+
+        # 检查每个命令
+        for cmd_name in commands:
+            # 检查是否在白名单中
+            if cmd_name in whitelist.get("safe", set()):
+                continue  # 等级1：完全允许
+
+            elif cmd_name in whitelist.get("restricted", set()):
+                # 等级2：允许但需要参数检查
+                # 简化：暂不检查参数，只检查命令名
+                continue
+
+            elif cmd_name in whitelist.get("caution", set()):
+                # 等级3：谨慎使用，但允许
+                continue
+
+            else:
+                # 不在白名单
+                return False, f"命令 '{cmd_name}' 不在白名单中。\n提示：只允许使用安全的文件和文本处理命令。"
+
+        return True, ""
+
+    def _parse_command_tokens(self, command: str) -> list:
+        """
+        解析命令，提取所有命令名
+
+        处理：
+        - 管道 |
+        - 分号 ;
+        - 逻辑运算 &&, ||
+        - 重定向 >, >>, <
+
+        Returns:
+            list of command names
+        """
+        import re
+
+        # 移除重定向（简化处理）
+        # 替换重定向为空格
+        command = re.sub(r'[<>][<>?\s]', ' ', command)
+
+        # 按管道、分号、逻辑运算分割
+        separators = r'\s*[|;]\s*|\s&&\s*|\s\|\|\s*'
+        parts = re.split(separators, command)
+
+        # 提取每个部分的命令名
+        commands = []
+        for part in parts:
+            part = part.strip()
+            if part:
+                # 分割单词，取第一个作为命令名
+                words = part.split()
+                if words:
+                    cmd_name = words[0]
+                    commands.append(cmd_name)
+
+        return commands
 
     # ==================== Unix 实现 ====================
 
@@ -354,10 +613,10 @@ class FileOperationSkillMixin:
                 f.write(content)
 
             mode_desc = '追加到' if mode == 'append' else '写入'
-            return f"> 成功{mode_desc}文件: {abs_path}\n"
+            return f"> 成功{mode_desc} {file_path}\n"
 
         except Exception as e:
-            return f"> 写入文件失败: {e}\n  文件路径: {abs_path}"
+            return f"> 写入{file_path}失败: {e}"
 
     async def _search_unix(self, pattern: str, target: str, directory: Optional[str], recursive: bool, working_context) -> str:
         """Unix 搜索实现"""
@@ -378,16 +637,10 @@ class FileOperationSkillMixin:
 
         return await self._run_shell_unix(cmd, f"搜索: {pattern}", working_context, enable_limit=True)
 
-    async def _shell_cmd_unix(self, command: str, working_context) -> str:
-        """Unix 执行 shell 命令实现"""
-        # 白名单检查
-        whitelist = {'ls', 'cat', 'head', 'tail', 'sed', 'grep', 'find', 'echo', 'wc', 'mkdir'}
-        cmd_parts = command.split()
-        if not cmd_parts or cmd_parts[0] not in whitelist:
-            return f"错误：命令 '{cmd_parts[0] if cmd_parts else ''}' 不在白名单中"
-
+    async def _bash_unix(self, command: str, working_context, timeout: int = 30) -> str:
+        """Unix 执行 bash 命令实现"""
         # 执行命令（使用 working_context.current_dir 作为工作目录）
-        return await self._run_shell_unix(command, f"执行命令: {command}", working_context)
+        return await self._run_shell_unix(command, f" ", working_context, timeout=timeout)
 
     async def _string_replace_unix(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool, working_context) -> str:
         """Unix 字符串替换实现"""
@@ -416,12 +669,7 @@ class FileOperationSkillMixin:
             old_preview = old_pattern[:20] + "..." if len(old_pattern) > 20 else old_pattern
             new_preview = new_string[:20] + "..." if len(new_string) > 20 else new_string
 
-            return f"""> 已替换 '{file_path}'
-
-旧字符串：{old_preview}
-新字符串：{new_preview}
-
-使用正则：{use_regex}"""
+            return f"""字符串已替换"""
 
         except Exception as e:
             return f"❌ 替换失败：{str(e)}"
@@ -546,16 +794,10 @@ class FileOperationSkillMixin:
 
         return await self._run_shell_windows(cmd, f"搜索: {pattern}", working_context, enable_limit=True)
 
-    async def _shell_cmd_windows(self, command: str, working_context) -> str:
+    async def _bash_windows(self, command: str, working_context, timeout: int = 30) -> str:
         """Windows 执行 shell 命令实现"""
-        # 白名单检查
-        whitelist = {'dir', 'type', 'findstr', 'echo', 'mkdir'}
-        cmd_parts = command.split()
-        if not cmd_parts or cmd_parts[0] not in whitelist:
-            return f"错误：命令 '{cmd_parts[0] if cmd_parts else ''}' 不在白名单中"
-
         # 执行命令（使用 working_context.current_dir 作为工作目录）
-        return await self._run_shell_windows(command, f"执行命令: {command}", working_context)
+        return await self._run_shell_windows(command, f"执行命令: {command}", working_context, timeout=timeout)
 
     async def _string_replace_windows(self, file_path: str, old_pattern: str, new_string: str, use_regex: bool, working_context) -> str:
         """Windows 字符串替换实现"""
@@ -584,12 +826,7 @@ class FileOperationSkillMixin:
             old_preview = old_pattern[:20] + "..." if len(old_pattern) > 20 else old_pattern
             new_preview = new_string[:20] + "..." if len(new_string) > 20 else new_string
 
-            return f"""> 已替换 '{file_path}'
-
-旧字符串：{old_preview}
-新字符串：{new_preview}
-
-使用正则：{use_regex}"""
+            return f"""内容已替换 """
 
         except Exception as e:
             return f"❌ 替换失败：{str(e)}"
@@ -669,7 +906,7 @@ class FileOperationSkillMixin:
 
         if total_lines <= max_lines:
             # 输出较小，直接返回
-            return f"> {description}\n{output}"
+            return f"{output}"
 
         # 输出过大，需要截断
         preview_lines = lines[:max_lines]
@@ -691,7 +928,7 @@ class FileOperationSkillMixin:
             size_str = f"{file_size / (1024 * 1024):.1f}MB"
 
         # 显示结果
-        return f"> {description}\n{preview_output}\n\n# 输出已截断（共 {total_lines} 行，{size_str}）\n# 完整输出已保存到: {temp_path}\n# 查看完整输出: cat {temp_path}"
+        return f"{preview_output}\n\n# 输出已截断（共 {total_lines} 行，{size_str}）\n# 完整输出已保存到: {temp_path}\n# 查看完整输出: cat {temp_path}"
 
     def _resolve_path(self, file_path: str, working_context) -> str:
         """
@@ -722,7 +959,7 @@ class FileOperationSkillMixin:
 
         return abs_path
 
-    async def _run_shell_unix(self, cmd: str, description: str, working_context, enable_limit: bool = False) -> str:
+    async def _run_shell_unix(self, cmd: str, description: str, working_context, enable_limit: bool = False, timeout: int = 30) -> str:
         """
         执行 Unix shell 命令
 
@@ -731,6 +968,7 @@ class FileOperationSkillMixin:
             description: 描述
             working_context: MicroAgent 的 working_context
             enable_limit: 是否启用输出限制（防爆设计，默认False）
+            timeout: 超时时间（秒，默认30）
         """
         try:
             import subprocess
@@ -739,14 +977,15 @@ class FileOperationSkillMixin:
                 shell=True,
                 capture_output=True,
                 text=True,
-                cwd=working_context.current_dir  # 使用 MicroAgent 的当前目录
+                cwd=working_context.current_dir,  # 使用 MicroAgent 的当前目录
+                timeout=timeout
             )
             output = result.stdout
             if result.stderr:
                 output += f"\n[错误输出]\n{result.stderr}"
 
             if not output:
-                return f"> {description}（无输出）"
+                return f"Done（无输出）"
 
             # 应用防爆设计
             if enable_limit:
@@ -754,10 +993,12 @@ class FileOperationSkillMixin:
             else:
                 return f"> {description}\n{output}"
 
+        except subprocess.TimeoutExpired:
+            return f"错误：命令执行超时（{timeout}秒）\n  命令: {cmd}"
         except Exception as e:
             return f"错误：执行命令失败: {e}\n  命令: {cmd}"
 
-    async def _run_shell_windows(self, cmd: str, description: str, working_context, enable_limit: bool = False) -> str:
+    async def _run_shell_windows(self, cmd: str, description: str, working_context, enable_limit: bool = False, timeout: int = 30) -> str:
         """
         执行 Windows shell 命令
 
@@ -766,6 +1007,7 @@ class FileOperationSkillMixin:
             description: 描述
             working_context: MicroAgent 的 working_context
             enable_limit: 是否启用输出限制（防爆设计，默认False）
+            timeout: 超时时间（秒，默认30）
         """
         try:
             import subprocess
@@ -774,7 +1016,8 @@ class FileOperationSkillMixin:
                 shell=True,
                 capture_output=True,
                 text=True,
-                cwd=working_context.current_dir  # 使用 MicroAgent 的当前目录
+                cwd=working_context.current_dir,  # 使用 MicroAgent 的当前目录
+                timeout=timeout
             )
             output = result.stdout
             if result.stderr:
@@ -789,6 +1032,8 @@ class FileOperationSkillMixin:
             else:
                 return f"> {description}\n{output}"
 
+        except subprocess.TimeoutExpired:
+            return f"错误：命令执行超时（{timeout}秒）\n  命令: {cmd}"
         except Exception as e:
             return f"错误：执行命令失败: {e}\n  命令: {cmd}"
 

@@ -100,8 +100,8 @@ class Cerebellum(AutoLoggerMixin):
             reasoning_str = response['reasoning']
             reply_str = response['reply']
 
-            self.logger.debug(f"小脑思考：{reasoning_str}")
-            self.logger.debug(f"小脑回复：{reply_str}")
+            #self.logger.debug(f"小脑思考：{reasoning_str}")
+            #self.logger.debug(f"小脑回复：{reply_str}")
 
             raw_content = response['reply'].replace("```json", "").replace("```", "").strip()
 
@@ -111,7 +111,7 @@ class Cerebellum(AutoLoggerMixin):
 
                 if status == "READY":
                     params = decision.get("params", {})
-                    self.logger.debug(f"参数解析成功：{params}")
+                    #self.logger.debug(f"参数解析成功：{params}")
                     return {
                         "action": action_name,
                         "params": params
@@ -146,84 +146,4 @@ class Cerebellum(AutoLoggerMixin):
 
         return {"action": action_name, "params": {}}
 
-    async def negotiate_deprecated(self, initial_intent: str, tools_manifest: str, contacts, brain_callback) -> dict:
-        """
-        [DEPRECATED] 旧的协商方法，用于选择 action 并解析参数
-
-        保留用于向后兼容，建议使用 parse_action_params 代替
-        """
-        system_prompt = textwrap.dedent(f"""
-            You are the Interface Manager (Cerebellum). Your job is to convert User Intent into a Function Call JSON.
-
-            [Available Tools]:
-            {tools_manifest}
-
-            [Available Email Receipients]:
-            {contacts}
-
-            [Instructions]:
-            1. Identify the tool the user wants to use.
-            2. Check if ALL required parameters for that tool are present in the Intent. Rview Intent carefully, find all required parameters and form a proper JSON as output.
-            3. DECISION:
-               - If READY: Output JSON `{{ "status": "READY", "action_json": {{ "action": "name", "params": {{...}} }} }}`
-               - If MISSING PARAM: Output JSON `{{ "status": "ASK", "question": "What is the value for [param_name]?" }}`
-               - If AMBIGUOUS: Output JSON `{{ "status": "ASK", "question": "whatever need to be clarified" }}`
-               - If Not fesible: Output JSON `{{ "status": "NOT_FEASIBLE", "reason": "No matching tool found." }}`
-
-            Output ONLY valid JSON.
-            """)
-
-        initial_intent = textwrap.dedent(f"""[User Intent]:
-            {initial_intent}
-        """)
-        negotiation_history = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": initial_intent}
-        ]
-
-        self.logger.debug(f"开始谈判（已弃用）：{initial_intent}")
-
-        max_turns = 5
-
-        for i in range(max_turns):
-            response = await self.backend.think(messages=negotiation_history)
-            reasoning_str = response['reasoning']
-            reply_str = response['reply']
-
-            self.logger.debug(f"小脑思考：{reasoning_str}")
-            self.logger.debug(f"小脑回复：{reply_str}")
-
-            raw_content = response['reply'].replace("```json", "").replace("```", "").strip()
-
-            try:
-                decision = json.loads(raw_content)
-                status = decision.get("status")
-
-                if status == "READY":
-                    return decision["action_json"]
-
-                elif status == "NOT_FEASIBLE":
-                    question = "Intent is not feasible."
-                    self.logger.debug(question)
-                    answer = await brain_callback(question)
-                    negotiation_history.append({"role": "assistant", "content": "Need clarification."})
-                    negotiation_history.append({"role": "user", "content": answer})
-
-                elif status == "ASK":
-                    question = decision.get("question")
-                    self.logger.debug(question)
-
-                    answer = await brain_callback(question)
-
-                    self.logger.debug(question)
-                    self.logger.debug('[Brain Reply]:' + answer)
-                    negotiation_history.append({"role": "assistant", "content": question})
-                    negotiation_history.append({"role": "user", "content": answer})
-
-                    continue
-
-            except json.JSONDecodeError:
-                if len(negotiation_history) > 2:
-                    negotiation_history.pop()
-
-        return {"action": "_parse_failed", "params": {"error": "Negotiation timeout"}}
+    
