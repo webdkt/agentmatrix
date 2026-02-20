@@ -174,8 +174,13 @@ class MicroAgent(AutoLoggerMixin):
         """
         from ..skills.registry import SKILL_REGISTRY
 
-        # 获取指定的 Mixin 类
-        mixin_classes = SKILL_REGISTRY.get_python_mixins(available_skills)
+        # 使用统一的 get_skills() 接口（Lazy Load）
+        result = SKILL_REGISTRY.get_skills(available_skills)
+        mixin_classes = result.python_mixins
+
+        # 检查加载失败的情况
+        if result.failed_skills:
+            self.logger.warning(f"  ⚠️  以下 Skills 加载失败: {result.failed_skills}")
 
         if not mixin_classes:
             self.logger.warning(f"  ⚠️  没有找到可用的 Skills: {available_skills}")

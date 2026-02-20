@@ -61,7 +61,7 @@ class SkillRegistry:
         """
         根据技能名称列表获取技能（Lazy Load + 统一接口）
 
-        这是新的主要接口，同时支持 Python Mixin 和 MD Document Skills。
+        这是主要接口，同时支持 Python Mixin 和 MD Document Skills。
 
         Lazy Load 流程：
         1. 检查缓存（_python_mixins, _md_actions）
@@ -94,28 +94,6 @@ class SkillRegistry:
                 result.failed_skills.append(name)
 
         return result
-
-    def get_python_mixins(self, skill_names: List[str]) -> List[Type]:
-        """
-        获取指定的 Python Mixin 类（向后兼容接口）
-
-        Args:
-            skill_names: Skill 名称列表
-
-        Returns:
-            List[Type]: Mixin 类列表
-        """
-        result = self.get_skills(skill_names)
-        return result.python_mixins
-
-    def get_md_actions(self, skill_names: List[str]) -> List:
-        """
-        获取指定的 MD Document Actions（向后兼容接口）
-
-        TODO: 实现 MD Document 加载
-        """
-        result = self.get_skills(skill_names)
-        return result.md_actions
 
     def list_registered_skills(self) -> Dict[str, List[str]]:
         """
