@@ -57,7 +57,7 @@ class AgentLoader(AutoLoggerMixin):
         return value
 
     def load_from_file(self, file_path: str) -> Any:
-        """从 YAML 文件加载并实例化一个 Agent (支持动态 Mixin 和属性初始化)"""
+        """从 YAML 文件加载并实例化一个 Agent"""
         self.logger.info(f">>> 加载Agent配置文件 {file_path}...")
         with open(file_path, 'r', encoding='utf-8') as f:
             profile = yaml.safe_load(f)
@@ -66,64 +66,34 @@ class AgentLoader(AutoLoggerMixin):
         module_name = profile["module"]
         class_name = profile["class_name"]
 
-        # 🆕 2. 解析 Mixin 列表（如果配置了）
-        mixin_classes = []
-        if "mixins" in profile and profile["mixins"]:
-            for mixin_path in profile["mixins"]:
-                mixin_module_name, mixin_class_name = mixin_path.rsplit('.', 1)
-                try:
-                    mixin_module = importlib.import_module(mixin_module_name)
-                    mixin_class = getattr(mixin_module, mixin_class_name)
-                    mixin_classes.append(mixin_class)
-                    self.logger.info(f">>> ✅ 加载Mixin: {mixin_path}")
-                except (ImportError, AttributeError) as e:
-                    self.logger.warning(f">>> ⚠️  加载Mixin失败 {mixin_path}: {e}")
-
-        # 🆕 3. 解析属性初始化配置
+        # 2. 解析属性初始化配置
         attribute_inits = profile.pop("attribute_initializations", {})
 
-        # 🆕 4. 解析类属性配置
+        # 3. 解析类属性配置
         class_attrs = profile.pop("class_attributes", {})
 
         # 清理配置中的特殊字段
         del profile["module"]
         del profile["class_name"]
         if "mixins" in profile:
+            # ❌ 旧架构：mixins 已废弃（新架构使用 skills + Lazy Load）
+            self.logger.warning(f">>> ⚠️  配置文件中包含已废弃的 'mixins' 字段，请使用 'skills' 代替")
             del profile["mixins"]
 
-        # 5. 动态导入基础 Agent 类
+        # 4. 动态导入 Agent 类
         try:
             module = importlib.import_module(module_name)
-            base_agent_class = getattr(module, class_name)
+            agent_class = getattr(module, class_name)
         except (ImportError, AttributeError) as e:
             raise ImportError(f"无法加载 Agent 类: {module_name}.{class_name}. 错误: {e}")
 
-        # 🆕 6. 动态创建带 Mixin 的新类
-        if mixin_classes:
-            # 创建新类：DynamicAgent 继承自所有 mixin_classes 和 base_agent_class
-            # 注意：Mixin 必须在 base_agent_class 之前，才能覆盖基类方法
-            # 因为所有 Mixin 都没有 __init__，所以 Base.__init__ 仍会被正常调用
-            dynamic_class_name = f"Dynamic{class_name}"
-            agent_class = type(
-                dynamic_class_name,
-                (*mixin_classes, base_agent_class),  # 继承元组（Mixin 在前）
-                class_attrs  # 🆕 注入类属性
-            )
-            self.logger.info(f">>> 🎨 动态创建Agent类: {dynamic_class_name}")
-            self.logger.info(f">>>    继承链: {' -> '.join([c.__name__ for c in (*mixin_classes, base_agent_class)])}")
-            if class_attrs:
-                self.logger.info(f">>>    类属性: {class_attrs}")
-        else:
-            # 如果没有 Mixin，直接使用原类，但也要设置类属性
-            if class_attrs:
-                for attr_name, attr_value in class_attrs.items():
-                    setattr(base_agent_class, attr_name, attr_value)
-                self.logger.info(f">>>    设置类属性: {class_attrs}")
-            agent_class = base_agent_class
+        # 5. 设置类属性（如果有）
+        if class_attrs:
+            for attr_name, attr_value in class_attrs.items():
+                setattr(agent_class, attr_name, attr_value)
+            self.logger.info(f">>>    设置类属性: {class_attrs}")
 
-        
-
-        # 8. 实例化 Agent
+        # 6. 实例化 Agent
         agent_instance = agent_class(profile.copy())
 
         # ========== 加载日志配置 ==========

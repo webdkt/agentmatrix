@@ -1,22 +1,18 @@
 name: Planner
 description: 一个计划者，能够根据用户的指令生成计划。
-module: agentmatrix.agents.base_agent
+module: agentmatrix.agents.base
 class_name: BaseAgent
 
-# 动态 Mixin 组合
-mixins:
-  - agentmatrix.skills.filesystem.FileSkillMixin
-  - agentmatrix.skills.project_management.ProjectManagementMixin
-  - agentmatrix.skills.notebook.NotebookMixin
+# Skills 配置（新架构：Lazy Load）
+skills:
+  - file  # 文件操作技能
+  - notebook  # 笔记技能
+  # TODO: project_management 还未迁移到新架构
 
 # Top level actions: process_email 时可用的 actions
 # 未列出的 actions 可以通过创建 MicroAgent 在子任务中使用
 # rest_n_wait, send_email, all_finished 始终可用，无需配置
 top_level_actions:
-  - create_project_board
-  - add_task
-  - update_task_status
-  - get_project_report
   - read_file
   - write_file
   - create_notebook
