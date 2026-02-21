@@ -3,11 +3,11 @@ description: 网络搜索实习生
 module: agentmatrix.agents.base
 class_name: BaseAgent
 
-# 动态 Mixin 组合
-mixins:
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-  - agentmatrix.skills.filesystem.FileSkillMixin
-#  - skills.report_writer.ReportWriterSkillMixin
+# Skills 配置（新架构：Lazy Load）
+skills:
+  - file  # 文件操作技能
+  # TODO: web_searcher 还未迁移到新架构（在 old_skills/ 中）
+  # TODO: report_writer 还未迁移
 
 # 属性初始化
 attribute_initializations:

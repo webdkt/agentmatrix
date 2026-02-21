@@ -4,9 +4,9 @@ description: Master of world
 module: agentmatrix.agents.user_proxy
 class_name: UserProxyAgent
 
-# 动态 Mixin 组合
-mixins:
-  - skills.filesystem.FileSkillMixin
+# Skills 配置（新架构：Lazy Load）
+skills:
+  - file  # 文件操作技能
 
 # 属性初始化
 attribute_initializations:
