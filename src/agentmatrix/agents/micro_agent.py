@@ -95,6 +95,11 @@ class MicroAgent(AutoLoggerMixin):
         self.brain = parent.brain
         self.cerebellum = parent.cerebellum
 
+        # ========== 继承 workspace_root（如果 parent 有）==========
+        # 这样 BrowserSkillMixin 等技能可以访问到配置文件路径
+        if hasattr(parent, 'workspace_root') and parent.workspace_root:
+            self.workspace_root = parent.workspace_root
+
         # ========== 🆕 扫描所有 actions（新架构）==========
         self.action_registry = {}
         self._scan_all_actions()
@@ -215,7 +220,10 @@ class MicroAgent(AutoLoggerMixin):
                 if hasattr(method, '_is_action') and method._is_action:
                     # 只存储每个 action 一次（最底层的实现）
                     if name not in self.action_registry:
-                        self.action_registry[name] = method
+                        # 🔑 关键修复：存储绑定方法（而非未绑定函数）
+                        # 这样调用时 self 会自动传递
+                        bound_method = getattr(self, name)
+                        self.action_registry[name] = bound_method
                         self.logger.debug(f"  ✅ 注册 Action: {name} (来自 {cls.__name__})")
 
     @property
@@ -250,7 +258,6 @@ class MicroAgent(AutoLoggerMixin):
         run_label: str,  # 必须指定，有语义的名字
         persona: str,
         task: str,
-        available_actions: List[str],
         max_steps: Optional[int] = None,
         max_time: Optional[float] = None,
         initial_history: Optional[List[Dict]] = None,
@@ -265,11 +272,14 @@ class MicroAgent(AutoLoggerMixin):
         """
         执行任务（可重复调用）
 
+        新架构说明：
+        - 不再需要 available_actions 参数
+        - 自动使用 action_registry 中的所有 actions（来自初始化时指定的 skills）
+
         Args:
             run_label: 执行标签（必须），用于日志标识和追踪
             persona: 角色/身份描述（作为 system prompt）
             task: 任务描述
-            available_actions: 可用的 action 名称列表
             max_steps: 最大步数（可选，默认使用 default_max_steps）
             max_time: 最大执行时间（分钟）（可选，None 表示不限制时间）
             initial_history: 初始对话历史（用于恢复记忆，可选）
@@ -306,7 +316,6 @@ class MicroAgent(AutoLoggerMixin):
         # 设置本次执行的参数
         self.persona = persona
         self.task = task
-        self.available_actions = available_actions
         self.yellow_pages = yellow_pages
         self.simple_mode = simple_mode
         self.max_steps = max_steps or self.default_max_steps
@@ -341,10 +350,6 @@ class MicroAgent(AutoLoggerMixin):
                     f"完成所有任务并返回最终结果。需要提供：{param_descriptions}"
                 )
 
-        # 确保 all_finished 在可用列表中
-        if "all_finished" not in available_actions:
-            available_actions.append("all_finished")
-
         # 恢复或初始化对话历史
         # 优先从 session 获取，否则使用 initial_history
         if session:
@@ -367,7 +372,7 @@ class MicroAgent(AutoLoggerMixin):
             self.messages = []
             self._initialize_conversation()
         self._log(logging.INFO, f"Start to '{self.run_label}' with {len(self.messages)} initial messages")
-        self._log(logging.DEBUG, f"Available actions: {available_actions}"  )
+        self._log(logging.DEBUG, f"Available actions: {list(self.action_registry.keys())}")
         self._log(logging.DEBUG, f"Messages:\n{self._format_messages_for_debug(self.messages)}")
 
         try:
@@ -454,14 +459,13 @@ class MicroAgent(AutoLoggerMixin):
 
 
     def _format_actions_list(self) -> str:
-        """格式化可用 actions 列表"""
+        """格式化可用 actions 列表（直接使用 action_registry）"""
         lines = []
-        for action_name in self.available_actions:
-            if action_name in self.action_registry:
-                method = self.action_registry[action_name]
-                # 尝试获取描述
-                desc = getattr(method, "_action_desc", "No description")
-                lines.append(f"- {action_name}: {desc}")
+        # 遍历 action_registry 中的所有 actions（来自初始化时指定的 skills）
+        for action_name, method in self.action_registry.items():
+            # 尝试获取描述
+            desc = getattr(method, "_action_desc", "No description")
+            lines.append(f"- {action_name}: {desc}")
         return "\n".join(lines)
 
     def _format_task_message(self) -> str:
@@ -742,8 +746,8 @@ class MicroAgent(AutoLoggerMixin):
             # 转小写（action names 通常是 snake_case）
             action_name_lower = action_name.lower()
 
-            # 只保留有效的 action names（保留重复）
-            if action_name_lower in self.available_actions:
+            # 只保留有效的 action names（在 action_registry 中）
+            if action_name_lower in self.action_registry:
                 detected.append((position, action_name_lower))
 
         # 按出现位置排序
@@ -807,17 +811,8 @@ class MicroAgent(AutoLoggerMixin):
                 )
             }
 
-        # 4. 验证：必须可用（在 available_actions 中）
-        not_available = [a for a in actions_list if a not in self.available_actions]
-        if not_available:
-            return {
-                "status": "error",
-                "feedback": (
-                    f"这些 actions 不可用: {not_available}。\n"
-                    f"可用的 actions: {self.available_actions}\n\n"
-                    f"请重新选择。"
-                )
-            }
+        # 4. 不再需要验证是否在 available_actions 中
+        # 因为 mentioned_actions 已经通过 _extract_tool_calls() 过滤为只在 action_registry 中的 actions
 
         return {"status": "success", "content": actions_list}
 

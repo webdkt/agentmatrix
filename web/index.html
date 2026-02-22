@@ -94,8 +94,8 @@
     <!-- Marked.js for Markdown rendering -->
     <script src="/static/libs/marked.min.js"></script>
 
-    <!-- Custom CSS - Add v=5 to force cache refresh -->
-    <link rel="stylesheet" href="/static/css/custom.css?v=5">
+    <!-- Custom CSS - Add v=8 to force cache refresh -->
+    <link rel="stylesheet" href="/static/css/custom.css?v=8">
 </head>
 <body class="h-screen overflow-hidden text-surface-800 antialiased">
     <div id="app" x-data="app()" x-show="!isLoading" x-cloak class="h-full">
@@ -445,13 +445,329 @@
 
             <!-- SETTINGS TAB CONTENT -->
             <template x-if="currentTab === 'settings'">
-                <main class="flex-1 flex flex-col items-center justify-center p-8 bg-gradient-to-br from-surface-50/50 to-white">
-                    <div class="text-center animate-scale-in">
-                        <div class="w-24 h-24 mx-auto mb-6 rounded-3xl bg-gradient-to-br from-surface-100 to-surface-50 flex items-center justify-center shadow-elevated">
-                            <i class="ti ti-settings text-5xl text-surface-400"></i>
+                <main class="flex-1 flex flex-col h-full bg-gradient-to-br from-surface-50/50 to-white overflow-hidden">
+                    <!-- Settings Header -->
+                    <header class="glass border-b border-surface-200/60 px-8 py-5 flex-shrink-0">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-surface-100 to-surface-50 flex items-center justify-center shadow-card">
+                                <i class="ti ti-settings text-2xl text-surface-600"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-xl font-bold text-surface-900 tracking-tight">Settings</h1>
+                                <p class="text-sm text-surface-500">Manage your AgentMatrix configuration</p>
+                            </div>
                         </div>
-                        <h2 class="text-2xl font-bold text-surface-900 mb-3 tracking-tight">Settings</h2>
-                        <p class="text-surface-600 max-w-md mx-auto">Configuration management is coming soon.</p>
+                    </header>
+
+                    <!-- Settings Content -->
+                    <div class="flex-1 overflow-y-auto p-8">
+                        <!-- Settings Categories Grid -->
+                        <div x-show="settingsView === 'main'" class="max-w-4xl mx-auto">
+                            <h2 class="text-lg font-semibold text-surface-900 mb-6">Configuration Categories</h2>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <!-- Agent Settings Card -->
+                                <div @click="switchSettingsView('agents')" 
+                                     class="settings-card group cursor-pointer">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-100 to-primary-50 flex items-center justify-center flex-shrink-0 group-hover:shadow-glow-sm transition-all duration-300">
+                                            <i class="ti ti-robot text-2xl text-primary-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1 group-hover:text-primary-600 transition-colors">Agent Settings</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Manage AI agents, configure their behaviors, skills, and backend models</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <i class="ti ti-users"></i>
+                                                <span x-text="agentProfiles.length + ' agents configured'"></span>
+                                            </div>
+                                        </div>
+                                        <i class="ti ti-chevron-right text-surface-300 group-hover:text-primary-500 group-hover:translate-x-1 transition-all"></i>
+                                    </div>
+                                </div>
+
+                                <!-- LLM Backend Settings Card -->
+                                <div @click="switchSettingsView('llm')" 
+                                     class="settings-card group cursor-pointer">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent-100 to-accent-50 flex items-center justify-center flex-shrink-0 group-hover:shadow-glow-sm transition-all duration-300">
+                                            <i class="ti ti-brain text-2xl text-accent-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1 group-hover:text-accent-600 transition-colors">LLM Backend</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Configure language model providers, API keys, and model settings</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <i class="ti ti-plug"></i>
+                                                <span>2 providers configured</span>
+                                            </div>
+                                        </div>
+                                        <i class="ti ti-chevron-right text-surface-300 group-hover:text-accent-500 group-hover:translate-x-1 transition-all"></i>
+                                    </div>
+                                </div>
+
+                                <!-- World Settings Card (Placeholder) -->
+                                <div class="settings-card opacity-60 cursor-not-allowed">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-100 to-amber-50 flex items-center justify-center flex-shrink-0">
+                                            <i class="ti ti-world text-2xl text-amber-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1">World Settings</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Global world configuration, workspace paths, and environment variables</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <span class="px-2 py-0.5 bg-surface-200 rounded-full">Coming soon</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- System Settings Card (Placeholder) -->
+                                <div class="settings-card opacity-60 cursor-not-allowed">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-100 to-rose-50 flex items-center justify-center flex-shrink-0">
+                                            <i class="ti ti-server text-2xl text-rose-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1">System Settings</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Server configuration, logging, and advanced system options</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <span class="px-2 py-0.5 bg-surface-200 rounded-full">Coming soon</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Agent Settings View -->
+                        <div x-show="settingsView === 'agents'" class="max-w-5xl mx-auto" x-cloak>
+                            <!-- Back Button & Title -->
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-4">
+                                    <button @click="switchSettingsView('main')" 
+                                            class="w-10 h-10 rounded-xl bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-all duration-200 btn-press">
+                                        <i class="ti ti-arrow-left text-surface-600"></i>
+                                    </button>
+                                    <div>
+                                        <h2 class="text-lg font-semibold text-surface-900">Agent Settings</h2>
+                                        <p class="text-sm text-surface-500">Manage your AI agents and their configurations</p>
+                                    </div>
+                                </div>
+                                <button @click="openAgentModal()" 
+                                        class="px-4 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-all duration-200 btn-press shadow-glow-sm flex items-center gap-2">
+                                    <i class="ti ti-plus"></i>
+                                    <span>New Agent</span>
+                                </button>
+                            </div>
+
+                            <!-- Agent Cards Grid -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                <template x-for="agent in agentProfiles" :key="agent.name">
+                                    <div class="agent-card group">
+                                        <!-- Card Header -->
+                                        <div class="flex items-start justify-between mb-4">
+                                            <div :class="{
+                                                'from-primary-400 to-primary-600': agent.backend_model === 'default_llm',
+                                                'from-accent-400 to-accent-600': agent.backend_model === 'default_slm',
+                                                'from-violet-400 to-violet-600': !['default_llm', 'default_slm'].includes(agent.backend_model)
+                                            }" class="w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center text-white shadow-card">
+                                                <i class="ti ti-robot text-xl"></i>
+                                            </div>
+                                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button @click="openAgentModal(agent)" 
+                                                        class="w-8 h-8 rounded-lg hover:bg-surface-100 flex items-center justify-center text-surface-400 hover:text-primary-600 transition-all"
+                                                        title="Edit">
+                                                    <i class="ti ti-pencil text-sm"></i>
+                                                </button>
+                                                <button @click="confirmDeleteAgent(agent)" 
+                                                        class="w-8 h-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-surface-400 hover:text-rose-600 transition-all"
+                                                        title="Delete">
+                                                    <i class="ti ti-trash text-sm"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Card Content -->
+                                        <h3 class="font-semibold text-surface-900 mb-1 truncate" x-text="agent.name"></h3>
+                                        <p class="text-sm text-surface-500 mb-3 line-clamp-2" x-text="agent.description || 'No description'"></p>
+                                        
+                                        <!-- Tags -->
+                                        <div class="flex flex-wrap gap-2">
+                                            <span class="px-2 py-1 bg-surface-100 rounded-lg text-xs text-surface-600 flex items-center gap-1">
+                                                <i class="ti ti-brain"></i>
+                                                <span x-text="agent.backend_model"></span>
+                                            </span>
+                                            <span x-show="agent.skills && agent.skills.length > 0" 
+                                                  class="px-2 py-1 bg-primary-50 rounded-lg text-xs text-primary-600 flex items-center gap-1">
+                                                <i class="ti ti-tools"></i>
+                                                <span x-text="agent.skills.length + ' skills'"></span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </template>
+                                
+                                <!-- Empty State -->
+                                <div x-show="agentProfiles.length === 0" class="col-span-full">
+                                    <div class="empty-state py-16">
+                                        <div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-surface-100 flex items-center justify-center">
+                                            <i class="ti ti-robot-off text-4xl text-surface-300"></i>
+                                        </div>
+                                        <h3 class="text-lg font-semibold text-surface-700 mb-2">No agents yet</h3>
+                                        <p class="text-sm text-surface-500 mb-6">Create your first agent to get started</p>
+                                        <button @click="openAgentModal()" 
+                                                class="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-all duration-200 btn-press shadow-glow-sm">
+                                            Create Agent
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- LLM Backend Settings View -->
+                        <div x-show="settingsView === 'llm'" class="max-w-5xl mx-auto" x-cloak>
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-4">
+                                    <button @click="switchSettingsView('main')" 
+                                            class="w-10 h-10 rounded-xl bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-all duration-200 btn-press">
+                                        <i class="ti ti-arrow-left text-surface-600"></i>
+                                    </button>
+                                    <div>
+                                        <h2 class="text-lg font-semibold text-surface-900">LLM Backend Settings</h2>
+                                        <p class="text-sm text-surface-500">Configure your language model providers</p>
+                                    </div>
+                                </div>
+                                <button @click="openLLMModal()" 
+                                        class="px-4 py-2.5 bg-accent-600 text-white rounded-xl font-medium hover:bg-accent-700 transition-all duration-200 btn-press shadow-glow-sm flex items-center gap-2">
+                                    <i class="ti ti-plus"></i>
+                                    <span>New Config</span>
+                                </button>
+                            </div>
+
+                            <!-- Required Configs Section -->
+                            <div class="mb-8">
+                                <h3 class="text-sm font-semibold text-surface-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                    <i class="ti ti-shield-check text-accent-500"></i>
+                                    Required Configurations
+                                </h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                    <template x-for="config in llmConfigs.filter(c => c.is_required)" :key="config.name">
+                                        <div class="llm-card group border-accent-200">
+                                            <!-- Card Header -->
+                                            <div class="flex items-start justify-between mb-3">
+                                                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 flex items-center justify-center text-white shadow-card">
+                                                    <i class="ti ti-brain text-lg"></i>
+                                                </div>
+                                                <div class="flex items-center gap-1">
+                                                    <span class="px-2 py-0.5 bg-accent-100 text-accent-700 text-xs rounded-full font-medium">Required</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Card Content -->
+                                            <h4 class="font-semibold text-surface-900 mb-1 truncate" x-text="config.name"></h4>
+                                            <p class="text-xs text-surface-500 mb-3 line-clamp-2" x-text="config.description"></p>
+                                            
+                                            <!-- Model Info -->
+                                            <div class="space-y-1.5 mb-4">
+                                                <div class="flex items-center gap-2 text-xs text-surface-600">
+                                                    <i class="ti ti-database text-surface-400"></i>
+                                                    <span class="truncate" x-text="config.model_name"></span>
+                                                </div>
+                                                <div class="flex items-center gap-2 text-xs text-surface-600">
+                                                    <i class="ti ti-link text-surface-400"></i>
+                                                    <span class="truncate" x-text="formatUrl(config.url)"></span>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Actions -->
+                                            <div class="flex items-center gap-2 pt-3 border-t border-surface-100">
+                                                <button @click="openLLMModal(config)" 
+                                                        class="flex-1 px-3 py-1.5 bg-surface-100 hover:bg-surface-200 text-surface-700 rounded-lg text-sm font-medium transition-all">
+                                                    Edit
+                                                </button>
+                                                <button @click="resetLLMConfig(config.name)" 
+                                                        class="px-3 py-1.5 text-surface-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                                                        title="Reset to default">
+                                                    <i class="ti ti-refresh"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Custom Configs Section -->
+                            <div x-show="llmConfigs.filter(c => !c.is_required).length > 0">
+                                <h3 class="text-sm font-semibold text-surface-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                    <i class="ti ti-sliders text-surface-400"></i>
+                                    Custom Configurations
+                                </h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                    <template x-for="config in llmConfigs.filter(c => !c.is_required)" :key="config.name">
+                                        <div class="llm-card group">
+                                            <!-- Card Header -->
+                                            <div class="flex items-start justify-between mb-3">
+                                                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-surface-300 to-surface-400 flex items-center justify-center text-white shadow-card">
+                                                    <i class="ti ti-cpu text-lg"></i>
+                                                </div>
+                                                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button @click="openLLMModal(config)" 
+                                                            class="w-7 h-7 rounded-lg hover:bg-surface-100 flex items-center justify-center text-surface-400 hover:text-accent-600 transition-all"
+                                                            title="Edit">
+                                                        <i class="ti ti-pencil text-xs"></i>
+                                                    </button>
+                                                    <button @click="confirmDeleteLLM(config)" 
+                                                            class="w-7 h-7 rounded-lg hover:bg-rose-50 flex items-center justify-center text-surface-400 hover:text-rose-600 transition-all"
+                                                            title="Delete">
+                                                        <i class="ti ti-trash text-xs"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Card Content -->
+                                            <h4 class="font-semibold text-surface-900 mb-1 truncate" x-text="config.name"></h4>
+                                            <p class="text-xs text-surface-500 mb-3 line-clamp-2" x-text="config.description || 'Custom LLM configuration'"></p>
+                                            
+                                            <!-- Model Info -->
+                                            <div class="space-y-1.5">
+                                                <div class="flex items-center gap-2 text-xs text-surface-600">
+                                                    <i class="ti ti-database text-surface-400"></i>
+                                                    <span class="truncate" x-text="config.model_name"></span>
+                                                </div>
+                                                <div class="flex items-center gap-2 text-xs text-surface-600">
+                                                    <i class="ti ti-link text-surface-400"></i>
+                                                    <span class="truncate" x-text="formatUrl(config.url)"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                            
+                            <!-- Empty State for Custom Configs -->
+                            <div x-show="llmConfigs.filter(c => !c.is_required).length === 0 && llmConfigs.length > 0" 
+                                 class="empty-state py-12 mt-4">
+                                <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface-100 flex items-center justify-center">
+                                    <i class="ti ti-plus text-3xl text-surface-300"></i>
+                                </div>
+                                <p class="text-sm text-surface-500">No custom LLM configurations yet</p>
+                                <button @click="openLLMModal()" 
+                                        class="mt-3 text-sm text-accent-600 hover:text-accent-700 font-medium">
+                                    Add your first custom config
+                                </button>
+                            </div>
+                            
+                            <!-- Complete Empty State -->
+                            <div x-show="llmConfigs.length === 0" class="empty-state py-16">
+                                <div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-surface-100 flex items-center justify-center">
+                                    <i class="ti ti-brain-off text-4xl text-surface-300"></i>
+                                </div>
+                                <h3 class="text-lg font-semibold text-surface-700 mb-2">No LLM configurations</h3>
+                                <p class="text-sm text-surface-500 mb-6">Add LLM configurations to enable AI capabilities</p>
+                                <button @click="openLLMModal()" 
+                                        class="px-6 py-2.5 bg-accent-600 text-white rounded-xl font-medium hover:bg-accent-700 transition-all duration-200 btn-press shadow-glow-sm">
+                                    Add Configuration
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </main>
             </template>
@@ -531,6 +847,404 @@
                 </div>
             </div>
 
+            <!-- Agent Edit/Create Modal -->
+            <div x-show="showAgentModal" 
+                 class="fixed inset-0 z-50 flex items-center justify-center"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0">
+                <!-- Overlay -->
+                <div class="absolute inset-0 bg-surface-900/40 backdrop-blur-sm" @click="closeAgentModal()"></div>
+                
+                <!-- Modal Content -->
+                <div class="relative bg-white rounded-2xl shadow-elevated w-full max-w-2xl mx-4 overflow-hidden animate-scale-in max-h-[90vh] flex flex-col">
+                    <!-- Header -->
+                    <div class="px-6 py-4 border-b border-surface-100 flex items-center justify-between bg-surface-50/50 flex-shrink-0">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-100 to-primary-50 flex items-center justify-center">
+                                <i class="ti ti-robot text-primary-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-lg font-semibold text-surface-900 tracking-tight" x-text="editingAgent ? 'Edit Agent' : 'New Agent'"></h2>
+                                <p class="text-xs text-surface-500" x-text="editingAgent ? editingAgent.name : 'Create a new AI agent'"></p>
+                            </div>
+                        </div>
+                        <button @click="closeAgentModal()" class="w-8 h-8 rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 flex items-center justify-center transition-all duration-200 btn-press">
+                            <i class="ti ti-x text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Form Content -->
+                    <div class="p-6 overflow-y-auto flex-1">
+                        <form @submit.prevent="saveAgent()" class="space-y-5">
+                            <!-- Name Field (only for new agent) -->
+                            <div x-show="!editingAgent">
+                                <label class="block text-sm font-medium text-surface-700 mb-2">
+                                    Name <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" x-model="agentForm.name" 
+                                       placeholder="Enter agent name..."
+                                       class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200"
+                                       :class="{ 'border-rose-300': agentFormErrors.name }"
+                                       :disabled="editingAgent">
+                                <p x-show="agentFormErrors.name" class="mt-1 text-xs text-rose-500" x-text="agentFormErrors.name"></p>
+                                <p class="mt-1 text-xs text-surface-400">Unique identifier for this agent (cannot be changed later)</p>
+                            </div>
+
+                            <!-- Description Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2">Description</label>
+                                <input type="text" x-model="agentForm.description" 
+                                       placeholder="Brief description of this agent..."
+                                       class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
+                                <p class="mt-1 text-xs text-surface-400">Shown to other agents when collaborating</p>
+                            </div>
+
+                            <!-- Two Column Layout -->
+                            <div class="grid grid-cols-2 gap-5">
+                                <!-- Module & Class Name (Combined Selection) -->
+                                <div class="col-span-2">
+                                    <label class="block text-sm font-medium text-surface-700 mb-2">Agent Type</label>
+                                    <select x-model="agentForm.module" @change="updateClassNameFromModule()"
+                                            class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200 mb-2">
+                                        <option value="agentmatrix.agents.base">Base Agent (Standard)</option>
+                                        <option value="agentmatrix.agents.deep_researcher">Deep Researcher (Research tasks)</option>
+                                        <option value="agentmatrix.agents.user_proxy">User Proxy (Human interface)</option>
+                                    </select>
+                                    <input type="hidden" x-model="agentForm.class_name">
+                                    <p class="text-xs text-surface-400">
+                                        Selected class: <span class="font-mono text-surface-600" x-text="agentForm.class_name"></span>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Backend Model Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2">Backend Model</label>
+                                <select x-model="agentForm.backend_model"
+                                        class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
+                                    <option value="default_llm">default_llm (Primary LLM)</option>
+                                    <option value="default_slm">default_slm (Smaller/Faster LLM)</option>
+                                </select>
+                                <p class="mt-1 text-xs text-surface-400">Which LLM configuration to use for this agent</p>
+                            </div>
+
+                            <!-- Skills Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2">Skills</label>
+                                <div class="flex flex-wrap gap-2 mb-2">
+                                    <template x-for="(skill, index) in agentForm.skills" :key="index">
+                                        <span class="px-3 py-1.5 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-700 flex items-center gap-2">
+                                            <span x-text="skill"></span>
+                                            <button @click.prevent="removeSkill(index)" class="hover:text-primary-900">
+                                                <i class="ti ti-x text-xs"></i>
+                                            </button>
+                                        </span>
+                                    </template>
+                                </div>
+                                <div class="flex gap-2">
+                                    <input type="text" x-model="newSkill" 
+                                           @keydown.enter.prevent="addSkill()"
+                                           placeholder="Add a skill (e.g., web_search, file_operations)..."
+                                           class="flex-1 px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200">
+                                    <button @click.prevent="addSkill()" 
+                                            class="px-4 py-2.5 bg-surface-200 text-surface-700 rounded-xl font-medium hover:bg-surface-300 transition-all duration-200 btn-press">
+                                        Add
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Instruction to Caller Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2">Instruction to Caller</label>
+                                <textarea x-model="agentForm.instruction_to_caller" rows="2"
+                                          placeholder="Instructions shown to other agents when they want to call this agent..."
+                                          class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200 resize-none"></textarea>
+                                <p class="mt-1 text-xs text-surface-400">Guidance for other agents on how to interact with this agent</p>
+                            </div>
+
+                            <!-- Persona Base Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2 flex items-center gap-2">
+                                    <i class="ti ti-user-circle text-primary-500"></i>
+                                    Persona (Base)
+                                </label>
+                                <textarea x-model="agentForm.personaBase" rows="4"
+                                          placeholder="Define who this agent is, their expertise, and how they should behave..."
+                                          class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200 resize-none text-sm"></textarea>
+                                <p class="mt-1 text-xs text-surface-400">Core identity and role definition for this agent</p>
+                            </div>
+
+                            <!-- Advanced Configuration Section -->
+                            <div class="pt-4 border-t border-surface-100">
+                                <button type="button" @click="showAdvancedConfig = !showAdvancedConfig" 
+                                        class="flex items-center gap-2 text-sm font-medium text-surface-600 hover:text-surface-800 transition-colors">
+                                    <i class="ti" :class="showAdvancedConfig ? 'ti-chevron-down' : 'ti-chevron-right'"></i>
+                                    Advanced Configuration
+                                </button>
+                                
+                                <div x-show="showAdvancedConfig" x-collapse class="mt-4 space-y-4">
+                                    <!-- Cerebellum Model Field -->
+                                    <div>
+                                        <label class="block text-sm font-medium text-surface-700 mb-2 flex items-center gap-2">
+                                            <i class="ti ti-brain text-accent-500"></i>
+                                            Cerebellum Model
+                                        </label>
+                                        <input type="text" x-model="agentForm.cerebellumModel" 
+                                               placeholder="e.g., default_slm (optional)"
+                                               class="w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200 text-sm">
+                                        <p class="mt-1 text-xs text-surface-400">Model for action optimization (default: system default_slm)</p>
+                                    </div>
+
+                                    <!-- Vision Brain Model Field -->
+                                    <div>
+                                        <label class="block text-sm font-medium text-surface-700 mb-2 flex items-center gap-2">
+                                            <i class="ti ti-eye text-violet-500"></i>
+                                            Vision Brain Model
+                                        </label>
+                                        <input type="text" x-model="agentForm.visionBrainModel" 
+                                               placeholder="e.g., default_vision (optional)"
+                                               class="w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200 text-sm">
+                                        <p class="mt-1 text-xs text-surface-400">Model for image understanding (optional)</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div class="px-6 py-4 border-t border-surface-100 flex justify-end gap-3 bg-surface-50/50 flex-shrink-0">
+                        <button @click="closeAgentModal()" 
+                                class="px-6 py-2.5 border border-surface-200 rounded-xl text-surface-700 font-medium hover:bg-surface-100 transition-all duration-200 btn-press">
+                            Cancel
+                        </button>
+                        <button @click="saveAgent()" 
+                                :disabled="isSavingAgent || (!editingAgent && !agentForm.name)"
+                                class="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-all duration-200 btn-press shadow-glow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                            <span x-show="!isSavingAgent" x-text="editingAgent ? 'Save Changes' : 'Create Agent'"></span>
+                            <span x-show="isSavingAgent">Saving...</span>
+                            <i x-show="isSavingAgent" class="ti ti-loader-2 animate-spin"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delete Agent Confirmation Modal -->
+            <div x-show="showDeleteConfirmModal" 
+                 class="fixed inset-0 z-50 flex items-center justify-center"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0">
+                <div class="absolute inset-0 bg-surface-900/40 backdrop-blur-sm" @click="showDeleteConfirmModal = false"></div>
+                
+                <div class="relative bg-white rounded-2xl shadow-elevated w-full max-w-md mx-4 overflow-hidden animate-scale-in">
+                    <div class="p-6">
+                        <div class="flex items-center gap-4 mb-5">
+                            <div class="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                                <i class="ti ti-alert-triangle text-rose-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-surface-900">Delete Agent</h3>
+                                <p class="text-sm text-surface-500">This action cannot be undone</p>
+                            </div>
+                        </div>
+                        
+                        <p class="text-surface-600 mb-6">
+                            Are you sure you want to delete <span class="font-semibold text-surface-900" x-text="agentToDelete?.name"></span>? 
+                            This will permanently remove the agent configuration file.
+                        </p>
+                        
+                        <div class="flex justify-end gap-3">
+                            <button @click="showDeleteConfirmModal = false" 
+                                    class="px-5 py-2.5 border border-surface-200 rounded-xl text-surface-700 font-medium hover:bg-surface-100 transition-all duration-200 btn-press">
+                                Cancel
+                            </button>
+                            <button @click="deleteAgent()" 
+                                    :disabled="isDeletingAgent"
+                                    class="px-5 py-2.5 bg-rose-600 text-white rounded-xl font-medium hover:bg-rose-700 transition-all duration-200 btn-press flex items-center gap-2">
+                                <span x-show="!isDeletingAgent">Delete</span>
+                                <span x-show="isDeletingAgent">Deleting...</span>
+                                <i x-show="isDeletingAgent" class="ti ti-loader-2 animate-spin"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LLM Config Edit/Create Modal -->
+            <div x-show="showLLMModal" 
+                 class="fixed inset-0 z-50 flex items-center justify-center"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0">
+                <!-- Overlay -->
+                <div class="absolute inset-0 bg-surface-900/40 backdrop-blur-sm" @click="closeLLMModal()"></div>
+                
+                <!-- Modal Content -->
+                <div class="relative bg-white rounded-2xl shadow-elevated w-full max-w-xl mx-4 overflow-hidden animate-scale-in max-h-[90vh] flex flex-col">
+                    <!-- Header -->
+                    <div class="px-6 py-4 border-b border-surface-100 flex items-center justify-between bg-surface-50/50 flex-shrink-0"
+                         :class="{ 'bg-gradient-to-r from-accent-50/50 to-white': editingLLMConfig?.is_required }">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                                 :class="editingLLMConfig?.is_required ? 'bg-accent-100' : 'bg-surface-100'">
+                                <i class="ti ti-brain text-xl"
+                                   :class="editingLLMConfig?.is_required ? 'text-accent-600' : 'text-surface-600'"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-lg font-semibold text-surface-900 tracking-tight" 
+                                    x-text="editingLLMConfig ? 'Edit LLM Config' : 'New LLM Config'"></h2>
+                                <p class="text-xs text-surface-500" x-text="editingLLMConfig ? editingLLMConfig.name : 'Add a new LLM endpoint configuration'"></p>
+                            </div>
+                        </div>
+                        <button @click="closeLLMModal()" class="w-8 h-8 rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 flex items-center justify-center transition-all duration-200 btn-press">
+                            <i class="ti ti-x text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Form Content -->
+                    <div class="p-6 overflow-y-auto flex-1">
+                        <form @submit.prevent="saveLLMConfig()" class="space-y-5">
+                            <!-- Name Field (only for new config) -->
+                            <div x-show="!editingLLMConfig">
+                                <label class="block text-sm font-medium text-surface-700 mb-2">
+                                    Config Name <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" x-model="llmForm.name" 
+                                       placeholder="e.g., gpt-4, claude-3, local-llm"
+                                       class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-accent-500/20 focus:border-accent-300 transition-all duration-200"
+                                       :class="{ 'border-rose-300': llmFormErrors.name }"
+                                       :disabled="editingLLMConfig">
+                                <p x-show="llmFormErrors.name" class="mt-1 text-xs text-rose-500" x-text="llmFormErrors.name"></p>
+                                <p class="mt-1 text-xs text-surface-400">Unique identifier for this LLM configuration</p>
+                            </div>
+
+                            <!-- Required Badge (for editing required configs) -->
+                            <div x-show="editingLLMConfig?.is_required" class="p-3 bg-accent-50 border border-accent-200 rounded-xl">
+                                <div class="flex items-center gap-2 text-sm text-accent-700">
+                                    <i class="ti ti-shield-check"></i>
+                                    <span>This is a <strong>required</strong> configuration used by the system</span>
+                                </div>
+                            </div>
+
+                            <!-- API URL Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2">
+                                    API URL <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="url" x-model="llmForm.url" 
+                                       placeholder="https://api.example.com/v1/chat/completions"
+                                       class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-accent-500/20 focus:border-accent-300 transition-all duration-200 font-mono text-sm"
+                                       :class="{ 'border-rose-300': llmFormErrors.url }">
+                                <p x-show="llmFormErrors.url" class="mt-1 text-xs text-rose-500" x-text="llmFormErrors.url"></p>
+                                <p class="mt-1 text-xs text-surface-400">The endpoint URL for the LLM API</p>
+                            </div>
+
+                            <!-- Model Name Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2">
+                                    Model Name <span class="text-rose-500">*</span>
+                                </label>
+                                <input type="text" x-model="llmForm.model_name" 
+                                       placeholder="e.g., gpt-4, claude-3-opus-20240229"
+                                       class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-accent-500/20 focus:border-accent-300 transition-all duration-200"
+                                       :class="{ 'border-rose-300': llmFormErrors.model_name }">
+                                <p x-show="llmFormErrors.model_name" class="mt-1 text-xs text-rose-500" x-text="llmFormErrors.model_name"></p>
+                                <p class="mt-1 text-xs text-surface-400">The specific model identifier for API calls</p>
+                            </div>
+
+                            <!-- API Key Field -->
+                            <div>
+                                <label class="block text-sm font-medium text-surface-700 mb-2">
+                                    API Key
+                                </label>
+                                <div class="relative">
+                                    <input :type="showLLMApiKey ? 'text' : 'password'" x-model="llmForm.api_key" 
+                                           placeholder="sk-... or environment variable name"
+                                           class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-accent-500/20 focus:border-accent-300 transition-all duration-200 font-mono text-sm pr-10"
+                                           :class="{ 'border-rose-300': llmFormErrors.api_key }">
+                                    <button type="button" @click="showLLMApiKey = !showLLMApiKey"
+                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600 transition-colors">
+                                        <i class="ti" :class="showLLMApiKey ? 'ti-eye-off' : 'ti-eye'"></i>
+                                    </button>
+                                </div>
+                                <p x-show="llmFormErrors.api_key" class="mt-1 text-xs text-rose-500" x-text="llmFormErrors.api_key"></p>
+                                <p class="mt-1 text-xs text-surface-400">API key or environment variable name (e.g., OPENAI_API_KEY)</p>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div class="px-6 py-4 border-t border-surface-100 flex justify-end gap-3 bg-surface-50/50 flex-shrink-0">
+                        <button @click="closeLLMModal()" 
+                                class="px-6 py-2.5 border border-surface-200 rounded-xl text-surface-700 font-medium hover:bg-surface-100 transition-all duration-200 btn-press">
+                            Cancel
+                        </button>
+                        <button @click="saveLLMConfig()" 
+                                :disabled="isSavingLLM || (!editingLLMConfig && !llmForm.name)"
+                                class="px-6 py-2.5 bg-accent-600 text-white rounded-xl font-medium hover:bg-accent-700 transition-all duration-200 btn-press shadow-glow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                            <span x-show="!isSavingLLM" x-text="editingLLMConfig ? 'Save Changes' : 'Create Config'"></span>
+                            <span x-show="isSavingLLM">Saving...</span>
+                            <i x-show="isSavingLLM" class="ti ti-loader-2 animate-spin"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delete LLM Config Confirmation Modal -->
+            <div x-show="showDeleteLLMConfirmModal" 
+                 class="fixed inset-0 z-50 flex items-center justify-center"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0">
+                <div class="absolute inset-0 bg-surface-900/40 backdrop-blur-sm" @click="showDeleteLLMConfirmModal = false"></div>
+                
+                <div class="relative bg-white rounded-2xl shadow-elevated w-full max-w-md mx-4 overflow-hidden animate-scale-in">
+                    <div class="p-6">
+                        <div class="flex items-center gap-4 mb-5">
+                            <div class="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                                <i class="ti ti-alert-triangle text-rose-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-surface-900">Delete LLM Config</h3>
+                                <p class="text-sm text-surface-500">This action cannot be undone</p>
+                            </div>
+                        </div>
+                        
+                        <p class="text-surface-600 mb-6">
+                            Are you sure you want to delete <span class="font-semibold text-surface-900" x-text="llmToDelete?.name"></span>? 
+                            This will permanently remove this LLM configuration.
+                        </p>
+                        
+                        <div class="flex justify-end gap-3">
+                            <button @click="showDeleteLLMConfirmModal = false" 
+                                    class="px-5 py-2.5 border border-surface-200 rounded-xl text-surface-700 font-medium hover:bg-surface-100 transition-all duration-200 btn-press">
+                                Cancel
+                            </button>
+                            <button @click="deleteLLMConfig()" 
+                                    :disabled="isDeletingLLM"
+                                    class="px-5 py-2.5 bg-rose-600 text-white rounded-xl font-medium hover:bg-rose-700 transition-all duration-200 btn-press flex items-center gap-2">
+                                <span x-show="!isDeletingLLM">Delete</span>
+                                <span x-show="isDeletingLLM">Deleting...</span>
+                                <i x-show="isDeletingLLM" class="ti ti-loader-2 animate-spin"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- New Email Received Popup -->
             <div x-show="newEmailPopup" 
                  class="fixed inset-0 z-50 flex items-center justify-center"
@@ -591,9 +1305,9 @@
         </div>
     </div>
 
-    <!-- Custom JavaScript - Add v=12 to force cache refresh -->
-    <script src="/static/js/api.js?v=12"></script>
-    <script src="/static/js/ws.js?v=12"></script>
-    <script src="/static/js/app.js?v=12"></script>
+    <!-- Custom JavaScript - Add v=15 to force cache refresh -->
+    <script src="/static/js/api.js?v=15"></script>
+    <script src="/static/js/ws.js?v=15"></script>
+    <script src="/static/js/app.js?v=15"></script>
 </body>
 </html>

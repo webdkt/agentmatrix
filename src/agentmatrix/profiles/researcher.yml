@@ -3,16 +3,14 @@ description: 研究员
 module: agentmatrix.agents.base
 class_name: BaseAgent
 
-# Skills 配置（新架构：Lazy Load）
+# Skills 配置（🆕 新架构）
 skills:
   - file  # 文件操作技能
-  # TODO: deep_researcher 还未迁移到新架构（在 old_skills/ 中）
 
-# Top level actions: process_email 时可用的 actions
-# 如果不配置此字段，则所有 actions 都可用（向后兼容）
-top_level_actions:
-  # TODO: deep_research 还不可用
-#   - deep_research
+# Persona 配置
+persona:
+  base: |
+    你是一个资深研究员，擅长进行深入的研究工作，并撰写研究报告
 
 # 属性初始化
 attribute_initializations:
@@ -25,8 +23,7 @@ class_attributes:
 
 instruction_to_caller: |
   告诉我想研究什么问题
-system_prompt: |
-  你是一个资深研究员，擅长进行深入的研究工作，并撰写研究报告
+
 backend_model: default_llm
 cerebellum:
   backend_model: mimo

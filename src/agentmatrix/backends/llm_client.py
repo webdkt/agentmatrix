@@ -121,14 +121,20 @@ class LLMClient(AutoLoggerMixin):
                         return {}
 
                 elif parsed_result.get("status") == "error":
-                    feedback = parsed_result.get("feedback", "Your previous response was invalid. Please try again.")
-                    # Append the failed response and the corrective feedback for the next attempt
-                    messages.append({"role": "assistant", "content": raw_reply})
-                    messages.append({"role": "user", "content": feedback})
-
                     if attempt == max_retries - 1:
                         # Final attempt failed
                         raise ValueError("LLM failed to produce a valid response after all retries.")
+
+                    # 🔥 重试策略：增强原始 prompt（不累积历史）
+                    # 提取原始 user message（第一条）
+                    original_prompt = messages[0]["content"]
+                    feedback = parsed_result.get("feedback", "请检查输出格式")
+
+                    # 在原始 prompt 末尾添加 feedback（强调格式）
+                    enhanced_prompt = f"{original_prompt}\n\n{feedback}"
+
+                    # 重置 messages（不保留错误历史）
+                    messages = [{"role": "user", "content": enhanced_prompt}]
 
                 else:
                     # The parser itself is faulty

@@ -3,20 +3,16 @@ description: 一个计划者，能够根据用户的指令生成计划。
 module: agentmatrix.agents.base
 class_name: BaseAgent
 
-# Skills 配置（新架构：Lazy Load）
+# Skills 配置（🆕 新架构）
 skills:
   - file  # 文件操作技能
   - notebook  # 笔记技能
   # TODO: project_management 还未迁移到新架构
 
-# Top level actions: process_email 时可用的 actions
-# 未列出的 actions 可以通过创建 MicroAgent 在子任务中使用
-# rest_n_wait, send_email, all_finished 始终可用，无需配置
-top_level_actions:
-  - read_file
-  - write_file
-  - create_notebook
-  - append_to_notebook
+# Persona 配置
+persona:
+  base: |
+    你是一个资深项目经理,擅长分解复杂任务并生成清晰的计划。
 
 # 属性初始化
 attribute_initializations:
@@ -43,6 +39,5 @@ logging:
 
 instruction_to_caller: |
   直接发送自然语言指令。
-system_prompt: |
-  你是一个资深项目经理,擅长分解复杂任务并生成清晰的计划。
+
 backend_model: default_llm

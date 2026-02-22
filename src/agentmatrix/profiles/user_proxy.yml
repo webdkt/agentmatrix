@@ -4,7 +4,7 @@ description: Master of world
 module: agentmatrix.agents.user_proxy
 class_name: UserProxyAgent
 
-# Skills 配置（新架构：Lazy Load）
+# Skills 配置（🆕 新架构）
 skills:
   - file  # 文件操作技能
 
@@ -13,5 +13,5 @@ attribute_initializations:
   on_mail_received: null
 
 instruction_to_caller: "要精炼不要啰嗦"
-system_prompt: ""
+
 backend_model: default_llm

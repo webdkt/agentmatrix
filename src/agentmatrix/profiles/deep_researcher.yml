@@ -280,16 +280,9 @@ persona:
         - 你习惯把草稿放在draft目录下，按章节分文件，例如 `draft/some_chapter.md`
         - **时刻不能忘东西的记在白板里**
         - 写完全部草稿后，你才会创建 final_report.md 来整合润色成最终版本
-top_level_actions:
-  - "use_browser"
-  - "update_whiteboard"
-  - "read_whiteboard"
-  - "read"
-  - "write"
-  - "search_file"
-  - "shell_cmd"
-  - "replace_string_in_file"
-  - "send_email"
-  - "rest_n_wait"
-  - "take_a_break"
-  - "get_current_datetime"
+
+# Skills 配置（🆕 新架构）
+skills:
+  - browser       # use_browser
+  - file          # read, write, search_file, replace_string_in_file
+  - web_search    # web_search（如果需要网络搜索功能）
