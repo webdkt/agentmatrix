@@ -46,6 +46,48 @@ function app() {
         // New email popup state
         newEmailPopup: null,
 
+        // Settings state
+        settingsView: 'main',  // 'main', 'agents', 'llm'
+        agentProfiles: [],
+        showAgentModal: false,
+        editingAgent: null,
+        isSavingAgent: false,
+        agentFormErrors: {},
+        newSkill: '',
+        agentForm: {
+            name: '',
+            description: '',
+            module: 'agentmatrix.agents.base',
+            class_name: 'BaseAgent',
+            instruction_to_caller: '',
+            backend_model: 'default_llm',
+            skills: [],
+            personaBase: '',  // persona.base - 核心身份定义
+            cerebellumModel: '',  // cerebellum.backend_model - 小脑模型
+            visionBrainModel: ''  // vision_brain.backend_model - 视觉模型
+        },
+        showDeleteConfirmModal: false,
+        agentToDelete: null,
+        isDeletingAgent: false,
+        showAdvancedConfig: false,  // 控制高级配置折叠面板
+
+        // LLM Config state
+        llmConfigs: [],
+        showLLMModal: false,
+        editingLLMConfig: null,
+        isSavingLLM: false,
+        showLLMApiKey: false,
+        llmFormErrors: {},
+        llmForm: {
+            name: '',
+            url: '',
+            api_key: '',
+            model_name: ''
+        },
+        showDeleteLLMConfirmModal: false,
+        llmToDelete: null,
+        isDeletingLLM: false,
+
         // Computed property for filtered agents
         get filteredAgents() {
             if (!this.agentSearchQuery) {
@@ -501,6 +543,406 @@ function app() {
             } catch (error) {
                 console.error('Failed to send quick reply:', error);
                 alert(`发送失败: ${error.message}`);
+            }
+        },
+
+        // ===== Settings Methods =====
+
+        // Module to class name mapping
+        get moduleClassMap() {
+            return {
+                'agentmatrix.agents.base': 'BaseAgent',
+                'agentmatrix.agents.deep_researcher': 'DeepResearcher',
+                'agentmatrix.agents.user_proxy': 'UserProxyAgent'
+            };
+        },
+
+        // Update class name when module changes
+        updateClassNameFromModule() {
+            this.agentForm.class_name = this.moduleClassMap[this.agentForm.module] || 'BaseAgent';
+        },
+
+        // Switch settings view
+        switchSettingsView(view) {
+            this.settingsView = view;
+            if (view === 'agents') {
+                this.loadAgentProfiles();
+            } else if (view === 'llm') {
+                this.loadLLMConfigs();
+            }
+        },
+
+        // Format URL for display
+        formatUrl(url) {
+            if (!url) return '';
+            try {
+                const urlObj = new URL(url);
+                return urlObj.hostname + (urlObj.pathname !== '/' ? urlObj.pathname : '');
+            } catch {
+                return url.length > 30 ? url.substring(0, 30) + '...' : url;
+            }
+        },
+
+        // Load agent profiles
+        async loadAgentProfiles() {
+            try {
+                const response = await API.getAgentProfiles();
+                this.agentProfiles = response.agents || [];
+                console.log('Loaded agent profiles:', this.agentProfiles);
+            } catch (error) {
+                console.error('Failed to load agent profiles:', error);
+                this.agentProfiles = [];
+            }
+        },
+
+        // Open agent modal (for create or edit)
+        openAgentModal(agent = null) {
+            this.editingAgent = agent;
+            this.agentFormErrors = {};
+            this.newSkill = '';
+            this.showAdvancedConfig = false;  // Reset advanced config visibility
+            
+            if (agent) {
+                // Edit mode - populate form from agent data
+                this.agentForm = {
+                    name: agent.name,
+                    description: agent.description || '',
+                    module: agent.module || 'agentmatrix.agents.base',
+                    class_name: agent.class_name || 'BaseAgent',
+                    instruction_to_caller: agent.instruction_to_caller || '',
+                    backend_model: agent.backend_model || 'default_llm',
+                    skills: [...(agent.skills || [])],
+                    // Persona base - 从 persona.base 或从 _raw_profile.persona.base 获取
+                    personaBase: agent.persona?.base || agent._raw_profile?.persona?.base || '',
+                    // Cerebellum model
+                    cerebellumModel: agent.cerebellum?.backend_model || agent._raw_profile?.cerebellum?.backend_model || '',
+                    // Vision brain model
+                    visionBrainModel: agent.vision_brain?.backend_model || agent._raw_profile?.vision_brain?.backend_model || ''
+                };
+            } else {
+                // Create mode - reset form
+                this.agentForm = {
+                    name: '',
+                    description: '',
+                    module: 'agentmatrix.agents.base',
+                    class_name: 'BaseAgent',
+                    instruction_to_caller: '',
+                    backend_model: 'default_llm',
+                    skills: [],
+                    personaBase: '',
+                    cerebellumModel: '',
+                    visionBrainModel: ''
+                };
+            }
+            
+            this.showAgentModal = true;
+        },
+
+        // Close agent modal
+        closeAgentModal() {
+            this.showAgentModal = false;
+            this.editingAgent = null;
+            this.agentFormErrors = {};
+            this.newSkill = '';
+            this.showAdvancedConfig = false;
+        },
+
+        // Add skill to form
+        addSkill() {
+            if (!this.newSkill.trim()) return;
+            
+            const skill = this.newSkill.trim();
+            if (!this.agentForm.skills.includes(skill)) {
+                this.agentForm.skills.push(skill);
+            }
+            this.newSkill = '';
+        },
+
+        // Remove skill from form
+        removeSkill(index) {
+            this.agentForm.skills.splice(index, 1);
+        },
+
+        // Validate agent form
+        validateAgentForm() {
+            this.agentFormErrors = {};
+            
+            if (!this.editingAgent && !this.agentForm.name.trim()) {
+                this.agentFormErrors.name = 'Agent name is required';
+            }
+            
+            if (!this.editingAgent && !/^[a-zA-Z0-9_]+$/.test(this.agentForm.name)) {
+                this.agentFormErrors.name = 'Name can only contain letters, numbers, and underscores';
+            }
+            
+            return Object.keys(this.agentFormErrors).length === 0;
+        },
+
+        // Save agent (create or update)
+        async saveAgent() {
+            if (!this.validateAgentForm()) return;
+            
+            this.isSavingAgent = true;
+            
+            try {
+                // 构建基础表单数据
+                const formData = {
+                    description: this.agentForm.description,
+                    instruction_to_caller: this.agentForm.instruction_to_caller,
+                    backend_model: this.agentForm.backend_model,
+                    skills: this.agentForm.skills,
+                    module: this.agentForm.module,
+                    class_name: this.agentForm.class_name
+                };
+                
+                // 添加 persona（如果有值）
+                if (this.agentForm.personaBase && this.agentForm.personaBase.trim()) {
+                    formData.persona = {
+                        base: this.agentForm.personaBase.trim()
+                    };
+                }
+                
+                // 添加 cerebellum 配置（如果有值）
+                if (this.agentForm.cerebellumModel && this.agentForm.cerebellumModel.trim()) {
+                    formData.cerebellum = {
+                        backend_model: this.agentForm.cerebellumModel.trim()
+                    };
+                }
+                
+                // 添加 vision_brain 配置（如果有值）
+                if (this.agentForm.visionBrainModel && this.agentForm.visionBrainModel.trim()) {
+                    formData.vision_brain = {
+                        backend_model: this.agentForm.visionBrainModel.trim()
+                    };
+                }
+                
+                // 如果是编辑模式，保留原始配置中的其他字段（灵活性）
+                if (this.editingAgent && this.editingAgent._raw_profile) {
+                    // 提取未在前端表单中处理的原始字段作为 extra_fields
+                    const preservedFields = {};
+                    const handledFields = ['name', 'description', 'module', 'class_name', 
+                                           'instruction_to_caller', 'backend_model', 'skills', 
+                                           'persona', 'cerebellum', 'vision_brain'];
+                    
+                    for (const [key, value] of Object.entries(this.editingAgent._raw_profile)) {
+                        if (!handledFields.includes(key) && value !== undefined) {
+                            preservedFields[key] = value;
+                        }
+                    }
+                    
+                    if (Object.keys(preservedFields).length > 0) {
+                        formData.extra_fields = preservedFields;
+                    }
+                }
+                
+                if (this.editingAgent) {
+                    // Update existing agent
+                    await API.updateAgentProfile(this.editingAgent.name, formData);
+                    console.log('Agent updated:', this.editingAgent.name);
+                } else {
+                    // Create new agent
+                    formData.name = this.agentForm.name;
+                    formData.module = this.agentForm.module;
+                    formData.class_name = this.agentForm.class_name;
+                    await API.createAgentProfile(formData);
+                    console.log('Agent created:', this.agentForm.name);
+                }
+                
+                // Close modal and refresh list
+                this.closeAgentModal();
+                await this.loadAgentProfiles();
+                
+                // Also refresh runtime agents list
+                await this.loadAgents();
+                
+            } catch (error) {
+                console.error('Failed to save agent:', error);
+                alert(`Failed to save: ${error.message}`);
+            } finally {
+                this.isSavingAgent = false;
+            }
+        },
+
+        // Confirm delete agent
+        confirmDeleteAgent(agent) {
+            this.agentToDelete = agent;
+            this.showDeleteConfirmModal = true;
+        },
+
+        // Delete agent
+        async deleteAgent() {
+            if (!this.agentToDelete) return;
+            
+            this.isDeletingAgent = true;
+            
+            try {
+                await API.deleteAgentProfile(this.agentToDelete.name);
+                console.log('Agent deleted:', this.agentToDelete.name);
+                
+                this.showDeleteConfirmModal = false;
+                this.agentToDelete = null;
+                await this.loadAgentProfiles();
+                
+                // Also refresh runtime agents list
+                await this.loadAgents();
+                
+            } catch (error) {
+                console.error('Failed to delete agent:', error);
+                alert(`Failed to delete: ${error.message}`);
+            } finally {
+                this.isDeletingAgent = false;
+            }
+        },
+
+        // ===== LLM Config Methods =====
+
+        // Load LLM configs
+        async loadLLMConfigs() {
+            try {
+                const response = await API.getLLMConfigs();
+                this.llmConfigs = response.configs || [];
+                console.log('Loaded LLM configs:', this.llmConfigs);
+            } catch (error) {
+                console.error('Failed to load LLM configs:', error);
+                this.llmConfigs = [];
+            }
+        },
+
+        // Open LLM modal (for create or edit)
+        openLLMModal(config = null) {
+            this.editingLLMConfig = config;
+            this.llmFormErrors = {};
+            this.showLLMApiKey = false;
+            
+            if (config) {
+                // Edit mode - populate form
+                this.llmForm = {
+                    name: config.name,
+                    url: config.url || '',
+                    api_key: config.api_key || '',
+                    model_name: config.model_name || ''
+                };
+            } else {
+                // Create mode - reset form
+                this.llmForm = {
+                    name: '',
+                    url: '',
+                    api_key: '',
+                    model_name: ''
+                };
+            }
+            
+            this.showLLMModal = true;
+        },
+
+        // Close LLM modal
+        closeLLMModal() {
+            this.showLLMModal = false;
+            this.editingLLMConfig = null;
+            this.llmFormErrors = {};
+            this.showLLMApiKey = false;
+        },
+
+        // Validate LLM form
+        validateLLMForm() {
+            this.llmFormErrors = {};
+            
+            if (!this.editingLLMConfig && !this.llmForm.name.trim()) {
+                this.llmFormErrors.name = 'Config name is required';
+            }
+            
+            if (!this.editingLLMConfig && !/^[a-zA-Z0-9_-]+$/.test(this.llmForm.name)) {
+                this.llmFormErrors.name = 'Name can only contain letters, numbers, underscores, and hyphens';
+            }
+            
+            if (!this.llmForm.url.trim()) {
+                this.llmFormErrors.url = 'API URL is required';
+            } else if (!this.llmForm.url.startsWith('http://') && !this.llmForm.url.startsWith('https://')) {
+                this.llmFormErrors.url = 'URL must start with http:// or https://';
+            }
+            
+            if (!this.llmForm.model_name.trim()) {
+                this.llmFormErrors.model_name = 'Model name is required';
+            }
+            
+            return Object.keys(this.llmFormErrors).length === 0;
+        },
+
+        // Save LLM config (create or update)
+        async saveLLMConfig() {
+            if (!this.validateLLMForm()) return;
+            
+            this.isSavingLLM = true;
+            
+            try {
+                const formData = {
+                    url: this.llmForm.url,
+                    api_key: this.llmForm.api_key,
+                    model_name: this.llmForm.model_name
+                };
+                
+                if (this.editingLLMConfig) {
+                    // Update existing config
+                    await API.updateLLMConfig(this.editingLLMConfig.name, formData);
+                    console.log('LLM config updated:', this.editingLLMConfig.name);
+                } else {
+                    // Create new config
+                    formData.name = this.llmForm.name;
+                    await API.createLLMConfig(formData);
+                    console.log('LLM config created:', this.llmForm.name);
+                }
+                
+                // Close modal and refresh list
+                this.closeLLMModal();
+                await this.loadLLMConfigs();
+                
+            } catch (error) {
+                console.error('Failed to save LLM config:', error);
+                alert(`Failed to save: ${error.message}`);
+            } finally {
+                this.isSavingLLM = false;
+            }
+        },
+
+        // Reset LLM config to defaults
+        async resetLLMConfig(configName) {
+            if (!confirm(`Reset ${configName} to default values?`)) return;
+            
+            try {
+                await API.resetLLMConfig(configName);
+                console.log('LLM config reset:', configName);
+                await this.loadLLMConfigs();
+            } catch (error) {
+                console.error('Failed to reset LLM config:', error);
+                alert(`Failed to reset: ${error.message}`);
+            }
+        },
+
+        // Confirm delete LLM config
+        confirmDeleteLLM(config) {
+            this.llmToDelete = config;
+            this.showDeleteLLMConfirmModal = true;
+        },
+
+        // Delete LLM config
+        async deleteLLMConfig() {
+            if (!this.llmToDelete) return;
+            
+            this.isDeletingLLM = true;
+            
+            try {
+                await API.deleteLLMConfig(this.llmToDelete.name);
+                console.log('LLM config deleted:', this.llmToDelete.name);
+                
+                this.showDeleteLLMConfirmModal = false;
+                this.llmToDelete = null;
+                await this.loadLLMConfigs();
+                
+            } catch (error) {
+                console.error('Failed to delete LLM config:', error);
+                alert(`Failed to delete: ${error.message}`);
+            } finally {
+                this.isDeletingLLM = false;
             }
         }
     };

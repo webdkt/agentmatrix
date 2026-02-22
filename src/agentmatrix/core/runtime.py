@@ -45,6 +45,11 @@ class AgentMatrix(AutoLoggerMixin):
 
         self.matrix_path = matrix_path
 
+        # 🆕 配置 SKILL_REGISTRY，自动添加 workspace/skills/ 目录
+        # 导入在这里，避免循环依赖
+        from ..skills.registry import SKILL_REGISTRY
+        SKILL_REGISTRY.add_workspace_skills(self.matrix_path)
+
         # Store user agent name
         self.user_agent_name = user_agent_name
 
@@ -129,38 +134,53 @@ class AgentMatrix(AutoLoggerMixin):
 
 
     async def save_matrix(self):
-        """一键休眠"""
+        """一键休眠 - 修复了任务等待和异常处理问题"""
         self.echo(">>> 正在冻结世界...")
 
         # 1. 先停止 LLM 监控器
         if self.llm_monitor:
-            await self.llm_monitor.stop()
-            self.echo(">>> LLM monitor stopped")
+            try:
+                await asyncio.wait_for(self.llm_monitor.stop(), timeout=5.0)
+                self.echo(">>> LLM monitor stopped")
+            except asyncio.TimeoutError:
+                self.echo(">>> LLM monitor stop timed out")
 
         if self.monitor_task:
             self.monitor_task.cancel()
             try:
-                await self.monitor_task
+                await asyncio.wait_for(self.monitor_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
             except asyncio.CancelledError:
                 pass
             self.monitor_task = None
 
         # 2. 暂停邮局
         self.post_office.pause()
-        # 2. 取消所有正在运行的agent任务
-        for task in self.running_agent_tasks:
-            task.cancel()
-        # 3. 等待所有任务完成
+        
+        # 3. 取消所有正在运行的agent任务
         if self.running_agent_tasks:
-            asyncio.gather(*self.running_agent_tasks, return_exceptions=True)
-        self.running_agent_tasks.clear()
+            for task in self.running_agent_tasks:
+                if not task.done():
+                    task.cancel()
+            
+            # 等待所有任务完成（带超时）
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self.running_agent_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                self.echo(">>> Some agent tasks did not complete in time")
+            self.running_agent_tasks.clear()
 
         # 4. 停止邮局任务
         if self.post_office_task:
             self.post_office_task.cancel()
             try:
-                await self.post_office_task
-                #asyncio.get_event_loop().run_until_complete(self.post_office_task)
+                await asyncio.wait_for(self.post_office_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
             except asyncio.CancelledError:
                 pass
             self.post_office_task = None

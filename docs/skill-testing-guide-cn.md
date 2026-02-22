@@ -339,50 +339,6 @@ if __name__ == "__main__":
     test_lazy_load()
 ```
 
-## 新旧架构对比
-
-### 旧架构
-
-```python
-# ❌ Hardcode 注册
-class BaseAgent:
-    def _register_new_skills(self):
-        from ..skills.file_skill import FileSkillMixin
-        from ..skills.browser_skill import BrowserSkillMixin
-
-        SKILL_REGISTRY.register_python_mixin("file", FileSkillMixin)
-        SKILL_REGISTRY.register_python_mixin("browser", BrowserSkillMixin)
-
-# ❌ 动态绑定
-def _execute_action(self, action_name):
-    raw_method = self.actions_map[action_name]
-    bound_method = types.MethodType(raw_method, self)  # 重新绑定
-    return bound_method(**kwargs)
-```
-
-**问题：**
-- ❌ Hardcode：添加新 skill 需要修改 BaseAgent
-- ❌ 复杂：需要动态绑定，self 指向混乱
-- ❌ 不灵活：无法支持未来的 MD Document Skills
-
-### 新架构
-
-```python
-# ✅ Lazy Load
-SKILL_REGISTRY.get_skills(["file", "browser"])
-# 自动导入：agentmatrix.skills.file_skill.FileSkillMixin
-
-# ✅ 直接调用（已绑定的方法）
-def _execute_action(self, action_name):
-    method = self.action_registry[action_name]
-    return method(**kwargs)  # 直接调用，无需重新绑定
-```
-
-**优势：**
-- ✅ Lazy Load：按名字自动发现，无需 hardcode
-- ✅ 简单：直接调用已绑定的方法
-- ✅ 统一：BaseAgent 和 MicroAgent 使用相同机制
-- ✅ 扩展性：同时支持 Python Mixin 和 MD Document Skills
 
 ## 完整示例：创建新 Skill
 

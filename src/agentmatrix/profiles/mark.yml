@@ -3,11 +3,15 @@ description: 网络搜索实习生
 module: agentmatrix.agents.base
 class_name: BaseAgent
 
-# Skills 配置（新架构：Lazy Load）
+# Skills 配置（🆕 新架构）
 skills:
   - file  # 文件操作技能
-  # TODO: web_searcher 还未迁移到新架构（在 old_skills/ 中）
-  # TODO: report_writer 还未迁移
+  - web_search  # 网络搜索技能
+
+# Persona 配置
+persona:
+  base: |
+    你是一个网络搜索助手，请根据用户的问题进行搜索并返回结果
 
 # 属性初始化
 attribute_initializations:
@@ -19,8 +23,7 @@ class_attributes:
 
 instruction_to_caller: |
   想搜索了解什么问题
-system_prompt: |
-  你是一个网络搜索助手，请根据用户的问题进行搜索并返回结果
+
 backend_model: mimo
 cerebellum:
   backend_model: mimo

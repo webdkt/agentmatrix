@@ -4,16 +4,17 @@ Browser-Use Skill - 基于 browser-use 的浏览器自动化技能
 提供高级的浏览器自动化能力，使用 browser-use 库让 LLM 驱动浏览器操作。
 
 配置要求:
-- 需要在 llm_config.json 中配置 browser-use-llm（优先）或 deepseek-chat（回退）
+- 需要在 llm_config.json 中配置 browser_use_llm（优先）或 deepseek-chat（回退）
 - 推荐使用支持结构化输出的模型（如 OpenAI GPT-4o）
 
-国产模型兼容性:
-- 自动检测 GLM、Mimo、DeepSeek 等国产模型
-- 针对这些模型启用兼容性模式：
+模型支持:
+- **DeepSeek**: 使用 browser-use 官方 ChatDeepSeek 类（最佳支持）
+- **国产模型（GLM、Mimo）**: 自动检测并启用兼容性模式
   * dont_force_structured_output=True - 禁用强制结构化输出
   * remove_min_items_from_schema=True - 移除 JSON schema 中的 minItems
   * remove_defaults_from_schema=True - 移除 JSON schema 中的默认值
-- 对于 Mimo 等需要 extra_body 传递 thinking 参数的模型，会自动使用包装器
+  * 对于 Mimo 等需要 extra_body 传递 thinking 参数的模型，会自动使用包装器
+- **其他模型**: 使用标准的 ChatOpenAI 配置
 """
 import asyncio
 import os
@@ -22,7 +23,7 @@ from pathlib import Path
 from ..core.action import register_action
 from ..skills.parser_utils import simple_section_parser
 from ..core.exceptions import LLMServiceUnavailableError
-from browser_use import Agent
+from browser_use import Agent, Browser
 
 class BrowserSkillMixin:
     """
@@ -35,7 +36,7 @@ class BrowserSkillMixin:
     - **自动兼容国产模型**（GLM、Mimo、DeepSeek 等）
 
     配置要求:
-    - 在 llm_config.json 中配置 browser-use-llm（优先）
+    - 在 llm_config.json 中配置 browser_use_llm（优先）
     - 如果没有配置，回退到 deepseek-chat
 
     国产模型兼容性:
@@ -46,6 +47,7 @@ class BrowserSkillMixin:
 
     # 国产模型配置
     # 这些模型对结构化输出和 JSON schema 支持有限，需要特殊处理
+    # 注意：DeepSeek 使用 browser-use 官方 ChatDeepSeek 类，不需要在此配置
     CHINESE_LLM_CONFIG = {
         # Zhipu AI (智谱)
         "glm": {
@@ -60,13 +62,6 @@ class BrowserSkillMixin:
             "remove_min_items_from_schema": True,
             "remove_defaults_from_schema": True,
             "use_extra_body": True,   # Mimo 使用 extra_body 传递 thinking 参数
-        },
-        # DeepSeek (如果需要)
-        "deepseek": {
-            "dont_force_structured_output": True,
-            "remove_min_items_from_schema": True,
-            "remove_defaults_from_schema": True,
-            "use_extra_body": False,
         },
     }
 
@@ -106,7 +101,7 @@ class BrowserSkillMixin:
         为 browser-use 创建 LLMClient
 
         Args:
-            config_name: 配置名称（如 "browser-use-llm" 或 "deepseek-chat"）
+            config_name: 配置名称（如 "browser_use_llm" 或 "deepseek-chat"）
 
         Returns:
             LLMClient 实例
@@ -159,7 +154,27 @@ class BrowserSkillMixin:
                 vendor = v
                 break
 
-        # 准备 ChatOpenAI 的基础参数
+        # 🔥 DeepSeek 专用：使用 browser-use 官方支持的 ChatDeepSeek
+        if vendor == "deepseek":
+            self.logger.info(f"检测到 DeepSeek 模型，使用 browser-use 官方 ChatDeepSeek 类")
+            try:
+                from browser_use.llm import ChatDeepSeek
+            except ImportError:
+                raise ImportError(
+                    "使用 ChatDeepSeek 需要更新 browser-use: "
+                    "pip install -U browser-use"
+                )
+
+            # ChatDeepSeek 的参数
+            # 注意：base_url 不包含 /chat/completions 后缀
+            deepseek_llm = ChatDeepSeek(
+                model=model_name,
+                api_key=api_key,
+                base_url=url,  # browser-use 会自动添加正确的路径
+            )
+            return deepseek_llm
+
+        # 准备 ChatOpenAI 的基础参数（用于其他模型）
         llm_kwargs = {
             "model": model_name,
             "api_key": api_key,
@@ -168,8 +183,8 @@ class BrowserSkillMixin:
             "max_completion_tokens": 4096,
         }
 
-        # 如果是国产模型，添加兼容性参数
-        if vendor and vendor in self.CHINESE_LLM_CONFIG:
+        # 如果是国产模型（除了 DeepSeek，因为上面已经处理），添加兼容性参数
+        if vendor and vendor in self.CHINESE_LLM_CONFIG and vendor != "deepseek":
             config = self.CHINESE_LLM_CONFIG[vendor]
             llm_kwargs.update({
                 "dont_force_structured_output": config["dont_force_structured_output"],
@@ -267,7 +282,7 @@ class BrowserSkillMixin:
         获取或创建 browser-use 所需的 LLM
 
         优先级：
-        1. browser-use-llm（llm_config.json 中的专用配置）
+        1. browser_use_llm（llm_config.json 中的专用配置）
         2. deepseek-chat（回退配置）
 
         Returns:
@@ -281,8 +296,8 @@ class BrowserSkillMixin:
         if self._browser_use_llm is not None:
             return self._browser_use_llm
 
-        # 确定配置名称（优先 browser-use-llm，回退到 deepseek-chat）
-        config_name = "browser-use-llm"
+        # 确定配置名称（优先 browser_use_llm，回退到 deepseek-chat）
+        config_name = "browser_use_llm"
 
         try:
             # 尝试创建 LLMClient
@@ -290,15 +305,15 @@ class BrowserSkillMixin:
             self.logger.info(f"BrowserUseSkill 使用配置: {config_name}")
         except Exception as e:
             # 回退到 deepseek-chat
-            self.logger.warning(f"无法加载配置 '{config_name}': {e}，回退到 'deepseek-chat'")
-            config_name = "deepseek-chat"
+            self.logger.warning(f"无法加载配置 '{config_name}': {e}，回退到 'deepseek_chat'")
+            config_name = "deepseek_chat"
             try:
                 llm_client = self._create_llm_client_for_browser_use(config_name)
                 self.logger.info(f"BrowserUseSkill 使用回退配置: {config_name}")
             except Exception as e2:
                 raise ValueError(
                     f"无法加载 browser-use LLM 配置。"
-                    f"请确保在 llm_config.json 中配置了 'browser-use-llm' 或 'deepseek-chat'。"
+                    f"请确保在 llm_config.json 中配置了 'browser_use_llm' 或 'deepseek_chat'。"
                     f"错误: {e2}"
                 )
 
@@ -309,20 +324,20 @@ class BrowserSkillMixin:
 
     async def _check_browser_llm_available(self) -> bool:
         """
-        检查 browser-use-llm 服务是否可用
+        检查 browser_use_llm 服务是否可用
 
         Returns:
             bool: 服务是否可用
         """
         try:
             # 创建一个临时的 LLMClient 进行测试
-            config_name = "browser-use-llm"
+            config_name = "browser_use_llm"
 
-            # 尝试创建 browser-use-llm 的 client
+            # 尝试创建 browser_use_llm 的 client
             try:
                 llm_client = self._create_llm_client_for_browser_use(config_name)
             except Exception:
-                # 如果 browser-use-llm 不存在，尝试 deepseek-chat
+                # 如果 browser_use_llm 不存在，尝试 deepseek-chat
                 config_name = "deepseek-chat"
                 llm_client = self._create_llm_client_for_browser_use(config_name)
 
@@ -337,28 +352,28 @@ class BrowserSkillMixin:
 
             # 检查响应
             if response and 'reply' in response:
-                self.logger.debug(f"✓ browser-use-llm ({config_name}) is available")
+                self.logger.debug(f"✓ browser_use_llm ({config_name}) is available")
                 return True
             else:
-                self.logger.warning(f"✗ browser-use-llm ({config_name}) returned invalid response")
+                self.logger.warning(f"✗ browser_use_llm ({config_name}) returned invalid response")
                 return False
 
         except asyncio.TimeoutError:
-            self.logger.warning(f"✗ browser-use-llm ({config_name}) timeout")
+            self.logger.warning(f"✗ browser_use_llm ({config_name}) timeout")
             return False
         except LLMServiceUnavailableError:
-            self.logger.warning(f"✗ browser-use-llm ({config_name}) service unavailable")
+            self.logger.warning(f"✗ browser_use_llm ({config_name}) service unavailable")
             return False
         except Exception as e:
-            self.logger.warning(f"✗ browser-use-llm check failed: {str(e)}")
+            self.logger.warning(f"✗ browser_use_llm check failed: {str(e)}")
             return False
 
     async def _wait_for_browser_llm_recovery(self):
-        """等待 browser-use-llm 服务恢复（轮询方式）"""
-        check_interval = 5  # 每 5 秒检查一次
+        """等待 browser_use_llm 服务恢复（轮询方式）"""
+        check_interval = 10  # 每 5 秒检查一次
         waited_seconds = 0
 
-        self.logger.info("⏳ Waiting for browser-use-llm recovery...")
+        self.logger.info("⏳ Waiting for browser_use_llm recovery...")
 
         while True:
             await asyncio.sleep(check_interval)
@@ -366,13 +381,13 @@ class BrowserSkillMixin:
 
             # 检查是否恢复
             if await self._check_browser_llm_available():
-                self.logger.info(f"✅ browser-use-llm recovered after {waited_seconds}s")
+                self.logger.info(f"✅ browser_use_llm recovered after {waited_seconds}s")
                 break
 
             # 每 30 秒打印一次日志
             if waited_seconds % 30 == 0:
                 self.logger.warning(
-                    f"⏳ Still waiting for browser-use-llm... ({waited_seconds}s elapsed)"
+                    f"⏳ Still waiting for browser_use_llm... ({waited_seconds}s elapsed)"
                 )
 
     async def _get_browser(self, headless: bool = False):
@@ -396,14 +411,7 @@ class BrowserSkillMixin:
             self.logger.debug("BrowserUseSkill 复用现有浏览器实例")
             return self._browser_use_browser
 
-        # 创建新浏览器实例
-        try:
-            from browser_use import Browser
-        except ImportError:
-            raise ImportError(
-                "使用 BrowserUseSkill 需要安装 browser-use: "
-                "pip install browser-use"
-            )
+       
 
         try:
             # 准备浏览器参数
@@ -414,11 +422,19 @@ class BrowserSkillMixin:
 
             # 使用固定的 profile 目录
             # 每个 Agent 有自己独立的浏览器 profile，持久化 cookies、历史等
+            # 注意：使用 root_agent（BaseAgent）的名字，而不是当前 MicroAgent 的名字
+            # 这样即使 MicroAgent 调用 browser skill，profile 路径也是基于 BaseAgent 的
             import os
             from ..core.working_context import WorkingContext
 
-            # 获取 Agent 的 name 和 workspace_root
-            agent_name = self.name
+            # 获取 BaseAgent 的 name（通过 root_agent）
+            # MicroAgent 会通过 root_agent 找到最上层的 BaseAgent
+            if hasattr(self, 'root_agent'):
+                agent_name = self.root_agent.name
+            else:
+                # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
+                agent_name = self.name
+
             workspace_root = self.workspace_root
 
             user_data_dir = os.path.join(workspace_root, ".matrix", "browser_profile", agent_name)
@@ -525,7 +541,7 @@ class BrowserSkillMixin:
         Returns:
             Agent: 新创建的 Agent 实例
         """
-        # 添加重试机制处理 browser-use-llm 服务异常
+        # 添加重试机制处理 browser_use_llm 服务异常
         max_retries = 3
         retry_count = 0
 
@@ -534,25 +550,9 @@ class BrowserSkillMixin:
                 llm = self._get_browser_use_llm()
                 break  # 成功获取 LLM，退出循环
             except LLMServiceUnavailableError as e:
-                retry_count += 1
-                self.logger.warning(
-                    f"⚠️  browser-use-llm 服务错误 (创建 Agent，尝试 {retry_count}/{max_retries}): {str(e)}"
-                )
-
-                if retry_count >= max_retries:
-                    raise ValueError(
-                        f"browser-use-llm 服务不可用，无法创建 Agent。已重试 {max_retries} 次。"
-                    )
-
-                # 等待服务恢复
-                await asyncio.sleep(3)
-                if await self._check_browser_llm_available():
-                    self.logger.info("✅ browser-use-llm 已恢复，继续创建 Agent...")
-                    continue
-
-                self.logger.warning("🔄 等待 browser-use-llm 恢复...")
+                
                 await self._wait_for_browser_llm_recovery()
-                self.logger.info("✅ browser-use-llm 已恢复，继续创建 Agent...")
+                self.logger.info("✅ browser_use_llm 已恢复，继续创建 Agent...")
                 continue
 
         browser = await self._get_browser(headless=headless)
@@ -575,58 +575,7 @@ class BrowserSkillMixin:
         self.logger.info(f"✅ 已创建新的 browser-use Agent（headless={headless}）")
         return agent
 
-    async def _get_or_create_agent(
-        self,
-        task: str,
-        headless: bool = False
-    ):
-        """
-        获取或创建 Agent 实例
-
-        实现一个 AgentMatrix Agent 对应一个 browser-use Agent 的设计：
-        - 首次调用：创建新 Agent
-        - 后续调用：使用 add_new_task() 复用
-        - headless 改变：重新创建 Agent
-        - 连接断开：重新创建 Agent 和 Browser
-
-        Args:
-            task: 任务描述
-            headless: 是否无头模式（只在首次创建时生效）
-
-        Returns:
-            Agent: browser-use Agent 实例
-        """
-        # 惰性初始化：检查属性是否存在
-        if not hasattr(self, '_browser_use_agent'):
-            self._browser_use_agent = None
-        if not hasattr(self, '_browser_headless_mode'):
-            self._browser_headless_mode = False
-
-        # 首次创建
-        if self._browser_use_agent is None:
-            self.logger.info("首次创建 browser-use Agent")
-            return await self._create_new_agent(task, headless)
-
-        # headless 模式改变，需要重新创建
-        if headless != self._browser_headless_mode:
-            self.logger.info(
-                f"headless 模式改变：{self._browser_headless_mode} -> {headless}，"
-                f"重新创建 Agent 和 Browser"
-            )
-            await self._cleanup_browser_and_agent()
-            return await self._create_new_agent(task, headless)
-
-        # 检查浏览器连接是否还活着
-        if not await self._is_browser_connected():
-            self.logger.warning("浏览器连接断开，重新创建 Agent 和 Browser")
-            await self._cleanup_browser_and_agent()
-            return await self._create_new_agent(task, headless)
-
-        # 连接正常，复用现有 Agent，使用 add_new_task 更新任务
-        self.logger.info(f"✅ 复用现有 Agent，更新任务：{task[:50]}...")
-        self._browser_use_agent.add_new_task(task)
-        return self._browser_use_agent
-
+    
     
 
 
@@ -643,67 +592,72 @@ class BrowserSkillMixin:
         headless: bool = False
     ) -> str:
         # 构建完整任务描述
-        full_task = task + "\n用完的tab尽早关闭。不要做太多重复尝试，尽早返回结果"
+        full_task = task + "\n不要做太多重复尝试，尽早返回结果。结束时只保留最后的tab，关闭多余的tab，但不要全部关闭"
 
 
         self.logger.info(f"BrowserUseSkill 开始任务")
 
         self.logger.info(f"  任务: {task}")
 
-        # ========== 添加重试循环处理 browser-use-llm 服务异常 ==========
-        max_retries = 3  # 最多重试 3 次
+        # ========== 添加重试循环处理 browser_use_llm 服务异常 ==========
+        max_retries = 10  # 最多重试10次
         retry_count = 0
-
-        while retry_count < max_retries:
+        agent = None
+        llm_available = self._check_browser_llm_available()  # 预先检查服务状态，记录日志
+        if not llm_available:
+            self.logger.warning("⚠️  browser_use_llm 服务不可用，开始重试...")
+            while retry_count < max_retries and not llm_available:
+                await asyncio.sleep(60)  # 等待一小段时间让服务稳定
+                llm_available = self._check_browser_llm_available()
+                retry_count += 1
+                self.logger.warning(f"⚠️  browser_use_llm 仍不可用，重试 {retry_count}/{max_retries}...")
+            if retry_count >= max_retries:
+                error_msg = f"browser_use_llm 服务不可用"
+                self.logger.error(error_msg)
+                return f"任务执行失败: {error_msg}"
+        self.logger.info(f"browser_use_llm 服务可用")
+        retry_count = 0
+        last_error = None
+        while True:
+            agent = None
             try:
                 # 获取或创建 Agent（会自动复用）
-                agent = await self._get_or_create_agent(full_task, headless)
+                agent = await self._create_new_agent(full_task, headless)
 
-# 执行任务（关键调用）
+
                 history = await agent.run()
 
                 # 成功执行，退出重试循环
                 break
 
             except LLMServiceUnavailableError as e:
-                # browser-use-llm 服务异常
-                retry_count += 1
-                self.logger.warning(
-                    f"⚠️  browser-use-llm 服务错误 (尝试 {retry_count}/{max_retries}): {str(e)}"
-                )
-
-                # 如果已经重试多次，放弃
-                if retry_count >= max_retries:
-                    error_msg = f"browser-use-llm 服务不可用，已重试 {max_retries} 次仍失败"
-                    self.logger.error(error_msg)
-                    return f"任务执行失败: {error_msg}"
-
-                # 等待一小段时间让服务稳定（3秒）
-                await asyncio.sleep(3)
-
-                # 检查服务状态
-                if await self._check_browser_llm_available():
-                    # 已恢复，重试
-                    self.logger.info("✅ browser-use-llm 已恢复，重试...")
-                    continue
-
-                # 仍不可用，进入等待模式
-                self.logger.warning("🔄 browser-use-llm 不可用，进入等待模式...")
+                # browser_use_llm 服务异常
+                
                 await self._wait_for_browser_llm_recovery()
 
                 # 恢复后重试
-                self.logger.info("✅ browser-use-llm 已恢复，重新执行任务")
+                self.logger.info("✅ browser_use_llm 已恢复，重新执行任务")
                 continue
 
             except Exception as e:
                 # 其他异常，直接返回错误
                 error_msg = f"未知错误: {type(e).__name__}: {e}"
                 self.logger.error(error_msg, exc_info=True)
-                return f"任务执行失败: {error_msg}"
+                last_error = error_msg
+            finally:
+                try:
+                    if agent:
+                        agent.close()
+                except Exception as e:
+                    self.logger.warning(f"关闭 Agent 时发生错误: {e}")
+
+                
+
 
         # ========== 执行成功后的处理 ==========
         # 获取最终结果
-        final_result = history.final_result()
+        final_result = history.final_result() or last_error or ""
+        
 
         # 清理结果中的 Simple judge note（经常不准确）
         import re
@@ -715,7 +669,7 @@ class BrowserSkillMixin:
         except Exception:
             current_url = None
 
-        # 🆕 保存最后访问的 URL（供 WebSearcherV2 使用）
+        # 🆕 保存最后访问的 URL
         if current_url:
             self._last_browser_url = current_url
             self.logger.debug(f"浏览器当前 URL: {current_url}")
@@ -726,7 +680,7 @@ class BrowserSkillMixin:
         # 构建返回结果
         result_parts = []
         if final_result:
-            result_parts.append(f"【最终结果】\n{final_result}")
+            result_parts.append(f"{final_result}")
         else:
             result_parts.append("任务已完成，未返回结果")
 

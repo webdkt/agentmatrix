@@ -112,8 +112,10 @@ def multi_section_parser(
             if match_mode == "ALL" and not regex_mode:
                 missing = [h for h in section_headers if h not in raw_reply]
                 if missing:
+                    # 🔥 Feedback 应该是格式强调，而不是错误描述
+                    headers_str = "、".join(missing)
                     return {"status": "error",
-                           "feedback": f"ALL 模式：缺少以下 section headers: {missing}"}
+                           "feedback": f"【必须包含】输出必须包含以下 section：{headers_str}\n请确保每个 section 都有明确的标题，格式如：{missing[0]}"}
 
             # ========== 优化2: 倒序遍历 + 提前终止 ==========
             sections = {}
@@ -166,15 +168,17 @@ def multi_section_parser(
             # ========== 验证结果 ==========
             if not sections:
                 mode_desc = "正则表达式" if regex_mode else "精确匹配"
+                headers_str = "、".join(section_headers)
                 return {"status": "error",
-                       "feedback": f"未找到任何指定的 section header ({mode_desc}模式): {section_headers}"}
+                       "feedback": f"【必须包含】输出必须包含以下 section：{headers_str}\n请确保每个 section 都有明确的标题"}
 
             if match_mode == "ALL" and not regex_mode:
                 # 精确模式：再次验证（in 操作可能误报，比如在注释中）
                 missing = [h for h in section_headers if h not in sections]
                 if missing:
+                    headers_str = "、".join(missing)
                     return {"status": "error",
-                           "feedback": f"ALL 模式：缺少以下 section headers: {missing}。找到的 sections: {list(sections.keys())}"}
+                           "feedback": f"【必须包含】输出必须包含以下 section：{headers_str}\n请确保每个 section 都有明确的标题，格式如：{missing[0]}"}
 
             if match_mode == "ALL" and regex_mode:
                 # 正则模式：检查每个正则是否至少匹配到一个 header
@@ -182,7 +186,7 @@ def multi_section_parser(
                     pattern_matched = any(re.match(pattern, h) for h in sections.keys())
                     if not pattern_matched:
                         return {"status": "error",
-                               "feedback": f"ALL 模式：未找到匹配正则表达式 '{pattern}' 的 section header。找到的 sections: {list(sections.keys())}"}
+                               "feedback": f"【必须包含】输出必须包含匹配 '{pattern}' 的 section 标题"}
 
             return {"status": "success", "content": sections}
 
@@ -199,7 +203,8 @@ def multi_section_parser(
                     break
 
             if divider_line_idx is None:
-                return {"status": "error", "feedback": "未找到有效的分隔行，请确保输出格式正确"}
+                return {"status": "error",
+                       "feedback": "【格式要求】输出必须包含分隔行，格式如：======"}
 
             # 提取最后一个分隔行之后的所有内容
             raw_content = '\n'.join(lines[divider_line_idx + 1:])
@@ -207,7 +212,8 @@ def multi_section_parser(
 
             # 如果处理后的内容为 None（不允许空），返回错误
             if processed_content is None:
-                return {"status": "error", "feedback": "分隔符后没有内容（allow_empty=False）"}
+                return {"status": "error",
+                       "feedback": "【格式要求】分隔符后必须有内容"}
 
             return {"status": "success", "content": processed_content}
 

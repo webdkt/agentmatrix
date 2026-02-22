@@ -54,7 +54,7 @@
         "API_KEY":"MIMO_API_KEY",
         "model_name":"mimo-v2-flash"
     },
-    "browser-use-llm":{
+    "browser_use_llm":{
         "url": "https://api.deepseek.com/chat/completions",
         "API_KEY": "DEEPSEEK_API_KEY",
         "model_name": "deepseek-chat"

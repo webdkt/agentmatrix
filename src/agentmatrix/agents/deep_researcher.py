@@ -68,12 +68,6 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
 
         
 
-        # 3. 准备 available actions
-        # 如果配置了 top_level_actions，则使用配置 + 默认 actions
-        # 否则使用所有 actions（向后兼容）
-        available_actions = self._get_top_level_actions()
-
-        
         # === 初始化循环变量 ===
         round_count = 1
         start_time = time.time()
@@ -134,7 +128,6 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
                 run_label=f'Round {round_count} - {phase}',
                 persona=persona,
                 task=task_prompt,
-                available_actions=available_actions,
                 session=session,  # ← 传递干净的 session
                 session_manager=self.session_manager,  # ← 传递 session_manager
                 #yellow_pages=self.post_office.yellow_page_exclude_me(self.name),

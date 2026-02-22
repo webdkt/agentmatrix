@@ -5,6 +5,8 @@ AgentMatrix Server
 import os
 import sys
 import json
+import re
+import asyncio
 import argparse
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -96,6 +98,68 @@ class SendEmailRequest(BaseModel):
     subject: str
     body: str
     in_reply_to: Optional[str] = None
+
+
+class AgentConfigRequest(BaseModel):
+    """Agent configuration request model - 灵活的Agent配置"""
+    name: str
+    description: str
+    module: str = "agentmatrix.agents.base"
+    class_name: str = "BaseAgent"
+    instruction_to_caller: str = ""
+    backend_model: str = "default_llm"
+    skills: list = []
+    persona: dict = {}
+    # 可选配置
+    cerebellum: Optional[dict] = None
+    vision_brain: Optional[dict] = None
+    prompts: Optional[dict] = None
+    logging: Optional[dict] = None
+    # 保留其他未知字段的灵活性
+    extra_fields: Optional[dict] = None
+
+
+class AgentUpdateRequest(BaseModel):
+    """Agent update request model - 灵活的Agent更新"""
+    description: Optional[str] = None
+    instruction_to_caller: Optional[str] = None
+    backend_model: Optional[str] = None
+    skills: Optional[list] = None
+    persona: Optional[dict] = None
+    module: Optional[str] = None
+    class_name: Optional[str] = None
+    cerebellum: Optional[dict] = None
+    vision_brain: Optional[dict] = None
+    prompts: Optional[dict] = None
+    logging: Optional[dict] = None
+    # 保留其他未知字段的灵活性
+    extra_fields: Optional[dict] = None
+
+
+class LLMEndpointConfig(BaseModel):
+    """Single LLM endpoint configuration"""
+    url: str
+    api_key: str
+    model_name: str
+
+
+class LLMConfigUpdateRequest(BaseModel):
+    """LLM configuration update request"""
+    url: str
+    api_key: str
+    model_name: str
+
+
+class LLMConfigCreateRequest(BaseModel):
+    """LLM configuration create request"""
+    name: str
+    url: str
+    api_key: str
+    model_name: str
+
+
+# === Required LLM Configs ===
+REQUIRED_LLM_CONFIGS = ["default_llm", "default_slm", "browser-use-llm"]
 
 
 # === Helper Functions ===
@@ -201,6 +265,39 @@ def save_llm_configs(configs: dict, config_path: Path):
     config_path.write_text(json.dumps(llm_config_data, indent=4))
 
 
+# === Graceful Shutdown Handler ===
+
+async def graceful_shutdown():
+    """Gracefully shutdown the AgentMatrix runtime"""
+    global matrix_runtime, active_websockets
+    
+    print("\n👋 Shutting down AgentMatrix Server...")
+    
+    # 1. Close all WebSocket connections
+    if active_websockets:
+        print(f"📡 Closing {len(active_websockets)} WebSocket connections...")
+        for ws in active_websockets[:]:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        active_websockets.clear()
+    
+    # 2. Save matrix state with timeout
+    if matrix_runtime:
+        try:
+            print("💾 Saving Matrix state...")
+            # Use wait_for to prevent hanging
+            await asyncio.wait_for(matrix_runtime.save_matrix(), timeout=10.0)
+            print("✅ Matrix state saved successfully")
+        except asyncio.TimeoutError:
+            print("⚠️  Saving matrix state timed out (10s), forcing shutdown...")
+        except Exception as e:
+            print(f"⚠️  Error saving Matrix state: {e}")
+        finally:
+            matrix_runtime = None
+
+
 # === Lifespan Management ===
 
 @asynccontextmanager
@@ -221,7 +318,11 @@ async def lifespan(app: FastAPI):
         print("❄️  Cold start detected - Waiting for user configuration via wizard")
         # Don't create directory structure here - wait for wizard to complete
         # Runtime will be initialized after wizard completes configuration
-        yield
+        try:
+            yield
+        finally:
+            # Even cold start needs cleanup
+            await graceful_shutdown()
         return
     else:
         print("✅ Configuration found - warm start")
@@ -324,17 +425,10 @@ async def lifespan(app: FastAPI):
             matrix_runtime = None
             app.state.matrix = None
 
-    yield
-
-    # Shutdown
-    print("👋 Shutting down AgentMatrix Server...")
-    if matrix_runtime:
-        try:
-            print("💾 Saving Matrix state...")
-            await matrix_runtime.save_matrix()
-            print("✅ Matrix state saved successfully")
-        except Exception as e:
-            print(f"⚠️  Error saving Matrix state: {e}")
+    try:
+        yield
+    finally:
+        await graceful_shutdown()
 
 
 # === FastAPI Application ===
@@ -713,6 +807,523 @@ async def get_runtime_status():
             "agents": [],
             "error": str(e)
         }
+
+
+# === Agent Profile Management APIs ===
+
+def get_agent_yml_path(agent_name: str) -> Path:
+    """Get the YAML file path for an agent"""
+    return agents_dir / f"{agent_name}.yml"
+
+
+def load_agent_profile(agent_name: str) -> dict:
+    """Load agent profile from YAML file"""
+    import yaml
+    yml_path = get_agent_yml_path(agent_name)
+    if not yml_path.exists():
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    
+    with open(yml_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+def save_agent_profile(agent_name: str, profile: dict):
+    """Save agent profile to YAML file"""
+    import yaml
+    yml_path = get_agent_yml_path(agent_name)
+    with open(yml_path, 'w', encoding='utf-8') as f:
+        yaml.dump(profile, f, default_flow_style=False, allow_unicode=True)
+
+
+def agent_profile_to_response(profile: dict) -> dict:
+    """Convert agent profile to API response format - 支持灵活的配置结构"""
+    # Handle backward compatibility: mixins -> skills (仅用于显示)
+    skills = profile.get("skills", [])
+    if not skills and "mixins" in profile:
+        # Convert mixins to skills format for display
+        mixins = profile["mixins"]
+        if isinstance(mixins, list):
+            skills = [m.split(".")[-1].replace("SkillMixin", "").lower() for m in mixins if isinstance(m, str)]
+    
+    # 构建响应，包含所有标准字段
+    response = {
+        "name": profile.get("name", ""),
+        "description": profile.get("description", ""),
+        "module": profile.get("module", ""),
+        "class_name": profile.get("class_name", ""),
+        "instruction_to_caller": profile.get("instruction_to_caller", ""),
+        "backend_model": profile.get("backend_model", "default_llm"),
+        "skills": skills,
+        "persona": profile.get("persona", {}),
+        # 新增配置项
+        "cerebellum": profile.get("cerebellum"),
+        "vision_brain": profile.get("vision_brain"),
+        "prompts": profile.get("prompts", {}),
+        "logging": profile.get("logging"),
+        # 保留原始 profile 的引用，方便前端获取完整信息
+        "_raw_profile": profile
+    }
+    
+    return response
+
+
+@app.get("/api/agent-profiles")
+async def get_agent_profiles():
+    """Get all agent profiles from YAML files (including full details)"""
+    try:
+        import yaml
+        profiles = []
+        
+        if not agents_dir.exists():
+            return {"agents": []}
+        
+        for yml_file in agents_dir.glob("*.yml"):
+            # Skip User.yml - it's special
+            if yml_file.stem == "User":
+                continue
+                
+            try:
+                with open(yml_file, 'r', encoding='utf-8') as f:
+                    profile = yaml.safe_load(f)
+                    if profile and isinstance(profile, dict):
+                        profiles.append(agent_profile_to_response(profile))
+            except Exception as e:
+                print(f"Error loading agent profile {yml_file}: {e}")
+                continue
+        
+        return {"agents": profiles}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agent-profiles/{agent_name}")
+async def get_agent_profile(agent_name: str):
+    """Get a specific agent's full profile from YAML"""
+    try:
+        profile = load_agent_profile(agent_name)
+        return agent_profile_to_response(profile)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent-profiles")
+async def create_agent_profile(request: AgentConfigRequest):
+    """Create a new agent profile - 支持灵活的配置结构"""
+    try:
+        import yaml
+        yml_path = get_agent_yml_path(request.name)
+        
+        # Check if agent already exists
+        if yml_path.exists():
+            raise HTTPException(status_code=409, detail=f"Agent '{request.name}' already exists")
+        
+        # Validate name (alphanumeric, underscore, hyphen)
+        if not re.match(r'^[a-zA-Z0-9_-]+$', request.name):
+            raise HTTPException(status_code=400, detail="Agent name can only contain letters, numbers, underscores, and hyphens")
+        
+        # Build profile - 只包含非空值，保持配置文件简洁
+        profile = {
+            "name": request.name,
+            "description": request.description,
+            "module": request.module,
+            "class_name": request.class_name,
+        }
+        
+        # 可选字段 - 只在有值时添加
+        if request.instruction_to_caller:
+            profile["instruction_to_caller"] = request.instruction_to_caller
+        if request.backend_model and request.backend_model != "default_llm":
+            profile["backend_model"] = request.backend_model
+        if request.skills:
+            profile["skills"] = request.skills
+        if request.persona:
+            profile["persona"] = request.persona
+        if request.cerebellum:
+            profile["cerebellum"] = request.cerebellum
+        if request.vision_brain:
+            profile["vision_brain"] = request.vision_brain
+        if request.prompts:
+            profile["prompts"] = request.prompts
+        if request.logging:
+            profile["logging"] = request.logging
+        
+        # 处理额外字段（保留灵活性）
+        if request.extra_fields:
+            for key, value in request.extra_fields.items():
+                if key not in profile:  # 不覆盖已处理的字段
+                    profile[key] = value
+        
+        save_agent_profile(request.name, profile)
+        
+        return {
+            "success": True,
+            "message": f"Agent '{request.name}' created successfully",
+            "agent": agent_profile_to_response(profile)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/agent-profiles/{agent_name}")
+async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
+    """Update an existing agent profile - 支持灵活的配置结构"""
+    try:
+        profile = load_agent_profile(agent_name)
+        
+        # 更新基本字段
+        if request.description is not None:
+            profile["description"] = request.description
+        if request.instruction_to_caller is not None:
+            if request.instruction_to_caller:
+                profile["instruction_to_caller"] = request.instruction_to_caller
+            else:
+                profile.pop("instruction_to_caller", None)  # 删除空值
+        if request.backend_model is not None:
+            profile["backend_model"] = request.backend_model
+        if request.skills is not None:
+            if request.skills:
+                profile["skills"] = request.skills
+            else:
+                profile.pop("skills", None)  # 删除空数组
+        if request.persona is not None:
+            if request.persona:
+                profile["persona"] = request.persona
+            else:
+                profile.pop("persona", None)
+        if request.module is not None:
+            profile["module"] = request.module
+        if request.class_name is not None:
+            profile["class_name"] = request.class_name
+        
+        # 更新新字段
+        if request.cerebellum is not None:
+            if request.cerebellum:
+                profile["cerebellum"] = request.cerebellum
+            else:
+                profile.pop("cerebellum", None)
+        if request.vision_brain is not None:
+            if request.vision_brain:
+                profile["vision_brain"] = request.vision_brain
+            else:
+                profile.pop("vision_brain", None)
+        if request.prompts is not None:
+            if request.prompts:
+                profile["prompts"] = request.prompts
+            else:
+                profile.pop("prompts", None)
+        if request.logging is not None:
+            if request.logging:
+                profile["logging"] = request.logging
+            else:
+                profile.pop("logging", None)
+        
+        # 处理额外字段（保留灵活性）
+        if request.extra_fields:
+            for key, value in request.extra_fields.items():
+                if value is not None:
+                    profile[key] = value
+                else:
+                    profile.pop(key, None)  # 允许通过 None 删除字段
+        
+        save_agent_profile(agent_name, profile)
+        
+        return {
+            "success": True,
+            "message": f"Agent '{agent_name}' updated successfully",
+            "agent": agent_profile_to_response(profile)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/agent-profiles/{agent_name}")
+async def delete_agent_profile(agent_name: str):
+    """Delete an agent profile"""
+    try:
+        # Prevent deleting User agent
+        if agent_name == "User":
+            raise HTTPException(status_code=403, detail="Cannot delete User agent")
+        
+        yml_path = get_agent_yml_path(agent_name)
+        
+        if not yml_path.exists():
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+        
+        yml_path.unlink()
+        
+        return {
+            "success": True,
+            "message": f"Agent '{agent_name}' deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agent-profiles/{agent_name}/reload")
+async def reload_agent_profile(agent_name: str):
+    """Reload an agent profile into runtime (requires runtime restart to take full effect)"""
+    global matrix_runtime
+    
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+    
+    try:
+        profile = load_agent_profile(agent_name)
+        
+        # Note: Full reload requires restarting the runtime
+        # For now, we just verify the profile is valid
+        return {
+            "success": True,
+            "message": f"Agent profile '{agent_name}' is valid. Restart server to apply changes.",
+            "agent": agent_profile_to_response(profile)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# === LLM Configuration Management APIs ===
+
+def load_llm_configs() -> dict:
+    """Load LLM configurations from file"""
+    if not llm_config_path.exists():
+        return {}
+    
+    try:
+        with open(llm_config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading LLM configs: {e}")
+        return {}
+
+
+def save_llm_configs_to_file(configs: dict):
+    """Save LLM configurations to file"""
+    with open(llm_config_path, 'w', encoding='utf-8') as f:
+        json.dump(configs, f, indent=4)
+
+
+@app.get("/api/llm-configs")
+async def get_llm_configs():
+    """Get all LLM configurations"""
+    try:
+        configs = load_llm_configs()
+        
+        # Format response with metadata
+        result = []
+        for name, config in configs.items():
+            is_required = name in REQUIRED_LLM_CONFIGS
+            result.append({
+                "name": name,
+                "url": config.get("url", ""),
+                "api_key": config.get("API_KEY", ""),
+                "model_name": config.get("model_name", ""),
+                "is_required": is_required,
+                "description": get_llm_config_description(name)
+            })
+        
+        # Sort: required configs first, then by name
+        result.sort(key=lambda x: (not x["is_required"], x["name"]))
+        
+        return {"configs": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_llm_config_description(name: str) -> str:
+    """Get description for a LLM config based on its name"""
+    descriptions = {
+        "default_llm": "Primary large language model for main agent reasoning",
+        "default_slm": "Smaller/faster model for simple tasks and cerebellum",
+        "browser-use-llm": "Model for browser automation tasks",
+        "default_vision": "Vision model for image understanding tasks"
+    }
+    return descriptions.get(name, "Custom LLM configuration")
+
+
+@app.get("/api/llm-configs/{config_name}")
+async def get_llm_config(config_name: str):
+    """Get a specific LLM configuration"""
+    try:
+        configs = load_llm_configs()
+        
+        if config_name not in configs:
+            raise HTTPException(status_code=404, detail=f"LLM config '{config_name}' not found")
+        
+        config = configs[config_name]
+        return {
+            "name": config_name,
+            "url": config.get("url", ""),
+            "api_key": config.get("API_KEY", ""),
+            "model_name": config.get("model_name", ""),
+            "is_required": config_name in REQUIRED_LLM_CONFIGS,
+            "description": get_llm_config_description(config_name)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/llm-configs")
+async def create_llm_config(request: LLMConfigCreateRequest):
+    """Create a new LLM configuration"""
+    try:
+        configs = load_llm_configs()
+        
+        # Check if config already exists
+        if request.name in configs:
+            raise HTTPException(status_code=409, detail=f"LLM config '{request.name}' already exists")
+        
+        # Validate name (alphanumeric, underscore, hyphen)
+        if not re.match(r'^[a-zA-Z0-9_-]+$', request.name):
+            raise HTTPException(status_code=400, detail="Config name can only contain letters, numbers, underscores, and hyphens")
+        
+        # Create new config
+        configs[request.name] = {
+            "url": request.url,
+            "API_KEY": request.api_key,
+            "model_name": request.model_name
+        }
+        
+        save_llm_configs_to_file(configs)
+        
+        return {
+            "success": True,
+            "message": f"LLM config '{request.name}' created successfully",
+            "config": {
+                "name": request.name,
+                "url": request.url,
+                "api_key": request.api_key,
+                "model_name": request.model_name,
+                "is_required": False,
+                "description": get_llm_config_description(request.name)
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/llm-configs/{config_name}")
+async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
+    """Update an existing LLM configuration"""
+    try:
+        configs = load_llm_configs()
+        
+        if config_name not in configs:
+            raise HTTPException(status_code=404, detail=f"LLM config '{config_name}' not found")
+        
+        # Update config
+        configs[config_name] = {
+            "url": request.url,
+            "API_KEY": request.api_key,
+            "model_name": request.model_name
+        }
+        
+        save_llm_configs_to_file(configs)
+        
+        return {
+            "success": True,
+            "message": f"LLM config '{config_name}' updated successfully",
+            "config": {
+                "name": config_name,
+                "url": request.url,
+                "api_key": request.api_key,
+                "model_name": request.model_name,
+                "is_required": config_name in REQUIRED_LLM_CONFIGS,
+                "description": get_llm_config_description(config_name)
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/llm-configs/{config_name}")
+async def delete_llm_config(config_name: str):
+    """Delete an LLM configuration"""
+    try:
+        # Check if this is a required config
+        if config_name in REQUIRED_LLM_CONFIGS:
+            raise HTTPException(status_code=403, detail=f"Cannot delete required config '{config_name}'")
+        
+        configs = load_llm_configs()
+        
+        if config_name not in configs:
+            raise HTTPException(status_code=404, detail=f"LLM config '{config_name}' not found")
+        
+        # Remove config
+        del configs[config_name]
+        
+        save_llm_configs_to_file(configs)
+        
+        return {
+            "success": True,
+            "message": f"LLM config '{config_name}' deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/llm-configs/{config_name}/reset")
+async def reset_llm_config(config_name: str):
+    """Reset a required LLM config to default values"""
+    try:
+        if config_name not in REQUIRED_LLM_CONFIGS:
+            raise HTTPException(status_code=400, detail=f"Can only reset required configs")
+        
+        configs = load_llm_configs()
+        
+        # Set default values based on config name
+        defaults = {
+            "default_llm": {
+                "url": "https://api.openai.com/v1/chat/completions",
+                "API_KEY": "your-api-key",
+                "model_name": "gpt-4"
+            },
+            "default_slm": {
+                "url": "https://api.openai.com/v1/chat/completions",
+                "API_KEY": "your-api-key",
+                "model_name": "gpt-3.5-turbo"
+            },
+            "browser-use-llm": {
+                "url": "https://api.openai.com/v1/chat/completions",
+                "API_KEY": "your-api-key",
+                "model_name": "gpt-4"
+            }
+        }
+        
+        configs[config_name] = defaults.get(config_name, defaults["default_llm"])
+        save_llm_configs_to_file(configs)
+        
+        return {
+            "success": True,
+            "message": f"LLM config '{config_name}' reset to defaults",
+            "config": {
+                "name": config_name,
+                **configs[config_name],
+                "is_required": True,
+                "description": get_llm_config_description(config_name)
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Main Entry Point ===

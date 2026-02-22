@@ -21,12 +21,12 @@ class Email:
 
     def __str__(self):
         return textwrap.dedent(f"""
-            ==== Mail  ====
+            ===== Mail =====
             From: {self.sender}
             To: {self.recipient}
             Subject: {self.subject}
             Date: {self.timestamp}   
 
             {self.body}
-            ================
+            ===== End of Mail ======
         """)

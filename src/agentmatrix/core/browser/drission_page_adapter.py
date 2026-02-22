@@ -1423,36 +1423,36 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             tab = await self.get_tab()
 
         try:
-            print(f"      [DEBUG] type_text: Looking for element with selector '{selector}'")
+            #print(f"      [DEBUG] type_text: Looking for element with selector '{selector}'")
 
             # 首先尝试直接查找
             ele = await asyncio.to_thread(tab.ele, selector, timeout=2)
 
             if not ele:
                 # 如果直接查找失败，尝试解析选择器并手动查找
-                print(f"      [DEBUG] Direct lookup failed, trying alternative method...")
+                #print(f"      [DEBUG] Direct lookup failed, trying alternative method...")
                 ele = await self._find_element_fallback(tab, selector)
 
             if ele:
-                print(f"      [DEBUG] type_text: Found element, clicking...")
+                #print(f"      [DEBUG] type_text: Found element, clicking...")
                 await asyncio.to_thread(ele.click)
 
-                print(f"      [DEBUG] type_text: Clicked, waiting briefly...")
+                #print(f"      [DEBUG] type_text: Clicked, waiting briefly...")
                 await asyncio.sleep(random.uniform(0.1,0.3) )
 
-                print(f"      [DEBUG] type_text: Inputting text: '{text[:50]}...'")
+                #print(f"      [DEBUG] type_text: Inputting text: '{text[:50]}...'")
                 await asyncio.to_thread(ele.input, vals=text, clear=clear_existing)
 
-                print(f"      [DEBUG] type_text: ✓ Successfully typed text")
+                #print(f"      [DEBUG] type_text: ✓ Successfully typed text")
                 return True
             else:
-                print(f"      [DEBUG] type_text: Element not found with selector '{selector}'")
+                #print(f"      [DEBUG] type_text: Element not found with selector '{selector}'")
                 return False
         except Exception as e:
             # 元素未找到或其他错误
-            print(f"      [DEBUG] type_text FAILED: {e}")
+            #print(f"      [DEBUG] type_text FAILED: {e}")
             import traceback
-            print(f"      [DEBUG] Traceback: {traceback.format_exc()}")
+            #print(f"      [DEBUG] Traceback: {traceback.format_exc()}")
             return False
 
     async def _find_element_fallback(self, tab, selector: str):
@@ -1470,28 +1470,28 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
             tag_name = match.group(1)  # e.g., "textarea" or "input"
             name_value = match.group(2)  # e.g., "q"
 
-            print(f"      [DEBUG] Fallback: Searching for <{tag_name}> with name='{name_value}'")
+            #print(f"      [DEBUG] Fallback: Searching for <{tag_name}> with name='{name_value}'")
 
             # 查找所有该标签的元素
             elements = await asyncio.to_thread(tab.eles, f'tag:{tag_name}')
 
-            print(f"      [DEBUG] Fallback: Found {len(elements)} <{tag_name}> elements")
+            #print(f"      [DEBUG] Fallback: Found {len(elements)} <{tag_name}> elements")
 
             # 遍历找到 name 属性匹配的
             for ele in elements:
                 try:
                     name_attr = ele.attr('name')
-                    print(f"      [DEBUG] Fallback: Checking element with name='{name_attr}'")
+                    #print(f"      [DEBUG] Fallback: Checking element with name='{name_attr}'")
                     if name_attr == name_value:
-                        print(f"      [DEBUG] Fallback: ✓ Found matching element!")
+                        #print(f"      [DEBUG] Fallback: ✓ Found matching element!")
                         return ele
                 except:
                     continue
 
-            print(f"      [DEBUG] Fallback: No matching element found")
+            #print(f"      [DEBUG] Fallback: No matching element found")
             return None
 
-        print(f"      [DEBUG] Fallback: Selector pattern not recognized: {selector}")
+        #print(f"      [DEBUG] Fallback: Selector pattern not recognized: {selector}")
         return None
 
     async def press_key(self, tab: TabHandle, key: Union[KeyAction, str]) -> InteractionReport:
@@ -1616,7 +1616,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 self.logger.warning(f"No elements found with selector: {selector}")
                 return InteractionReport(error=f"No elements found: {selector}")
 
-            print(f"      [DEBUG] Found {len(elements)} elements with selector '{selector}'")
+            #print(f"      [DEBUG] Found {len(elements)} elements with selector '{selector}'")
 
             # 点击前记录状态
             old_tabs_count = len(tab.browser.tab_ids) if hasattr(tab, 'browser') else 1
@@ -1626,7 +1626,7 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                 try:
                     # 检查元素是否可见
                     is_visible = ele.states.is_displayed
-                    print(f"      [DEBUG] Element {i+1}: is_displayed={is_visible}, attempting to click...")
+                    #print(f"      [DEBUG] Element {i+1}: is_displayed={is_visible}, attempting to click...")
 
                     # 模拟人类点击
                     await asyncio.to_thread(ele.click)
@@ -1653,16 +1653,16 @@ class DrissionPageAdapter(BrowserAdapter,AutoLoggerMixin):
                     )
 
                 except Exception as e:
-                    print(f"      [DEBUG] Element {i+1}: Click failed with error: {e}")
+                    #print(f"      [DEBUG] Element {i+1}: Click failed with error: {e}")
                     # 继续尝试下一个元素
                     continue
 
             # 所有元素都尝试失败
-            self.logger.warning(f"Failed to click any of the {len(elements)} elements with selector: {selector}")
+            #self.logger.warning(f"Failed to click any of the {len(elements)} elements with selector: {selector}")
             return InteractionReport(error=f"Failed to click all {len(elements)} elements")
 
         except Exception as e:
-            self.logger.exception(f"Failed to click visible element: {selector}")
+            #self.logger.exception(f"Failed to click visible element: {selector}")
             return InteractionReport(error=f"Click failed: {str(e)}")
 
     async def scroll(self, tab: TabHandle, direction: str = "bottom", distance: int = 0):

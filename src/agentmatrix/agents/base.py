@@ -18,11 +18,8 @@ from .micro_agent import MicroAgent
 class BaseAgent(AutoLoggerMixin):
     _log_from_attr = "name" # 日志名字来自 self.name 属性
 
-    _custom_log_level = logging.DEBUG 
-    
-    # 默认在 process_email 中始终可用的 actions（不需要在 YAML 中配置）
-    DEFAULT_TOP_LEVEL_ACTIONS = ["rest_n_wait", "send_email"]
-    
+    _custom_log_level = logging.DEBUG
+
     def __init__(self, profile):
         self.name = profile["name"]
         self.description = profile["description"]
@@ -40,9 +37,8 @@ class BaseAgent(AutoLoggerMixin):
         self.instruction_to_caller = profile.get("instruction_to_caller","")
         self.backend_model = profile.get("backend_model", "default_llm")
 
-        # 配置 process_email 时可用的 top level actions
-        # 如果不配置，则使用所有 actions（向后兼容）
-        self.top_level_actions = profile.get("top_level_actions", None)
+        # 🆕 新架构：读取 skills 配置
+        self.skills = profile.get("skills", [])
         self.brain = None
         self.cerebellum = None
         self.vision_brain = None  # 🆕 视觉大模型（支持图片理解的LLM）
@@ -100,20 +96,6 @@ class BaseAgent(AutoLoggerMixin):
             self.logger.debug(f"Updated working_context: {self.working_context.base_dir}")
         else:
             self.working_context = None
-
-    def _get_top_level_actions(self):
-        available_actions = None
-        if self.top_level_actions is not None:
-            # 合并配置的 actions 和默认 actions
-            available_actions = list(set(self.top_level_actions + self.DEFAULT_TOP_LEVEL_ACTIONS))
-            # 过滤掉实际不存在的 actions
-            available_actions = [a for a in available_actions if a in self.action_registry]
-            self.logger.info(f"{self.name} will use configured top_level_actions: {available_actions}")
-        else:
-            # 向后兼容：使用所有 actions
-            available_actions = list(self.action_registry.keys())
-            self.logger.debug(f"{self.name} will use all actions : {available_actions}")
-        return available_actions
 
     def get_persona(self, persona_name: str = "base", **kwargs) -> str:
         """
@@ -368,9 +350,19 @@ class BaseAgent(AutoLoggerMixin):
                 # 主循环被取消，退出
                 self.logger.info(f"{self.name} main loop cancelled")
                 break
+            except RuntimeError as e:
+                # Event loop 已关闭，优雅退出
+                if "Event loop is closed" in str(e) or "no running event loop" in str(e):
+                    self.logger.info(f"{self.name} event loop closed, exiting")
+                    break
+                self.logger.exception(f"Runtime error in {self.name} main loop")
             except Exception as e:
                 self.logger.exception(f"Unexpected error in {self.name} main loop")
-                await asyncio.sleep(1)  # 防止异常风暴
+                try:
+                    await asyncio.sleep(1)  # 防止异常风暴
+                except RuntimeError:
+                    # Event loop 可能已关闭
+                    break
 
     async def process_email(self, email: Email):
         """
@@ -412,12 +404,7 @@ class BaseAgent(AutoLoggerMixin):
         # 2. 准备参数
         task = str(email)
 
-        # 3. 准备 available actions
-        # 如果配置了 top_level_actions，则使用配置 + 默认 actions
-        # 否则使用所有 actions（向后兼容）
-        available_actions = self._get_top_level_actions()
-
-        # 3.5 准备 available_skills（🆕 新架构）
+        # 3. 准备 available_skills（🆕 新架构）
         available_skills = self.profile.get("skills", [])
 
         # 4. 执行 Micro Agent
@@ -429,13 +416,12 @@ class BaseAgent(AutoLoggerMixin):
             available_skills=available_skills  # 🆕 传递可用技能列表
         )
         persona = self.get_persona()
-        
+
 
         result = await micro_core.execute(
             run_label= 'Process Email',
             persona=persona,
             task=task,
-            available_actions=available_actions,
             max_steps=100,
             # initial_history=session["history"],  # ← 不再需要，session 会传递
             session=session,  # ← 传递 session
