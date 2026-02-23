@@ -10,6 +10,7 @@ from ..core.exceptions import (
     LLMServiceConnectionError,
     LLMServiceAPIError
 )
+import asyncio
 
 if TYPE_CHECKING:
     from ..core.log_config import LogConfig
@@ -97,7 +98,7 @@ class LLMClient(AutoLoggerMixin):
             try:
                 response = await self.think(messages=messages)
                 raw_reply = response['reply']
-
+                
                 if debug:
                     self.logger.debug(f"\nLLM Response (raw_reply):")
                     self.logger.debug(f"  {raw_reply[:500]}...")
@@ -127,14 +128,11 @@ class LLMClient(AutoLoggerMixin):
 
                     # 🔥 重试策略：增强原始 prompt（不累积历史）
                     # 提取原始 user message（第一条）
-                    original_prompt = messages[0]["content"]
                     feedback = parsed_result.get("feedback", "请检查输出格式")
 
-                    # 在原始 prompt 末尾添加 feedback（强调格式）
-                    enhanced_prompt = f"{original_prompt}\n\n{feedback}"
-
-                    # 重置 messages（不保留错误历史）
-                    messages = [{"role": "user", "content": enhanced_prompt}]
+                    messages.append({"role": "assistant", "content": raw_reply})
+                    messages.append({"role": "user", "content": feedback})
+                    
 
                 else:
                     # The parser itself is faulty

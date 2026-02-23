@@ -49,8 +49,11 @@ function app() {
         // Settings state
         settingsView: 'main',  // 'main', 'agents', 'llm'
         agentProfiles: [],
+        
+        // Agent Modal state
         showAgentModal: false,
         editingAgent: null,
+        agentEditMode: 'simple',  // 'simple' 或 'advanced'
         isSavingAgent: false,
         agentFormErrors: {},
         newSkill: '',
@@ -66,6 +69,14 @@ function app() {
             cerebellumModel: '',  // cerebellum.backend_model - 小脑模型
             visionBrainModel: ''  // vision_brain.backend_model - 视觉模型
         },
+        // Advanced mode: raw YAML editing
+        agentRawYaml: '',
+        
+        // Skill search modal
+        showSkillSearchModal: false,
+        availableSkills: [],  // 系统可用的所有 skills
+        skillSearchQuery: '',
+        
         showDeleteConfirmModal: false,
         agentToDelete: null,
         isDeletingAgent: false,
@@ -473,6 +484,17 @@ function app() {
                 return;
             }
 
+            // 确保有有效的 user_session_id
+            const targetSessionId = email.user_session_id || this.currentSession?.session_id;
+            if (!targetSessionId) {
+                console.error('Cannot determine session ID', { 
+                    emailUserSessionId: email.user_session_id, 
+                    currentSessionId: this.currentSession?.session_id 
+                });
+                alert('无法确定会话 ID，请刷新页面重试');
+                return;
+            }
+
             try {
                 const emailData = {
                     recipient: email.replyRecipient,
@@ -488,9 +510,7 @@ function app() {
                 // 关闭回复框（在刷新之前，避免引用失效）
                 email.showReplyBox = false;
 
-                // 使用原邮件的 user_session_id（重要：不是 currentSession.session_id！）
-                const targetSessionId = email.user_session_id;
-                console.log('Sending to session:', targetSessionId);
+                console.log('Sending reply to session:', targetSessionId, 'in_reply_to:', email.id);
 
                 const response = await API.sendEmail(
                     targetSessionId,
@@ -595,12 +615,29 @@ function app() {
             }
         },
 
+        // Load available skills from system
+        async loadAvailableSkills() {
+            try {
+                const response = await API.getAvailableSkills();
+                this.availableSkills = response.skills || [];
+                console.log('Loaded available skills:', this.availableSkills);
+            } catch (error) {
+                console.error('Failed to load available skills:', error);
+                this.availableSkills = [];
+            }
+        },
+
         // Open agent modal (for create or edit)
-        openAgentModal(agent = null) {
+        async openAgentModal(agent = null) {
             this.editingAgent = agent;
             this.agentFormErrors = {};
             this.newSkill = '';
-            this.showAdvancedConfig = false;  // Reset advanced config visibility
+            this.showAdvancedConfig = false;
+            this.agentEditMode = 'simple';  // Default to simple mode
+            this.agentRawYaml = '';
+            
+            // Load available skills
+            await this.loadAvailableSkills();
             
             if (agent) {
                 // Edit mode - populate form from agent data
@@ -619,6 +656,14 @@ function app() {
                     // Vision brain model
                     visionBrainModel: agent.vision_brain?.backend_model || agent._raw_profile?.vision_brain?.backend_model || ''
                 };
+                
+                // Prepare raw YAML for advanced mode
+                if (agent._raw_profile) {
+                    this.agentRawYaml = this.objectToYaml(agent._raw_profile);
+                } else {
+                    // Build YAML from current form
+                    this.agentRawYaml = this.buildAgentYamlFromForm();
+                }
             } else {
                 // Create mode - reset form
                 this.agentForm = {
@@ -633,9 +678,159 @@ function app() {
                     cerebellumModel: '',
                     visionBrainModel: ''
                 };
+                this.agentRawYaml = this.buildAgentYamlFromForm();
             }
             
             this.showAgentModal = true;
+        },
+
+        // Convert object to YAML-like string (simplified)
+        objectToYaml(obj) {
+            const lines = [];
+            for (const [key, value] of Object.entries(obj)) {
+                if (value === null || value === undefined) continue;
+                
+                if (typeof value === 'object' && !Array.isArray(value)) {
+                    // Nested object
+                    lines.push(`${key}:`);
+                    for (const [subKey, subValue] of Object.entries(value)) {
+                        if (typeof subValue === 'string' && subValue.includes('\n')) {
+                            lines.push(`  ${subKey}: |`);
+                            subValue.split('\n').forEach(line => lines.push(`    ${line}`));
+                        } else {
+                            lines.push(`  ${subKey}: ${subValue}`);
+                        }
+                    }
+                } else if (Array.isArray(value)) {
+                    lines.push(`${key}:`);
+                    value.forEach(item => lines.push(`  - ${item}`));
+                } else if (typeof value === 'string' && value.includes('\n')) {
+                    lines.push(`${key}: |`);
+                    value.split('\n').forEach(line => lines.push(`  ${line}`));
+                } else {
+                    lines.push(`${key}: ${value}`);
+                }
+            }
+            return lines.join('\n');
+        },
+
+        // Build YAML from current form
+        buildAgentYamlFromForm() {
+            const profile = {
+                name: this.agentForm.name || 'NewAgent',
+                description: this.agentForm.description || 'New agent',
+                module: this.agentForm.module,
+                class_name: this.agentForm.class_name
+            };
+            
+            if (this.agentForm.instruction_to_caller) {
+                profile.instruction_to_caller = this.agentForm.instruction_to_caller;
+            }
+            if (this.agentForm.backend_model && this.agentForm.backend_model !== 'default_llm') {
+                profile.backend_model = this.agentForm.backend_model;
+            }
+            if (this.agentForm.skills && this.agentForm.skills.length > 0) {
+                profile.skills = this.agentForm.skills;
+            }
+            if (this.agentForm.personaBase) {
+                profile.persona = { base: this.agentForm.personaBase };
+            }
+            if (this.agentForm.cerebellumModel) {
+                profile.cerebellum = { backend_model: this.agentForm.cerebellumModel };
+            }
+            if (this.agentForm.visionBrainModel) {
+                profile.vision_brain = { backend_model: this.agentForm.visionBrainModel };
+            }
+            
+            return this.objectToYaml(profile);
+        },
+
+        // Parse YAML string to object (simplified)
+        parseYaml(yamlStr) {
+            const result = {};
+            const lines = yamlStr.split('\n');
+            let currentKey = null;
+            let currentSubKey = null;
+            let isMultiline = false;
+            let multilineBuffer = [];
+            
+            for (let line of lines) {
+                // Check for multiline end
+                if (isMultiline && (line.startsWith('  ') || line === '')) {
+                    if (line.startsWith('  ')) {
+                        multilineBuffer.push(line.slice(2));
+                        continue;
+                    }
+                }
+                
+                if (isMultiline && !line.startsWith('  ')) {
+                    // End of multiline
+                    if (currentSubKey) {
+                        result[currentKey][currentSubKey] = multilineBuffer.join('\n');
+                    } else {
+                        result[currentKey] = multilineBuffer.join('\n');
+                    }
+                    isMultiline = false;
+                    multilineBuffer = [];
+                    currentSubKey = null;
+                }
+                
+                // Skip empty lines
+                if (!line.trim()) continue;
+                
+                // Top-level key
+                if (!line.startsWith(' ') && line.includes(':')) {
+                    const [key, ...rest] = line.split(':');
+                    const value = rest.join(':').trim();
+                    currentKey = key.trim();
+                    
+                    if (value === '|') {
+                        isMultiline = true;
+                        multilineBuffer = [];
+                    } else if (value) {
+                        result[currentKey] = value;
+                    } else {
+                        result[currentKey] = {};
+                    }
+                    continue;
+                }
+                
+                // Second-level key (4 spaces or 2 spaces)
+                if ((line.startsWith('  ') || line.startsWith('    ')) && line.includes(':') && !line.trim().startsWith('-')) {
+                    const trimmed = line.trim();
+                    const [key, ...rest] = trimmed.split(':');
+                    const value = rest.join(':').trim();
+                    currentSubKey = key.trim();
+                    
+                    if (!result[currentKey]) result[currentKey] = {};
+                    
+                    if (value === '|') {
+                        isMultiline = true;
+                        multilineBuffer = [];
+                    } else if (value) {
+                        result[currentKey][currentSubKey] = value;
+                    }
+                    continue;
+                }
+                
+                // Array items
+                if (line.trim().startsWith('- ') && currentKey) {
+                    if (!result[currentKey]) result[currentKey] = [];
+                    if (!Array.isArray(result[currentKey])) result[currentKey] = [];
+                    result[currentKey].push(line.trim().slice(2));
+                }
+            }
+            
+            // Handle last multiline
+            if (isMultiline && multilineBuffer.length > 0) {
+                if (currentSubKey) {
+                    result[currentKey][currentSubKey] = multilineBuffer.join('\n');
+                } else {
+                    result[currentKey] = multilineBuffer.join('\n');
+                }
+            }
+            
+            return result;
         },
 
         // Close agent modal
@@ -645,6 +840,41 @@ function app() {
             this.agentFormErrors = {};
             this.newSkill = '';
             this.showAdvancedConfig = false;
+            this.agentEditMode = 'simple';
+            this.agentRawYaml = '';
+            this.showSkillSearchModal = false;
+        },
+
+        // Open skill search modal
+        openSkillSearchModal() {
+            this.skillSearchQuery = '';
+            this.showSkillSearchModal = true;
+        },
+
+        // Close skill search modal
+        closeSkillSearchModal() {
+            this.showSkillSearchModal = false;
+            this.skillSearchQuery = '';
+        },
+
+        // Add skill from search
+        addSkillFromSearch(skillName) {
+            if (!this.agentForm.skills.includes(skillName)) {
+                this.agentForm.skills.push(skillName);
+            }
+            this.closeSkillSearchModal();
+        },
+
+        // Get filtered skills for search
+        get filteredAvailableSkills() {
+            if (!this.skillSearchQuery) {
+                return this.availableSkills;
+            }
+            const query = this.skillSearchQuery.toLowerCase();
+            return this.availableSkills.filter(skill => 
+                skill.name.toLowerCase().includes(query) ||
+                (skill.description && skill.description.toLowerCase().includes(query))
+            );
         },
 
         // Add skill to form
@@ -678,60 +908,89 @@ function app() {
             return Object.keys(this.agentFormErrors).length === 0;
         },
 
-        // Save agent (create or update)
+        // Save agent (create or update) - 支持 Simple 和 Advanced 两种模式
         async saveAgent() {
-            if (!this.validateAgentForm()) return;
+            // Advanced 模式不需要验证表单
+            if (this.agentEditMode === 'simple' && !this.validateAgentForm()) return;
+            
+            // Advanced 模式下验证 YAML
+            if (this.agentEditMode === 'advanced') {
+                try {
+                    const parsed = this.parseYaml(this.agentRawYaml);
+                    if (!parsed.name) {
+                        this.agentFormErrors.yaml = 'YAML must have a "name" field';
+                        return;
+                    }
+                } catch (e) {
+                    this.agentFormErrors.yaml = 'Invalid YAML format: ' + e.message;
+                    return;
+                }
+            }
             
             this.isSavingAgent = true;
             
             try {
-                // 构建基础表单数据
-                const formData = {
-                    description: this.agentForm.description,
-                    instruction_to_caller: this.agentForm.instruction_to_caller,
-                    backend_model: this.agentForm.backend_model,
-                    skills: this.agentForm.skills,
-                    module: this.agentForm.module,
-                    class_name: this.agentForm.class_name
-                };
+                let formData;
                 
-                // 添加 persona（如果有值）
-                if (this.agentForm.personaBase && this.agentForm.personaBase.trim()) {
-                    formData.persona = {
-                        base: this.agentForm.personaBase.trim()
+                if (this.agentEditMode === 'advanced') {
+                    // Advanced 模式：直接解析 YAML
+                    const parsedYaml = this.parseYaml(this.agentRawYaml);
+                    formData = {
+                        ...parsedYaml,
+                        // 确保必需字段存在
+                        name: parsedYaml.name,
+                        description: parsedYaml.description || '',
+                        module: parsedYaml.module || 'agentmatrix.agents.base',
+                        class_name: parsedYaml.class_name || 'BaseAgent'
                     };
-                }
-                
-                // 添加 cerebellum 配置（如果有值）
-                if (this.agentForm.cerebellumModel && this.agentForm.cerebellumModel.trim()) {
-                    formData.cerebellum = {
-                        backend_model: this.agentForm.cerebellumModel.trim()
+                } else {
+                    // Simple 模式：从表单构建
+                    formData = {
+                        description: this.agentForm.description,
+                        instruction_to_caller: this.agentForm.instruction_to_caller,
+                        backend_model: this.agentForm.backend_model,
+                        skills: this.agentForm.skills,
+                        module: this.agentForm.module,
+                        class_name: this.agentForm.class_name
                     };
-                }
-                
-                // 添加 vision_brain 配置（如果有值）
-                if (this.agentForm.visionBrainModel && this.agentForm.visionBrainModel.trim()) {
-                    formData.vision_brain = {
-                        backend_model: this.agentForm.visionBrainModel.trim()
-                    };
-                }
-                
-                // 如果是编辑模式，保留原始配置中的其他字段（灵活性）
-                if (this.editingAgent && this.editingAgent._raw_profile) {
-                    // 提取未在前端表单中处理的原始字段作为 extra_fields
-                    const preservedFields = {};
-                    const handledFields = ['name', 'description', 'module', 'class_name', 
-                                           'instruction_to_caller', 'backend_model', 'skills', 
-                                           'persona', 'cerebellum', 'vision_brain'];
                     
-                    for (const [key, value] of Object.entries(this.editingAgent._raw_profile)) {
-                        if (!handledFields.includes(key) && value !== undefined) {
-                            preservedFields[key] = value;
-                        }
+                    // 添加 persona（如果有值）
+                    if (this.agentForm.personaBase && this.agentForm.personaBase.trim()) {
+                        formData.persona = {
+                            base: this.agentForm.personaBase.trim()
+                        };
                     }
                     
-                    if (Object.keys(preservedFields).length > 0) {
-                        formData.extra_fields = preservedFields;
+                    // 添加 cerebellum 配置（如果有值）
+                    if (this.agentForm.cerebellumModel && this.agentForm.cerebellumModel.trim()) {
+                        formData.cerebellum = {
+                            backend_model: this.agentForm.cerebellumModel.trim()
+                        };
+                    }
+                    
+                    // 添加 vision_brain 配置（如果有值）
+                    if (this.agentForm.visionBrainModel && this.agentForm.visionBrainModel.trim()) {
+                        formData.vision_brain = {
+                            backend_model: this.agentForm.visionBrainModel.trim()
+                        };
+                    }
+                    
+                    // 保留原始配置中的未处理字段（灵活性）
+                    if (this.editingAgent && this.editingAgent._raw_profile) {
+                        const preservedFields = {};
+                        const handledFields = ['name', 'description', 'module', 'class_name', 
+                                               'instruction_to_caller', 'backend_model', 'skills', 
+                                               'persona', 'cerebellum', 'vision_brain'];
+                        
+                        for (const [key, value] of Object.entries(this.editingAgent._raw_profile)) {
+                            if (!handledFields.includes(key) && value !== undefined) {
+                                preservedFields[key] = value;
+                            }
+                        }
+                        
+                        if (Object.keys(preservedFields).length > 0) {
+                            formData.extra_fields = preservedFields;
+                        }
                     }
                 }
                 
@@ -741,11 +1000,11 @@ function app() {
                     console.log('Agent updated:', this.editingAgent.name);
                 } else {
                     // Create new agent
-                    formData.name = this.agentForm.name;
-                    formData.module = this.agentForm.module;
-                    formData.class_name = this.agentForm.class_name;
+                    formData.name = this.agentEditMode === 'advanced' 
+                        ? formData.name 
+                        : this.agentForm.name;
                     await API.createAgentProfile(formData);
-                    console.log('Agent created:', this.agentForm.name);
+                    console.log('Agent created:', formData.name);
                 }
                 
                 // Close modal and refresh list

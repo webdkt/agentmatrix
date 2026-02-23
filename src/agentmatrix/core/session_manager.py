@@ -105,9 +105,17 @@ class SessionManager(AutoLoggerMixin):
         session = await self._create_new_session(email.id, email.sender, user_session_id)
         self.sessions[email.id] = session
 
+        # 🔑 关键修复：将 User 的邮件 ID 也加入 reply_mapping
+        # 这样 User 可以 reply 自己的邮件（在 Agent 回复之前连续发送多封邮件）
+        await self.update_reply_mapping(
+            msg_id=email.id,
+            session_id=session['session_id'],
+            user_session_id=user_session_id
+        )
+        self.logger.debug(f"📄 Created new session {session['session_id'][:8]} and added email {email.id[:8]} to reply_mapping")
+
         # 创建空的 session 文件
         await self._save_session_to_disk(session)
-        self.logger.debug(f"📄 Created new session file for {session['session_id'][:8]}")
 
         return session
 

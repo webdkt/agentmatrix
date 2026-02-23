@@ -192,7 +192,19 @@ class BaseAgent(AutoLoggerMixin):
                 workspace_root=value
             )
 
-        
+            # 🆕 初始化 SKILLS 目录（用于 MD Document Skills）
+            from ..skills.registry import SKILL_REGISTRY
+            from pathlib import Path
+
+            skills_dir = Path(value) / "SKILLS"
+            skills_dir.mkdir(parents=True, exist_ok=True)
+
+            # 设置到 SKILL_REGISTRY（供 MD skill 加载使用）
+            SKILL_REGISTRY.set_workspace_skills_dir(skills_dir)
+
+            self.logger.info(f"✅ SKILLS 目录已初始化: {skills_dir}")
+
+
 
     def _scan_all_actions(self):
         """
@@ -407,6 +419,11 @@ class BaseAgent(AutoLoggerMixin):
         # 3. 准备 available_skills（🆕 新架构）
         available_skills = self.profile.get("skills", [])
 
+        # 自动注入 base skill（BaseAgent 必备）
+        # 确保 BaseAgent 始终拥有基础 actions（send_email, rest_n_wait, take_a_break, get_current_datetime）
+        if "base" not in available_skills:
+            available_skills = ["base"] + available_skills
+
         # 4. 执行 Micro Agent
         # 每次创建新的 MicroAgent（使用最新的 working_context）
         micro_core = MicroAgent(
@@ -426,7 +443,8 @@ class BaseAgent(AutoLoggerMixin):
             # initial_history=session["history"],  # ← 不再需要，session 会传递
             session=session,  # ← 传递 session
             session_manager=self.session_manager,  # ← 传递 session_manager
-            yellow_pages=self.post_office.yellow_page_exclude_me(self.name)
+            yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
+            exit_actions=["rest_n_wait"]  # rest_n_wait 会直接退出，不执行 action 逻辑
         )
 
         # 5. 更新 session 元数据
@@ -457,86 +475,9 @@ class BaseAgent(AutoLoggerMixin):
         """
         return session["history"]
 
-    @register_action(
-        "检查当前日期和时间，你不知道日期和时间，如果需要日期时间信息必须调用此action", param_infos={}
-    )
-    async def get_current_datetime(self):
-        from datetime import datetime
-        now = datetime.now()
-        return now.strftime("%Y-%m-%d %H:%M:%S")
 
-    
-    @register_action(
-        "休息一下，工作做完了，或者需要等待回信才能继续", 
-        param_infos={
-            
-        }
-    )
-    async def rest_n_wait(self):
-        # 什么都不做，直接返回
-        pass
 
-    @register_action(
-        "Take a break，让身体恢复一下", 
-        param_infos={
-            
-        }
-    )
-    async def take_a_break(self):
-        # 什么都不做，直接返回
-        await asyncio.sleep(60)
-        return "Return from Break"
-    
 
-    
-
-    @register_action(
-        "发邮件给同事，这是和其他人沟通的唯一方式", 
-        param_infos={
-            "to": "收件人 (e.g. 'User')",
-            "body": "邮件内容",
-            "subject": "邮件主题 (可选，如果不填，系统会自动截取 body 的前20个字)"
-        }
-    )
-    async def send_email(self, to, body, subject=None):
-        # 构造邮件
-        # 如果 发给 session 的 original_sender，则 in_reply_to = session.session_id
-        # 如果 发给 其他同事，则检查 是不是 to 是不是 等于 self.last_email.sender
-        # 如果是，则 in_reply_to = self.last_email.id
-        # 否则，in_reply_to = session.session_id
-        session = self.current_session
-        last_email = self.last_received_email
-        in_reply_to = session["session_id"]
-        if to == last_email.sender:
-            in_reply_to = last_email.id
-        if not subject:
-            # 如果 body 很短，直接用 body 做 subject
-            # 如果 body 很长，截取前 20 个字 + ...
-            clean_body = body.strip().replace('\n', ' ')
-            subject = clean_body[:20] + "..." if len(clean_body) > 20 else clean_body
-        msg = Email(
-            sender=self.name,
-            recipient=to,
-            subject=subject,
-            body=body,
-            in_reply_to=in_reply_to,
-            user_session_id=session["user_session_id"]
-        )
-
-        await self.post_office.dispatch(msg)
-
-        # 更新 reply_mapping（自动保存到磁盘）
-        await self.session_manager.update_reply_mapping(
-            msg_id=msg.id,
-            session_id=self.current_session["session_id"],
-            user_session_id=session["user_session_id"]
-        )
-
-        return f"Email sent to {to}"
-
-    
-
-    
 
 
     def get_snapshot(self):

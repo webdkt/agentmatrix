@@ -86,8 +86,7 @@ class PostOffice(AutoLoggerMixin):
             yellow_page += f"- {name}: \n"
             yellow_page += f"{description} \n"
             
-            yellow_page += f"  [How to talk to {agent.name}]\n"
-            yellow_page += f"{instruction}\n\n"
+            
         return yellow_page
 
     def yellow_page_exclude_me(self, myname):

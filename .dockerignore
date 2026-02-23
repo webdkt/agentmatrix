@@ -1,0 +1,11 @@
+*.pyc
+__pycache__
+.git/
+.gitignore
+.venv/
+venv/
+*.md
+docs/
+tests/
+.pytest_cache/
+MyWorld/

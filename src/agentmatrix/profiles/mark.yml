@@ -6,7 +6,7 @@ class_name: BaseAgent
 # Skills 配置（🆕 新架构）
 skills:
   - file  # 文件操作技能
-  - web_search  # 网络搜索技能
+  - simple_web_search  # 网络搜索技能
 
 # Persona 配置
 persona:

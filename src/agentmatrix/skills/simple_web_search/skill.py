@@ -19,6 +19,7 @@ from ..parser_utils import multi_section_parser
 
 from urllib.parse import quote_plus, urlparse
 
+from ...core.exceptions import LLMServiceConnectionError
 from ...core.browser.browser_adapter import (
     BrowserAdapter, TabHandle, PageElement, PageSnapshot, PageType
 )
@@ -296,6 +297,35 @@ If you found relevant links:
 If NONE of the links are relevant:
 ##推荐链接
 SKIP_PAGE
+"""
+
+    # ==========================================
+    # 5. 答案改写
+    # ==========================================
+
+    ANSWER_REFINEMENT = """你是一个专业的内容编辑，负责提炼和改写搜索结果。
+[我们需要的信息目标]
+    {purpose}
+
+[原始内容]
+{raw_answer}
+
+[任务]
+根据信息目标，对上述内容进行抽取提炼，并改写为高质量的版本。
+
+[要求]
+1. 去除无关的、冗余和重复的信息
+2. 只保留和我们目表有关的事实和数据，去除无用标记
+3. 然后用简洁清晰的语言重新组织，使用Markdown格式合理排版
+4. 最终在`[新版本]`下输出你的改写内容
+
+[输出范例]
+```
+(可选)你的简短想法
+
+[新版本]
+你提炼并改写的高质量版本...
+```
 """
 
 
@@ -617,9 +647,22 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
     """
 
     @register_action(
-        "针对特定目的上网搜索，提供明确的搜索目的和（可选但建议提供的）搜索关键字词",
+        """针对特定目的上网搜索，提供明确的搜索目的和（可选但建议提供的）搜索关键字词. 
+        使用指南：
+        1. 搜索前：明确目标
+        - 定义问题：用一句话写下你到底要找什么
+        - 关键词拆解：提取核心概念
+        - 预判答案形式：是需要教程、统计数据、新闻还是学术论文？
+        2. 信息评估：辨别真伪
+        - 来源权威性：.edu .gov 机构 > 主流媒体的报道 > 自媒体
+        - 交叉验证：至少找到3个独立来源确认关键事实
+        - 查看日期：确认信息时效性，警惕过时内容
+        -警惕标题党：警惕"震惊"、"99%的人不知道"等夸张标题
+        3. 常见误区
+        ❌ 输入完整句子提问（搜索引擎不是AI对话，提取关键词更有效）
+        ❌ 一次性搜索太复杂（复杂问题拆解为多个小搜索）""",
         param_infos={
-            "purpose": "搜索的目的",
+            "purpose": "明确的搜索的目的，要找什么信息",
             "search_phrase": "可选，初始搜索关键词",
             "max_time": "可选，最大搜索分钟，默认20",
             "search_engine": "可选，搜索引擎（google 或 bing），默认使用 agent 配置的 default_search_engine 或 bing",
@@ -729,15 +772,27 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             # _run_search_lifecycle 会识别虚拟URL并调用相应的搜索函数
             answer = await self._run_search_lifecycle(session, ctx)
 
-            # 9. 返回结果
+            # 9. 改写并返回结果
             if answer:
-                self.logger.info(f"✅ Found answer!")
-                return f"Answer: {answer}\n\n---\nNotebook:\n{ctx.notebook}"
+                self.logger.info(f"✅ Found answer, refining...")
+                refined_answer = await self._refine_answer(answer, ctx.purpose)
+                return refined_answer
             else:
                 self.logger.info("⏸ Search completed without finding complete answer")
-                return f"Could not find a complete answer.\n\nHere's what I found:\n{ctx.notebook}"
+                if ctx.notebook:
+                    refined_note = await self._refine_answer(ctx.notebook, ctx.purpose)
+                    return f"Could not find a complete answer.\n\nHere's what I found:\n{refined_note}"
+                else:
+                    return "Could not find any useful info"
+
+        except LLMServiceConnectionError as e:
+            # LLM 服务连接错误 - 静默处理，不打印 stacktrace
+            self.logger.warning(f"⚠️ LLM service connection error: {e}")
+            self.logger.info("🔄 This is expected during service unavailability. System will retry.")
+            return f"Search interrupted: LLM service temporarily unavailable ({str(e)[:100]}...)"
 
         except Exception as e:
+            # 其他未知错误 - 打印完整 stacktrace
             self.logger.exception("Web searcher crashed")
             return f"Search failed with error: {e}"
         #finally:
@@ -1027,7 +1082,39 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             "content": selected_indices
         }
 
-    
+    async def _refine_answer(self, raw_answer: str, purpose: str) -> str:
+        """
+        使用 LLM 改写和提炼搜索答案
+
+        Args:
+            raw_answer: 原始搜索答案
+            purpose: 搜索目标
+
+        Returns:
+            改写后的高质量答案
+        """
+        from ..parser_utils import multi_section_parser
+
+        prompt = WebSearcherPrompts.ANSWER_REFINEMENT.format(
+            raw_answer=raw_answer,
+            purpose=purpose
+        )
+
+        try:
+            # 使用 multi_section_parser 提取 [改写答案] section
+            refined = await self.cerebellum.backend.think_with_retry(
+                initial_messages=prompt,
+                parser=multi_section_parser,
+                section_headers=["[新版本]"],  # 明确指定 section header
+                match_mode="ALL",
+                max_retries=3
+            )
+            # refined 是 dict: {"[改写答案]": "内容"}
+            return refined["[新版本]"].strip()
+        except Exception as e:
+            self.logger.warning(f"Answer refinement failed: {e}, returning raw answer")
+            return raw_answer
+
     def _split_by_paragraph_boundaries(
         self,
         text: str,
@@ -1528,6 +1615,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
                         else:
                             ctx.add_pending_link(target_url)
                     else:
+                        self.logger.debug(link_manager.text_to_url)
                         self.logger.warning(f"⚠️ LLM hallucinated link text: {link_text}")
 
             # heading_type == "continue": 什么都不做，继续下一批

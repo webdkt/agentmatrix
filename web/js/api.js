@@ -94,6 +94,11 @@ const API = {
         return this.request('/api/runtime/status');
     },
 
+    // Skills APIs
+    async getAvailableSkills() {
+        return this.request('/api/skills');
+    },
+
     // Agent Profile Management APIs
     async getAgentProfiles() {
         return this.request('/api/agent-profiles');
