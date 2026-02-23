@@ -1,0 +1,4 @@
+# Docker 容器内依赖
+# 容器内只需要 Docker SDK，其他依赖在宿主机
+
+docker>=6.0.0

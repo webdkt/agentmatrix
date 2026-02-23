@@ -20,6 +20,7 @@ from ..core.log_util import AutoLoggerMixin
 from ..core.working_context import WorkingContext
 from ..core.session_context import SessionContext
 from ..core.exceptions import LLMServiceUnavailableError
+from ..core.action import register_action
 
 if TYPE_CHECKING:
     from .base import BaseAgent
@@ -166,44 +167,69 @@ class MicroAgent(AutoLoggerMixin):
         动态创建包含 Skill Mixins 的类
 
         Args:
-            available_skills: 技能名称列表（如 ["file", "browser"]）
+            available_skills: 技能名称列表（如 ["file", "browser", "git_workflow"]）
 
         Returns:
             type: 动态创建的类
 
         Example:
-            available_skills = ["file", "browser"]
+            available_skills = ["file", "browser", "git_workflow"]
             返回：type('DynamicAgent_MicroAgent_abc123',
                      (MicroAgent, FileSkillMixin, BrowserSkillMixin),
-                     {})
+                     {'_md_skills': [git_workflow_metadata]})
         """
         from ..skills.registry import SKILL_REGISTRY
 
         # 使用统一的 get_skills() 接口（Lazy Load）
         result = SKILL_REGISTRY.get_skills(available_skills)
         mixin_classes = result.python_mixins
+        md_skills = result.md_skills  # 🆕 获取 MD skills
 
         # 检查加载失败的情况
         if result.failed_skills:
             self.logger.warning(f"  ⚠️  以下 Skills 加载失败: {result.failed_skills}")
 
-        if not mixin_classes:
+        if not mixin_classes and not md_skills:
             self.logger.warning(f"  ⚠️  没有找到可用的 Skills: {available_skills}")
             return self.__class__
 
-        # 记录日志
+        # 记录 Python Mixins 日志
         for mixin in mixin_classes:
             self.logger.debug(f"  🧩 混入 Skill Mixin: {mixin.__name__}")
+
+        # 🆕 记录 MD Skills 日志
+        for md_skill in md_skills:
+            self.logger.info(f"  📄 加载 MD Skill: {md_skill.skill_name} ({md_skill.display_name})")
 
         # 动态创建类（Python 的 type 函数）
         # type(name, bases, dict)
         dynamic_class = type(
             f'DynamicAgent_{self.name}',  # 类名
             (self.__class__,) + tuple(mixin_classes),  # 继承链
-            {}  # 额外的类属性（空）
+            {'_md_skills': md_skills}  # 🆕 额外的类属性：存储 MD skills 元数据
         )
 
         return dynamic_class
+
+    @register_action(
+        description="所有任务都已完成。当你觉得没有其他要做的，就必须调用此 action。",
+        param_infos={
+            "result": "最终结果的描述（可选）"
+        }
+    )
+    async def all_finished(self, result: str = None) -> Any:
+        """
+        [TERMINAL ACTION] 完成任务并返回最终结果
+
+        这是 MicroAgent 的终止 action，执行后会退出 execute 循环。
+
+        Args:
+            result: 任务结果描述（可选）
+
+        Returns:
+            Dict: 包含 result 和 finished 标志
+        """
+        return {"result": result or "", "finished": True}
 
     def _scan_all_actions(self):
         """
@@ -325,6 +351,37 @@ class MicroAgent(AutoLoggerMixin):
         self.session = session
         self.session_manager = session_manager
 
+        # 🆕 Session 兼容性设置：为了与 BaseAgent 和 Skills 兼容
+        # 当 session 参数被提供时，设置与 BaseAgent 相同的属性
+        if session:
+            self.current_session = session
+            self.current_user_session_id = session.get("user_session_id")
+
+            # 创建 SessionContext 对象（如果 session_manager 可用）
+            if session_manager and hasattr(session_manager, 'session_context_class'):
+                from ..core.session_context import SessionContext
+                self._session_context = SessionContext(
+                    persistent=True,
+                    session_manager=session_manager,
+                    session=session,
+                    initial_data=session.get("context", {})
+                )
+            else:
+                self._session_context = None
+
+            # 设置 session 文件夹（如果 root_agent 有 workspace_root）
+            if self.root_agent and hasattr(self.root_agent, 'workspace_root') and self.root_agent.workspace_root:
+                from pathlib import Path
+                self.current_session_folder = str(
+                    Path(self.root_agent.workspace_root) /
+                    session.get("user_session_id", "default") /
+                    "history" /
+                    (self.root_agent.name if self.root_agent else "unknown") /
+                    session.get("session_id", "unknown")
+                )
+            else:
+                self.current_session_folder = None
+
         # 硬限制：如果都没有设置，最多 1024 步（确保总是会返回）
         if self.max_steps is None and self.max_time is None:
             self.max_steps = 1024
@@ -393,6 +450,9 @@ class MicroAgent(AutoLoggerMixin):
             duration = time.time() - start_time
             self._log(logging.ERROR, f"'{self.run_label}' failed after {duration:.2f}s")
             self._log(logging.ERROR, f"Error: {str(e)}")
+            # 打印完整 traceback 以便调试
+            import traceback
+            self._log(logging.ERROR, f"Traceback:\n{traceback.format_exc()}")
             return {"error": str(e)}
 
     def _initialize_conversation(self):
@@ -435,15 +495,23 @@ class MicroAgent(AutoLoggerMixin):
 1. 你是**基于信号**的实体。你接受外部信号，对其思考然后决定你的意图
 2. 你需要**选择一个明确的动作**并**发出信号**来**完成你的意图**。
 3. 一旦你发出动作信号，你将等待**身体**返回执行结果的信号。
-4. 动作的结果不应被假设和自我生成，你必须冷静的观察，等待**身体**返回的结果信号。
-5. 你的身体是强大的，但它**无法感知**你的对话历史或思考。除非你明确地告诉它。
-6. 身体每次只能执行一个动作, 需要你明确的告诉它是哪一个，并提供该执行动作所需要的全部信息。
-7. 身体看不到你看到的，也不知道你知道的。它只会根据你发出的动作信号来执行，并返回结果信号。
-6. 根据初始信号和动作结果，来调整你的思考和下一步动作。你需要不断地**观察**和**调整**，直到工作完成。
+4. 身体是强大的，但它**无法感知**对话历史。除非明确地告诉它。
+5. 身体每次只能执行一个动作, 需要你明确的告诉它是哪一个，并提供该执行动作所需要的全部信息。
 
 ### 你的可用动作
 
 {self._format_actions_list()}
+
+"""
+
+        # 🆕 添加 MD Document Skills 摘要
+        md_skills_summary = self._format_md_skills_summary()
+        if md_skills_summary:
+            prompt += f"""### 文档化技能（操作指南）
+
+以下技能包含详细的操作步骤，需要时请使用 `file.read` 读取完整文档：
+
+{md_skills_summary}
 
 """
 
@@ -453,6 +521,19 @@ class MicroAgent(AutoLoggerMixin):
 
 {self.yellow_pages}
 """
+
+        prompt += """
+        每次输出，都严格按照下面的方式输出，确保身体能够正确理解：
+### 输出样例
+```
+[THOUGHTS]
+你的想法和意图，这是给你自己的，身体看不到，不需要担心格式，只要清晰表达思考过程和下一步计划即可
+
+[ACTIONS]
+为实现意图而立刻要做的动作（只能从可用动作里选择，例如send_email），并提供完成该动作需要的全部信息。
+如果要做多个动作，必须是可以并行执行、互不依赖的动作。
+
+```     """
 
         return prompt
 
@@ -467,6 +548,39 @@ class MicroAgent(AutoLoggerMixin):
             desc = getattr(method, "_action_desc", "No description")
             lines.append(f"- {action_name}: {desc}")
         return "\n".join(lines)
+
+    def _format_md_skills_summary(self) -> str:
+        """
+        格式化 MD Document Skills 摘要（用于 system prompt）
+
+        显示格式：
+        - **显示名称**: 简要描述
+          完整文档: SKILLS/{skill_name}/skill.md
+        """
+        # 获取 MD skills（从 skill load result 中）
+        md_skills = getattr(self, '_md_skills', [])
+
+        if not md_skills:
+            return ""
+
+        lines = []
+        for skill_meta in md_skills:
+            # 显示名称 + 摘要
+            lines.append(f"- **{skill_meta.display_name}**: {skill_meta.brief_summary}")
+            # 文档路径（相对于 workspace）
+            if skill_meta.workspace_path:
+                doc_path = f"SKILLS/{skill_meta.skill_name}/skill.md"
+                lines.append(f"  完整文档: `{doc_path}`")
+
+            # 列出可用的 Actions
+            if skill_meta.actions:
+                action_names = [action.name for action in skill_meta.actions]
+                lines.append(f"  包含操作: {', '.join(action_names)}")
+
+            lines.append("")  # 空行分隔
+
+        return "\n".join(lines)
+
 
     def _format_task_message(self) -> str:
         """格式化任务消息"""
@@ -541,23 +655,29 @@ class MicroAgent(AutoLoggerMixin):
             self.logger.debug(step_info)
 
             try:
-                # 1. Think
-                thought = await self._think()
-                self.logger.debug(f"Thought: {thought}")
+                # 1. Think（使用 think_with_retry + actions parser）
+                thought = await self.brain.think_with_retry(
+                    initial_messages = self.messages,
+                    parser=self._parse_actions_from_thought,
+                    action_registry=self.action_registry,
+                    max_retries=3
+                )
+                print(thought)
+                action_thougth = thought["[ACTIONS]"]
+                raw_reply = thought.get("[RAW_REPLY]")
+                
+
+                #self.logger.debug(f"THOUGHTS: {raw_reply}")  
+                #self.logger.debug(f"ACTIONS: {action_thougth}") 
+
 
                 # 2. 检测 actions（多个，保持顺序）
-                action_names = await self._detect_actions(thought)
-
-                # 3. 没有检测到 action
-                if not action_names:
-                    self._add_message("assistant", thought)
-                    self._add_message("user", "[❗️Body Feedback] 未检测到可用动作，如果无事可做，请回复 all_finished")
-                    continue
+                action_names = await self._detect_actions(action_thougth)
 
                 self.logger.debug(f"Detected actions: {action_names}")
 
-                # 4. 记录 assistant 的思考（只记录一次）
-                self._add_message("assistant", thought)
+                # 3. 记录 assistant 的思考（只记录一次）
+                self._add_message("assistant", raw_reply )
 
                 # 5. 顺序执行所有 actions
                 execution_results = []
@@ -567,7 +687,7 @@ class MicroAgent(AutoLoggerMixin):
                     # === 处理特殊 actions ===
                     if action_name == "all_finished":
                         # 执行 all_finished
-                        result = await self._execute_action("all_finished", thought, idx, action_names)
+                        result = await self._execute_action("all_finished", action_thougth, idx, action_names)
                         self.result = result
                         self.return_action_name = "all_finished"
                         should_break_loop = True
@@ -583,7 +703,7 @@ class MicroAgent(AutoLoggerMixin):
                     # === 执行普通 actions ===
                     else:
                         try:
-                            result = await self._execute_action(action_name, thought, idx, action_names)
+                            result = await self._execute_action(action_name, action_thougth, idx, action_names)
                             if result!="NOT_TO_RUN":
                                 execution_results.append(f"[{action_name} Done]:\n {result}")
                             self.logger.debug(f"✅ {action_name} done")
@@ -706,10 +826,105 @@ class MicroAgent(AutoLoggerMixin):
         """
         return f"[💡Body Feedback]:\n {combined_result}"
 
-    async def _think(self) -> str:
-        """调用 Brain 进行思考"""
-        response = await self.brain.think(self.messages)
-        return response['reply']
+    def _parse_actions_from_thought(self, raw_reply: str, action_registry: dict) -> dict:
+        """
+        Parser for think_with_retry - 验证 LLM 输出是否包含有效的 action 声明
+
+        规则：
+        1. 如果有 [ACTIONS] section → 检查下面是否有有效的 action name
+           - 有 → 返回 raw_reply（验证通过）
+           - 没有 → 返回 error（让 LLM 重试）
+        2. 如果没有 [ACTIONS] section → 检查全文是否只提到一个 action
+           - 是 → 返回 raw_reply（验证通过）
+           - 否则 → 返回 error（让 LLM 重试）
+
+        Args:
+            raw_reply: LLM 的原始输出
+            action_registry: 可用的 actions 注册表
+
+        Returns:
+            {
+                "status": "success" | "error",
+                "content": raw_reply (success 时) | None (error 时),
+                "feedback": str (error 时)
+            }
+        """
+        import re
+
+        # 规则1：检查是否有 [ACTIONS] section
+        if "[ACTIONS]" in raw_reply:
+            # 提取 [ACTIONS] 下的内容
+            from ..skills.parser_utils import multi_section_parser
+
+            result = multi_section_parser(
+                raw_reply,
+                section_headers=["[ACTIONS]"],
+                match_mode="ANY"
+            )
+
+            if result["status"] == "success":
+                actions_text = result["content"]["[ACTIONS]"]
+                
+                
+
+
+                # 检查是否包含有效的 action（使用正则提取，参照 _extract_mentioned_actions 的方法）
+                import re
+                action_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)'
+                matches = re.finditer(action_pattern, actions_text)
+
+                detected_actions = set()
+                for match in matches:
+                    action_name = match.group(1).lower()
+                    if action_name in action_registry:
+                        detected_actions.add(action_name)
+
+                if detected_actions:
+                    # 验证通过：[ACTIONS] 下有有效的 action
+                    result["content"]["[RAW_REPLY]"] = raw_reply
+                    return result
+                else:
+                    # 验证失败：[ACTIONS] 下没有有效的 action
+                    return {
+                        "status": "error",
+                        "feedback": f"[ACTIONS] 下必须要指明使用什么动作(action 名字)"
+                    }
+            else:
+                # multi_section_parser 失败
+                return {
+                    "status": "error",
+                    "feedback": "必须在[ACTIONS] 下指明使用什么动作(action 名字)"
+                }
+        
+
+        # 规则2：没有 [ACTIONS] section，检查全文是否只提到一个 action
+        # 正则提取所有 action names
+        action_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)'
+        matches = re.finditer(action_pattern, raw_reply)
+
+        detected_actions = set()
+        for match in matches:
+            action_name = match.group(1).lower()
+            if action_name in action_registry:
+                detected_actions.add(action_name)
+
+        # 检查数量
+        if len(detected_actions) == 1:
+            # 只有一个 action，验证通过
+            content = {
+                "[ACTIONS]": raw_reply,
+                "[RAW_REPLY]": raw_reply
+            }
+            return {"status": "success", "content": content}
+        
+        else:
+            # 多个 actions，但没有用 [ACTIONS] section
+            return {
+                "status": "error",
+                "feedback": "必须使用 [ACTIONS] section 来明确列出要执行的动作"
+            }
+
+    
 
     def _extract_mentioned_actions(self, thought: str) -> List[str]:
         """

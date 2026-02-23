@@ -639,15 +639,24 @@ async def send_email(session_id: str, request: SendEmailRequest):
         raise HTTPException(status_code=404, detail=f"User agent '{user_agent_name}' not found")
 
     # Use session_id from URL if request.user_session_id is None
+    # session_id from URL is the user_session_id for existing conversations
     user_session_id = request.user_session_id
     if user_session_id is None:
         if session_id == 'new':
             # Generate new UUID for new conversations
             import uuid
             user_session_id = str(uuid.uuid4())
+            print(f"📧 New conversation: generated user_session_id={user_session_id}")
         else:
-            # Use existing session_id for replies
+            # Use existing session_id for replies (session_id from URL is user_session_id)
             user_session_id = session_id
+            print(f"📧 Reply: using user_session_id={user_session_id}, in_reply_to={request.in_reply_to}")
+    else:
+        print(f"📧 Using provided user_session_id={user_session_id}")
+
+    # Validate user_session_id
+    if not user_session_id or user_session_id in ('null', 'undefined', 'None'):
+        raise HTTPException(status_code=400, detail=f"Invalid user_session_id: {user_session_id}")
 
     # Call User agent's speak method
     await user_agent.speak(
@@ -807,6 +816,108 @@ async def get_runtime_status():
             "agents": [],
             "error": str(e)
         }
+
+
+# === Skills APIs ===
+
+def scan_available_skills() -> list:
+    """扫描所有可用的 skills（从文件系统）"""
+    import importlib
+    from pathlib import Path
+    
+    skills_info = []
+    
+    # 1. 扫描内置 skills 目录
+    try:
+        skills_module = importlib.import_module('agentmatrix.skills')
+        skills_dir = Path(skills_module.__file__).parent
+        
+        # 扫描目录结构: agentmatrix/skills/{name}/skill.py
+        for item in skills_dir.iterdir():
+            if item.is_dir() and not item.name.startswith('__') and not item.name.startswith('.'):
+                skill_file = item / "skill.py"
+                if skill_file.exists():
+                    skill_name = item.name
+                    # 尝试读取文件获取描述
+                    description = get_skill_description(skill_file, skill_name)
+                    skills_info.append({
+                        "name": skill_name,
+                        "description": description,
+                        "source": "built-in"
+                    })
+            # 扫描扁平文件: agentmatrix/skills/{name}_skill.py
+            elif item.is_file() and item.name.endswith('_skill.py') and not item.name.startswith('__'):
+                skill_name = item.name[:-9]  # 移除 _skill.py
+                description = get_skill_description(item, skill_name)
+                skills_info.append({
+                    "name": skill_name,
+                    "description": description,
+                    "source": "built-in"
+                })
+    except Exception as e:
+        print(f"Error scanning built-in skills: {e}")
+    
+    # 2. 扫描 workspace skills 目录
+    try:
+        if matrix_world_dir:
+            workspace_skills_dir = Path(matrix_world_dir) / "skills"
+            if workspace_skills_dir.exists():
+                for item in workspace_skills_dir.iterdir():
+                    if item.is_dir() and not item.name.startswith('.'):
+                        skill_file = item / "skill.py"
+                        if skill_file.exists():
+                            skill_name = item.name
+                            description = get_skill_description(skill_file, skill_name)
+                            skills_info.append({
+                                "name": skill_name,
+                                "description": description,
+                                "source": "workspace"
+                            })
+    except Exception as e:
+        print(f"Error scanning workspace skills: {e}")
+    
+    # 去重（按名称）
+    seen = set()
+    unique_skills = []
+    for skill in skills_info:
+        if skill["name"] not in seen:
+            seen.add(skill["name"])
+            unique_skills.append(skill)
+    
+    # 按名称排序
+    unique_skills.sort(key=lambda x: x["name"])
+    
+    return unique_skills
+
+
+def get_skill_description(skill_file: Path, skill_name: str) -> str:
+    """从 skill 文件中提取描述"""
+    try:
+        content = skill_file.read_text(encoding='utf-8')
+        # 查找文件开头的 docstring
+        if '"""' in content:
+            start = content.find('"""') + 3
+            end = content.find('"""', start)
+            if end > start:
+                docstring = content[start:end].strip()
+                # 取第一行非空行作为描述
+                for line in docstring.split('\n'):
+                    line = line.strip()
+                    if line and not line.startswith('#') and not line.startswith('=='):
+                        return line[:100]  # 限制长度
+    except Exception:
+        pass
+    return f"{skill_name} skill"
+
+
+@app.get("/api/skills")
+async def get_available_skills():
+    """Get all available skills in the system"""
+    try:
+        skills = scan_available_skills()
+        return {"skills": skills}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Agent Profile Management APIs ===

@@ -14,6 +14,7 @@ Lazy Load 机制：
 from typing import Dict, List, Optional, Type, Tuple
 import logging
 import importlib
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -25,14 +26,14 @@ class SkillLoadResult:
     def __init__(self):
         # Python Mixin 类列表
         self.python_mixins: List[Type] = []
-        # MD Document Actions（未来实现）
-        self.md_actions: List = []
+        # MD Document 元数据列表
+        self.md_skills: List['MDSkillMetadata'] = []
         # 加载失败的技能名称
         self.failed_skills: List[str] = []
 
     def __repr__(self):
         return (f"SkillLoadResult(mixins={[m.__name__ for m in self.python_mixins]}, "
-                f"md_actions={len(self.md_actions)}, "
+                f"md_skills={[s.name for s in self.md_skills]}, "
                 f"failed={self.failed_skills})")
 
 
@@ -43,8 +44,11 @@ class SkillRegistry:
         # Python Mixin 注册表: skill_name -> mixin_class
         self._python_mixins: Dict[str, Type] = {}
 
-        # MD Document Action 注册表: skill_name -> List[ActionMetadata] (TODO)
-        self._md_actions: Dict[str, List] = {}
+        # MD Document Metadata 注册表: skill_name -> MDSkillMetadata
+        self._md_skills: Dict[str, 'MDSkillMetadata'] = {}
+
+        # 🆕 Workspace SKILLS 目录路径（由 BaseAgent 设置）
+        self._workspace_skills_dir: Optional[Path] = None
 
         # 🆕 Skill 搜索路径列表（优先级从高到低）
         # 默认只包含内置路径
@@ -87,6 +91,18 @@ class SkillRegistry:
             # 添加到最前面（最高优先级）
             self.search_paths.insert(0, path)
             logger.info(f"✅ 添加 Skill 搜索路径: {path}")
+
+    def set_workspace_skills_dir(self, skills_dir: Path):
+        """
+        设置 Workspace SKILLS 目录（用于复制 MD Document Skills）
+
+        由 BaseAgent 在初始化时调用。
+
+        Args:
+            skills_dir: Workspace 中的 SKILLS 目录路径（例如 Path("/workspace/SKILLS")）
+        """
+        self._workspace_skills_dir = skills_dir
+        logger.info(f"✅ 设置 Workspace SKILLS 目录: {skills_dir}")
 
     def register_python_mixin(self, name: str, mixin_class: Type):
         """
@@ -177,8 +193,9 @@ class SkillRegistry:
             elif success == "md":
                 # MD Document 加载成功
                 loaded.add(name)
-                if name in self._md_actions:
-                    result.md_actions.extend(self._md_actions[name])
+                if name in self._md_skills:
+                    result.md_skills.append(self._md_skills[name])
+                    logger.info(f"  ✅ 加载成功: {name} -> {self._md_skills[name].description}")
                 loading.remove(name)
                 return True
 
@@ -210,42 +227,58 @@ class SkillRegistry:
         """
         return {
             "python": list(self._python_mixins.keys()),
-            "md": list(self._md_actions.keys())
+            "md": list(self._md_skills.keys())
         }
 
     def _get_dependencies(self, name: str) -> List[str]:
         """
         获取 skill 的依赖声明
 
-        读取 skill 的 _skill_dependencies 类属性，如果不存在则返回空列表。
+        支持：
+        - Python Mixin: 读取 _skill_dependencies 类属性
+        - MD Document: 读取 Frontmatter 中的 dependencies 字段
 
         Args:
-            name: skill 名称（如 "web_search"）
+            name: skill 名称（如 "web_search", "git_workflow"）
 
         Returns:
             List[str]: 依赖的 skill 名称列表（如 ["browser", "file"]）
         """
-        # 先尝试从缓存中获取
+        # 情况1：Python Mixin
         if name in self._python_mixins:
             mixin_class = self._python_mixins[name]
-        else:
-            # 缓存中没有，需要先加载
-            self._load_skill(name)
-            if name not in self._python_mixins:
-                # 加载失败，返回空列表
+            deps = getattr(mixin_class, '_skill_dependencies', [])
+            if not isinstance(deps, list):
+                logger.warning(f"  ⚠️  Skill '{name}' 的 _skill_dependencies 不是列表，已忽略: {deps}")
                 return []
-            mixin_class = self._python_mixins[name]
+            logger.debug(f"  🔗 Skill '{name}' (Python) 声明的依赖: {deps}")
+            return deps
 
-        # 读取依赖声明
-        deps = getattr(mixin_class, '_skill_dependencies', [])
-
-        # 类型检查：确保是列表
-        if not isinstance(deps, list):
-            logger.warning(f"  ⚠️  Skill '{name}' 的 _skill_dependencies 不是列表，已忽略: {deps}")
+        # 情况2：MD Document（不再支持 dependencies 字段）
+        if name in self._md_skills:
+            logger.debug(f"  🔗 Skill '{name}' (MD) 无需依赖")
             return []
 
-        logger.debug(f"  🔗 Skill '{name}' 声明的依赖: {deps}")
-        return deps
+        # 情况3：未加载，先尝试加载
+        load_result = self._load_skill(name)
+
+        if load_result == "python":
+            mixin_class = self._python_mixins[name]
+            deps = getattr(mixin_class, '_skill_dependencies', [])
+            if not isinstance(deps, list):
+                logger.warning(f"  ⚠️  Skill '{name}' 的 _skill_dependencies 不是列表，已忽略: {deps}")
+                return []
+            logger.debug(f"  🔗 Skill '{name}' (Python) 声明的依赖: {deps}")
+            return deps
+
+        elif load_result == "md":
+            # MD skill 不再支持 dependencies
+            logger.debug(f"  🔗 Skill '{name}' (MD) 无需依赖")
+            return []
+
+        else:
+            # 加载失败
+            return []
 
     def _load_from_file_location(self, skill_file: Path, name: str, base_module: str = None) -> bool:
         """
@@ -438,12 +471,12 @@ class SkillRegistry:
         Lazy Load: 根据名字自动发现并加载技能
 
         优先级：
-        1. 检查缓存（_python_mixins, _md_actions）
+        1. 检查缓存（_python_mixins, _md_skills）
         2. 尝试加载 Python Mixin: {name}_skill.py
-        3. 尝试加载 MD Document: skills/{name}.md（TODO）
+        3. 尝试加载 MD Document: skills/{name}/skill.md
 
         Args:
-            name: 技能名称（如 "file", "browser"）
+            name: 技能名称（如 "file", "browser", "git_workflow"）
 
         Returns:
             Optional[str]: "python" | "md" | None（失败）
@@ -451,16 +484,16 @@ class SkillRegistry:
         # 1. 检查缓存
         if name in self._python_mixins:
             return "python"
-        if name in self._md_actions:
+        if name in self._md_skills:
             return "md"
 
         # 2. 尝试加载 Python Mixin
         if self._try_load_python_mixin(name):
             return "python"
 
-        # 3. 尝试加载 MD Document（未来实现）
-        # if self._try_load_md_document(name):
-        #     return "md"
+        # 3. 尝试加载 MD Document
+        if self._try_load_md_document(name):
+            return "md"
 
         # 全部失败
         logger.warning(f"  ⚠️  未找到 Skill: {name}（既不是 Python Mixin 也不是 MD Document）")
@@ -508,26 +541,150 @@ class SkillRegistry:
         # 所有路径都失败
         return False
 
-    def _try_load_md_document(self, name: str) -> bool:
+    def _get_skill_directory(self, name: str) -> Optional[Path]:
         """
-        尝试加载 MD Document Skill（TODO）
+        定位 skill 目录（用于 MD Document Skills）
 
-        路径约定：
-        - 查找路径: agentmatrix/skills/{name}.md
+        按优先级搜索所有路径，查找 {base_path}/{name}/skill.md 文件。
 
         Args:
-            name: 技能名称
+            name: skill 名称（如 "git_workflow"）
+
+        Returns:
+            Optional[Path]: skill 目录路径，如果未找到则返回 None
+
+        Examples:
+            _get_skill_directory("git_workflow")
+            → 可能返回 Path("agentmatrix/skills/git_workflow")
+        """
+        logger.debug(f"  🔍 搜索 MD Skill 目录: {name}")
+
+        for base_path in self.search_paths:
+            logger.debug(f"    搜索路径: {base_path}")
+
+            # 处理 Python 模块路径（如 "agentmatrix.skills"）
+            if '.' in base_path:
+                try:
+                    import importlib
+                    module = importlib.import_module(base_path)
+                    module_path = Path(module.__file__).parent
+                except (ImportError, AttributeError):
+                    logger.debug(f"    📂 无法找到模块路径: {base_path}")
+                    continue
+            else:
+                module_path = Path(base_path)
+
+            skill_dir = module_path / name
+
+            # 检查目录存在
+            if not skill_dir.exists() or not skill_dir.is_dir():
+                continue
+
+            # 检查 skill.md（MD Document Skill 的标识文件）
+            skill_md = skill_dir / "skill.md"
+            if skill_md.exists():
+                logger.info(f"  ✅ 找到 MD Skill 目录: {skill_dir}")
+                return skill_dir
+            else:
+                logger.debug(f"    📂 目录存在但缺少 skill.md: {skill_dir}")
+
+        # 所有路径都失败
+        return None
+
+    def _copy_skill_to_workspace(self, skill_dir: Path, target_dir: Path) -> bool:
+        """
+        复制整个 skill 目录到 workspace（带缓存检查）
+
+        复制内容：
+        - skill.md（主文档）
+        - scripts/（可执行脚本）
+        - templates/（模板文件）
+        - resources/（其他资源）
+
+        缓存策略：
+        - 如果目标目录已存在且修改时间较新，则跳过复制
+        - 否则执行完整复制
+
+        Args:
+            skill_dir: 源 skill 目录（例如 agentmatrix/skills/git_workflow）
+            target_dir: 目标目录（例如 workspace/SKILLS/git_workflow）
+
+        Returns:
+            bool: 是否复制成功（或跳过）
+        """
+        try:
+            # 检查是否需要复制（缓存机制）
+            if target_dir.exists():
+                src_mtime = skill_dir.stat().st_mtime
+                dst_mtime = target_dir.stat().st_mtime
+                if dst_mtime >= src_mtime:
+                    logger.debug(f"  ↺ Skill 目录已是最新，跳过复制: {target_dir}")
+                    return True
+
+            # 创建目标目录
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+
+            # 如果目标已存在，先删除（确保干净复制）
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+
+            # 执行复制
+            shutil.copytree(skill_dir, target_dir)
+            logger.info(f"  ✅ 复制 Skill 到 workspace: {skill_dir} → {target_dir}")
+            return True
+
+        except Exception as e:
+            logger.error(f"  ❌ 复制 Skill 目录失败: {skill_dir} → {target_dir}, 错误: {e}")
+            return False
+
+    def _try_load_md_document(self, name: str) -> bool:
+        """
+        尝试加载 MD Document Skill
+
+        步骤：
+        1. 定位 skill 目录（查找 skill.md）
+        2. 解析 Frontmatter 和 Actions
+        3. 复制 skill 目录到 workspace/SKILLS/
+        4. 缓存元数据到 _md_skills
+
+        Args:
+            name: 技能名称（如 "git_workflow"）
 
         Returns:
             bool: 是否加载成功
         """
-        # TODO: 实现 MD Document 解析
-        # 1. 查找文件: Path(__file__).parent / f"{name}.md"
-        # 2. 解析 Markdown，提取 actions
-        # 3. 创建 ActionMetadata 对象
-        # 4. 缓存到 _md_actions
-        logger.debug(f"  📄 MD Document 加载尚未实现: {name}")
-        return False
+        from .md_parser import MDSkillParser
+
+        # 步骤1：定位 skill 目录
+        skill_dir = self._get_skill_directory(name)
+        if not skill_dir:
+            return False
+
+        # 步骤2：解析 skill.md
+        skill_md_path = skill_dir / "skill.md"
+        metadata = MDSkillParser.parse(skill_md_path)
+        if not metadata:
+            logger.warning(f"  ⚠️  解析 MD Skill 失败: {skill_md_path}")
+            return False
+
+        # 步骤3：复制到 workspace
+        if self._workspace_skills_dir is None:
+            logger.error(f"  ❌ Workspace SKILLS 目录未设置，无法复制 MD Skill")
+            logger.error(f"     请在 BaseAgent 初始化时调用 SKILL_REGISTRY.set_workspace_skills_dir()")
+            return False
+
+        target_dir = self._workspace_skills_dir / name
+        if not self._copy_skill_to_workspace(skill_dir, target_dir):
+            logger.warning(f"  ⚠️  复制 MD Skill 失败: {skill_dir}")
+            return False
+
+        # 更新元数据中的 workspace 路径
+        metadata.workspace_path = target_dir
+
+        # 步骤4：缓存元数据
+        self._md_skills[name] = metadata
+        logger.info(f"  ✅ 加载 MD Skill 成功: {name} -> {metadata.description}")
+        return True
 
 
 # 全局单例

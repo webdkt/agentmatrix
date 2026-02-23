@@ -129,7 +129,7 @@ class CrawlerHelperMixin:
         )
         #self.logger.debug(f"\n\n {markdown} \n\n")
 
-        
+
 
         return markdown or ""
 
