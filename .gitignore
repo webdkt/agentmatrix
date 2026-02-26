@@ -184,10 +184,35 @@ cython_debug/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# AgentMatrix specific
+# Workspace data (sessions, vector DB, browser profiles, etc.)
+.matrix/
+**/workspace/.matrix/
+**/workspace/sessions/
+**/workspace/browser_*/
+**/workspace/chroma_db/
+
+# Example worlds (user-specific data)
+MyWorld/
+examples/MyWorld/workspace/
+examples/MyWorld/.matrix/
+
+# Test files and temporary data
 Samples/
 test/profile
 test/test
-MyWorld/
 tests/jian_api.txt
 tests/
-.matrix/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+agents.db
+
+# Temporary and cache files
+*.log
+*.tmp
+*.cache
+.pytest_cache/
