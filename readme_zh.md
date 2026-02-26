@@ -306,7 +306,7 @@ BaseAgent 发送回复邮件
 全面的双语文档（英文 & 中文）：
 
 ### 核心架构
-- **[Agent 和 Micro Agent 设计](docs/agent-and-micro-agent-design-cn.md)**
+- **[Agent 和 Micro Agent 设计](docs/architecture/agent-and-micro-agent-design-cn.md)**
   - 双层架构设计哲学
   - 会话 vs. 执行分离
   - 技能系统和通信机制
@@ -317,7 +317,7 @@ BaseAgent 发送回复邮件
   - 配置文件格式
 
 ### 核心模式
-- **[Think-With-Retry 模式](docs/think-with-retry-pattern-cn.md)**
+- **[Think-With-Retry 模式](docs/architecture/think-with-retry-pattern-cn.md)**
   - 自然语言 → 结构化数据
   - 解析器设计和实现
   - 自定义解析器创建指南
