@@ -308,7 +308,7 @@ BaseAgent sends reply email
 Comprehensive bilingual documentation (English & Chinese):
 
 ### Core Architecture
-- **[Agent and Micro Agent Design](docs/agent-and-micro-agent-design.md)**
+- **[Agent and Micro Agent Design](docs/architecture/agent-and-micro-agent-design.md)**
   - Dual-layer architecture philosophy
   - Session vs. execution separation
   - Skill system and communication
@@ -319,7 +319,7 @@ Comprehensive bilingual documentation (English & Chinese):
   - Configuration format
 
 ### Key Patterns
-- **[Think-With-Retry Pattern](docs/think-with-retry-pattern.md)**
+- **[Think-With-Retry Pattern](docs/architecture/think-with-retry-pattern.md)**
   - Natural language → structured data
   - Parser design and implementation
   - Custom parser creation guide
