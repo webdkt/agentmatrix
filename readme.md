@@ -17,6 +17,33 @@ AgentMatrix is a multi-agent framework where:
 - Agents collaborate through **natural language** (like email), not rigid APIs
 - LLMs can reason naturally without wasting "mental energy" on JSON syntax
 
+## 📦 Project Organization
+
+AgentMatrix repository consists of three main parts:
+
+### 1. Core Framework (`src/agentmatrix/`)
+The heart of AgentMatrix - a Python library for building intelligent agents.
+- **Install**: `pip install matrix-for-agents`
+- **Use as**: Library in your own projects
+- **Contains**: Agent runtime, skill system, LLM integration, message routing
+
+### 2. Web Application (`web/` + `server.py`)
+Official web-based management interface for AgentMatrix.
+- **Start**: `python server.py`
+- **Provides**: Visual UI for agent interaction, email-style messaging, session management
+- **Tech**: FastAPI backend + modern frontend (Alpine.js + Tailwind CSS)
+- **Documentation**: See [web/README.md](web/README.md)
+
+### 3. Examples (`examples/`)
+Sample configurations and tutorials to help you get started.
+- **MyWorld**: Complete example world with multiple agents
+- **Documentation**: See [examples/README.md](examples/README.md)
+
+**Quick Start Paths**:
+- 🖥️ **Want a visual interface?** → Start Web app: `python server.py`
+- 🐍 **Want to build programmatically?** → Use as library: `pip install matrix-for-agents`
+- 📚 **Want to learn by example?** → Explore `examples/MyWorld`
+
 ## 🧠 Why This Matters?
 
 ### The Problem

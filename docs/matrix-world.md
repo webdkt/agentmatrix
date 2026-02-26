@@ -41,9 +41,10 @@ agentmatrix/
 │   ├── matrix-world.md           # This file
 │   ├── agent-and-micro-agent-design.md
 │   └── think-with-retry-pattern.md
-└── MyWorld/                       # Example world setup
-    ├── matrix_state.json         # Persisted world state
-    └── agent_profiles/           # Custom agent profiles
+└── examples/                      # Example worlds and tutorials
+    └── MyWorld/                   # Example world setup
+        ├── agents/                # Agent configurations
+        └── workspace/             # Workspace data
 ```
 
 ## Core Components
@@ -330,7 +331,7 @@ def load_matrix(self):
 # Initialize AgentMatrix
 matrix = AgentMatrix(
     agent_profile_path="src/agentmatrix/profiles",
-    matrix_path="MyWorld",
+    matrix_path="examples/MyWorld",
     default_backend=llm_client,
     default_cerebellum=cerebellum_client
 )
@@ -480,21 +481,23 @@ async def delegate_planning(self, research_results: str) -> str:
 ## Example World Setup
 
 ```
-MyWorld/
-├── matrix_state.json        # Persisted state
-├── chroma_db/               # Vector database
-└── agent_profiles/          # Custom agent profiles
-    ├── planner.yml
-    ├── researcher.yml
-    └── writer.yml
+examples/MyWorld/
+├── agents/                  # Agent configuration files
+│   ├── User.yml
+│   └── researcher.yml
+├── workspace/               # Workspace data
+│   ├── .matrix/            # Internal state
+│   ├── sessions/           # Session history
+│   └── chroma_db/          # Vector database
+└── matrix_world.yml        # World configuration
 ```
 
 Initialize with:
 
 ```python
 matrix = AgentMatrix(
-    agent_profile_path="MyWorld/agent_profiles",
-    matrix_path="MyWorld",
+    agent_profile_path="examples/MyWorld/agents",
+    matrix_path="examples/MyWorld",
     default_backend=your_llm_client,
     default_cerebellum=your_slm_client
 )

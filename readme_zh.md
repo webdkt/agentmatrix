@@ -15,6 +15,33 @@ AgentMatrix 是一个多 Agent 框架，特点是：
 - Agent 通过**自然语言**（类似邮件）协作，而不是僵硬的 API 调用
 - LLM 可以自然推理，不会把"脑力"浪费在 JSON 语法上
 
+## 📦 项目组织
+
+AgentMatrix 仓库包含三个主要部分：
+
+### 1. 核心框架 (`src/agentmatrix/`)
+AgentMatrix 的核心 - 用于构建智能 Agent 的 Python 库。
+- **安装**: `pip install matrix-for-agents`
+- **用途**: 作为库在你自己的项目中使用
+- **包含**: Agent 运行时、技能系统、LLM 集成、消息路由
+
+### 2. Web 应用 (`web/` + `server.py`)
+AgentMatrix 的官方可视化管理界面。
+- **启动**: `python server.py`
+- **提供**: 可视化 Agent 交互界面、邮件式消息系统、会话管理
+- **技术**: FastAPI 后端 + 现代化前端（Alpine.js + Tailwind CSS）
+- **文档**: 参见 [web/README.md](web/README.md)
+
+### 3. 示例 (`examples/`)
+帮助您快速上手的示例配置和教程。
+- **MyWorld**: 包含多个 Agent 的完整示例世界
+- **文档**: 参见 [examples/README.md](examples/README.md)
+
+**快速开始路径**:
+- 🖥️ **想要可视化界面？** → 启动 Web 应用: `python server.py`
+- 🐍 **想要编程使用？** → 作为库安装: `pip install matrix-for-agents`
+- 📚 **想要通过示例学习？** → 探索 `examples/MyWorld`
+
 ## 🧠 为什么这很重要？
 
 ### 问题所在
