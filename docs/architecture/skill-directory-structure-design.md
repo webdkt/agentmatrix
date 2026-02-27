@@ -566,6 +566,74 @@ result = SKILL_REGISTRY.get_skills(skills)
 # ]
 ```
 
+### 依赖解析机制
+
+**核心设计**：使用递归加载和双队列循环检测实现自动依赖解析。
+
+#### 解析流程
+
+```
+用户请求: ["web_search"]
+    ↓
+SKILL_REGISTRY.get_skills(["web_search"])
+    ↓
+递归解析 web_search
+    ↓
+读取依赖: _skill_dependencies = ["browser", "file"]
+    ↓
+递归加载 browser（无依赖，直接加载）
+    ↓
+递归加载 file（无依赖，直接加载）
+    ↓
+加载 web_search（依赖已满足）
+    ↓
+返回: [BrowserSkillMixin, FileSkillMixin, WebSearchSkillMixin]
+```
+
+#### 循环依赖处理
+
+**双队列机制**：使用 `loaded` 和 `loading` 两个队列检测循环依赖。
+
+```
+正常情况：
+加载 A → A 进入 loading 队列
+A 需要 B → 加载 B → B 进入 loading 队列
+B 完成 → B 移至 loaded 队列
+A 完成 → A 移至 loaded 队列
+
+循环情况：
+加载 A → A 进入 loading 队列
+A 需要 B → 加载 B → B 进入 loading 队列
+B 需要 A → 检测到 A 已在 loading 队列 → 跳过 A
+B 完成 → B 移至 loaded 队列
+A 完成 → A 移至 loaded 队列
+```
+
+**关键特性**：
+- ✅ **自动去重**：相同的依赖只加载一次
+- ✅ **依赖优先**：被依赖的 skills 先于依赖者加载
+- ✅ **循环安全**：即使存在循环依赖也不会崩溃
+- ✅ **向后兼容**：未声明 `_skill_dependencies` 的 skills 仍然正常工作
+
+#### 测试覆盖
+
+依赖解析功能经过全面测试，确保各种场景的正确性：
+
+| 测试场景 | 说明 |
+|---------|------|
+| 基本依赖解析 | 验证依赖自动加载 |
+| 重复声明不重复加载 | 多个 skill 依赖同一目标 |
+| 加载顺序 | 依赖优先于被依赖者 |
+| 循环依赖检测 | 不会因循环依赖崩溃 |
+| 向后兼容性 | 无 `_skill_dependencies` 声明仍可工作 |
+| 无依赖的 skill | 独立技能正常加载 |
+| 共享依赖去重 | A 和 B 都依赖 C，C 只加载一次 |
+
+**运行测试**：
+```bash
+python3 tests/test_skill_dependencies.py
+```
+
 ---
 
 ## 配置方式
