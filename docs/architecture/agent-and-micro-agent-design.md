@@ -1,595 +1,761 @@
-NEED REVIEW
+# Agent and MicroAgent Design
 
-# Agent and Micro Agent Design
+**Document Version**: v0.2.0 | **Last Updated**: 2026-02-27 | **Status**: ✅ Implemented
 
 ## Overview
 
-### Why We Need Two Layers
+### Core Concepts
 
-When building agents, there's a practical issue: **a conversation can contain multiple tasks, and each task may require multiple execution steps.**
+AgentMatrix adopts a dual-layer architecture to separate session management from task execution:
 
-For example, a user is chatting with a Researcher Agent (this is a session). The user says "Help me research AI safety." This task itself might need multiple steps: search for materials, read papers, then compile a report. These are the MicroAgent's execution steps.
+- **Agent (Session Layer)**: Long-running, manages multiple sessions, provides capabilities
+- **MicroAgent (Execution Layer)**: Temporary execution of individual tasks, independent context
 
-If we mix these together, the state gets messy: session-level conversation history, task-level execution state, step counters... all piled into BaseAgent. The code becomes hard to maintain and bugs are hard to find.
+### Why Separate
 
-Common approaches both have problems:
+A single conversation can contain multiple tasks, and each task may be executed in multiple steps. If mixed together:
+- **State confusion**: Conversation history, task state, and execution steps are all piled together
+- **Hard to maintain**: Modifying one part might break another
+- **Cannot nest**: Unable to support recursive task decomposition
 
-1. **Stuff everything into BaseAgent**: Session history, task state, execution steps all in one object. Lots of state, unclear responsibilities, changing one thing might break another.
+### Architecture Value
 
-2. **Spawn a new agent for each task**: Clean, but the new agent needs reconfiguration, reloading skills, and can't access the original agent's context.
+| Value | Description |
+|-------|-------------|
+| **Clear Responsibilities** | Agent manages sessions, MicroAgent manages execution |
+| **State Isolation** | Conversation history is not polluted by execution steps |
+| **Recursive Nesting** | MicroAgent can create child MicroAgents, supporting task decomposition layer by layer |
+| **Failure Isolation** | Task failures do not affect the session |
 
-### Our Solution: BaseAgent (Session Layer) + MicroAgent (Execution Layer)
+## Core Entities
 
-We separate "session management" from "task execution":
+### Agent (Session Manager)
 
-**BaseAgent = Session Layer**
-- Manages session-level state (can have multiple independent sessions)
-- Each session has its own conversation history and context
-- Owns skills, actions, and capabilities (these are global, shared across sessions)
-- Delegates to MicroAgent when receiving user tasks
+**Code Location**: `src/agentmatrix/agents/base.py`
 
-**MicroAgent = Execution Layer**
-- Runs a single task (one think-act cycle)
-- Inherits all of BaseAgent's capabilities (brain, cerebellum, action registry)
-- Has its own independent execution context (task description, execution history, step count)
-- Terminates when task completes or exceeds step limit, returns result
+**Core Responsibilities**:
+- Manage multiple independent sessions
+- Own skill packages and action registry
+- Create MicroAgents to execute specific tasks
+- Maintain persistent conversation memory
 
-Key point: **MicroAgent is not another agent class**—it's a "temporary execution context" created by BaseAgent to execute a specific task. Think of it as BaseAgent entering "focused work mode", then returning to normal state when done.
-
-### Why This Separation Matters
-
-**1. Clear Responsibilities**
-- BaseAgent manages session: which conversation is this, what's the history, what's the user discussing
-- MicroAgent manages execution: what am I doing right now, what's next, which step am I on
-- Different levels of state managed separately, code is easier to understand
-
-**2. State Isolation**
-- BaseAgent's session history won't be polluted by execution steps, intermediate results
-- MicroAgent's execution state (steps, intermediate results) won't enter session history
-- MicroAgent disappears when done, no need to worry about state cleanup
-
-**3. Supports Concurrency**
-- One BaseAgent can maintain multiple sessions simultaneously
-- Each session can have its own MicroAgent executing tasks
-- No interference, each manages its own state
-
-**4. Failure Doesn't Break Session**
-- Task failure (timeout, parse error, etc.) only affects that MicroAgent execution
-- BaseAgent's session remains intact, can report failure, ask user for clarification, or retry differently
-- User conversation is unaffected
-
-**5. 🔥 Recursive Nesting & "LLM Functions" (Game-Changing Feature)**
-
-This is the most powerful aspect of the dual-layer architecture:
-
-**MicroAgent calls can be recursively nested**:
-
-```
-MicroAgent Layer 1
-  ├─ Executes: web_search() action
-  │   └─ This action internally calls:
-  │       └─ MicroAgent Layer 2 (processes and analyzes search results)
-  │           ├─ Executes: summarize_content() action
-  │           │   └─ This action internally calls:
-  │           │       └─ MicroAgent Layer 3 (extracts key information)
-  │           │           └─ Returns structured data to Layer 2
-  │           └─ Returns analysis to Layer 1
-  └─ Returns final result to BaseAgent
-```
-
-**Key Characteristics**:
-
-1. **Perfect State Isolation**: Each layer's execution history is completely isolated:
-   - Layer 3's reasoning process doesn't pollute Layer 2's context
-   - Layer 2's intermediate steps don't clutter Layer 1's context
-   - Each layer only sees the final result from the layer below
-
-2. **MicroAgent as "LLM Function"**:
-   - Think of `micro_agent.execute()` as a **natural language function**
-   - Not a traditional Python function (deterministic logic)
-   - Not a chatbot conversation (back-and-forth dialogue)
-   - It's a **probabilistic reasoning unit** with:
-     - **Input**: Natural language task description
-     - **Processing**: LLM reasoning + multi-step think-act loop
-     - **Output**: Natural language result OR structured data (via `expected_schema`)
-
-3. **Composability**:
-   - Build complex workflows by composing simple LLM functions
-   - Each function has independent context and execution history
-   - Natural recursion: tasks can decompose into subtasks recursively
-
-**Example: Recursive Task Decomposition**
+**Initialization Code**:
 
 ```python
-async def breakdown_task(task: str, depth: int = 0) -> Dict:
-    """LLM function for recursive task breakdown"""
-    if depth > 3:  # Recursion termination
-        return await execute_simple_task(task)
-
-    # Use MicroAgent to break down task
-    subtask_result = await self._run_micro_agent(
-        persona="You are a task planner",
-        task=f"Break down '{task}' into 3-5 subtasks",
-        result_params={
-            "expected_schema": {
-                "subtasks": ["string"],
-                "priority": "string"
-            }
-        }
-    )
-
-    # Recursively process each subtask
-    results = {}
-    for subtask in subtask_result["subtasks"]:
-        # Recursive MicroAgent call - each with isolated context
-        results[subtask] = await breakdown_task(subtask, depth + 1)
-
-    return results
-```
-
-**Why This Matters**:
-
-- ✅ **Simplicity**: Complex multi-step workflows become simple function compositions
-- ✅ **Clarity**: Each layer has a clean, isolated context
-- ✅ **Robustness**: Failure at Layer 3 doesn't break Layers 1 or 2
-- ✅ **Flexibility**: Mix and match LLM functions like building blocks
-- ✅ **Scalability**: Build arbitrarily complex workflows from simple primitives
-
-This is fundamentally different from traditional function calls or chatbot interactions—it's a new paradigm: **natural language functions with probabilistic reasoning and perfect isolation**.
-
-### Actual Execution Flow
-
-When a user sends an email to BaseAgent:
-
-```
-1. BaseAgent receives email
-   ├─ Check in_reply_to: which session is this?
-   ├─ Restore or create session via SessionManager (session-level conversation history)
-   └─ Delegate to MicroAgent to execute this task
-
-2. MicroAgent executes
-   ├─ Inherit BaseAgent's capabilities (brain, cerebellum, actions)
-   ├─ Initialize this task's execution context
-   ├─ Run think-negotiate-act loop
-   │  ├─ Think: what should I do next?
-   │  ├─ Detect action from LLM output
-   │  ├─ Negotiate parameters (via Cerebellum)
-   │  ├─ Execute action
-   │  └─ Repeat until all_finished or step limit
-   └─ Return result to BaseAgent
-
-3. BaseAgent updates session
-   ├─ Write MicroAgent's result to session history
-   └─ Send reply email to user
-```
-
-Note: MicroAgent's intermediate thoughts, action calls, etc. during execution don't enter session history. Only the final result is recorded.
-
-## Design Philosophy
-
-The core ideas of this dual-layer architecture:
-
-**1. Session and Execution Separation**
-- Session is conversation-level, can last a long time
-- Execution is task-level, usually completes in minutes
-- One conversation can contain multiple task executions
-
-**2. Capability Inheritance, State Independence**
-- MicroAgent reuses BaseAgent's capabilities without affecting BaseAgent's state
-- Like an employee: uses company skills and tools, but work records are their own
-
-**3. Natural Language Coordination**
-- BaseAgent and MicroAgent communicate through the same LLM interface
-- No special APIs needed—just prompt engineering and context management
-- MicroAgent is essentially a "focused conversation" within BaseAgent
-
-**4. Dual-Brain Architecture**
-- **Brain (LLM)**: Responsible for reasoning, understanding, generation
-- **Cerebellum (SLM)**: Responsible for parameter parsing, JSON generation
-- Different models for different capabilities, better cost and performance
-
-**5. Dynamic Skill Composition**
-- Skills are mixins, loaded via YAML configuration
-- BaseAgent's capabilities are composable and extensible
-- MicroAgent automatically has all of BaseAgent's skills
-
-**6. Email-Based Communication**
-- All inter-agent communication uses natural language (Email)
-- Maintains thread relationships via `in_reply_to`
-- Coordinate through "explanation" not "API calls"—easier to understand and debug
-
-## BaseAgent
-
-**Location**: `src/agentmatrix/agents/base.py`
-
-### Core Components
-
-```python
-class BaseAgent(FileSkillMixin, AutoLoggerMixin):
+class BaseAgent(AutoLoggerMixin):
     def __init__(self, profile):
-        # Identity
+        # Basic information
         self.name = profile["name"]
         self.description = profile["description"]
-        self.system_prompt = profile["system_prompt"]
 
-        # Dual-Brain Architecture
-        self.brain = None      # LLM client for high-level reasoning
-        self.cerebellum = None # SLM for parameter negotiation
+        # Persona system (supports multiple personas)
+        self.persona_config = profile.get("persona", {"base": ""})
 
-        # Action Registry
-        self.actions_map = {}   # name -> method reference
-        self.actions_meta = {}  # name -> metadata (description, params)
+        # Other prompts (such as task_prompt)
+        self.other_prompts = profile.get("prompts", {})
 
-        # Session Management (delegated to SessionManager)
-        self.session_manager = None  # Initialized when workspace_root is set
+        # Dual-brain architecture
+        self.brain = None           # LLM - Advanced reasoning
+        self.cerebellum = None      # SLM - Parameter negotiation
+        self.vision_brain = None    # Visual model ✨
 
-        # Micro Agent Core (lazy initialized)
-        self._micro_core = None
+        # Capability registry
+        self.action_registry = {}   # name -> bound_method
+        self.actions_meta = {}      # name -> metadata
+
+        # Session management
+        self.session_manager = None
+
+        # Event callbacks ✨
+        self.async_event_callback = None
+
+        # Scan all actions
+        self._scan_all_actions()
 ```
 
-### Action Registration
+**Persona System** ✨:
 
-Actions are methods decorated with `@register_action`:
+Supports multiple switchable personas, each is an independent prompt template:
 
 ```python
-@register_action(
-    description="Search web for information",
-    param_infos={
-        "query": "Search query string",
-        "num_results": "Number of results to return"
+# Configuration file
+persona:
+  base: "You are a helpful assistant"
+  planner: "You are a project planning expert, good at task decomposition"
+  researcher: "You are an information collection expert"
+
+# Use in code
+persona = self.get_persona(
+    persona_name="researcher",
+    task_type="web_search"
+)
+```
+
+**Skill Prompt System** ✨:
+
+Each skill can have independent prompt templates, stored in `prompts/skills/{skill_name}/{prompt_name}.txt`:
+
+```python
+# Get skill prompt
+prompt = self.get_skill_prompt(
+    skill_name="browser_use",
+    prompt_name="task_optimization",
+    task_description="Search papers"
+)
+```
+
+### MicroAgent (Executor)
+
+**Code Location**: `src/agentmatrix/agents/micro_agent.py`
+
+**Core Responsibilities**:
+- Execute a single task (think-act loop)
+- Use Agent's capabilities
+- Have independent working context
+- Destroyed when task is complete
+
+**Creation Methods**:
+
+```python
+from agentmatrix.agents.micro_agent import MicroAgent
+
+# Method 1: Share all capabilities from parent
+micro_agent = MicroAgent(
+    parent=self,  # Agent or another MicroAgent
+    working_context=None,  # None means using parent's
+    default_max_steps=50
+)
+
+# Method 2: Dynamically select available skills ✨
+micro_agent = MicroAgent(
+    parent=self,
+    working_context=None,
+    available_skills=["file", "browser"],  # Only use these two skills
+    default_max_steps=50
+)
+```
+
+**Dynamic Skill Composition** ✨:
+
+Through the `available_skills` parameter, MicroAgent can load only the skills it needs:
+
+```python
+# Only load file and browser skills
+micro = MicroAgent(
+    parent=self,
+    available_skills=["file", "browser"]
+)
+
+# This dynamically composes FileSkillMixin and BrowserSkillMixin
+# Other skills will not be loaded
+```
+
+**Execute Task**:
+
+```python
+result = await micro_agent.execute(
+    persona="You are a web search expert",  # Persona: identity for this execution
+    task="Search for latest AI safety papers",  # Task: what to do
+    available_actions=["search", "open_page"],  # Available actions: which actions to allow
+    max_steps=20,  # Maximum steps
+    result_params={
+        "expected_schema": {  # Expected structured output
+            "papers": ["string"],
+            "summary": "string"
+        }
     }
 )
-async def web_search(self, query: str, num_results: int = 10):
-    # Implementation
-    pass
 ```
 
-The decorator marks the method as an action and stores metadata. During initialization, `_scan_methods()` (lines 89-105) discovers all decorated methods and builds the action registry.
+### State Management
 
-### Email Processing Workflow
+#### Conversation Memory (Session Context)
 
-**Main Entry Point**: `process_email()` (lines 244-286)
+**Core Mechanism**:
 
-1. **Receive Email**: Incoming email from PostOffice
-2. **Threading**: Check `in_reply_to` to restore conversation context
-3. **Micro Agent Execution**: Delegate task to MicroAgent
-4. **Response**: Send reply email with results
+1. **Shared Memory** (default): Share the same memory through the hierarchical chain
+2. **Automatic Save**: Automatically persist to disk on every update
+3. **Independent Mode** (optional): Create independent temporary memory
+
+**Code Example**:
 
 ```python
-async def process_email(self, email: Email):
-    # Restore or create session via SessionManager
-    session = await self.session_manager.get_session(email)
+# Default: Share parent's memory (persistent)
+micro1 = MicroAgent(parent=self)  # Shared
+micro2 = MicroAgent(parent=self)  # Shared
+# micro1 and micro2 share the same memory
 
-    # Execute with Micro Agent
-    result = await self._run_micro_agent(
-        persona=self.system_prompt,
-        task=email.body,
-        available_actions=self.actions_map.keys(),
-        session_history=session["history"]
+# Independent mode: Create independent memory (not persistent)
+micro3 = MicroAgent(
+    parent=self,
+    independent_session_context=True  # Independent memory
+)
+# micro3 has independent memory, won't persist
+```
+
+**Use Cases**:
+- **Shared Mode** (default): Most scenarios, need memory persistence
+- **Independent Mode**: Temporary calculations, intermediate steps, memory not needed to be saved
+
+#### Working Space (Working Context)
+
+**Hierarchical Directory Structure**:
+
+```
+workspace_root/
+├── {user_session_id}/
+│   └── agents/
+│       └── {agent_name}/  # Agent's private working directory
+│           ├── 20250226_143022/  # MicroAgent subtask directory (with timestamp)
+│           │   └── files/
+│           └── 20250226_143545/  # Another subtask directory
+│               └── files/
+```
+
+**Create Subdirectory**:
+
+```python
+# With timestamp (default): Create new directory for each execution
+micro = MicroAgent(parent=self)
+# Working directory: workspace/.../agent_name/20250226_143022/
+
+# Without timestamp: Share same directory across multiple executions
+micro = MicroAgent(
+    parent=self,
+    working_context=WorkingContext(
+        base_dir=str(self.private_workspace),
+        current_dir=str(subtask_dir)  # Directory without timestamp
     )
-
-    # Update session and send reply
-    session["history"].append({"role": "user", "content": email.body})
-    session["history"].append({"role": "assistant", "content": result})
-    await self._send_reply(email, result)
+)
 ```
 
-### Convenience Method
+## Skills and Actions
 
-**`_run_micro_agent()`** (lines 597-683): Lazy-initializes MicroAgent and executes task.
+### Action (Capability)
+
+Action is a specific operation that an Agent can perform, marked with `@register_action` decorator:
 
 ```python
-async def _run_micro_agent(self, persona, task, available_actions,
-                           initial_history=None, result_params=None):
-    if self._micro_core is None:
-        self._micro_core = MicroAgent(
-            brain=self.brain,
-            cerebellum=self.cerebellum,
-            action_registry=self.actions_map,
-            name=self.name,
-            default_max_steps=10
-        )
+from agentmatrix.core.action import register_action
 
-    return await self._micro_core.execute(
-        persona=persona,
-        task=task,
-        available_actions=available_actions,
-        initial_history=initial_history,
-        result_params=result_params
-    )
+@register_action(
+    description="Search web information",
+    param_infos={
+        "query": "Search query string",
+        "num_results": "Number of results to return (default 10)"
+    }
+)
+async def web_search(self, query: str, num_results: int = 10) -> str:
+    """Search web and return results"""
+    results = await self._search_api(query, num_results)
+    return self._format_results(results)
 ```
 
-## MicroAgent
+### Skill (Skill Package)
 
-**Location**: `src/agentmatrix/agents/micro_agent.py`
-
-### Design Concept
-
-MicroAgent is NOT a separate agent class - it's a temporary execution mode:
-
-- Reuses BaseAgent's brain, cerebellum, and action registry
-- Has independent execution context (task, history, step count)
-- Terminates upon task completion or reaching max_steps
-- No persistent state - results flow back to BaseAgent
-
-### Execute Mechanism
-
-**Main Method**: `execute()` (lines 68-152)
+Skill is a collection of related Actions, implemented as Mixin classes:
 
 ```python
-async def execute(self, persona, task, available_actions,
-                 max_steps=None, initial_history=None, result_params=None):
-    # Initialize context
-    self.persona = persona
-    self.task = task
-    self.available_actions = available_actions
-    self.max_steps = max_steps or self.default_max_steps
-    self.history = initial_history or []
-    self.result_params = result_params
-
-    # Run think-negotiate-act loop
-    await self._run_loop()
-
-    return self.result
-```
-
-### Think-Negotiate-Act Loop
-
-**`_run_loop()`** (lines 208-256)
-
-```python
-async def _run_loop(self):
-    for self.step_count in range(1, self.max_steps + 1):
-        # 1. Think - Call brain for reasoning
-        thought = await self._think()
-
-        # 2. Detect action from thought output
-        action_name = self._detect_action(thought)
-
-        # 3. Execute or finish
-        if action_name == "all_finished":
-            result = await self._execute_action(action_name, thought)
-            self.result = result
-            break  # Return to BaseAgent
-        elif action_name:
-            result = await self._execute_action(action_name, thought)
-            # Add feedback and continue loop
-        else:
-            # No action detected - retry or ask for clarification
-            pass
-```
-
-### Action Detection
-
-**`_detect_action()`** (lines 262-285)
-
-Simple substring matching in LLM output:
-
-```python
-def _detect_action(self, thought: str) -> Optional[str]:
-    """Find action name in thought output using substring matching"""
-    for action in sorted(self.available_actions, key=len, reverse=True):
-        if action in thought:
-            return action
-    return None
-```
-
-- Actions sorted by length (longest first) to avoid partial matches
-- Returns `None` if no action detected
-- Returns `"all_finished"` to terminate execution
-
-### Action Execution with Parameter Negotiation
-
-**`_execute_action()`** (lines 288-378)
-
-1. **Parse Action Intent**: Extract which action to take
-2. **Parameter Negotiation** (via Cerebellum):
-   - Get action parameter schema
-   - Loop until parameters are clear or max turns reached
-   - Use SLM (Cerebellum) for JSON generation
-   - Ask brain (LLM) for clarification if needed
-3. **Execute Action**: Call actual method with negotiated parameters
-4. **Return Result**: Feedback for next iteration
-
-## Skills System
-
-### Definition
-
-Skills are natural language interface functions with built-in intelligence, dynamically mountable to agents.
-
-**Key Characteristics**:
-- Decorated with `@register_action`
-- Contain natural language descriptions
-- Auto-discovered during agent initialization
-- Reusable across agents via mixins
-
-### Skill Example
-
-**Location**: `src/agentmatrix/skills/web_searcher.py`
-
-```python
+# src/agentmatrix/skills/web_searcher.py
 class WebSearcherMixin:
-    @register_action(
-        description="Search the web for information using search engine",
-        param_infos={
-            "query": "Search query",
-            "num_results": "Number of results to return (default 10)"
-        }
-    )
-    async def web_search(self, query: str, num_results: int = 10) -> str:
-        # Implementation using search API
-        results = await self._search_api(query, num_results)
-        return self._format_results(results)
+    """Web search skill package"""
+
+    @register_action(description="Search web")
+    async def web_search(self, query: str) -> str:
+        # Implementation
+        pass
+
+    @register_action(description="Open webpage")
+    async def open_page(self, url: str) -> str:
+        # Implementation
+        pass
+
+    @register_action(description="Extract content")
+    async def extract_content(self, html: str) -> str:
+        # Implementation
+        pass
 ```
 
-### Dynamic Loading via Mixins
+### Configuration Method
 
-**Location**: `src/agentmatrix/core/loader.py` (lines 66-188)
-
-Agent profile (YAML) specifies mixins:
+Specify required skills in Agent's YAML configuration:
 
 ```yaml
-# profiles/planner.yml
-name: Planner
-description: A planning agent
-module: agentmatrix.agents.base
-class_name: BaseAgent
+# profiles/researcher.yml
+name: Researcher
+description: Information collection expert
 
-mixins:
-  - agentmatrix.skills.filesystem.FileSkillMixin
+# Persona configuration ✨
+persona:
+  base: "You are a research assistant"
+  planner: "You are a planning expert"
+  researcher: "You are an information collection expert"
+
+# Loaded skills
+skills:
   - agentmatrix.skills.web_searcher.WebSearcherMixin
-  - agentmatrix.skills.project_management.ProjectManagementMixin
+  - agentmatrix.skills.filesystem.FileSkillMixin
+  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
+
+# Backend configuration
+backend_model: gpt-4
+cerebellum_model: gpt-3.5-turbo
 ```
 
-**Dynamic Class Creation**:
+### Dynamic Loading
+
+Dynamically compose Agent class through multiple inheritance at runtime:
 
 ```python
 # Load mixin classes
 mixin_classes = []
-for mixin_path in profile["mixins"]:
+for mixin_path in profile["skills"]:
     mixin_class = import_module(mixin_path)
     mixin_classes.append(mixin_class)
 
-# Create agent class with multiple inheritance
+# Create dynamic class
 agent_class = type(
     f"Dynamic{class_name}",
-    (base_agent_class, *mixin_classes),  # Multiple inheritance
-    {}  # Class attributes
+    (BaseAgent, *mixin_classes),  # Multiple inheritance
+    {}
 )
 
-# Instantiate agent
+# Instantiate
 agent = agent_class(profile)
 ```
 
-This allows flexible composition of capabilities without modifying base classes.
+## Execution Mechanism
 
-### Skill Composition
+### "Soul Injection" Three Elements
 
-Benefits:
-- **Modularity**: Each skill is self-contained
-- **Reusability**: Same skill used by multiple agents
-- **Extensibility**: New skills added without changing core
-- **Separation of Concerns**: Skills independent of agent logic
+Each time MicroAgent is executed, three elements are dynamically injected:
 
-## Communication Mechanisms
+```python
+result = await micro_agent.execute(
+    persona="...",      # 1. Persona: identity for this execution
+    task="...",         # 2. Task: what specifically to do
+    available_actions=[...]  # 3. Available capabilities: which actions to allow this time
+)
+```
 
-### Email-Based Messaging
+**Persona**:
+- Determines the executor's thinking style and behavior
+- Can select different personas from `persona_config`
+- Supports template variables
 
-**Location**: `src/agentmatrix/core/message.py`
+**Task**:
+- Initial User Message
+- Specific goal to achieve
+- Can include structured requirements
 
-All inter-agent communication uses `Email` dataclass:
+**Available Actions**:
+- Can be all actions, or a subset
+- Limiting capabilities makes the executor more focused
+
+### Execution Flow
+
+```
+1. Create MicroAgent (parent = Agent)
+   └─ Obtain: all actions, brain, cerebellum, memory
+
+2. Inject "soul" (execute() parameters):
+   ├─ persona: "You are a web search expert"
+   ├─ task: "Search AI safety papers"
+   └─ available_actions: ["search", "open_page"]
+
+3. Think-act loop:
+   Loop (up to max_steps times):
+   ├─ Think: Call brain to think about next step
+   ├─ Detect: Recognize action from thought output
+   ├─ Negotiate: Negotiate parameters through cerebellum
+   ├─ Execute: Execute action
+   ├─ Feedback: Get execution result
+   └─ Repeat: until all_finished or timeout
+
+4. Return result and destroy
+```
+
+### Parameter Negotiation
+
+MicroAgent performs parameter negotiation through Cerebellum (cerebellar model):
+
+```python
+# 1. Recognize action from brain's thought output
+action_name = "search"
+
+# 2. Get action's parameter definition
+param_schema = self.actions_meta[action_name]["params"]
+
+# 3. Negotiate parameters through cerebellum
+params = await self.cerebellum.negotiate_params(
+    thought=brain_output,  # Brain's original thought
+    action_schema=param_schema,  # Action's parameter definition
+    context=...  # Context information
+)
+
+# 4. Execute action
+result = await self.actions_map[action_name](**params)
+```
+
+## Recursive Nesting
+
+### "Natural Language Function" Concept
+
+Treat `micro_agent.execute()` as a natural language function:
+- **Input**: Natural language task description
+- **Processing**: AI reasoning + multi-step think-act loop
+- **Output**: Natural language result or structured data
+
+### Nesting Example
+
+```
+User: "Research AI safety"
+
+Agent
+  └─ MicroAgent Layer 1 (Planner)
+      task: "Create research plan"
+      available actions: all
+
+      ├─ Create child MicroAgent Layer 2 (Search Expert)
+      │   task: "Search related papers"
+      │   available actions: ["search", "open_page"]
+      │
+      │   └─ Create child MicroAgent Layer 3 (Analyst)
+      │       task: "Analyze search results"
+      │       available actions: ["summarize", "extract_info"]
+      │       expected_schema: {...}
+      │
+      │       └─ Return structured data
+      │
+      └─ Integrate results, generate report
+```
+
+**Code Example**:
+
+```python
+async def research_ai_safety(topic: str) -> Dict:
+    """Recursive research function"""
+
+    # Layer 1: Create plan
+    plan = await micro_agent.execute(
+        persona="You are a research planner",
+        task=f"Create research plan for '{topic}'",
+        available_actions=["plan"]
+    )
+
+    # Layer 2: Search information
+    papers = await micro_agent.execute(
+        persona="You are a search expert",
+        task=plan["search_task"],
+        available_actions=["search", "open_page"]
+    )
+
+    # Layer 3: Analyze content
+    analysis = await micro_agent.execute(
+        persona="You are a content analyst",
+        task=f"Analyze the following papers: {papers}",
+        available_actions=["summarize", "extract_info"],
+        result_params={
+            "expected_schema": {
+                "key_findings": ["string"],
+                "summary": "string"
+            }
+        }
+    )
+
+    return analysis
+```
+
+### State Isolation
+
+Each layer of MicroAgent has independent execution context:
+- Layer 3's thought process doesn't pollute Layer 2
+- Layer 2's intermediate steps don't affect Layer 1
+- Each layer only sees the final result of the layer below
+
+## Communication and Collaboration
+
+### Email-Based Communication
+
+**Code Location**: `src/agentmatrix/core/message.py`
+
+All Agent-to-Agent communication uses Email data structure:
 
 ```python
 @dataclass
 class Email:
-    id: str                  # Unique email ID
-    sender: str              # Sender agent name
-    recipient: str           # Recipient agent name
+    id: str                  # Unique ID
+    sender: str              # Sender Agent name
+    recipient: str           # Recipient Agent name
     subject: str             # Email subject
-    body: str                # Email body (natural language)
-    in_reply_to: str         # Thread ID for conversation context
+    body: str                # Body (natural language)
+    in_reply_to: str         # Reply relationship (maintains conversation thread)
     user_session_id: str     # User session tracking
 ```
 
-**Key Features**:
-- **Threading**: `in_reply_to` links related messages
-- **Natural Language**: Body contains free-form text
-- **User Sessions**: Tracks user conversations across agents
+**Features**:
+- **Threading**: `in_reply_to` maintains conversation threads
+- **Natural Language**: body contains free text
+- **Session Tracking**: `user_session_id` tracks user conversations
 
-### PostOffice
+### PostOffice System
 
-**Location**: `src/agentmatrix/agents/post_office.py`
-
-PostOffice provides async message routing and service discovery:
+**Code Location**: `src/agentmatrix/agents/post_office.py`
 
 ```python
 class PostOffice:
     def __init__(self):
         self.yellow_page = {}      # Service registry (name -> agent)
         self.inboxes = {}           # Agent inboxes (name -> queue)
-        self.vector_db = None       # For email search
+        self.vector_db = None       # Email search
         self.user_sessions = {}     # User session tracking
 
     async def send_email(self, email: Email):
         """Route email to recipient's inbox"""
-        recipient_inbox = self.inboxes.get(email.recipient)
-        if recipient_inbox:
-            await recipient_inbox.put(email)
-
-    async def get_email(self, agent_name: str, timeout: float = None):
-        """Retrieve next email from agent's inbox"""
-        inbox = self.inboxes.get(agent_name)
-        return await inbox.get()
+        inbox = self.inboxes.get(email.recipient)
+        if inbox:
+            await inbox.put(email)
 
     def register_agent(self, agent: BaseAgent):
-        """Register agent for communication"""
+        """Register Agent to service registry"""
         self.yellow_page[agent.name] = agent
         self.inboxes[agent.name] = asyncio.Queue()
 ```
 
-**Key Features**:
-- **Service Discovery**: Yellow page maps agent names to instances
-- **Async Routing**: Non-blocking message delivery
-- **Vector Search**: Find relevant emails by content
-- **Session Management**: Track user conversations
-
-### Inter-Agent Collaboration Pattern
-
-Example: Planner agent delegating to Researcher agent
+### Natural Language Coordination Example
 
 ```python
-# Planner's action
-@register_action(description="Delegate research task to Researcher agent")
+# Planner Agent's action
+@register_action(description="Delegate research task")
 async def delegate_research(self, task_description: str) -> str:
-    # Compose email
+    # Send email
     email = Email(
         id=str(uuid.uuid4()),
         sender=self.name,
         recipient="Researcher",
         subject=f"Research task: {task_description}",
         body=task_description,
-        user_session_id=self.current_session_id
+        user_session_id=self.current_user_session_id
     )
 
-    # Send via PostOffice
+    # Send through PostOffice
     await self.post_office.send_email(email)
 
     # Wait for reply
-    reply_email = await self.post_office.get_email(
+    reply = await self.post_office.get_email(
         self.name,
-        timeout=300  # 5 minutes
+        timeout=300
     )
 
-    return reply_email.body
+    return reply.body
 ```
 
-This natural language coordination enables flexible, explainable collaboration.
+### Event Callback Mechanism ✨
+
+**Code Location**: `base.py:59`
+
+```python
+self.async_event_callback: Optional[Callable] = None
+```
+
+Agents can notify external systems through event callbacks:
+
+```python
+# Inject callback in server.py
+agent.async_event_callback = self._on_agent_event
+
+async def _on_agent_event(self, event: AgentEvent):
+    """Handle Agent event"""
+    # Send to frontend
+    await websocket.send_json(event.to_dict())
+```
+
+**Supported Event Types**:
+- Task start/completion
+- Action execution
+- Error occurrence
+- State updates
+
+## Best Practices
+
+### Configuration Recommendations
+
+**1. Persona Design**
+
+```yaml
+# Good persona design
+persona:
+  base: |
+    You are a helpful assistant.
+    Your goal is: {{ goal }}
+
+  planner: |
+    You are a project planning expert.
+    Please break down tasks into 3-5 subtasks.
+    Each subtask should: {{ criteria }}
+
+  researcher: |
+    You are an information collection expert.
+    When searching, focus on: {{ focus_areas }}
+```
+
+**2. Skill Selection**
+
+```yaml
+# Select appropriate skills based on tasks
+skills:
+  # File processing tasks
+  - agentmatrix.skills.filesystem.FileSkillMixin
+  - agentmatrix.skills.notebook.NotebookMixin
+
+  # Web research tasks
+  - agentmatrix.skills.web_searcher.WebSearcherMixin
+  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
+
+  # Browser automation
+  - agentmatrix.skills.browser_use.BrowserUseMixin
+```
+
+### Code Patterns
+
+**1. Creating MicroAgent**
+
+```python
+# Recommended: Use parent parameter
+micro = MicroAgent(
+    parent=self,
+    default_max_steps=50
+)
+
+# Optional: Limit available skills
+micro = MicroAgent(
+    parent=self,
+    available_skills=["file", "browser"]
+)
+```
+
+**2. Executing Tasks**
+
+```python
+# Simple task
+result = await micro.execute(
+    persona="You are a search expert",
+    task="Search AI papers",
+    available_actions=["search"]
+)
+
+# Complex task (expect structured output)
+result = await micro.execute(
+    persona="You are an analyst",
+    task="Analyze the following content",
+    available_actions=["analyze", "summarize"],
+    result_params={
+        "expected_schema": {
+            "summary": "string",
+            "key_points": ["string"]
+        }
+    }
+)
+```
+
+**3. Recursive Task Decomposition**
+
+```python
+async def process_complex_task(task: str, depth: int = 0):
+    """Recursively process complex tasks"""
+    if depth > 3:
+        return await execute_simple(task)
+
+    # Break down task
+    subtasks = await micro.execute(
+        persona="You are a task planner",
+        task=f"Break down '{task}' into subtasks",
+        result_params={"expected_schema": {"subtasks": ["string"]}}
+    )
+
+    # Recursively process
+    results = []
+    for subtask in subtasks["subtasks"]:
+        result = await process_complex_task(subtask, depth + 1)
+        results.append(result)
+
+    return results
+```
+
+### Debugging Tips
+
+**1. View Execution Logs**
+
+```python
+# MicroAgent logs every thought step
+# Set log level to DEBUG to see detailed information
+import logging
+logging.getLogger("agentmatrix").setLevel(logging.DEBUG)
+```
+
+**2. Check Action Registration**
+
+```python
+# View registered actions
+print(agent.actions_meta.keys())
+
+# View specific action's metadata
+print(agent.actions_meta["web_search"])
+```
+
+**3. Test Individual Action**
+
+```python
+# Directly call action to test
+result = await agent.web_search(
+    query="AI safety",
+    num_results=5
+)
+```
 
 ## Summary
 
+### Core Components
+
 | Component | Location | Responsibility |
-|-----------|----------|----------------|
-| BaseAgent | agents/base.py | Main agent with email processing and action registry |
-| MicroAgent | agents/micro_agent.py | Temporary task executor with think-act loop |
-| @register_action | core/action.py | Decorator marking methods as actions |
-| AgentLoader | core/loader.py | Dynamic class composition with mixins |
-| PostOffice | agents/post_office.py | Message routing and service discovery |
-| Email | core/message.py | Inter-agent communication data structure |
+|-----------|----------|---------------|
+| BaseAgent | agents/base.py | Session management, capability registry |
+| MicroAgent | agents/micro_agent.py | Task execution, think-act loop |
+| @register_action | core/action.py | Mark action |
+| PostOffice | agents/post_office.py | Message routing |
+| Email | core/message.py | Communication data structure |
 
-### Key Design Decisions
+### Design Principles
 
-1. **Dual-Brain Architecture**: Separate reasoning (LLM) from parameter parsing (SLM)
-2. **Micro Agent as Temporary Personality**: Reuse components with independent context
-3. **Email-Based Communication**: Natural language coordination between agents
-4. **Mixin-Based Skills**: Flexible composition of capabilities
-5. **Action Detection via Substring Matching**: Simple but effective for LLM output
+1. **Session and Execution Separation**: Long-term sessions vs short-term tasks
+2. **Capability Inheritance, State Independence**: Reuse capabilities, isolate state
+3. **Natural Language Coordination**: Email-style communication, easy to understand
+4. **Dual-Brain Architecture**: LLM reasoning + SLM negotiation
+5. **Dynamic Composition**: Flexibly configure capabilities through mixins
 
-### Development Guidelines
+### API Quick Reference
 
-When adding new features:
+```python
+# Create MicroAgent
+micro = MicroAgent(parent=self)
 
-1. **Define Actions**: Use `@register_action` with clear descriptions
-2. **Create Skills**: Implement as mixin classes with `*SkillMixin` naming
-3. **Register in Profile**: Add to YAML `mixins` list
-4. **Test with MicroAgent**: Use `_run_micro_agent()` for single-task execution
-5. **Communicate via Email**: Use PostOffice for inter-agent coordination
+# Execute task
+result = await micro.execute(
+    persona="Persona",
+    task="Task",
+    available_actions=["action1", "action2"],
+    max_steps=50,
+    result_params={"expected_schema": {...}}
+)
+
+# Send email
+await self.post_office.send_email(
+    Email(sender="A", recipient="B", body="...")
+)
+
+# Get persona
+persona = self.get_persona("planner", task_type="X")
+
+# Get skill prompt
+prompt = self.get_skill_prompt("browser_use", "task_optimization")
+```
