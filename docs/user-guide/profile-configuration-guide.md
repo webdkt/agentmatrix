@@ -52,35 +52,13 @@ prompts:
   summary_prompt: |                # 自定义总结 prompt
     请总结你的工作
 
-# 2. 给调用者的指令
-instruction_to_caller: |
-  告诉我想研究什么问题              # 如何调用这个 Agent
-
-# 3. 视觉大脑（如果需要图片理解）
+# 2. 视觉大脑（如果需要图片理解）
 vision_brain:
   backend_model: gpt-4-vision      # 视觉模型
 
 # 4. 日志配置（调试用）
 logging:
   level: DEBUG                     # 日志级别
-```
-
-### ⚠️ 已废弃属性 (Deprecated)
-
-**不要使用这些属性**，它们已经被新架构替代：
-
-```yaml
-# ❌ 已废弃 - 不要使用
-top_level_actions:                 # ❌ 旧架构，已被 skills 替代
-  - "use_browser"
-  - "read"
-  - "write"
-
-mixins:                            # ❌ 旧架构，已被 skills 替代
-  - FileOperationSkillMixin
-
-system_prompt: |                   # ❌ 未使用，应使用 persona.base
-  你是一个助手...
 ```
 
 ### 🔍 可能冗余的配置 (Potentially Redundant)
@@ -120,8 +98,6 @@ skills:
 
 # === 可选配置 ===
 backend_model: default_llm
-instruction_to_caller: |
-  请告诉我你需要什么帮助
 ```
 
 ### 深度研究 Agent 模板（DeepResearcher）
@@ -164,26 +140,6 @@ cerebellum:
 
 ## 🎯 配置决策指南
 
-### 何时使用 `persona` vs `system_prompt`？
-
-- ✅ **使用 `persona`**：
-  - 定义 Agent 的角色、身份、行为准则
-  - 系统会自动将其注入 system prompt
-
-- ❌ **不要使用 `system_prompt`**：
-  - 配置了也不会被读取
-  - 应该使用 `persona.base` 替代
-
-### 何时使用 `skills` vs `top_level_actions`？
-
-- ✅ **使用 `skills`**：
-  - 指定 skill 名称（如 `browser`, `file`）
-  - 系统自动提取 skill 中的所有 actions
-
-- ❌ **不要使用 `top_level_actions`**：
-  - 旧架构，已被 `skills` 替代
-  - 需要手动列举每个 action 名称
-
 ### 何时使用 `attribute_initializations`？
 
 仅在以下情况使用：
@@ -212,13 +168,7 @@ class_attributes:
 
 ## 🔧 配置清理建议
 
-### 立即清理（高优先级）
-
-1. **删除所有 `top_level_actions` 配置**
-2. **删除所有 `system_prompt` 配置**（改用 `persona.base`）
-3. **删除所有 `mixins` 配置**（改用 `skills`）
-
-### 检查并清理（中优先级）
+### 检查并清理
 
 1. **检查 `attribute_initializations`**：
    - 如果配置了 `browser_adapter: null`，考虑删除（已有 browser skill）
@@ -229,9 +179,8 @@ class_attributes:
 
 ### 保留（低优先级）
 
-1. **`instruction_to_caller`** - 如果在 UI 中使用，保留
-2. **`cerebellum` 配置** - 如果需要 action 优化，保留
-3. **`vision_brain` 配置** - 如果需要图片理解，保留
+1. **`cerebellum` 配置** - 如果需要 action 优化，保留
+2. **`vision_brain` 配置** - 如果需要图片理解，保留
 
 ## 📊 配置对照表
 
@@ -246,22 +195,17 @@ class_attributes:
 | `backend_model` | 🛠️ 可选 | ✅ 使用 | `"default_llm"` | 后端模型 |
 | `cerebellum` | 🛠️ 可选 | ✅ 使用 | - | 小脑配置 |
 | `prompts` | 🛠️ 可选 | ✅ 使用 | `{}` | 其他 prompts |
-| `instruction_to_caller` | 🛠️ 可选 | ✅ 使用 | `""` | 调用指令 |
 | `vision_brain` | 🛠️ 可选 | 按需 | - | 视觉模型 |
 | `logging` | 🛠️ 可选 | 按需 | - | 日志配置 |
-| `top_level_actions` | ❌ 废弃 | ❌ 删除 | - | 旧架构 |
-| `mixins` | ❌ 废弃 | ❌ 删除 | - | 旧架构 |
-| `system_prompt` | ⚠️ 冗余 | ❌ 删除 | - | 未使用 |
 | `attribute_initializations` | ⚠️ 冗余 | 检查 | - | 可能不需要 |
 | `class_attributes` | ⚠️ 冗余 | 检查 | - | 可用 logging 替代 |
 
 ## ✅ 最佳实践
 
 1. **使用简洁的配置**：只配置需要的属性
-2. **优先使用 `skills`**：而不是 `top_level_actions`
-3. **使用 `persona`**：而不是 `system_prompt`
-4. **定期清理**：删除废弃和冗余的配置
-5. **参考模板**：使用标准模板作为起点
+2. **使用 `skills`**：指定要加载的技能
+3. **使用 `persona`**：定义 Agent 的角色和行为
+4. **参考模板**：使用标准模板作为起点
 
 ---
 

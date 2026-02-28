@@ -21,9 +21,5 @@ attribute_initializations:
 class_attributes:
   _custom_log_level: 10  # logging.DEBUG
 
-instruction_to_caller: |
-  告诉我想研究什么问题
-
-backend_model: default_llm
 cerebellum:
   backend_model: mimo

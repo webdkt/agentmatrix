@@ -37,7 +37,3 @@ logging:
     # micro_agent: 默认启用，使用 [MICRO-{label}] 前缀
     # 可以自定义前缀或关闭
 
-instruction_to_caller: |
-  直接发送自然语言指令。
-
-backend_model: default_llm

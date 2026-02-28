@@ -77,16 +77,11 @@ class PostOffice(AutoLoggerMixin):
         yellow_page = ""
         for name, agent in self.directory.items():
             # 给 description 添加 2 个空格的缩进
-            
             description = textwrap.indent(agent.description, "  ")
-            
-            # 给 instruction 添加 4 个空格的缩进
-            instruction = textwrap.indent(agent.instruction_to_caller, "    ")
-            
+
             yellow_page += f"- {name}: \n"
             yellow_page += f"{description} \n"
-            
-            
+
         return yellow_page
 
     def yellow_page_exclude_me(self, myname):
@@ -96,15 +91,10 @@ class PostOffice(AutoLoggerMixin):
             if name == myname:
                 continue
             description = textwrap.indent(agent.description, "  ")
-            
-            # 给 instruction 添加 4 个空格的缩进
-            instruction = textwrap.indent(agent.instruction_to_caller, "    ")
-            
+
             yellow_page += f"- {name}: \n"
             yellow_page += f"{description} \n"
-            
-            yellow_page += f"  [How to talk to {agent.name}]\n"
-            yellow_page += f"{instruction}\n\n"
+
         return yellow_page
 
     def get_contact_list(self, exclude =None):

@@ -106,7 +106,6 @@ class AgentConfigRequest(BaseModel):
     description: str
     module: str = "agentmatrix.agents.base"
     class_name: str = "BaseAgent"
-    instruction_to_caller: str = ""
     backend_model: str = "default_llm"
     skills: list = []
     persona: dict = {}
@@ -122,7 +121,6 @@ class AgentConfigRequest(BaseModel):
 class AgentUpdateRequest(BaseModel):
     """Agent update request model - 灵活的Agent更新"""
     description: Optional[str] = None
-    instruction_to_caller: Optional[str] = None
     backend_model: Optional[str] = None
     skills: Optional[list] = None
     persona: Optional[dict] = None
@@ -738,7 +736,6 @@ async def get_agents():
             agents_list.append({
                 "name": name,
                 "description": getattr(agent, 'description', 'No description'),
-                "instruction": getattr(agent, 'instruction_to_caller', ''),
                 "backend_model": getattr(agent, 'backend_model', 'default_llm')
             })
         
@@ -764,9 +761,8 @@ async def get_agent(agent_name: str):
     return {
         "name": agent_name,
         "description": getattr(agent, 'description', 'No description'),
-        "instruction": getattr(agent, 'instruction_to_caller', ''),
         "backend_model": getattr(agent, 'backend_model', 'default_llm'),
-        
+
     }
 
 
@@ -962,7 +958,6 @@ def agent_profile_to_response(profile: dict) -> dict:
         "description": profile.get("description", ""),
         "module": profile.get("module", ""),
         "class_name": profile.get("class_name", ""),
-        "instruction_to_caller": profile.get("instruction_to_caller", ""),
         "backend_model": profile.get("backend_model", "default_llm"),
         "skills": skills,
         "persona": profile.get("persona", {}),
@@ -1043,8 +1038,6 @@ async def create_agent_profile(request: AgentConfigRequest):
         }
         
         # 可选字段 - 只在有值时添加
-        if request.instruction_to_caller:
-            profile["instruction_to_caller"] = request.instruction_to_caller
         if request.backend_model and request.backend_model != "default_llm":
             profile["backend_model"] = request.backend_model
         if request.skills:
@@ -1088,11 +1081,6 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
         # 更新基本字段
         if request.description is not None:
             profile["description"] = request.description
-        if request.instruction_to_caller is not None:
-            if request.instruction_to_caller:
-                profile["instruction_to_caller"] = request.instruction_to_caller
-            else:
-                profile.pop("instruction_to_caller", None)  # 删除空值
         if request.backend_model is not None:
             profile["backend_model"] = request.backend_model
         if request.skills is not None:
