@@ -235,10 +235,6 @@ prompts:
   task_breakdown: "请将任务分解为3-5个子任务"
   summary_format: "请用简洁的语言总结"
 
-# 给调用者的指令
-instruction_to_caller: |
-  告诉我想研究什么问题
-
 # 实例属性初始化（可选）
 attribute_initializations:
   browser_adapter: null
@@ -288,19 +284,9 @@ logging:
 | 字段 | 说明 | 默认值 |
 |------|------|--------|
 | `prompts` | 其他 Prompt 模板（用于特定场景） | `{}` |
-| `instruction_to_caller` | 给调用者的指令 | `""` |
 | `attribute_initializations` | 实例属性初始化字典 | `{}` |
 | `class_attributes` | 类属性设置字典 | `{}` |
 | `logging` | 日志配置（组件级别） | `{}` |
-
-**重要变更说明**：
-- ❌ **已废弃**：`mixins`（旧架构，请改用 `skills`）
-- ❌ **已废弃**：`system_prompt`（请改用 `persona.base`）
-- ❌ **已废弃**：`cerebellum_model`（请改用 `cerebellum.backend_model`）
-- ✅ **新字段**：`persona`（支持多 persona 配置）
-- ✅ **新字段**：`skills`（简化技能加载，支持自动发现）
-- ✅ **新字段**：`vision_brain`（支持视觉模型）
-- ✅ **新字段**：`prompts`（支持多个场景的 prompt 模板）
 
 ### PostOffice
 
@@ -560,16 +546,16 @@ async def delegate_planning(self, research_results: str) -> str:
 
 1. **创建配置 YAML**: 添加到 `profiles/` 目录
 2. **定义系统提示词**: 指定 agent 的人格和行为
-3. **选择技能**: 添加所需的 mixins
+3. **选择技能**: 在 `skills` 字段中指定
 4. **配置后端**: 选择 LLM/SLM 模型
 5. **重启 Matrix**: Agent 在下次启动时自动加载
 
 ### 添加新技能
 
-1. **创建 Mixin 类**: 在 `src/agentmatrix/skills/` 中
+1. **创建技能模块**: 在 `src/agentmatrix/skills/` 中创建 Python 模块
 2. **注册动作**: 使用 `@register_action` 装饰器
 3. **实现方法**: 添加动作逻辑
-4. **更新配置**: 添加到 agent 的 `mixins` 列表
+4. **更新配置**: 在 agent 的 `skills` 列表中添加技能名称
 5. **测试**: 使用 MicroAgent 进行单任务执行
 
 ### 监控和调试

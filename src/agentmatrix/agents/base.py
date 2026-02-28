@@ -34,7 +34,6 @@ class BaseAgent(AutoLoggerMixin):
         self._prompt_cache = {}
 
         self.profile = profile
-        self.instruction_to_caller = profile.get("instruction_to_caller","")
         self.backend_model = profile.get("backend_model", "default_llm")
 
         # 🆕 新架构：读取 skills 配置
@@ -305,7 +304,6 @@ class BaseAgent(AutoLoggerMixin):
         return (
             f"--- Agent: {self.name} ---\n"
             f"Description: {self.description}\n"
-            f"Instruction: {self.instruction_to_caller}\n"
             f"--------------------------\n"
         )
     

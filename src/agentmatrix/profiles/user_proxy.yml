@@ -12,6 +12,3 @@ skills:
 attribute_initializations:
   on_mail_received: null
 
-instruction_to_caller: "要精炼不要啰嗦"
-
-backend_model: default_llm

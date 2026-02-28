@@ -62,7 +62,6 @@ function app() {
             description: '',
             module: 'agentmatrix.agents.base',
             class_name: 'BaseAgent',
-            instruction_to_caller: '',
             backend_model: 'default_llm',
             skills: [],
             personaBase: '',  // persona.base - 核心身份定义
@@ -646,7 +645,6 @@ function app() {
                     description: agent.description || '',
                     module: agent.module || 'agentmatrix.agents.base',
                     class_name: agent.class_name || 'BaseAgent',
-                    instruction_to_caller: agent.instruction_to_caller || '',
                     backend_model: agent.backend_model || 'default_llm',
                     skills: [...(agent.skills || [])],
                     // Persona base - 从 persona.base 或从 _raw_profile.persona.base 获取
@@ -671,7 +669,6 @@ function app() {
                     description: '',
                     module: 'agentmatrix.agents.base',
                     class_name: 'BaseAgent',
-                    instruction_to_caller: '',
                     backend_model: 'default_llm',
                     skills: [],
                     personaBase: '',
@@ -722,10 +719,7 @@ function app() {
                 module: this.agentForm.module,
                 class_name: this.agentForm.class_name
             };
-            
-            if (this.agentForm.instruction_to_caller) {
-                profile.instruction_to_caller = this.agentForm.instruction_to_caller;
-            }
+
             if (this.agentForm.backend_model && this.agentForm.backend_model !== 'default_llm') {
                 profile.backend_model = this.agentForm.backend_model;
             }
@@ -947,7 +941,6 @@ function app() {
                     // Simple 模式：从表单构建
                     formData = {
                         description: this.agentForm.description,
-                        instruction_to_caller: this.agentForm.instruction_to_caller,
                         backend_model: this.agentForm.backend_model,
                         skills: this.agentForm.skills,
                         module: this.agentForm.module,
@@ -978,8 +971,8 @@ function app() {
                     // 保留原始配置中的未处理字段（灵活性）
                     if (this.editingAgent && this.editingAgent._raw_profile) {
                         const preservedFields = {};
-                        const handledFields = ['name', 'description', 'module', 'class_name', 
-                                               'instruction_to_caller', 'backend_model', 'skills', 
+                        const handledFields = ['name', 'description', 'module', 'class_name',
+                                               'backend_model', 'skills',
                                                'persona', 'cerebellum', 'vision_brain'];
                         
                         for (const [key, value] of Object.entries(this.editingAgent._raw_profile)) {
