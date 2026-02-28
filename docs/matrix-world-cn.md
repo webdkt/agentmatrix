@@ -113,37 +113,64 @@ def _prepare_world_resource(self):
 
 ```python
 class AgentLoader:
-    def __init__(self, profile_path, default_backend, default_cerebellum):
+    def __init__(self, profile_path, llm_config_path=None):
         self.profile_path = profile_path
-        self.default_backend = default_backend
-        self.default_cerebellum = default_cerebellum
+        # 加载 LLM 配置
+        with open(llm_config_path or f"{profile_path}/llm_config.json") as f:
+            self.llm_config = json.load(f)
 
     def load_from_file(self, file_path) -> BaseAgent:
-        # 解析 YAML 配置文件
-        with open(file_path, 'r') as f:
+        """从 YAML 文件加载并实例化一个 Agent"""
+        # 1. 解析 YAML 配置文件
+        with open(file_path, 'r', encoding='utf-8') as f:
             profile = yaml.safe_load(f)
 
-        # 导入基类
-        module = importlib.import_module(profile["module"])
-        base_class = getattr(module, profile["class_name"])
+        # 2. 解析基础类信息（必须字段）
+        module_name = profile["module"]
+        class_name = profile["class_name"]
 
-        # 加载 mixins
-        mixin_classes = []
-        for mixin_path in profile.get("mixins", []):
-            mixin_class = self._import_mixin(mixin_path)
-            mixin_classes.append(mixin_class)
+        # 3. 解析可选配置
+        attribute_inits = profile.pop("attribute_initializations", {})
+        class_attrs = profile.pop("class_attributes", {})
 
-        # 使用 mixins 创建动态类
-        agent_class = type(
-            f"Dynamic{profile['class_name']}",
-            (base_class, *mixin_classes),
-            {}
-        )
+        # 4. 清理配置中的特殊字段
+        del profile["module"]
+        del profile["class_name"]
 
-        # 实例化 agent
-        agent = agent_class(profile)
+        # 5. 导入 Agent 类
+        module = importlib.import_module(module_name)
+        agent_class = getattr(module, class_name)
 
-        return agent
+        # 6. 设置类属性（如果有）
+        if class_attrs:
+            for attr_name, attr_value in class_attrs.items():
+                setattr(agent_class, attr_name, attr_value)
+
+        # 7. 实例化 Agent
+        agent_instance = agent_class(profile.copy())
+
+        # 8. 注入实例属性
+        if attribute_inits:
+            for attr_name, attr_value in attribute_inits.items():
+                setattr(agent_instance, attr_name, attr_value)
+
+        # 9. 设置 Brain（LLM）
+        backend_model = agent_instance.backend_model
+        agent_instance.brain = self._create_llm_client(backend_model)
+
+        # 10. 设置 Cerebellum（SLM）
+        cerebellum_config = profile.get("cerebellum", {})
+        slm_model = cerebellum_config.get("backend_model", "default_slm")
+        slm_client = self._create_llm_client(slm_model)
+        agent_instance.cerebellum = Cerebellum(slm_client, agent_instance.name)
+
+        # 11. 设置 Vision Brain（可选）
+        vision_config = profile.get("vision_brain")
+        if vision_config:
+            vision_model = vision_config.get("backend_model", "default_vision")
+            agent_instance.vision_brain = self._create_llm_client(vision_model)
+
+        return agent_instance
 ```
 
 **`load_all()`** (179-187行):
@@ -162,43 +189,118 @@ def load_all(self) -> Dict[str, BaseAgent]:
 
 ### Agent 配置文件格式
 
-**示例**: `profiles/planner.yml`
+**示例**: `MyWorld/agents/researcher.yml`
 
 ```yaml
-name: Planner
-description: 一个规划 agent，擅长分解复杂任务
+# ========== 必须字段 ==========
+name: Researcher
+description: 研究和信息收集专家
 module: agentmatrix.agents.base
 class_name: BaseAgent
 
-# 要加载的 skill mixins
-mixins:
-  - agentmatrix.skills.filesystem.FileSkillMixin
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-  - agentmatrix.skills.project_management.ProjectManagementMixin
+# ========== 核心配置 ==========
 
-# 系统提示词(人格)
-system_prompt: |
-  你是一个资深项目经理。你擅长分解复杂任务
-  并生成清晰、可执行的计划。
+# Skills 配置（🆕 新架构）
+skills:
+  - file              # 文件操作技能
+  - web_search        # 网络搜索技能
+  # 可用技能：file, web_search, browser, notebook, crawler
 
-# 后端配置
+# Persona 配置（🆕 支持多 persona）
+persona:
+  base: |
+    你是一个资深研究员，擅长进行深入的研究工作，并撰写研究报告
+  planner: |
+    你是研究规划专家，擅长制定研究计划
+  analyst: |
+    你是数据分析专家，擅长从研究结果中提取关键信息
+
+# ========== 模型配置 ==========
+
+# 后端模型（推理 LLM）
 backend_model: default_llm
-cerebellum_model: default_slm
 
-# Agent 特定设置
-max_steps: 15
-temperature: 0.7
+# 小脑模型配置（参数协商 SLM）
+cerebellum:
+  backend_model: default_slm  # 可选，默认使用系统 default_slm
+
+# 视觉模型配置（可选，用于图片理解）
+vision_brain:
+  backend_model: default_vision  # 可选，默认使用系统 default_vision（如果存在）
+
+# ========== 可选配置 ==========
+
+# 其他 Prompts（用于特定场景）
+prompts:
+  task_breakdown: "请将任务分解为3-5个子任务"
+  summary_format: "请用简洁的语言总结"
+
+# 给调用者的指令
+instruction_to_caller: |
+  告诉我想研究什么问题
+
+# 实例属性初始化（可选）
+attribute_initializations:
+  browser_adapter: null
+  max_retries: 3
+
+# 类属性设置（可选）
+class_attributes:
+  _custom_log_level: 10  # logging.DEBUG
+
+# 日志配置（可选）
+logging:
+  components:
+    brain:
+      enabled: true
+      level: DEBUG
+    cerebellum:
+      enabled: true
+      level: INFO
 ```
 
-**配置字段**:
-- `name`: 唯一的 agent 标识符
-- `description`: Agent 的用途
-- `module`: 基类所在的 Python 模块路径
-- `class_name`: 基类名称
-- `mixins`: 要组合的 skill mixin 类列表
-- `system_prompt`: Agent 的人格和行为
-- `backend_model`: 用于推理的 LLM 模型
-- `cerebellum_model`: 用于参数协商的 SLM 模型
+**配置字段说明**：
+
+#### 必须字段
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| `name` | Agent 唯一标识符 | `Researcher` |
+| `description` | Agent 的用途描述 | `研究和信息收集专家` |
+| `module` | Agent 类所在的 Python 模块路径 | `agentmatrix.agents.base` |
+| `class_name` | Agent 类名称 | `BaseAgent` |
+
+#### 核心配置（推荐）
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `skills` | 要加载的技能列表（新架构） | `[]` |
+| `persona` | Agent 人格配置（支持多个） | `{"base": ""}` |
+| `backend_model` | 用于推理的 LLM 模型 | `default_llm` |
+
+#### 模型配置（可选）
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `cerebellum` | 小脑模型配置块 | 使用系统 default_slm |
+| `cerebellum.backend_model` | 小脑使用的模型 | `default_slm` |
+| `vision_brain` | 视觉模型配置块 | 使用系统 default_vision（如果存在） |
+| `vision_brain.backend_model` | 视觉模型名称 | `default_vision` |
+
+#### 高级配置（可选）
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `prompts` | 其他 Prompt 模板（用于特定场景） | `{}` |
+| `instruction_to_caller` | 给调用者的指令 | `""` |
+| `attribute_initializations` | 实例属性初始化字典 | `{}` |
+| `class_attributes` | 类属性设置字典 | `{}` |
+| `logging` | 日志配置（组件级别） | `{}` |
+
+**重要变更说明**：
+- ❌ **已废弃**：`mixins`（旧架构，请改用 `skills`）
+- ❌ **已废弃**：`system_prompt`（请改用 `persona.base`）
+- ❌ **已废弃**：`cerebellum_model`（请改用 `cerebellum.backend_model`）
+- ✅ **新字段**：`persona`（支持多 persona 配置）
+- ✅ **新字段**：`skills`（简化技能加载，支持自动发现）
+- ✅ **新字段**：`vision_brain`（支持视觉模型）
+- ✅ **新字段**：`prompts`（支持多个场景的 prompt 模板）
 
 ### PostOffice
 
