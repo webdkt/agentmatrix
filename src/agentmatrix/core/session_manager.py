@@ -30,6 +30,7 @@ class SessionManager(AutoLoggerMixin):
     _log_from_attr = "name"
 
     def __init__(self, agent_name: str, workspace_root: Optional[str] = None,
+                 matrix_path: Optional[str] = None,
                  parent_logger: Optional[logging.Logger] = None,
                  log_config: Optional['LogConfig'] = None):
         """
@@ -38,12 +39,14 @@ class SessionManager(AutoLoggerMixin):
         Args:
             agent_name: 所属Agent的名称
             workspace_root: 工作区根路径
+            matrix_path: matrix 根路径（用于状态目录）
             parent_logger: 父组件的logger（可选，用于共享日志）
             log_config: 日志配置（可选）
         """
         self.name = f"{agent_name}_SessionManager"
         self.agent_name = agent_name
         self.workspace_root = workspace_root
+        self.matrix_path = matrix_path
 
         # 可选：使用父 logger（如果不提供则创建独立日志文件）
         if parent_logger and log_config:
@@ -200,10 +203,10 @@ class SessionManager(AutoLoggerMixin):
         Returns:
             dict: session 对象（包含元数据、history 和 context），如果文件不存在返回 None
         """
-        if not self.workspace_root:
+        if not self.matrix_path:
             return None
 
-        session_dir = Path(self.workspace_root) / user_session_id / "history" / self.agent_name / session_id
+        session_dir = Path(self.matrix_path) / ".matrix" / user_session_id / "history" / self.agent_name / session_id
         history_file = session_dir / "history.json"
         context_file = session_dir / "context.json"
 
@@ -253,13 +256,13 @@ class SessionManager(AutoLoggerMixin):
         Args:
             session: session dict（包含元数据和 history）
         """
-        if not self.workspace_root:
+        if not self.matrix_path:
             return
 
         # 更新 last_modified
         session["last_modified"] = datetime.now().isoformat()
 
-        session_dir = Path(self.workspace_root) / session["user_session_id"] / "history" / self.agent_name / session['session_id']
+        session_dir = Path(self.matrix_path) / ".matrix" / session["user_session_id"] / "history" / self.agent_name / session['session_id']
         history_file = session_dir / "history.json"
 
         # 确保 session 目录存在
@@ -315,10 +318,10 @@ class SessionManager(AutoLoggerMixin):
         Args:
             session: session dict
         """
-        if not self.workspace_root:
+        if not self.matrix_path:
             return
 
-        session_dir = Path(self.workspace_root) / session["user_session_id"] / "history" / self.agent_name / session['session_id']
+        session_dir = Path(self.matrix_path) / ".matrix" / session["user_session_id"] / "history" / self.agent_name / session['session_id']
         context_file = session_dir / "context.json"
 
         # 确保 session 目录存在
@@ -338,10 +341,10 @@ class SessionManager(AutoLoggerMixin):
         Args:
             user_session_id: 用户会话 ID
         """
-        if not self.workspace_root:
+        if not self.matrix_path:
             return
 
-        mapping_file = Path(self.workspace_root) / user_session_id / "history" / self.agent_name / "reply_mapping.json"
+        mapping_file = Path(self.matrix_path) / ".matrix" / user_session_id / "history" / self.agent_name / "reply_mapping.json"
 
         if not mapping_file.exists():
             self.reply_mappings[user_session_id] = {}
@@ -363,10 +366,10 @@ class SessionManager(AutoLoggerMixin):
         Args:
             user_session_id: 用户会话 ID
         """
-        if not self.workspace_root:
+        if not self.matrix_path:
             return
 
-        mapping_file = Path(self.workspace_root) / user_session_id / "history" / self.agent_name / "reply_mapping.json"
+        mapping_file = Path(self.matrix_path) / ".matrix" / user_session_id / "history" / self.agent_name / "reply_mapping.json"
 
         # 确保目录存在
         mapping_file.parent.mkdir(parents=True, exist_ok=True)

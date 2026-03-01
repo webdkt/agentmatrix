@@ -574,11 +574,37 @@ examples/MyWorld/
 │   ├── User.yml
 │   └── researcher.yml
 ├── workspace/               # 工作区数据
-│   ├── .matrix/            # 内部状态
-│   ├── sessions/           # 会话历史
-│   └── chroma_db/          # 向量数据库
+│   └── {user_session_id}/  # 用户会话目录
+│       ├── agents/         # Agent 工作目录
+│       │   ├── Mark/      # Agent Mark 的私有工作区
+│       │   ├── Tom/       # Agent Tom 的私有工作区
+│       │   └── Planner/   # Agent Planner 的私有工作区
+│       ├── shared/         # 多 Agent 共享工作区
+│       └── SKILLS/         # MD 技能文档
+├── .matrix/                # 系统状态目录
+│   ├── {user_session_id}/ # 用户会话状态
+│   │   └── history/       # Session 状态存储
+│   │       ├── Mark/      # Agent Mark 的会话历史
+│   │       ├── Tom/       # Agent Tom 的会话历史
+│   │       └── Planner/   # Agent Planner 的会话历史
+│   ├── logs/              # 系统日志
+│   ├── chroma_db/         # 向量数据库
+│   └── user_sessions.json # 用户会话映射
 └── matrix_world.yml        # World 配置
 ```
+
+### 目录说明
+
+**工作目录**（Agent 可见和操作）:
+- `{user_session_id}/agents/{agent_name}/` - Agent 私有工作区
+- `{user_session_id}/shared/` - 多 Agent 共享工作区
+- `{user_session_id}/SKILLS/` - MD 技能文档
+
+**状态目录**（代码维护，Agent 不可见）:
+- `.matrix/{user_session_id}/history/{agent_name}/{session_id}/` - Session 状态存储
+  - `history.json` - 对话历史
+  - `context.json` - 会话上下文
+  - `reply_mapping.json` - 邮件回复映射
 
 初始化:
 
