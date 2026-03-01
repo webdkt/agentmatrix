@@ -260,6 +260,7 @@ class AgentMatrix(AutoLoggerMixin):
         # 3. 注册到邮局
         for agent in self.agents.values():
             agent.workspace_root = self.matrix_path #设置root path
+            agent.matrix_path = self.matrix_path #设置matrix path
             self.post_office.register(agent)
             if hasattr(agent, 'vector_db'):
                 agent.vector_db = self.vector_db

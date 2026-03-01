@@ -45,6 +45,7 @@ class BaseAgent(AutoLoggerMixin):
         self.status = "IDLE"
         self.last_received_email = None #最后收到的信
         self._workspace_root = None
+        self._matrix_path = None
         self.post_office = None
         self.last_email_processed = True
 
@@ -188,7 +189,8 @@ class BaseAgent(AutoLoggerMixin):
         if value is not None:
             self.session_manager = SessionManager(
                 agent_name=self.name,
-                workspace_root=value
+                workspace_root=value,
+                matrix_path=self._matrix_path
             )
 
             # 🆕 初始化 SKILLS 目录（用于 MD Document Skills）
@@ -203,7 +205,16 @@ class BaseAgent(AutoLoggerMixin):
 
             self.logger.info(f"✅ SKILLS 目录已初始化: {skills_dir}")
 
+    @property
+    def matrix_path(self):
+        return self._matrix_path
 
+    @matrix_path.setter
+    def matrix_path(self, value):
+        self._matrix_path = value
+        # 如果 session_manager 已经存在，需要更新它的 matrix_path
+        if self.session_manager is not None:
+            self.session_manager.matrix_path = value
 
     def _scan_all_actions(self):
         """
