@@ -146,7 +146,7 @@ micro = MicroAgent(
     available_skills=["file", "browser"]
 )
 
-# 这会动态组合 FileSkillMixin 和 BrowserSkillMixin
+# 这会动态加载 file 和 browser 两个技能
 # 其他 skills 不会被加载
 ```
 
@@ -278,7 +278,7 @@ class WebSearcherMixin:
 
 ### 配置方式
 
-在 Agent 的 YAML 配置中指定需要的 skills：
+在 Agent 的 YAML 配置中指定需要的 skills（使用简化名称）：
 
 ```yaml
 # profiles/researcher.yml
@@ -291,38 +291,32 @@ persona:
   planner: "你是规划专家"
   researcher: "你是信息收集专家"
 
-# 加载的 skills
+# 加载的 skills（新架构：简化名称）
 skills:
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-  - agentmatrix.skills.filesystem.FileSkillMixin
-  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
+  - file           # 文件操作技能
+  - web_search     # 网络搜索技能
+  - browser        # 浏览器自动化技能
 
 # 后端配置
-backend_model: gpt-4
-cerebellum_model: gpt-3.5-turbo
+backend_model: default_llm
+cerebellum:
+  backend_model: mimo
 ```
 
-### 动态加载
+### 自动发现机制
 
-运行时通过多继承动态组合 Agent 类：
+新架构使用 SKILL_REGISTRY 自动发现技能，无需手动导入模块：
 
-```python
-# 加载 mixin 类
-mixin_classes = []
-for mixin_path in profile["skills"]:
-    mixin_class = import_module(mixin_path)
-    mixin_classes.append(mixin_class)
+- **技能定义**：在 `src/agentmatrix/skills/` 目录下创建模块
+- **自动注册**：使用 `@register_skill` 装饰器自动注册
+- **按需加载**：运行时根据配置动态加载
 
-# 创建动态类
-agent_class = type(
-    f"Dynamic{class_name}",
-    (BaseAgent, *mixin_classes),  # 多继承
-    {}
-)
-
-# 实例化
-agent = agent_class(profile)
-```
+可用的技能名称：
+- `file` - 文件操作技能
+- `web_search` - 网络搜索技能
+- `browser` - 浏览器自动化技能
+- `notebook` - 笔记本管理技能
+- `deep_research` - 深度研究技能
 
 ## 执行机制
 
@@ -602,18 +596,15 @@ persona:
 **2. Skill 选择**
 
 ```yaml
-# 根据任务选择合适的 skills
+# 根据任务选择合适的 skills（使用简化名称）
 skills:
   # 文件处理任务
-  - agentmatrix.skills.filesystem.FileSkillMixin
-  - agentmatrix.skills.notebook.NotebookMixin
+  - file        # 文件操作技能
+  - notebook    # 笔记本管理技能
 
   # 网络研究任务
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
-
-  # 浏览器自动化
-  - agentmatrix.skills.browser_use.BrowserUseMixin
+  - web_search  # 网络搜索技能
+  - browser     # 浏览器自动化技能
 ```
 
 ### 代码模式
