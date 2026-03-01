@@ -75,6 +75,14 @@ class BaseAgent(AutoLoggerMixin):
         # 会在 process_email 中更新
         self.working_context = None
 
+        # 🔀 暂停/恢复机制
+        self._paused = False
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()  # 初始状态为已设置（不阻塞）
+
+        # 📊 执行栈追踪（用于状态查询）
+        self._execution_stack = []  # List[FrameInfo]
+
         self.logger.info(f"Agent {self.name} 初始化完成")
 
         # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
@@ -215,6 +223,88 @@ class BaseAgent(AutoLoggerMixin):
         # 如果 session_manager 已经存在，需要更新它的 matrix_path
         if self.session_manager is not None:
             self.session_manager.matrix_path = value
+
+    # ========== 暂停/恢复机制 ==========
+
+    async def pause(self):
+        """暂停 Agent 执行"""
+        if self._paused:
+            self.logger.warning(f"Agent {self.name} 已经是暂停状态")
+            return
+
+        self._paused = True
+        self._pause_event.clear()  # 清除事件，导致 await 会阻塞
+        self.logger.info(f"⏸️ Agent {self.name} 已暂停")
+
+    async def resume(self):
+        """恢复 Agent 执行"""
+        if not self._paused:
+            self.logger.warning(f"Agent {self.name} 未暂停，无需恢复")
+            return
+
+        self._paused = False
+        self._pause_event.set()  # 设置事件，唤醒所有等待的协程
+        self.logger.info(f"▶️ Agent {self.name} 已恢复")
+
+    async def _checkpoint(self):
+        """
+        检查点：在 MicroAgent 的关键位置调用
+
+        如果 Agent 处于暂停状态，会挂起当前协程，直到恢复。
+        """
+        if self._paused:
+            self.logger.debug(f"🛑 Agent {self.name} 检查到暂停，等待恢复...")
+            await self._pause_event.wait()  # 挂起，等待 resume()
+            self.logger.debug(f"✅ Agent {self.name} 已恢复执行")
+
+    @property
+    def is_paused(self) -> bool:
+        """返回 Agent 是否暂停"""
+        return self._paused
+
+    # ========== 状态查询 ==========
+
+    @property
+    def current_status(self) -> dict:
+        """
+        获取当前执行状态
+
+        Returns:
+            dict: 包含状态信息的字典
+        """
+        if not self._execution_stack:
+            return {
+                "agent_name": self.name,
+                "status": "idle",
+                "paused": self._paused,
+                "stack_depth": 0,
+                "message": "Agent is idle (no active MicroAgent)"
+            }
+
+        # 获取栈顶帧
+        top_frame = self._execution_stack[-1]
+
+        # 构建执行栈描述
+        stack_desc = []
+        for i, frame in enumerate(self._execution_stack):
+            indent = "  " * i
+            frame_info = {
+                "level": i + 1,
+                "micro_agent_id": frame.get("micro_agent_id", "unknown"),
+                "task": frame.get("task", "unknown"),
+                "action": frame.get("current_action"),
+                "llm_thinking": frame.get("llm_thinking", False)
+            }
+            stack_desc.append(frame_info)
+
+        return {
+            "agent_name": self.name,
+            "status": "paused" if self._paused else "running",
+            "paused": self._paused,
+            "stack_depth": len(self._execution_stack),
+            "current_frame": top_frame,
+            "execution_stack": stack_desc
+        }
 
     def _scan_all_actions(self):
         """

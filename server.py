@@ -1425,6 +1425,82 @@ async def reset_llm_config(config_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# === Agent Control APIs (暂停/恢复/状态查询) ===
+
+@app.post("/api/agents/{agent_name}/pause")
+async def pause_agent(agent_name: str):
+    """暂停 Agent 执行"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not available")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    try:
+        agent = matrix_runtime.agents[agent_name]
+        await agent.pause()
+
+        return {
+            "success": True,
+            "message": f"Agent '{agent_name}' paused successfully",
+            "agent_name": agent_name,
+            "paused": True
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{agent_name}/resume")
+async def resume_agent(agent_name: str):
+    """恢复 Agent 执行"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not available")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    try:
+        agent = matrix_runtime.agents[agent_name]
+        await agent.resume()
+
+        return {
+            "success": True,
+            "message": f"Agent '{agent_name}' resumed successfully",
+            "agent_name": agent_name,
+            "paused": False
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{agent_name}/status")
+async def get_agent_status(agent_name: str):
+    """获取 Agent 当前执行状态"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not available")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    try:
+        agent = matrix_runtime.agents[agent_name]
+        status = agent.current_status
+
+        return {
+            "success": True,
+            "agent_name": agent_name,
+            "status": status
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # === Main Entry Point ===
 
 def main():

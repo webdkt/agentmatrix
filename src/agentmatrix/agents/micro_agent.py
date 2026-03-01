@@ -627,6 +627,10 @@ class MicroAgent(AutoLoggerMixin):
         max_time_seconds = self.max_time * 60 if self.max_time else None
 
         while True:
+            # 🔀 检查点1：每次循环开始时检查是否暂停
+            if hasattr(self, 'root_agent') and self.root_agent and hasattr(self.root_agent, '_checkpoint'):
+                await self.root_agent._checkpoint()
+
             # 检查步数限制
             if step_count >= max_steps:
                 self.logger.warning(f"达到最大步数 ({max_steps})")
@@ -653,6 +657,10 @@ class MicroAgent(AutoLoggerMixin):
                 elapsed_minutes = elapsed / 60
                 step_info += f" (时间: {elapsed_minutes:.1f}分钟/{self.max_time}分钟)"
             self.logger.debug(step_info)
+
+            # 🔀 检查点2：think 之前检查是否暂停
+            if hasattr(self, 'root_agent') and self.root_agent and hasattr(self.root_agent, '_checkpoint'):
+                await self.root_agent._checkpoint()
 
             try:
                 # 1. Think（使用 think_with_retry + actions parser）
@@ -684,6 +692,10 @@ class MicroAgent(AutoLoggerMixin):
                 should_break_loop = False  # 标记是否需要退出主循环
 
                 for idx, action_name in enumerate(action_names, start=1):
+                    # 🔀 检查点3：每个 action 执行前检查是否暂停
+                    if hasattr(self, 'root_agent') and self.root_agent and hasattr(self.root_agent, '_checkpoint'):
+                        await self.root_agent._checkpoint()
+
                     # === 处理特殊 actions ===
                     if action_name == "all_finished":
                         # 执行 all_finished
