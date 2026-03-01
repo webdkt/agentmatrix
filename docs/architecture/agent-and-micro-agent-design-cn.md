@@ -1,6 +1,6 @@
 # Agent 和 MicroAgent 设计
 
-**文档版本**: v0.2.0 | **最后更新**: 2026-02-26 | **状态**: ✅ 已实现
+**文档版本**: v0.3.0 | **最后更新**: 2026-03-01 | **状态**: ✅ 已实现
 
 ## 概述
 
@@ -103,6 +103,89 @@ prompt = self.get_skill_prompt(
     task_description="搜索论文"
 )
 ```
+
+### Agent 控制机制 ✨
+
+Agent 提供运行时控制能力，可以随时暂停/恢复执行，并查询当前状态。
+
+**核心功能**：
+- **暂停执行**：随时暂停 Agent 及其所有嵌套的 MicroAgent
+- **恢复执行**：从暂停点恢复，继续执行
+- **状态查询**：实时获取当前执行状态（嵌套层次、当前任务等）
+
+**工作原理**：
+
+```
+检查点机制
+├─ 循环开始：每次 MicroAgent 循环开始时检查
+├─ Think 之前：LLM 调用前检查
+└─ Action 之前：每个 action 执行前检查
+
+暂停标志（BaseAgent._paused）
+├─ True：所有检查点会挂起协程
+└─ False：正常执行
+```
+
+**控制方法**：
+
+```python
+# 暂停 Agent
+await agent.pause()
+
+# 恢复 Agent
+await agent.resume()
+
+# 查询状态
+status = agent.current_status
+# 返回：
+# {
+#     "agent_name": "Tom",
+#     "status": "paused" | "running" | "idle",
+#     "paused": True,
+#     "stack_depth": 2,
+#     "current_frame": {
+#         "micro_agent_id": "...",
+#         "task": "搜索论文",
+#         "action": "web_search",
+#         "llm_thinking": False
+#     },
+#     "execution_stack": [...]
+# }
+```
+
+**嵌套处理**：
+
+所有 MicroAgent 共享同一个暂停标志，但检查点只在最内层有效：
+
+```python
+BaseAgent (Tom)
+└─ MicroAgent_A (第1层)
+    └─ await MicroAgent_B.execute() (第2层)
+        └─ await web_search() (挂起等待)
+
+# 暂停时：
+# - MicroAgent_B 在下一次循环检查时挂起
+# - MicroAgent_A 和 MicroAgent_A 的父层本来就在 await，自动"暂停"
+```
+
+**Server API**：
+
+```bash
+# 暂停
+POST /api/agents/{name}/pause
+
+# 恢复
+POST /api/agents/{name}/resume
+
+# 查询状态
+GET /api/agents/{name}/status
+```
+
+**使用场景**：
+- 调试：暂停 Agent 查看中间状态
+- 资源控制：临时释放资源
+- 人工干预：暂停后手动调整再恢复
+- 监控：实时查看 Agent 在做什么
 
 ### MicroAgent（执行者）
 
