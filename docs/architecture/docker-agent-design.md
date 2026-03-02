@@ -1,5 +1,13 @@
 # Docker 容器化 Agent 设计方案
 
+**文档版本**: v1.0.0 | **最后更新**: 2026-02-27 | **状态**: 🔨 部分实现
+
+## 实现状态
+
+- ✅ **已准备**：Dockerfile、requirements-docker.txt（镜像构建）
+- 🔨 **待实现**：BaseAgent Docker 集成代码、容器生命周期管理
+- 🔜 **规划中**：File Skill Docker 适配、Workspace 动态切换
+
 ## 核心思路
 
 每个 Agent 对应一个 Docker 容器，就像给每个 Agent 分配了一台独立的"电脑"。

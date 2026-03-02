@@ -1501,6 +1501,71 @@ async def get_agent_status(agent_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/agents/{agent_name}/pending_user_input")
+async def get_pending_user_input(agent_name: str):
+    """获取 Agent 等待用户输入的问题"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not available")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    try:
+        agent = matrix_runtime.agents[agent_name]
+
+        # 检查是否在等待用户输入
+        if not agent._user_input_future or agent._user_input_future.done():
+            return {
+                "success": True,
+                "agent_name": agent_name,
+                "waiting": False
+            }
+
+        # 返回等待中的问题
+        return {
+            "success": True,
+            "agent_name": agent_name,
+            "waiting": True,
+            "question": agent._pending_user_question
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{agent_name}/user_input")
+async def submit_user_input(agent_name: str, request: dict):
+    """提交用户输入，唤醒正在等待的 Agent"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not available")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    # 获取用户输入
+    answer = request.get("answer")
+    if not answer:
+        raise HTTPException(status_code=400, detail="Missing 'answer' field")
+
+    try:
+        agent = matrix_runtime.agents[agent_name]
+        await agent.submit_user_input(answer)
+
+        return {
+            "success": True,
+            "message": f"User input submitted to agent '{agent_name}'",
+            "agent_name": agent_name
+        }
+    except RuntimeError as e:
+        # Agent 没有在等待用户输入
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # === Main Entry Point ===
 
 def main():

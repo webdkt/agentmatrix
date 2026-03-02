@@ -1198,8 +1198,22 @@ write, send_mail, write
         # 3. 执行方法（✅ 直接调用，无需动态绑定）
         self._log(logging.DEBUG, f"[{self.run_label}] Executing {action_name} (task {action_index}/{len(action_list)})")
         result=""
+
         try:
-            result = await method(**params)
+            # 💬 特殊处理：ask_user action
+            if action_name == "ask_user":
+                if not hasattr(self, 'root_agent') or not self.root_agent:
+                    raise RuntimeError("ask_user requires root_agent")
+
+                question = params.get("question", "")
+                if not question:
+                    raise ValueError("ask_user requires 'question' parameter")
+
+                # 调用 root_agent.ask_user（会挂起等待用户输入）
+                result = await self.root_agent.ask_user(question)
+            else:
+                # 普通 action：正常调用
+                result = await method(**params)
         except Exception as e:
             result = f"Error executing {action_name}: {str(e)}"
         finally:
