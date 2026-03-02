@@ -83,6 +83,10 @@ class BaseAgent(AutoLoggerMixin):
         # 📊 执行栈追踪（用于状态查询）
         self._execution_stack = []  # List[FrameInfo]
 
+        # 💬 ask_user 机制（等待用户输入）
+        self._pending_user_question = None  # 当前等待用户回答的问题
+        self._user_input_future = None  # 用于等待用户输入的 Future
+
         self.logger.info(f"Agent {self.name} 初始化完成")
 
         # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
@@ -261,6 +265,76 @@ class BaseAgent(AutoLoggerMixin):
     def is_paused(self) -> bool:
         """返回 Agent 是否暂停"""
         return self._paused
+
+    # ========== ask_user 机制 ==========
+
+    async def ask_user(self, question: str) -> str:
+        """
+        等待用户输入（特殊 action）
+
+        此方法会挂起当前 MicroAgent 的执行，等待用户通过 submit_user_input 提供答案。
+        同时支持全局暂停机制。
+
+        Args:
+            question: 向用户提出的问题
+
+        Returns:
+            str: 用户的回答
+
+        Example:
+            # 在 MicroAgent._execute_action 中
+            answer = await self.root_agent.ask_user("请确认预算范围")
+            # 返回: "5万-10万"
+        """
+        # 1. 记录问题（给 API 查询）
+        self._pending_user_question = question
+
+        # 2. 创建 Future 并挂起
+        self._user_input_future = asyncio.Future()
+
+        self.logger.info(f"💬 向用户提问: {question[:50]}{'...' if len(question) > 50 else ''}")
+
+        # 3. 等待用户输入（同时检查全局暂停）
+        while True:
+            # 检查全局暂停
+            await self._checkpoint()
+
+            try:
+                # 等待用户输入（短暂超时，以便循环检查暂停状态）
+                answer = await asyncio.wait_for(
+                    self._user_input_future,
+                    timeout=0.1
+                )
+                # 拿到答案，退出循环
+                self.logger.info(f"✅ 收到用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}")
+                return answer
+            except asyncio.TimeoutError:
+                # 超时了，循环回去检查 _paused
+                continue
+
+    async def submit_user_input(self, answer: str):
+        """
+        提交用户输入（由 Server API 调用）
+
+        此方法会唤醒正在等待的 ask_user 调用，并传入用户的回答。
+
+        Args:
+            answer: 用户的回答
+
+        Raises:
+            RuntimeError: 如果 Agent 当前没有在等待用户输入
+
+        Example:
+            # 在 Server API 中
+            await agent.submit_user_input("5万-10万")
+        """
+        if not self._user_input_future or self._user_input_future.done():
+            raise RuntimeError(f"Agent {self.name} is not waiting for user input")
+
+        self.logger.debug(f"📥 提交用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}")
+
+        # 设置结果，唤醒 Future
+        self._user_input_future.set_result(answer)
 
     # ========== 状态查询 ==========
 
@@ -518,10 +592,13 @@ class BaseAgent(AutoLoggerMixin):
         # 3. 准备 available_skills（🆕 新架构）
         available_skills = self.profile.get("skills", [])
 
-        # 自动注入 base skill（BaseAgent 必备）
-        # 确保 BaseAgent 始终拥有基础 actions（send_email, rest_n_wait, take_a_break, get_current_datetime）
-        if "base" not in available_skills:
-            available_skills = ["base"] + available_skills
+        # 自动注入 base 和 email skills（Top-level MicroAgent 必备）
+        # base: get_current_datetime, take_a_break, ask_user（所有 MicroAgent 必备）
+        # email: send_email（Top-level MicroAgent 需要和用户通信）
+        # 确保 Top-level MicroAgent 始终拥有这些基础 actions
+        for required in ["base", "email"]:
+            if required not in available_skills:
+                available_skills = [required] + available_skills
 
         # 4. 执行 Micro Agent
         # 每次创建新的 MicroAgent（使用最新的 working_context）

@@ -187,6 +187,136 @@ GET /api/agents/{name}/status
 - 人工干预：暂停后手动调整再恢复
 - 监控：实时查看 Agent 在做什么
 
+### ask_user 交互机制 💬
+
+Agent 可以在执行过程中向用户提问，等待用户回答后继续执行。
+
+**核心功能**：
+- **LLM 主动提问**：Agent 根据任务需要，决定何时询问用户
+- **执行挂起**：提问后 Agent 挂起执行，等待用户输入
+- **恢复继续**：用户回答后，Agent 自动恢复并继续执行
+- **嵌套支持**：支持嵌套 MicroAgent 中的 ask_user
+
+**工作原理**：
+
+```
+MicroAgent 执行流程
+  ↓
+think() → LLM 决定需要 ask_user
+  ↓
+detect_actions() → 检测到 action_name="ask_user"
+  ↓
+execute_action("ask_user", {"question": "..."})
+  ↓
+调用 root_agent.ask_user(question)
+  ├─ 设置 _pending_user_question（供 API 查询）
+  ├─ 创建 _user_input_future
+  └─ await future（挂起！）
+
+【此时 Agent 停在这里等待】
+
+【用户通过 API 提交回答】
+  ↓
+submit_user_input(answer)
+  ├─ 设置 Future 结果（唤醒 Agent）
+  └─ ask_user 返回 answer
+
+Agent 继续执行（下一次 think 能看到完整的 Q&A）
+```
+
+**关键设计**：
+
+1. **使用 asyncio.Future 传递数据**
+   - `ask_user()` 返回用户回答（不是 Event，而是 Future）
+   - `submit_user_input()` 通过 `set_result()` 传递数据并唤醒
+
+2. **与暂停机制兼容**
+   - `ask_user()` 内部循环检查 `_checkpoint()`
+   - 即使在等待用户输入时，也能响应全局暂停
+
+3. **嵌套自动恢复**
+   - 外层 MicroAgent 在 `await child.execute()` 等待
+   - 内层 `ask_user` 返回后，外层自动恢复
+
+**控制方法**：
+
+```python
+# 在 MicroAgent 中（由 LLM 决定调用）
+answer = await self.root_agent.ask_user("请确认预算范围")
+# 返回: "5万-10万"
+
+# 通过 Server API 提交用户回答
+await agent.submit_user_input("5万-10万")
+```
+
+**Server API**：
+
+```bash
+# 查询是否有等待用户输入的问题
+GET /api/agents/{name}/pending_user_input
+# 返回：
+# {
+#     "success": True,
+#     "agent_name": "Tom",
+#     "waiting": True,
+#     "question": "请确认预算范围"
+# }
+
+# 提交用户回答
+POST /api/agents/{name}/user_input
+# Body: {"answer": "5万-10万"}
+# 返回：
+# {
+#     "success": True,
+#     "message": "User input submitted to agent 'Tom'"
+# }
+```
+
+**使用场景**：
+- 信息确认：Agent 需要用户确认关键信息（如预算、偏好）
+- 决策辅助：Agent 需要用户提供决策依据
+- 交互式任务：需要用户在执行过程中提供输入
+
+**注意**：
+- ask_user 走特殊通道（UI 弹窗），不通过邮件流程
+- 同时只能有一个 ask_user 在等待（执行是串行的）
+- 用户回答会自动记录到 MicroAgent 的 messages 中
+- ask_user 注册在 **BaseSkillMixin** 中（base skill），自动被所有 MicroAgent 加载
+
+**实现细节**：
+- **Action 注册**：`ask_user` action 在 `BaseSkillMixin` 中定义（`src/agentmatrix/skills/base/skill.py`）
+- **执行逻辑**：`MicroAgent._execute_action` 检测到 `ask_user` 时，特殊处理并调用 `root_agent.ask_user()`
+- **核心机制**：`BaseAgent.ask_user()` 使用 `asyncio.Future` 等待用户输入
+- **Server API**：通过 `/api/agents/{name}/pending_user_input` 和 `/api/agents/{name}/user_input` 交互
+
+### Skills 架构 🎁
+
+AgentMatrix 通过 **Skill Mixins** 机制为 MicroAgent 提供可复用的能力。
+
+**核心 Skills**：
+
+| Skill | Actions | 说明 | 强制注入 |
+|-------|---------|------|---------|
+| **base** | get_current_datetime, take_a_break, ask_user | 所有 MicroAgent 必备的基础功能 | ✅ Top-level |
+| **email** | send_email | 邮件发送（未来扩展 check_email 等） | ✅ Top-level |
+| **all_finished** | all_finished | 硬编码在 MicroAgent 中，所有 MicroAgent 都有 | ✅ 所有层级 |
+
+**注入策略**：
+
+```python
+# Top-level MicroAgent（process_email 创建）
+available_skills = ["base", "email"] + profile.skills
+
+# 内部 MicroAgent（如 WebSearchSkill 创建）
+available_skills = ["browser", "file"]  # 不包含 base, email
+# → 只有 all_finished（硬编码）
+```
+
+**设计原则**：
+- **Top-level MicroAgent**：需要 base + email（和用户通信、基础能力）
+- **内部 MicroAgent**：不需要 email（返回结果给父级），可选择性注入 base
+- **all_finished**：所有 MicroAgent 都有（硬编码），用于任务终止
+
 ### MicroAgent（执行者）
 
 **代码位置**: `src/agentmatrix/agents/micro_agent.py`

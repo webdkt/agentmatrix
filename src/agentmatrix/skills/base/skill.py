@@ -1,13 +1,14 @@
 """
-Base Skill - 所有 BaseAgent 必备的基础 Actions
+Base Skill - 所有 MicroAgent 必备的基础 Actions
 
-包含 4 个基础 actions：
-- send_email: 发送邮件给同事
-- rest_n_wait: 简单休息
-- take_a_break: 60秒休息
+包含基础 actions：
 - get_current_datetime: 获取当前时间
+- take_a_break: 60秒休息
+- ask_user: 向用户提问并等待回答
 
-注意：all_finished 不在此 skill 中，它硬编码在 MicroAgent 中。
+注意：
+- all_finished 不在此 skill 中，它硬编码在 MicroAgent 中
+- send_email 已移到 email skill 中
 """
 
 import asyncio
@@ -17,9 +18,9 @@ from ...core.action import register_action
 
 class BaseSkillMixin:
     """
-    Base Agent 必备的基础 Actions
+    所有 MicroAgent 必备的基础 Actions
 
-    提供 BaseAgent 必需的核心功能，如发送邮件、获取时间等。
+    提供通用的基础功能，如获取时间、用户交互等。
     """
 
     @register_action(
@@ -33,15 +34,6 @@ class BaseSkillMixin:
         return now.strftime("%Y-%m-%d %H:%M:%S")
 
     @register_action(
-        "休息一下，工作做完了，或者需要等待回信才能继续",
-        param_infos={}
-    )
-    async def rest_n_wait(self):
-        """简单休息（no-op，用于暂停工作）"""
-        # 什么都不做，直接返回
-        pass
-
-    @register_action(
         "Take a break，让身体恢复一下",
         param_infos={}
     )
@@ -51,63 +43,30 @@ class BaseSkillMixin:
         return "Return from Break"
 
     @register_action(
-        "发邮件给同事，这是和其他人沟通的唯一方式",
+        "向用户提问并等待回答。当你需要用户提供信息（如预算、偏好、确认等）时调用此 action。",
         param_infos={
-            "to": "收件人 (e.g. 'User')",
-            "body": "邮件内容",
-            "subject": "邮件主题 (可选，如果不填，系统会自动截取 body 的前20个字)"
+            "question": "要向用户提出的问题（清晰、具体）"
         }
     )
-    async def send_email(self, to, body, subject=None):
+    async def ask_user(self, question: str) -> str:
         """
-        发送邮件给同事
+        💬 向用户提问并等待回答（特殊 action）
+
+        这是一个特殊的 action，会挂起当前 MicroAgent 的执行，等待用户通过 Server API 提供答案。
+
+        注意：此方法会被 MicroAgent._execute_action 特殊处理，实际调用 root_agent.ask_user()。
 
         Args:
-            to: 收件人名称
-            body: 邮件内容
-            subject: 邮件主题（可选）
+            question: 向用户提出的问题
 
-        邮件路由逻辑：
-        - 如果发给 session 的 original_sender：in_reply_to = session.session_id
-        - 如果发给 last_email.sender：in_reply_to = last_email.id
-        - 否则：in_reply_to = session.session_id
+        Returns:
+            str: 用户的回答
+
+        Raises:
+            RuntimeError: 如果没有 root_agent（不应该发生）
         """
-        # 导入 Email 类（避免循环导入）
-        from ...core.message import Email
+        # 这个方法不应该被直接调用
+        # _execute_action 会检测到 action_name="ask_user" 并调用 root_agent.ask_user()
+        # 这里只是为了注册 action，提供一个占位实现
+        raise RuntimeError("ask_user should be handled by MicroAgent._execute_action, check root_agent")
 
-        # 获取当前 session 和最后收到的邮件（从 root_agent 获取）
-        # 注意：MicroAgent 自身不发送邮件，只有 BaseAgent 发送
-        session = self.root_agent.current_session
-        last_email = self.root_agent.last_received_email
-
-        # 确定 in_reply_to
-        in_reply_to = session["session_id"]
-        if to == last_email.sender:
-            in_reply_to = last_email.id
-
-        # 自动生成 subject（如果未提供）
-        if not subject:
-            # 如果 body 很短，直接用 body 做 subject
-            # 如果 body 很长，截取前 20 个字 + ...
-            clean_body = body.strip().replace('\n', ' ')
-            subject = clean_body[:20] + "..." if len(clean_body) > 20 else clean_body
-
-        # 构造邮件
-        msg = Email(
-            sender=self.root_agent.name,  # 发送者是 BaseAgent
-            recipient=to,
-            subject=subject,
-            body=body,
-            in_reply_to=in_reply_to,
-            user_session_id=session["user_session_id"]
-        )
-
-        # 发送邮件（通过 root_agent 的 post_office）
-        await self.root_agent.post_office.dispatch(msg)
-
-        # 更新 reply_mapping（自动保存到磁盘，通过 root_agent 的 session_manager）
-        await self.root_agent.session_manager.update_reply_mapping(
-            msg_id=msg.id,
-            session_id=session["session_id"],  # 使用已获取的 session 变量
-            user_session_id=session["user_session_id"]
-        )
