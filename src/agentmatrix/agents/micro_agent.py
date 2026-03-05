@@ -21,6 +21,7 @@ from ..core.working_context import WorkingContext
 from ..core.session_context import SessionContext
 from ..core.exceptions import LLMServiceUnavailableError
 from ..core.action import register_action
+from ..utils.token_utils import estimate_messages_tokens, format_conversation_messages
 
 if TYPE_CHECKING:
     from .base import BaseAgent
@@ -117,6 +118,11 @@ class MicroAgent(AutoLoggerMixin):
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
         self.max_steps = 1024
+
+        # ========== 🆕 压缩相关（默认开启，无需配置）==========
+        self.compression_token_threshold = 32000  # 32K tokens
+        self.last_compression_step = 0  # 上次压缩时的步数
+
         # 日志
         self.logger.info(f"MicroAgent '{self.name}' initialized (parent: {parent.name})")
 
@@ -278,6 +284,185 @@ class MicroAgent(AutoLoggerMixin):
             **kwargs: 要更新的键值对
         """
         await self._session_context.update(**kwargs)
+
+    # ==================== 🆕 自动压缩机制 ====================
+
+    def _should_compress_messages(self) -> bool:
+        """
+        判断是否应该压缩 messages（基于 32K tokens）
+
+        Returns:
+            bool: 是否应该压缩
+        """
+        total_tokens = estimate_messages_tokens(self.messages)
+        if total_tokens >= self.compression_token_threshold:
+            self.logger.info(f"📦 Messages 达到 {total_tokens} tokens，自动压缩...")
+            return True
+        return False
+
+    async def _generate_whiteboard_summary(self, messages: list,
+                                           focus_hint: str = "") -> str:
+        """
+        LLM 总结：生成 whiteboard（当前状态快照）
+
+        使用液态金属架构（Liquid Metal）：
+        - 不固定 Whiteboard 结构
+        - 让 LLM 根据对话场景动态生成 Headers
+        - 适配任务导向、知识探索、心理咨询、角色扮演等多种场景
+
+        Args:
+            messages: 当前对话历史
+            focus_hint: 可选，指导 LLM 重点关注某方面
+
+        Returns:
+            str: Markdown 格式的 Whiteboard
+        """
+        from ..utils.parser_utils import whiteboard_parser
+
+        # 注入 Agent Persona（如有）
+        persona_hint = ""
+        if hasattr(self, 'persona') and self.persona:
+            persona_hint = f"""
+
+[Agent Persona Reference]
+{self.persona[:800]}
+
+Use this to understand the agent's role and bias your scene diagnosis accordingly.
+"""
+
+        # 构造 focus_hint 区块
+        focus_hint_block = ""
+        if focus_hint:
+            focus_hint_block = f"""
+
+# Focus Hint
+**重点关注**：{focus_hint}
+
+请在 Whiteboard 中特别突出这方面的信息。
+"""
+
+        # 构造 Meta-Prompt（完整版，不简化）
+        prompt = f"""
+# Role
+你是一个高维度的对话状态架构师 (Context Architect)。你的任务不是简单的总结，而是根据对话的**本质类型**，动态构建最适合当前语境的"状态白板 (Whiteboard)"。
+
+# Core Instructions
+分析以下对话历史，执行以下三个步骤：
+## Step 0: 判断有无现存的“状态白板” (Whiteboard)。如果有，继承他的结构，并在此基础上更新内容(Jump to Step 2B)；如果没有，按照Step 1的思路生成新白板的结构。
+
+## Step 1: 场景识别 (Scene Diagnosis)
+判断当前对话的**核心模式**。例如：
+- **任务导向 (Task-Oriented)**: 编程、订票、数据分析 -> 需要记录：目标、进度、参数、错误栈...
+- **知识探索 (Knowledge-Intensive)**: 教学、头脑风暴、调研 -> 需要记录：核心概念、已验证的事实、待探索的盲区...
+- **情感/咨询 (Emotional/Therapeutic)**: 心理咨询、闲聊 -> 需要记录：用户情绪状态、潜在压力源、共情连接点...
+- **角色扮演 (Roleplay/Creative)**: 小说创作、游戏 -> 需要记录：当前设定、剧情节点、人物关系、物品栏...
+
+
+Note: 场景识别是为你服务的，用于构建白板的结构，其内容不需要记录在白板上。你只需要根据识别结果，自然地生成适合的白板结构。
+
+## Step 2A: 结构定义 (Structure Definition)—— 无现有白板时
+基于场景识别结果，**动态决定 Whiteboard 的一级标题 (Headers)**。
+不要使用固定的模板，让结构自然适配对话内容。
+
+## Step 2B: 结构继承和调整 (Structure Inheritance & Adjustment)—— 有现有白板时
+以原有白板为基础，继承结构。快速的根据新的对话内容判断，场景是否发生变化，主题是否发生变化，是否需要对结构进行调整
+
+## Step 3: 状态提取 (State Extraction)
+- **去噪**：剔除客套话、重复信息。
+- **消歧**：将代词（他/它/那个）还原为实体全名。
+- **客观**：只记录事实和结论，不记录流水账。、
+- **完整**：保留关键内容和结果，原始目的中不可缺失的部分，后续行动必须持有的线索。
+
+# Output Requirements
+1. **必须是 Markdown 格式**
+2. **一级标题由你根据 Step 1 动态决定**
+3. **必须包含一个通用的 `## 🧠 关键上下文` 或 `## 关键上下文` 区域**，用于兜底非结构化信息
+4. 保持简洁：丢弃过时细节、冗余信息、探索过程性信息
+
+
+
+{persona_hint}
+---
+
+# Conversation History
+{format_conversation_messages(messages)}
+---
+{focus_hint_block}
+
+Start generating the Whiteboard now.
+"""
+
+        # 使用 think_with_retry 精确获取 whiteboard
+        whiteboard = await self.brain.think_with_retry(
+            initial_messages=prompt,
+            parser=whiteboard_parser,
+            max_retries=3
+        )
+
+        return whiteboard  # think_with_retry 直接返回 content (Markdown 字符串)
+
+    async def _compress_messages(self) -> str:
+        """
+        压缩 messages，保留 system_prompt，添加总结
+
+        新逻辑：
+        1. 永远保留第一个 system message（如果有的话）
+        2. 找到第一个 user message（原始用户请求）
+        3. 检查是否包含 [WHITEBOARD] 标志：
+           - 有：替换掉旧 whiteboard（[WHITEBOARD] 之后的内容）
+           - 没有：在原始内容后追加新 whiteboard
+        4. 结果：[system?, user(原始+新whiteboard)]
+
+        Returns:
+            str: 生成的 whiteboard
+        """
+        whiteboard = await self._generate_whiteboard_summary(self.messages)
+
+        # ========== 1. 处理 system message ==========
+        has_system = self.messages and self.messages[0].get("role") == "system"
+
+        # ========== 2. 找到第一个 user message（原始用户请求）==========
+        first_user_msg = None
+        for msg in self.messages:
+            if msg.get("role") == "user":
+                first_user_msg = msg
+                break
+
+        if not first_user_msg:
+            # 异常情况：没有 user message，创建一个新的
+            new_user_content = f"[WHITEBOARD]\n{whiteboard}\n\n请继续执行下一步。"
+        else:
+            # 正常情况：处理第一个 user message
+            original_content = first_user_msg.get("content", "")
+
+            # ========== 3. 检查是否有旧 whiteboard ==========
+            if "[WHITEBOARD]" in original_content:
+                # 有旧 whiteboard：替换掉（保留 [WHITEBOARD] 之前的内容）
+                whiteboard_index = original_content.index("[WHITEBOARD]")
+                original_without_old_whiteboard = original_content[:whiteboard_index].strip()
+                new_user_content = f"{original_without_old_whiteboard}\n\n[WHITEBOARD]\n{whiteboard}"
+            else:
+                # 没有旧 whiteboard：追加
+                new_user_content = f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+
+        # ========== 4. 重新构建 messages ==========
+        if has_system:
+            system_msg = self.messages[0]
+            self.messages = [
+                system_msg,
+                {"role": "user", "content": new_user_content}
+            ]
+        else:
+            self.messages = [
+                {"role": "user", "content": new_user_content}
+            ]
+
+        # 重置计数器
+        self.last_compression_step = self.current_step
+
+        return whiteboard
+
+    # ==================== 🆕 自动压缩机制结束 ====================
 
     async def execute(
         self,
@@ -484,32 +669,42 @@ class MicroAgent(AutoLoggerMixin):
 """
             return prompt
 
+
+
+        
+
         # 完整模式（默认）：包含操作环境说明
-        prompt = f"""{self.persona}
+        prompt = f"""### 运行时环境 (Runtime Environment)
 
-### 当前的操作环境 (The Cockpit)
+你是一个运行在 **AgentMatrix 架构** 中的 **智能体 (Autonomous Agent)**。
+你的思维存在于一个持续的 **循环 (Loop)** 中：`感知 (Observe) -> 思考 (Think) -> 行动 (Act)`。
 
-这是一个文本化的操作系统。你是这个系统的意识部分，系统则是你的身体。
+#### 1. 认知与记忆 (Cognition & Memory)
+*   **上下文 (Context)**: 你拥有完整的对话历史和 **Whiteboard (状态白板)**。这是你的短期记忆。
+*   **无状态工具 (Stateless Tools)**: 你的工具（Actions）是**无状态**的函数。它们**看不到**你的对话历史或 Whiteboard。
+    *   ❌ 错误调用: `search_web("extact the budget from above")` (工具不知道 "above" 是什么)
+    *   ✅ 正确调用: `search_web("Alpha Project budget 2024")` (显式传递完整参数)
 
-**基本物理规则:**
-1. 你是**基于信号**的实体。你接受外部信号，对其思考然后决定你的意图
-2. 你需要**选择一个明确的动作**并**发出信号**来**完成你的意图**。
-3. 一旦你发出动作信号，你将等待**身体**返回执行结果的信号。
-4. 身体是强大的，但它**无法感知**对话历史。除非明确地告诉它。
-5. 身体每次只能执行一个动作, 需要你明确的告诉它是哪一个，并提供该执行动作所需要的全部信息。
+#### 2. 交互协议 (Interaction Protocol)
+*   **显式意图**: 不要含糊其辞。你的每一个 Action 都必须有明确的目的。
+*   **参数完备**: 调用 Action 时，必须自行从上下文中提取所有必要参数。如果参数缺失，**先向用户提问**，不要瞎编。
+*   **单步与并行**: 
+    *   如果任务复杂，请拆解为多个步骤。
+    *   如果多个步骤互不依赖（如搜索两个不同的关键词），请在一个 `[ACTIONS]` 块中同时发出，以并行加速。
 
-### 你的可用动作
+---
+### 🧰 可用工具箱 (Toolbox)
 
+#### A. 核心指令 (Native Actions)
+这些是你原本就具备的能力：
 {self._format_actions_list()}
-
 """
 
         # 🆕 添加 MD Document Skills 摘要
         md_skills_summary = self._format_md_skills_summary()
         if md_skills_summary:
-            prompt += f"""### 文档化技能（操作指南）
-
-以下技能包含详细的操作步骤，需要时请使用 `file.read` 读取完整文档：
+            prompt += f"""#### B. 扩展技能库 (Procedural Skills)
+你拥有以下任务的标准操作程序 (SOP)。当遇到相关任务时，优先使用 `read` 获取详细步骤：
 
 {md_skills_summary}
 
@@ -517,23 +712,34 @@ class MicroAgent(AutoLoggerMixin):
 
         # 如果提供了黄页信息，添加黄页部分
         if self.yellow_pages:
-            prompt += f"""### 黄页（你的同事，仅在必要时写邮件求助于他们）
+            prompt += f"""#### C. 协作网络 (Collaborators)
+如果你无法独立完成任务，可以联系以下 Agent。请使用 `send_email` 
 
 {self.yellow_pages}
 """
 
         prompt += """
-        每次输出，都严格按照下面的方式输出，确保身体能够正确理解：
-### 输出样例
+        ---
+### 响应协议 (Response Protocol)
+
+请按照以下自然分块格式进行回复。
+
+**1. 思考块**
+使用 `[THOUGHTS]` 标签开始。
+在这里尽情思考，分析 Whiteboard，拆解任务。这是你的草稿纸，不需要拘泥于格式。
+
+**2. 行动块**
+使用 `[ACTIONS]` 标签开始。
+#### 输出样例
 ```
 [THOUGHTS]
-你的想法和意图，这是给你自己的，身体看不到，不需要担心格式，只要清晰表达思考过程和下一步计划即可
+你的想法和意图，这是给你自己的，工具看不到，不需要担心格式，只要清晰表达思考过程和下一步计划即可
 
 [ACTIONS]
 为实现意图而立刻要做的动作（只能从可用动作里选择，例如send_email），并提供完成该动作需要的全部信息。
 如果要做多个动作，必须是可以并行执行、互不依赖的动作。
-
-```     """
+```
+"""
 
         return prompt
 
@@ -584,9 +790,10 @@ class MicroAgent(AutoLoggerMixin):
 
     def _format_task_message(self) -> str:
         """格式化任务消息"""
-        msg = f"[💡NEW SIGNAL]\n{self.task}\n"
+        #msg = f"[💡NEW SIGNAL]\n{self.task}\n"
 
-        return msg
+        #return msg
+        return self.task
 
     def _format_messages_for_debug(self, messages: List[Dict]) -> str:
         """
@@ -628,14 +835,17 @@ class MicroAgent(AutoLoggerMixin):
 
         while True:
             # 🔀 检查点1：每次循环开始时检查是否暂停
-            if hasattr(self, 'root_agent') and self.root_agent and hasattr(self.root_agent, '_checkpoint'):
-                await self.root_agent._checkpoint()
+            await self.root_agent._checkpoint()
 
             # 检查步数限制
             if step_count >= max_steps:
                 self.logger.warning(f"达到最大步数 ({max_steps})")
                 self.result = "未完成，达到最大步数限制，最后的状态如下：\n" + self.result
                 break
+
+            # 🆕 检查是否需要自动压缩（基于 32K tokens）
+            if self._should_compress_messages():
+                await self._compress_messages()
 
             # 检查时间限制
             if max_time_seconds:
@@ -659,8 +869,7 @@ class MicroAgent(AutoLoggerMixin):
             self.logger.debug(step_info)
 
             # 🔀 检查点2：think 之前检查是否暂停
-            if hasattr(self, 'root_agent') and self.root_agent and hasattr(self.root_agent, '_checkpoint'):
-                await self.root_agent._checkpoint()
+            await self.root_agent._checkpoint()
 
             try:
                 # 1. Think（使用 think_with_retry + actions parser）
@@ -671,7 +880,7 @@ class MicroAgent(AutoLoggerMixin):
                     max_retries=3
                 )
                 print(thought)
-                action_thougth = thought["[ACTIONS]"]
+                action_thought = thought["[ACTIONS]"]
                 raw_reply = thought.get("[RAW_REPLY]")
                 
 
@@ -680,7 +889,7 @@ class MicroAgent(AutoLoggerMixin):
 
 
                 # 2. 检测 actions（多个，保持顺序）
-                action_names = await self._detect_actions(action_thougth)
+                action_names = await self._detect_actions(action_thought)
 
                 self.logger.debug(f"Detected actions: {action_names}")
 
@@ -699,12 +908,19 @@ class MicroAgent(AutoLoggerMixin):
                     # === 处理特殊 actions ===
                     if action_name == "all_finished":
                         # 执行 all_finished
-                        result = await self._execute_action("all_finished", action_thougth, idx, action_names)
+                        result = await self._execute_action("all_finished", action_thought, idx, action_names)
                         self.result = result
                         self.return_action_name = "all_finished"
                         should_break_loop = True
                         # 不记录 execution_results，直接退出
                         break  # ← 退出 for action_names 循环
+
+                    elif action_name == "update_memory":
+                        # 执行 update_memory（特殊处理：不记录结果，因为它压缩 messages）
+                        await self._execute_action("update_memory", action_thought, idx, action_names)
+                        self.logger.debug(f"✅ {action_name} done (messages compressed)")
+                        # 不记录到 execution_results（action 已内部处理）
+                        # 不退出循环，继续下一轮
 
                     elif action_name in exit_actions:
                         # rest_n_wait 不需要执行，直接等待
@@ -715,7 +931,7 @@ class MicroAgent(AutoLoggerMixin):
                     # === 执行普通 actions ===
                     else:
                         try:
-                            result = await self._execute_action(action_name, action_thougth, idx, action_names)
+                            result = await self._execute_action(action_name, action_thought, idx, action_names)
                             if result!="NOT_TO_RUN":
                                 execution_results.append(f"[{action_name} Done]:\n {result}")
                             self.logger.debug(f"✅ {action_name} done")
