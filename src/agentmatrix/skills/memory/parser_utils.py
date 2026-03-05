@@ -108,3 +108,93 @@ def recall_answer_parser(raw_reply: str) -> dict:
             "can_answer_user": can_answer
         }
     }
+
+
+def events_list_parser(raw_reply: str) -> dict:
+    """
+    解析 event list（Markdown 格式）
+
+    期望格式：
+    [EVENTS]
+    # 事件1
+    实体1, 实体2
+
+    # 事件2
+    实体A
+
+    Returns:
+        {
+            "status": "success" | "error",
+            "content": List[Dict],  # [{"event": str, "entities": List[str]}]
+            "feedback": str (仅错误时)
+        }
+    """
+    # 1. 提取 [EVENTS] section
+    if "[EVENTS]" not in raw_reply:
+        return {
+            "status": "error",
+            "feedback": "必须包含 [EVENTS] section"
+        }
+
+    # 提取 [EVENTS] 后的内容
+    events_section = raw_reply.split("[EVENTS]")[-1].strip()
+
+    # 2. 按 `# ` 分割出各个事件
+    lines = events_section.split('\n')
+    events = []
+    current_event = None
+    current_entities = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            # 空行，继续
+            continue
+
+        # 检查是否是二级标题（事件描述）
+        if line.startswith('# '):
+            # 保存上一个事件（如果有）
+            if current_event:
+                events.append({
+                    "event": current_event,
+                    "entities": current_entities.copy()
+                })
+
+            # 开始新事件
+            current_event = line[2:].strip()  # 去掉 `# `
+            current_entities = []
+        else:
+            # 实体列表
+            if current_event is not None:
+                # 按逗号分割
+                entities_in_line = [e.strip() for e in line.split(',') if e.strip()]
+                if entities_in_line:
+                    current_entities.extend(entities_in_line)
+
+    # 保存最后一个事件
+    if current_event:
+        events.append({
+            "event": current_event,
+            "entities": current_entities
+        })
+
+    # 3. 验证：检查是否为 "NO EVENTS"
+    # 如果 events_section 明确写了 "NO EVENTS"，返回空列表
+    if "NO EVENTS" in events_section.upper():
+        return {
+            "status": "success",
+            "content": []
+        }
+
+    # 如果没有解析到任何事件，也返回空列表（宽松模式）
+    if not events:
+        return {
+            "status": "success",
+            "content": []
+        }
+
+    # 4. 成功
+    return {
+        "status": "success",
+        "content": events
+    }

@@ -87,6 +87,11 @@ class BaseAgent(AutoLoggerMixin):
         self._pending_user_question = None  # 当前等待用户回答的问题
         self._user_input_future = None  # 用于等待用户输入的 Future
 
+        # 🆕 双 Worker 模型（email_worker + history_worker）
+        self.pending_summaries_queue = []  # 待总结的消息块队列
+        self.email_worker_task = None  # email worker 引用
+        self.history_worker_task = None  # history worker 引用
+
         self.logger.info(f"Agent {self.name} 初始化完成")
 
         # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
@@ -510,44 +515,25 @@ class BaseAgent(AutoLoggerMixin):
 
 
     async def run(self):
+        """主循环：启动并监控双 worker"""
+        # 🆕 启动两个 worker
+        self.email_worker_task = asyncio.create_task(self._email_worker())
+        self.history_worker_task = asyncio.create_task(self._history_worker())
+
         await self.emit("SYSTEM", f"{self.name} Started")
-        while True:
-            try:
-                email = await asyncio.wait_for(self.inbox.get(), timeout=3)
-                try:
-                    self.last_received_email = email
-                    self.last_email_processed = False
-                    await self.process_email(email)
-                    # 只在正常完成后标记为 True
-                    self.last_email_processed = True
-                except asyncio.CancelledError:
-                    # 任务被取消，保持 last_email_processed = False
-                    self.logger.warning(f"Task cancelled, email {self.last_received_email.id if self.last_received_email else 'None'} not completed")
-                except Exception as e:
-                    self.logger.exception(f"Failed to process email in {self.name}")
-                finally:
-                    # 无论成功、失败还是取消，都要标记任务完成
-                    self.inbox.task_done()
-            except asyncio.TimeoutError:
-                # 可选：定期任务、健康检查等
-                continue
-            except asyncio.CancelledError:
-                # 主循环被取消，退出
-                self.logger.info(f"{self.name} main loop cancelled")
-                break
-            except RuntimeError as e:
-                # Event loop 已关闭，优雅退出
-                if "Event loop is closed" in str(e) or "no running event loop" in str(e):
-                    self.logger.info(f"{self.name} event loop closed, exiting")
-                    break
-                self.logger.exception(f"Runtime error in {self.name} main loop")
-            except Exception as e:
-                self.logger.exception(f"Unexpected error in {self.name} main loop")
-                try:
-                    await asyncio.sleep(1)  # 防止异常风暴
-                except RuntimeError:
-                    # Event loop 可能已关闭
-                    break
+
+        # 监控 email_worker（history_worker 由 email_worker 管理）
+        try:
+            await asyncio.gather(self.email_worker_task, return_exceptions=True)
+        except asyncio.CancelledError:
+            self.logger.info(f"{self.name} main loop cancelled")
+            # 取消所有 worker
+            if self.email_worker_task:
+                self.email_worker_task.cancel()
+            if self.history_worker_task:
+                self.history_worker_task.cancel()
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in {self.name} main loop")
 
     async def process_email(self, email: Email):
         """
@@ -642,6 +628,235 @@ class BaseAgent(AutoLoggerMixin):
             result_preview = result if result else 'No result'
         self.logger.debug(f"Email processing completed. Result: {result_preview}")
         self.logger.info(f"Session {session['session_id'][:8]} now has {len(session['history'])} messages")
+
+    # ==================== 🆕 双 Worker 模型 ====================
+
+    async def _email_worker(self):
+        """
+        邮件处理 Worker（独立任务）
+
+        职责：
+        - 监听 inbox，阻塞等待邮件
+        - 来邮件时取消 history_worker
+        - 处理邮件
+        - 邮件处理完成后恢复 history_worker
+        """
+        self.logger.info("📧 Email worker 已启动")
+
+        try:
+            while True:
+                try:
+                    # 阻塞等待邮件
+                    email = await self.inbox.get()
+
+                    # ⚠️ 取消 history_worker（如果正在运行）
+                    if self.history_worker_task and not self.history_worker_task.done():
+                        self.logger.info("⏸️ 取消 history worker（开始处理邮件）")
+                        self.history_worker_task.cancel()
+
+                    # 处理邮件（现有逻辑）
+                    self.last_received_email = email
+                    self.last_email_processed = False
+
+                    try:
+                        await self.process_email(email)
+                        self.last_email_processed = True
+                    except asyncio.CancelledError:
+                        # 任务被取消，保持 last_email_processed = False
+                        self.logger.warning(
+                            f"Task cancelled, email "
+                            f"{self.last_received_email.id if self.last_received_email else 'None'} "
+                            f"not completed"
+                        )
+                    except Exception as e:
+                        self.logger.exception(f"Failed to process email in {self.name}")
+                    finally:
+                        # 标记任务完成
+                        self.inbox.task_done()
+
+                    # ✅ 邮件处理完成，恢复 history_worker
+                    self.history_worker_task = asyncio.create_task(self._history_worker())
+                    self.logger.info("✅ 邮件处理完成，恢复 history worker")
+
+                except Exception as e:
+                    self.logger.exception(f"Error in email_worker: {e}")
+                    # 继续循环
+
+        except asyncio.CancelledError:
+            self.logger.info("📧 Email worker 已停止")
+            raise
+
+    async def _history_worker(self):
+        """
+        历史整理 Worker（独立任务，可被打断）
+
+        职责：
+        - 处理 pending_summaries_queue
+        - 生成 event list（调用 LLM）
+        - 持久化到数据库
+        - 被 email_worker 打断时自动恢复
+
+        特性：
+        - 可被取消（CancelledError）
+        - 被取消时放回当前 item 到队列头部
+        - 每次处理完 sleep(1)（限流）
+        """
+        self.logger.info("🔄 History worker 已启动")
+
+        try:
+            while True:
+                try:
+                    # 🔄 检查队列
+                    if not self.pending_summaries_queue:
+                        await asyncio.sleep(2)  # 队列为空，等待
+                        continue
+
+                    # 获取待处理项
+                    summary_item = self.pending_summaries_queue.pop(0)
+
+                    try:
+                        self.logger.info(
+                            f"🔄 处理待总结项 "
+                            f"(队列剩余: {len(self.pending_summaries_queue)})"
+                        )
+
+                        # 生成 event list（可能被取消）
+                        events = await self._generate_event_list(summary_item)
+
+                        # 持久化
+                        if events:
+                            await self._persist_event_list(events)
+
+                        self.logger.info(f"✅ 已生成 {len(events)} 个事件")
+
+                        # 限流：每次间隔1秒
+                        await asyncio.sleep(1)
+
+                    except asyncio.CancelledError:
+                        # ⚠️ 被取消（email_worker 来邮件了）
+                        self.logger.info("⚠️ History worker 被取消（邮件打断）")
+                        # 把当前 item 放回队列头部
+                        self.pending_summaries_queue.insert(0, summary_item)
+                        raise  # 重新抛出，结束任务
+
+                except Exception as e:
+                    self.logger.warning(f"❌ 处理失败: {e}")
+                    # 继续处理下一个
+
+        except asyncio.CancelledError:
+            # 最外层捕获（确保任务被正确取消）
+            self.logger.info("🛑 History worker 已停止")
+            raise
+
+    async def _generate_event_list(self, summary_item: dict) -> List[Dict]:
+        """
+        生成事件列表
+
+        Args:
+            summary_item: 待总结的消息块
+                - messages: List[Dict]
+                - timestamp: float
+                - agent_name: str
+                - run_label: str
+
+        Returns:
+            List[Dict]: [{"event": str, "entities": List[str]}]
+        """
+        from datetime import datetime
+        from ..skills.memory.parser_utils import events_list_parser
+        from ..utils.token_utils import format_conversation_messages
+
+        prompt = f"""
+# Role
+你是一个高维度的**对话事实提取者**。你的任务不是简单的总结，而是从对话历史中**提取独立的、自包含的原子事实**
+
+# 核心原则
+
+**自包含**：无代词，无指代，独立存在
+**原子化**：描述一个实体的一个状态跃迁
+**永久性**：有长期价值，不过时
+**对话相关**: 甄别对话本身的事实和事件，而非对话所涉及讨论的事实事件 
+
+# 提取流程
+
+0. **相关性识别**: 只关注对话本身的事实和事件，而非所讨论的事实和事件。例如在“搜索某某新闻”的任务对话中，搜索的进度和状态是会话本身的事实和事件，而具体新闻本身是讨论的事实和事件。
+1. **识别实体**：提取对话涉及的主要实体名，即事件的“主语”和“宾语”,并且只保留主干，例如“财务经理张三”，应该识别为“张三”
+2. **提取跃迁**：创建、变化、连接、属性获得
+3. **消歧去噪**：还原代词，剔除过程性信息
+
+# 输出格式
+
+在 `[EVENTS]` section 下输出 Markdown 格式：
+
+```
+[EVENTS]
+# 事件1描述文本（尽量包含who what when)
+实体1, 实体2, 实体3
+
+# 事件2描述文本（尽量包含who what when)
+实体A, 实体B
+
+# 事件3描述文本（尽量包含who what when)
+实体X
+```
+如果没有事件，输出：
+```
+[EVENTS]
+NO EVENTS
+```
+
+
+**规则**：
+- 每个事件用标题（`# `）
+- 事件描述：具体、客观、无代词
+- 实体列表：标题下方，逗号或换行分隔
+- 数量：由你判断，宁缺毋滥
+
+
+# Conversation History
+{format_conversation_messages(summary_item['messages'])}
+
+Extract facts now.
+"""
+
+        # 使用 think_with_retry 获取 events
+        result = await self.cerebellum.backend.think_with_retry(
+            initial_messages=prompt,
+            parser=events_list_parser,
+            max_retries=2
+        )
+
+        return result  # List[Dict]: [{"event": str, "entities": List[str]}]
+
+    async def _persist_event_list(self, events: List[Dict]):
+        """
+        持久化事件列表到 Timeline
+
+        Args:
+            events: List[Dict] with keys: {"event": str, "entities": List[str]}
+        """
+        if not events:
+            return
+
+        from ..skills.memory.storage import append_timeline_events
+
+        # 获取上下文信息
+        workspace_root = self._workspace_root
+        agent_name = self.name
+        session_id = self.current_user_session_id or "default"
+
+        try:
+            await append_timeline_events(
+                workspace_root=workspace_root,
+                agent_name=agent_name,
+                session_id=session_id,
+                events=events  # 直接传递事件对象列表
+            )
+            self.logger.info(f"💾 成功持久化 {len(events)} 个事件到 Timeline")
+        except Exception as e:
+            self.logger.error(f"❌ 持久化事件失败: {e}", exc_info=True)
+
+    # ==================== 🆕 双 Worker 模型结束 ====================
 
     def _get_llm_context(self, session: dict) -> List[Dict]:
         """
