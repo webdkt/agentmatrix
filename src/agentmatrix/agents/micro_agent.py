@@ -416,6 +416,10 @@ Start generating the Whiteboard now.
         Returns:
             str: 生成的 whiteboard
         """
+        # 🆕 压缩前：保存待总结 messages（仅 top-level）
+        if self._should_collect_summaries():
+            self._push_pending_summary()
+
         whiteboard = await self._generate_whiteboard_summary(self.messages)
 
         # ========== 1. 处理 system message ==========
@@ -461,6 +465,42 @@ Start generating the Whiteboard now.
         self.last_compression_step = self.current_step
 
         return whiteboard
+
+    def _should_collect_summaries(self) -> bool:
+        """
+        判断是否应该收集待总结内容
+
+        Returns:
+            bool: 是否是 top-level MicroAgent
+        """
+        from .base import BaseAgent
+        return isinstance(self.parent, BaseAgent)
+
+    def _push_pending_summary(self):
+        """
+        推送待总结消息到 root_agent 的队列
+
+        仅 top-level MicroAgent 调用，由 BaseAgent 的 history_worker 处理
+        """
+        import time
+
+        # 过滤掉 system message（总结不需要 system prompt）
+        filtered_messages = [msg.copy() for msg in self.messages if msg.get('role') != 'system']
+
+        summary_item = {
+            'messages': filtered_messages,
+            'timestamp': time.time(),
+            'agent_name': self.name,
+            'run_label': self.run_label
+        }
+
+        # 推送到 root_agent 的队列
+        self.root_agent.pending_summaries_queue.append(summary_item)
+
+        self.logger.debug(
+            f"📥 已推送待总结消息到队列 "
+            f"(当前队列长度: {len(self.root_agent.pending_summaries_queue)})"
+        )
 
     # ==================== 🆕 自动压缩机制结束 ====================
 

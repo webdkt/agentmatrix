@@ -84,6 +84,7 @@ class StorageManager:
             CREATE TABLE IF NOT EXISTS Timeline_Log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_text TEXT NOT NULL,
+                entities JSON,
                 processed BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -182,12 +183,24 @@ class StorageManager:
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def append_timeline(self, event_text: str) -> int:
-        """追加 timeline 日志"""
+    def append_timeline(self, event_text: str, entities: List[str] = None) -> int:
+        """追加 timeline 日志
+
+        Args:
+            event_text: 事件描述文本
+            entities: 实体列表（可选）
+
+        Returns:
+            int: 新记录的 ID
+        """
+        import json
+
+        entities_json = json.dumps(entities) if entities else None
+
         cursor = self.conn.execute("""
-            INSERT INTO Timeline_Log (event_text, processed)
-            VALUES (?, FALSE)
-        """, (event_text,))
+            INSERT INTO Timeline_Log (event_text, entities, processed)
+            VALUES (?, ?, FALSE)
+        """, (event_text, entities_json))
 
         self.conn.commit()
         return cursor.lastrowid
@@ -323,7 +336,7 @@ async def append_timeline_events(
     workspace_root: str,
     agent_name: str,
     session_id: str,
-    events: List[str]
+    events: List[Dict]
 ) -> None:
     """
     批量追加 timeline 事件
@@ -332,11 +345,13 @@ async def append_timeline_events(
         workspace_root: 工作区根目录
         agent_name: Agent 名称
         session_id: 用户会话 ID
-        events: 事件文本列表
+        events: 事件对象列表，每个事件包含 {"event": str, "entities": List[str]}
     """
     session_db = await get_session_db(workspace_root, agent_name, session_id)
     try:
-        for event in events:
-            session_db.append_timeline(event)
+        for event_obj in events:
+            event_text = event_obj.get("event", "")
+            entities = event_obj.get("entities", [])
+            session_db.append_timeline(event_text, entities)
     finally:
         await session_db.close()

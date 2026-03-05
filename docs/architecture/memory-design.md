@@ -4,7 +4,24 @@
 
 ---
 
-# 交互式自然语言永久记忆系统设计文档 (v3.1 - 两层实体记忆架构版)
+# 交互式自然语言永久记忆系统设计文档 (v3.2 - 当前实现版)
+
+## 🚧 架构演进说明
+
+**v3.2 当前实现**（架构调整）：
+- ✅ Whiteboard 生成已内置到 MicroAgent（完整 Liquid Metal 架构）
+- ✅ 自动内存压缩（32K tokens 触发，智能保留原始用户请求）
+- ✅ 两层实体记忆（session + global）
+- ✅ Recall 查询（精确匹配）
+- ⚠️ Recall hint 参数：暂未实现，计划后续补充
+- ✅ Timeline 持久化
+- ❌ 后台 Workers：未实现
+
+**v3.1 → v3.2 主要变化**：
+- ~~Fork 机制~~ → 简化为单次 LLM 调用
+- ~~whiteboard 在 skill.py~~ → 内置到 MicroAgent
+- ~~简单的压缩逻辑~~ → 智能保留原始用户请求（支持重复压缩）
+- workers 设计保留（待实现）
 
 ## 0. AgentMatrix 架构背景
 
@@ -100,10 +117,10 @@ BaseAgent (管理会话)
 
 存储在 `session_memory.db` 中：
 
-*   **`log_id` (String, PK)**: 日志 ID。
-*   **`timestamp` (DateTime)**: 事件发生时间。
-*   **`content` (Text)**: **自包含**的事件描述（不含代词，实体名完整）。
+*   **`id` (Integer, PK, AUTOINCREMENT)**: 日志 ID（自增主键）。
+*   **`event_text` (Text)**: **自包含**的事件描述（不含代词，实体名完整）。
 *   **`processed` (Boolean)**: 是否已被后台合并，默认为 `False`。
+*   **`created_at` (DateTime)**: 事件创建时间（自动生成）。
 
 ### 2.4 并发控制与 WAL 模式
 
@@ -183,13 +200,16 @@ if isinstance(self.parent, BaseAgent):
 *   **输入**:
     *   `question` (必须): 要回忆什么（如"张三的职位是什么"）
     *   `entity_name` (必须): 应该隶属于哪个实体（如"张三"）
-    *   `hint` (可选): 辅助线索（如"财务总监"）
+    *   `hint` (可选): 辅助线索（如"财务总监"）⚠️ 暂未实现，计划后续补充
 
-*   **查询顺序**（🆕 删除 whiteboard 查询）:
+*   **查询顺序**:
     1.  **Session 实体记忆**（当前对话的临时信息）
     2.  **全局实体记忆**（跨 session 长期信息）
 
-    > **注意**：Whiteboard 始终在 messages 中，LLM 每次都能看到，因此 recall 不需要专门查询 whiteboard。
+*   **查询逻辑**:
+    - 使用**精确匹配**查找 entity profiles
+    - 按 canonical_name 合并 session 和 global 结果
+    - 批量问 LLM（每个 batch 最多 5000 tokens）
 
 *   **LLM 组织回答**:
     *   使用**小模型** (`cerebellum`) 来组织回答
@@ -209,33 +229,39 @@ if isinstance(self.parent, BaseAgent):
 
 *   **调用方式**: `update_memory(focus_hint="...")`（可选参数）
 *   **`focus_hint` (可选)**:
-    *   **作用**: 指导 LLM 在生成 whiteboard 时**重点关注什么**。
-    *   **用途**: 让总结更聚焦，突出特定方面。
+    *   **作用**: 指导 LLM 在生成 whiteboard 时**重点关注什么**
+    *   **用途**: 让总结更聚焦，突出特定方面
     *   **示例**:
         *   `focus_hint="重点关注财务相关决策"` → whiteboard 会突出财务预算、审批流程
         *   `focus_hint="突出实体关系变化"` → whiteboard 会强调张三从"新同事"变为"财务总监"
         *   `focus_hint="记录当前待解决问题"` → whiteboard 会列出未解决的疑问
 
-*   **Fork 机制**: 系统会获取当前 `self.messages`（完整会话历史），并启动两个独立的 LLM 调用：
-    *   **LLM 实例 A**: 分析会话历史 → 生成 `new_whiteboard`（当前状态快照，**使用 focus_hint**）
-    *   **LLM 实例 B**: 分析会话历史 → 生成 `memory_events`（关键事件增量，**不使用 focus_hint**）
+*   **执行流程**:
+    1.  调用 MicroAgent 内置的 `_compress_messages(focus_hint)`
+        - 生成 new whiteboard（基于 focus_hint，如果提供）
+        - 压缩 messages（智能保留原始用户请求）
+    2.  **如果是 Top-Level**：
+        - 持久化 whiteboard 到 `whiteboard.md`
+        - 生成 memory_events（关键事件增量）
+        - 追加到 timeline（`session_memory.db`）
+    3.  **如果是内层 MicroAgent**：
+        - 仅压缩 messages，不持久化
 
 *   **`new_whiteboard` (自动生成)**:
-    *   **作用**: 更新 System Prompt，服务于下一轮对话。
-    *   **内容**: 当前状态的**总结**（Snapshot）。丢弃过时的细节。
-    *   **格式**: Markdown（如 `# 当前对话状态\n## 主题\n## 涉及实体\n## 已确认决策`）
-    *   **🆕 受 `focus_hint` 影响**: 如果提供 focus_hint，总结会更聚焦
+    *   **作用**: 更新 System Prompt，服务于下一轮对话
+    *   **内容**: 当前状态的**总结**（Snapshot），丢弃过时的细节
+    *   **格式**: Markdown（动态结构，基于 Liquid Metal 架构）
+    *   **受 `focus_hint` 影响**: 如果提供 focus_hint，总结会更聚焦
 
 *   **`memory_events` (自动生成)**:
-    *   **作用**: 发送给后台，用于永久记忆。
-    *   **内容**: 自上次 Commit 以来发生的**关键事件增量**。
-    *   **约束**: **严禁使用代词**（他/她/它），必须还原为实体全名。
+    *   **作用**: 发送给后台，用于永久记忆（仅 Top-Level）
+    *   **内容**: 自上次 Commit 以来发生的**关键事件增量**
+    *   **约束**: **严禁使用代词**（他/她/它），必须还原为实体全名
     *   *示例*: `["用户确认将 Alpha 项目预算增加至 50 万", "财务总监张三拒绝了报销申请"]`
 
 **优点**：
 - ✅ **简化 LLM 负担**：不需要手动构造参数，调用 `update_memory()` 即可
 - ✅ **自动提取**：从会话历史自动提取信息，不会遗漏
-- ✅ **并行执行**：两个 LLM 调用并行，性能更好
 - ✅ **一致性**：whiteboard 和 memory_events 都基于同一份会话历史，不会矛盾
 - ✅ **灵活聚焦**：通过 `focus_hint` 引导 LLM 总结重点，让 whiteboard 更有针对性
 
@@ -257,121 +283,23 @@ is_top_level = isinstance(self.parent, BaseAgent)
 
 ### execute 循环改造
 
-```python
-class MicroAgent:
-    async def execute(self, task_instruction, parent=None):
-        # 初始化 whiteboard（仅 top-level）
-        if isinstance(parent, BaseAgent):
-            self.whiteboard = await self._load_whiteboard()
+在主循环中检测 `update_memory` action 时，执行特殊逻辑：
 
-        while True:
-            # 1. Think (LLM 决策下一步)
-            action, args = await self._think()
+**流程**：
+1. 获取 `focus_hint` 参数（可选）
+2. 调用 `_compress_messages(focus_hint)`
+   - 生成 new whiteboard（Liquid Metal 架构）
+   - 智能压缩 messages（保留原始用户请求）
+3. **如果是 Top-Level**：
+   - 持久化 whiteboard（`whiteboard.md`）
+   - 生成 memory_events（关键事件增量）
+   - 追加到 timeline（`session_memory.db`）
+4. `continue` 下一轮循环（不记录 result）
 
-            # 2. 检查是否需要退出
-            if action in ["all_finished"]:
-                break
-
-            # 3. 执行 action
-            result = await self._execute_action(action, args)
-
-            # 4. 🆕 特殊处理 update_memory（可选 focus_hint，自动提取）
-            if action == "update_memory":
-                # 获取 focus_hint（可选参数）
-                focus_hint = args.get("focus_hint", "")
-
-                # 自动从会话历史提取信息（fork 机制）
-                new_whiteboard, memory_events = await self._extract_from_history(focus_hint)
-
-                # Top-Level: 额外持久化
-                if isinstance(self.parent, BaseAgent):
-                    await self._save_whiteboard(new_whiteboard)
-                    await self._append_timeline(memory_events)
-                    await self._trigger_workers()
-
-                # 压缩 messages，继续下一轮循环
-                await self._compress_messages(new_whiteboard)
-
-                continue  # 不 append result，直接下一轮
-
-            # 5. 正常流程：append result 到 messages
-            self.messages.append({"role": "assistant", "content": result})
-
-    async def _extract_from_history(self, focus_hint: str = ""):
-        """🆕 Fork 机制：从会话历史自动提取信息"""
-        # 1. 获取当前会话历史
-        messages = self.messages
-
-        # 2. 并发调用两个 LLM 总结
-        whiteboard_task = self._generate_whiteboard_summary(messages, focus_hint)
-        events_task = self._generate_memory_events(messages)
-
-        # 3. 并行执行，等待结果
-        new_whiteboard, memory_events = await asyncio.gather(
-            whiteboard_task,
-            events_task
-        )
-
-        return new_whiteboard, memory_events
-
-    async def _generate_whiteboard_summary(self, messages, focus_hint: str = ""):
-        """LLM 总结：生成 whiteboard（当前状态快照）"""
-        prompt = f"""
-分析以下对话历史，生成当前对话状态的总结。
-
-要求：
-1. Markdown 格式
-2. 包含：当前主题、涉及实体、已确认决策
-3. 简洁明了，丢弃过时细节
-"""
-
-        # 🆕 添加 focus_hint
-        if focus_hint:
-            prompt += f"""
-**重点关注**：{focus_hint}
-
-请在总结中特别突出这方面的信息。
-"""
-
-        prompt += f"""
-对话历史：
-{format_messages(messages)}
-
-输出 whiteboard 内容：
-"""
-        llm = self.root_agent.cerebellum
-        return await llm.generate(prompt)
-
-    async def _generate_memory_events(self, messages):
-        """LLM 总结：生成 memory_events（关键事件增量）"""
-        prompt = f"""
-分析以下对话历史，提取关键事件（用于长期记忆）。
-
-要求：
-1. 自包含的完整事件（不含代词）
-2. 实体名必须完整
-3. 仅包含有长期价值的信息
-
-对话历史：
-{format_messages(messages)}
-
-输出 JSON 列表：
-["事件1", "事件2", ...]
-"""
-        llm = self.root_agent.cerebellum
-        return await llm.generate(prompt)
-
-    async def _compress_messages(self, new_whiteboard: str):
-        """压缩 messages，保留 system_prompt，添加总结"""
-        # 保留 system_prompt
-        system_msg = self.messages[0]
-
-        # 压缩历史
-        self.messages = [
-            system_msg,
-            {"role": "user", "content": f"[上下文总结]\n{new_whiteboard}\n\n请继续执行下一步。"}
-        ]
-```
+**关键特性**：
+- update_memory 不返回结果到 messages（避免循环引用）
+- 所有层级都执行压缩，但只有 Top-Level 持久化
+- Whiteboard 生成逻辑内置在 MicroAgent，使用完整 Liquid Metal 架构
 
 ---
 
@@ -557,9 +485,9 @@ class BaseAgent:
     *   **回复用户**: "你提到的这个财务张三，和咱们之前聊的那个做开发的张三是两个人对吧？"
 3.  **用户**: "对，是两个人。"
 4.  **前台 Top-Level LLM**:
-    *   调用 `update_memory(focus_hint="突出新实体识别和财务相关决策")`（🆕 使用 focus_hint）。
-    *   **系统自动执行（Fork 机制）**：
-        *   **LLM A** 生成 `new_whiteboard`:
+    *   调用 `update_memory(focus_hint="突出新实体识别和财务相关决策")`。
+    *   **系统自动执行**：
+        *   生成 `new_whiteboard`:
             ```markdown
             # 当前对话状态
 
@@ -572,11 +500,11 @@ class BaseAgent:
             ## 已确认决策
             - 报销单被退回（待重新提交）
             ```
-        *   **LLM B** 生成 `memory_events`: `["用户确认存在一个新实体：财务总监张三", "财务总监张三退回了用户的报销单"]`
+        *   生成 `memory_events`: `["用户确认存在一个新实体：财务总监张三", "财务总监张三退回了用户的报销单"]`
     *   **执行**:
         *   更新 whiteboard（内存 + whiteboard.md）
         *   写入 session_memory.db
-        *   触发 workers
+        *   触发 workers（待实现）
 5.  **后台 Session Worker (异步，闲时执行)**:
     *   读取 `memory_events`。
     *   **Judge**：
@@ -629,14 +557,14 @@ class BaseAgent:
 2.  **第二层 MicroAgent**:
     *   执行复杂的子任务（如浏览器搜索 + 分析）。
     *   Messages 过长（接近 token 限制）。
-    *   LLM 决定调用 `update_memory()`（🆕 无参数）。
-    *   **系统自动执行（Fork 机制）**：
-        *   **LLM A** 生成 `new_whiteboard`: "已搜索 3 个网站，找到 Alpha 项目预算信息..."
-        *   **LLM B** 生成 `memory_events`: []（空列表，因为是内层任务，不持久化）
+    *   LLM 决定调用 `update_memory()`。
+    *   **系统自动执行**：
+        *   生成 `new_whiteboard`: "已搜索 3 个网站，找到 Alpha 项目预算信息..."
+        *   （不生成 memory_events，因为是内层任务）
     *   **执行**:
         *   压缩 messages（保留 system_prompt + 总结）
         *   继续下一轮循环
-        *   ❌ 不写入 timeline（因为是内层）
+        *   ❌ 不持久化（内层 MicroAgent）
 3.  **第二层 MicroAgent**: 完成任务，返回结果给 Top-Level。
 4.  **Top-Level LLM**: 根据返回结果，决定是否 `update_memory`（持久化）。
 
@@ -658,220 +586,72 @@ src/agentmatrix/skills/memory/
 
 ### 7.2 SQLite WAL 模式配置
 
-```python
-import sqlite3
-from pathlib import Path
-
-class StorageManager:
-    """SQLite 数据库管理器（支持 WAL 模式）"""
-
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        self.conn = None
-
-    async def connect(self):
-        """连接数据库并开启 WAL 模式"""
-        # 确保目录存在
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        self.conn = sqlite3.connect(self.db_path)
-
-        # ✅ 开启 WAL 模式（关键！）
-        self.conn.execute("PRAGMA journal_mode=WAL;")
-        self.conn.execute("PRAGMA synchronous=NORMAL;")  # 平衡性能和安全
-        self.conn.execute("PRAGMA cache_size=-64000;")   # 64MB 缓存
-
-        self.conn.row_factory = sqlite3.Row  # 返回字典格式
-
-    async def close(self):
-        """关闭数据库连接"""
-        if self.conn:
-            self.conn.close()
-
-# 使用示例
-async def get_global_db(workspace_root: str, agent_name: str) -> StorageManager:
-    """获取全局记忆数据库连接"""
-    db_path = os.path.join(
-        workspace_root,
-        ".matrix",
-        agent_name,
-        "memory",
-        "global_memory.db"
-    )
-    # 示例：MyWorld/workspace/.matrix/Tom/memory/global_memory.db
-
-    storage = StorageManager(db_path)
-    await storage.connect()
-
-    # 初始化表结构
-    storage.conn.execute("""
-        CREATE TABLE IF NOT EXISTS Entity_Profiles (
-            uid TEXT PRIMARY KEY,
-            canonical_name TEXT,
-            aliases JSON,
-            summary TEXT,
-            profile_text TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    storage.conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_name
-        ON Entity_Profiles(canonical_name)
-    """)
-
-    return storage
-```
-
-**关键配置说明**：
+**配置要求**：
+- 所有数据库连接必须开启 WAL 模式
 - `PRAGMA journal_mode=WAL;`: 开启 WAL 模式（必须）
-- `PRAGMA synchronous=NORMAL;`: 平衡性能和数据安全（默认 FULL 太慢）
-- `PRAGMA cache_size=-64000;`: 增加缓存到 64MB（提升性能）
+- `PRAGMA synchronous=NORMAL;`: 平衡性能和数据安全
+- `PRAGMA cache_size=-64000;`: 64MB 缓存
+
+**实现位置**：`src/agentmatrix/skills/memory/storage.py:StorageManager`
 
 ### 7.3 判断 Top-Level
 
+**判断逻辑**：
 ```python
-# 在 MemorySkillMixin 中
-def _is_top_level(self):
-    """判断是否是 top-level MicroAgent"""
-    return isinstance(self.parent, BaseAgent)
+isinstance(self.parent, BaseAgent)
 ```
 
-### 7.4 Recall 实现（合并两份档案）
+**用途**：区分 Top-Level MicroAgent（需要持久化）和内层 MicroAgent（仅压缩）
 
-```python
-async def recall(self, question: str, entity_name: str, hint: str = ""):
-    """回忆实体或事实（从两个地方获取）"""
+### 7.4 Recall 实现
 
-    # 1. Session 实体记忆（临时信息）
-    session_profiles = await self._search_session_entities(entity_name, hint)
+**查询流程**：
+1. 精确匹配查找 entity profiles（session + global）
+2. 按 canonical_name 合并拼接
+3. 批量问 LLM（每个 batch 最多 5000 tokens）
+4. 返回第一个能回答的 LLM 结果
 
-    # 2. 全局实体记忆（长期信息）
-    global_profiles = await self._search_global_entities(entity_name, hint)
+**⚠️ 注意**：hint 参数暂未实现，计划后续补充
 
-    # 3. 🆕 LLM 合并两份档案
-    answer = await self._llm_merge_profiles(
-        question=question,
-        entity_name=entity_name,
-        session_profiles=session_profiles,  # 临时信息
-        global_profiles=global_profiles      # 长期信息
-    )
+**实现位置**：`src/agentmatrix/skills/memory/skill.py:recall()`
 
-    return answer
+### 7.5 update_memory 实现
 
-async def _llm_merge_profiles(self, question, entity_name, session_profiles, global_profiles):
-    """调用 LLM 合并 session 和全局档案"""
-    prompt = f"""
-基于以下信息回答用户的问题：
+**执行流程**：
+1. 调用 MicroAgent 内置的 `_compress_messages(focus_hint)`
+   - 生成 new whiteboard（基于 focus_hint，如果提供）
+   - 压缩 messages（智能保留原始用户请求）
+2. **如果是 Top-Level**：
+   - 持久化 whiteboard 到 `whiteboard.md`
+   - 生成 memory_events（关键事件增量）
+   - 追加到 timeline（`session_memory.db`）
+3. **如果是内层 MicroAgent**：
+   - 仅压缩 messages，不持久化
 
-问题：{question}
-实体名：{entity_name}
+**实现位置**：
+- Whiteboard 生成：`src/agentmatrix/agents/micro_agent.py:_generate_whiteboard_summary()`
+- 消息压缩：`src/agentmatrix/agents/micro_agent.py:_compress_messages()`
+- 持久化：`src/agentmatrix/skills/memory/skill.py:update_memory()`
 
-=== 会话级实体档案（临时信息）===
-{format_profiles(session_profiles)}
+### 7.6 消息压缩逻辑
 
-=== 全局实体档案（长期信息）===
-{format_profiles(global_profiles)}
+`_compress_messages()` 负责压缩对话历史，防止 token 溢出。
 
-请综合两份档案，给出完整的答案。如果信息有重复，自然整合即可。如果没有找到相关信息，请说明"没有找到相关信息"。
-"""
+**核心逻辑**：
+1. **保留系统提示**：如果第一个 message 是 system，保留它
+2. **定位原始请求**：找到第一个 user message（用户的原始任务描述）
+3. **智能更新 Whiteboard**：
+   - 检查是否已包含 `[WHITEBOARD]` 标志
+   - **如果有**：替换旧 whiteboard（保留标志之前的内容）
+   - **如果没有**：追加新 whiteboard
+4. **重建消息列表**：
+   - 有 system: `[system, user(原始内容 + [WHITEBOARD] + 新whiteboard)]`
+   - 无 system: `[user(原始内容 + [WHITEBOARD] + 新whiteboard)]`
 
-    llm = self.root_agent.cerebellum
-    response = await llm.generate(prompt)
-    return response
-```
-
-### 7.5 update_memory 实现（Fork 机制）
-
-```python
-@register_action(
-    "更新记忆。当对话告一段落或完成重要信息澄清时调用此 action。",
-    param_infos={
-        "focus_hint": "可选。指导总结重点，如'重点关注财务决策'、'突出实体关系变化'等"
-    }
-)
-async def update_memory(self, focus_hint: str = ""):
-    """更新记忆（自动从会话历史提取）"""
-
-    # 1. 获取当前会话历史
-    messages = self.messages
-
-    # 2. 并发调用两个 LLM 总结（并行执行）
-    whiteboard_task = self._generate_whiteboard_summary(messages, focus_hint)
-    events_task = self._generate_memory_events(messages)
-
-    # 3. 并行执行，等待结果
-    new_whiteboard, memory_events = await asyncio.gather(
-        whiteboard_task,
-        events_task
-    )
-
-    # 4. Top-Level: 持久化
-    if isinstance(self.parent, BaseAgent):
-        await self._save_whiteboard(new_whiteboard)
-        await self._append_timeline(memory_events)
-        await self._trigger_workers()
-
-    # 5. 压缩 messages（所有层级）
-    await self._compress_messages(new_whiteboard)
-
-    return "记忆已更新"
-
-async def _generate_whiteboard_summary(self, messages, focus_hint: str = ""):
-    """LLM 总结：生成 whiteboard（当前状态快照）"""
-    prompt = f"""
-分析以下对话历史，生成当前对话状态的总结。
-
-要求：
-1. Markdown 格式（# 当前状态\n## 主题\n## 涉及实体\n## 已确认决策）
-2. 简洁明了，丢弃过时细节
-"""
-
-    # 🆕 添加 focus_hint
-    if focus_hint:
-        prompt += f"""
-**重点关注**：{focus_hint}
-
-请在总结中特别突出这方面的信息。
-"""
-
-    prompt += f"""
-对话历史：
-{format_messages(messages)}
-
-输出 whiteboard 内容：
-"""
-    llm = self.root_agent.cerebellum
-    return await llm.generate(prompt)
-
-async def _generate_memory_events(self, messages):
-    """LLM 总结：生成 memory_events（关键事件增量）"""
-    prompt = f"""
-分析以下对话历史，提取关键事件（用于长期记忆）。
-
-要求：
-1. 自包含的完整事件（不含代词）
-2. 实体名必须完整
-3. 仅包含有长期价值的信息
-
-对话历史：
-{format_messages(messages)}
-
-输出 JSON 列表：
-["事件1", "事件2", ...]
-"""
-    llm = self.root_agent.cerebellum
-    return await llm.generate(prompt)
-
-async def _compress_messages(self, new_whiteboard: str):
-    """压缩 messages，保留 system_prompt，添加总结"""
-    system_msg = self.messages[0]
-    self.messages = [
-        system_msg,
-        {"role": "user", "content": f"[上下文总结]\n{new_whiteboard}\n\n请继续执行下一步。"}
-    ]
-```
+**设计优势**：
+- ✅ 支持重复压缩：每次压缩都会更新 whiteboard，同时保留用户原始意图
+- ✅ 无丢失风险：原始用户请求始终保留在第一个 user message 中
+- ✅ 灵活适应：无论是否有 system prompt 都能正确处理
 
 ---
 
