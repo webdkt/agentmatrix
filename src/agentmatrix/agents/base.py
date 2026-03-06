@@ -70,10 +70,6 @@ class BaseAgent(AutoLoggerMixin):
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
 
-        # working_context（指向 private_workspace）
-        # 注意：此时 private_workspace 可能还是 None（因为没有 user_session_id）
-        # 会在 process_email 中更新
-        self.working_context = None
 
         # 🔀 暂停/恢复机制
         self._paused = False
@@ -92,27 +88,14 @@ class BaseAgent(AutoLoggerMixin):
         self.email_worker_task = None  # email worker 引用
         self.history_worker_task = None  # history worker 引用
 
+        # 🐳 Docker 容器管理器（延迟初始化，在 workspace_root setter 中初始化）
+        self.docker_manager = None
+
         self.logger.info(f"Agent {self.name} 初始化完成")
 
         # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
         # 不再需要手动注册，移除 _register_new_skills() 方法
 
-    def _update_working_context(self):
-        """
-        更新 working_context，指向 private_workspace
-
-        应该在 process_email 开始时调用，因为 private_workspace 依赖 current_user_session_id
-        """
-        from ..core.working_context import WorkingContext
-
-        if self.private_workspace:
-            self.working_context = WorkingContext(
-                base_dir=str(self.private_workspace),
-                current_dir=str(self.private_workspace)
-            )
-            self.logger.debug(f"Updated working_context: {self.working_context.base_dir}")
-        else:
-            self.working_context = None
 
     def get_persona(self, persona_name: str = "base", **kwargs) -> str:
         """
@@ -133,6 +116,29 @@ class BaseAgent(AutoLoggerMixin):
 
         # 直接渲染，缺变量会抛出 KeyError
         return template.format(**kwargs)
+
+    def _init_docker_manager(self):
+        """初始化 Docker 容器管理器"""
+        from ..core.docker_manager import DockerContainerManager
+
+        if not self._workspace_root:
+            raise RuntimeError("workspace_root 未设置，无法初始化 Docker")
+
+        try:
+            self.docker_manager = DockerContainerManager(
+                agent_name=self.name,
+                workspace_root=self._workspace_root,
+                parent_logger=self.logger
+            )
+
+            # 初始化目录结构
+            self.docker_manager.initialize_directories()
+
+            self.logger.info("✅ Docker 容器管理器初始化成功")
+
+        except Exception as e:
+            self.logger.error(f"Docker 初始化失败: {e}")
+            raise  # 不降级，直接抛出异常
 
     def get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
         """
@@ -221,6 +227,10 @@ class BaseAgent(AutoLoggerMixin):
             SKILL_REGISTRY.set_workspace_skills_dir(skills_dir)
 
             self.logger.info(f"✅ SKILLS 目录已初始化: {skills_dir}")
+
+            # 🐳 初始化 Docker 容器管理器（在 workspace_root 设置后）
+            if self.docker_manager is None:
+                self._init_docker_manager()
 
     @property
     def matrix_path(self):
@@ -548,86 +558,105 @@ class BaseAgent(AutoLoggerMixin):
         self.current_session = session
         self.current_user_session_id = session["user_session_id"]
 
-        # 更新 working_context（指向 private_workspace）
-        self._update_working_context()
+        # 🐳 容器模式：唤醒并切换工作区
+        user_session_id = session["user_session_id"]
 
-        # 创建 SessionContext 对象（包装 session["context"]）
-        self._session_context = SessionContext(
-            persistent=True,
-            session_manager=self.session_manager,
-            session=session,
-            initial_data=session.get("context", {})
-        )
-
-        # 设置当前 session 目录
-        if self.workspace_root:
-            from pathlib import Path
-            self.current_session_folder = str(
-                Path(self.workspace_root) /
-                session["user_session_id"] /
-                "history" /
-                self.name /
-                session["session_id"]
+        # 检查 Docker 管理器是否已初始化
+        if self.docker_manager is None:
+            raise RuntimeError(
+                "Docker 容器管理器未初始化。"
+                "请确保 workspace_root 已正确设置。"
             )
-        else:
-            self.current_session_folder = None
 
-        # 2. 准备参数
-        task = str(email)
+        # 唤醒容器
+        self.docker_manager.wakeup()
 
-        # 3. 准备 available_skills（🆕 新架构）
-        available_skills = self.profile.get("skills", [])
+        # 切换工作区
+        success = self.docker_manager.switch_workspace(user_session_id)
+        if not success:
+            raise RuntimeError(f"工作区切换失败: {user_session_id}")
 
-        # 自动注入 base 和 email skills（Top-level MicroAgent 必备）
-        # base: get_current_datetime, take_a_break, ask_user（所有 MicroAgent 必备）
-        # email: send_email（Top-level MicroAgent 需要和用户通信）
-        # 确保 Top-level MicroAgent 始终拥有这些基础 actions
-        for required in ["base", "email"]:
-            if required not in available_skills:
-                available_skills = [required] + available_skills
-
-        # 4. 执行 Micro Agent
-        # 每次创建新的 MicroAgent（使用最新的 working_context）
-        micro_core = MicroAgent(
-            parent=self,
-            working_context=self.working_context,  # ← 传入最新的 working_context
-            name=self.name,
-            available_skills=available_skills  # 🆕 传递可用技能列表
-        )
-        persona = self.get_persona()
-
-
-        result = await micro_core.execute(
-            run_label= 'Process Email',
-            persona=persona,
-            task=task,
-            max_steps=100,
-            # initial_history=session["history"],  # ← 不再需要，session 会传递
-            session=session,  # ← 传递 session
-            session_manager=self.session_manager,  # ← 传递 session_manager
-            yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
-            exit_actions=["rest_n_wait"]  # rest_n_wait 会直接退出，不执行 action 逻辑
-        )
-
-        # 5. 更新 session 元数据
-        # 注意：session["history"] 已经在 MicroAgent 执行过程中自动保存了
-        # 这里只更新其他元数据
-        session["last_sender"] = self.name  # 更新最后发送者
-
-        # 6. 最终保存到磁盘（保险起见，虽然 MicroAgent 已经自动保存）
         try:
-            await self.session_manager.save_session(session)
-            self.logger.debug(f"💾 Final save of session {session['session_id'][:8]}")
-        except Exception as e:
-            self.logger.warning(f"Failed to final-save session: {e}")
+            # 创建 SessionContext 对象（包装 session["context"]）
+            self._session_context = SessionContext(
+                persistent=True,
+                session_manager=self.session_manager,
+                session=session,
+                initial_data=session.get("context", {})
+            )
 
-        # 只有当 result 是字符串且长度超过 100 时才切片
-        if isinstance(result, str) and len(result) > 100:
-            result_preview = f"{result[:100]}..."
-        else:
-            result_preview = result if result else 'No result'
-        self.logger.debug(f"Email processing completed. Result: {result_preview}")
-        self.logger.info(f"Session {session['session_id'][:8]} now has {len(session['history'])} messages")
+            # 设置当前 session 目录
+            if self.workspace_root:
+                from pathlib import Path
+                self.current_session_folder = str(
+                    Path(self.workspace_root) /
+                    session["user_session_id"] /
+                    "history" /
+                    self.name /
+                    session["session_id"]
+                )
+            else:
+                self.current_session_folder = None
+
+            # 2. 准备参数
+            task = str(email)
+
+            # 3. 准备 available_skills（🆕 新架构）
+            available_skills = self.profile.get("skills", [])
+
+            # 自动注入 base 和 email skills（Top-level MicroAgent 必备）
+            # base: get_current_datetime, take_a_break, ask_user（所有 MicroAgent 必备）
+            # email: send_email（Top-level MicroAgent 需要和用户通信）
+            # 确保 Top-level MicroAgent 始终拥有这些基础 actions
+            for required in ["base", "email"]:
+                if required not in available_skills:
+                    available_skills = [required] + available_skills
+
+            # 4. 执行 Micro Agent
+            # 每次创建新的 MicroAgent
+            micro_core = MicroAgent(
+                parent=self,
+                name=self.name,
+                available_skills=available_skills  # 🆕 传递可用技能列表
+            )
+            persona = self.get_persona()
+
+
+            result = await micro_core.execute(
+                run_label= 'Process Email',
+                persona=persona,
+                task=task,
+                max_steps=100,
+                # initial_history=session["history"],  # ← 不再需要，session 会传递
+                session=session,  # ← 传递 session
+                session_manager=self.session_manager,  # ← 传递 session_manager
+                yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
+                exit_actions=["rest_n_wait"]  # rest_n_wait 会直接退出，不执行 action 逻辑
+            )
+
+            # 5. 更新 session 元数据
+            # 注意：session["history"] 已经在 MicroAgent 执行过程中自动保存了
+            # 这里只更新其他元数据
+            session["last_sender"] = self.name  # 更新最后发送者
+
+            # 6. 最终保存到磁盘（保险起见，虽然 MicroAgent 已经自动保存）
+            try:
+                await self.session_manager.save_session(session)
+                self.logger.debug(f"💾 Final save of session {session['session_id'][:8]}")
+            except Exception as e:
+                self.logger.warning(f"Failed to final-save session: {e}")
+
+            # 只有当 result 是字符串且长度超过 100 时才切片
+            if isinstance(result, str) and len(result) > 100:
+                result_preview = f"{result[:100]}..."
+            else:
+                result_preview = result if result else 'No result'
+            self.logger.debug(f"Email processing completed. Result: {result_preview}")
+            self.logger.info(f"Session {session['session_id'][:8]} now has {len(session['history'])} messages")
+
+        finally:
+            # 🐳 容器模式：休眠容器
+            self.docker_manager.hibernate()
 
     # ==================== 🆕 双 Worker 模型 ====================
 
@@ -1156,3 +1185,25 @@ Extract facts now.
         if result:
             return result
         return {}
+
+    @classmethod
+    def shutdown_all_docker_containers(cls):
+        """系统退出时停止所有 Agent 容器"""
+        import docker
+        from docker.errors import DockerException
+
+        try:
+            client = docker.from_env()
+            containers = client.containers.list(filters={"name": "agent_"})
+
+            for container in containers:
+                try:
+                    container.stop(timeout=3)
+                    print(f"🛑 已停止容器: {container.name}")
+                except Exception as e:
+                    print(f"⚠️ 停止容器失败 {container.name}: {e}")
+
+        except DockerException as e:
+            print(f"⚠️ Docker 连接失败: {e}")
+        except Exception as e:
+            print(f"⚠️ 清理容器时出错: {e}")

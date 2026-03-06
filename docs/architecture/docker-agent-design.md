@@ -15,7 +15,7 @@
 ## 宿主目录结构
 
 ```
-/opt/agentmatrix/
+/path_to_matrix_world/
 ├── skills/                    # 全局 SKILLS（只读）
 │   ├── git-workflow/
 │   │   └── skill.md
@@ -32,33 +32,30 @@
 │
 └── sessions/                  # Session 工作区（临时）
     ├── session_20250223_001/
-    │   ├── history.json
-    │   ├── context.json
-    │   └── workspace/
-    │       ├── draft.md
-    │       └── output.txt
+    │   ├── draft.md
+    │   ├── output.txt
     │
     └── session_20250223_002/
-        └── workspace/
-            └── ...
+        └── somefile.txt
+        └── ...
 ```
 
 ## 容器内视角
 
 ```bash
 /
-├── skills/        → /opt/agentmatrix/skills (ro, 只读挂载)
-├── home/          → /opt/agentmatrix/agent_home/{AgentName} (rw, 读写挂载)
-├── sessions/      → /opt/agentmatrix/sessions (rw, 挂载父目录)
-└── workspace/     → /sessions/{session_id}/workspace (符号链接)
+├── skills/        → /path_to_matrix_world/skills (ro, 只读挂载)
+├── home/          → /path_to_matrix_world/agent_home/{AgentName} (rw, 读写挂载)
+├── sessions/      → /path_to_matrix_world/sessions/ (rw, 读写挂载)
+└── workspace/     → /sessions/{session_id} (符号链接)
 ```
 
 **Agent 使用体验**：
 ```python
 # 自然路径语义
-file.read("skills/git-workflow/skill.md")  # ✅ 全局技能
-file.read("~/plan.md")                      # ✅ Agent Home
-file.write("workspace/draft.md")            # ✅ 当前工作区
+read("skills/git-workflow/skill.md")  # ✅ 全局技能
+read("~/plan.md")                      # ✅ Agent Home
+write("workspace/draft.md")            # ✅ 当前工作区
 ```
 
 ## Docker 实现细节
@@ -161,7 +158,7 @@ def create_agent_container(agent_name: str, workspace_root: str) -> str:
 
 ```python
 # 创建容器
-container_id = create_agent_container("MyAgent", "/opt/agentmatrix")
+container_id = create_agent_container("MyAgent", "/path_to_matrix_world")
 
 # 使用示例
 client = docker.from_env()
@@ -190,7 +187,7 @@ def attach_workspace(container, session_id: str):
     container.exec_run("rm -rf /workspace")
 
     # 创建新符号链接（指向 /sessions/{session_id}/workspace）
-    container.exec_run(f"ln -s /sessions/{session_id}/workspace /workspace")
+    container.exec_run(f"ln -s /sessions/{session_id} /workspace")
 ```
 
 **优势**：
@@ -203,7 +200,7 @@ def attach_workspace(container, session_id: str):
 ```python
 # bind mount 方案（需要 privileged 权限）
 container.exec_run(
-    f"mount --bind /sessions/{session_id}/workspace /workspace",
+    f"mount --bind /sessions/{session_id}/ /workspace",
     privileged=True
 )
 ```

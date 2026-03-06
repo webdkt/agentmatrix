@@ -25,7 +25,7 @@ from pathlib import Path
 from .micro_agent import MicroAgent
 
 from agentmatrix.agents.base import BaseAgent
-from agentmatrix.core.working_context import WorkingContext
+
 from agentmatrix.skills.browser_use_skill import BrowserUseSkillMixin
 from agentmatrix.skills.file_operations_skill import FileOperationSkillMixin
 from ..skills.parser_utils import multi_section_parser
@@ -46,8 +46,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         self.current_session = session
         self.current_user_session_id = session["user_session_id"]
 
-        # 更新 working_context（指向 private_workspace）
-        self._update_working_context()
+
 
         # 创建 SessionContext 对象（包装 session["context"]）
         self._session_context = SessionContext(
@@ -117,7 +116,6 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
             # 4. 创建新的 ResearchMicroAgent（每轮都是新实例）
             micro_core = ResearchMicroAgent(
                 parent=self,
-                working_context=self.working_context,  # 传入最新的 working_context
                 name=f"{self.name}_round{round_count}"
             )
 
@@ -332,7 +330,16 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         Returns:
             白板内容（纯文本）
         """
-        whiteboard_path = os.path.join(self.working_context.current_dir, "whiteboard.md")
+        # 白板路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/whiteboard.md
+        user_session_id = self.current_user_session_id or "default"
+        whiteboard_path = os.path.join(
+            self.workspace_root,
+            "agent_files",
+            self.name,
+            "work_files",
+            user_session_id,
+            "whiteboard.md"
+        )
         if not os.path.exists(whiteboard_path):
             #create file
             with open(whiteboard_path, "w", encoding="utf-8") as f:
@@ -389,7 +396,16 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         if not full_new_content and not partial_edit:
             return "❌ 请提供完整的白板内容或修改意见"
 
-        whiteboard_path = os.path.join(self.working_context.current_dir, "whiteboard.md")
+        # 白板路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/whiteboard.md
+        user_session_id = self.current_user_session_id or "default"
+        whiteboard_path = os.path.join(
+            self.workspace_root,
+            "agent_files",
+            self.name,
+            "work_files",
+            user_session_id,
+            "whiteboard.md"
+        )
         existing_content = ""
         #check if file exists, if not create it
         if not os.path.exists(whiteboard_path):

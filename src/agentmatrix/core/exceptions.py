@@ -41,3 +41,38 @@ class LLMServiceAPIError(LLMServiceUnavailableError):
     def __init__(self, message: str, status_code: int = None):
         super().__init__(message)
         self.status_code = status_code
+
+
+# ==================== Docker 相关异常 ====================
+
+
+class DockerConnectionError(Exception):
+    """Docker 连接失败
+
+    当 Docker 守护进程未运行或无法连接时抛出。
+    """
+    pass
+
+
+class ContainerNotFoundError(Exception):
+    """容器不存在
+
+    当尝试访问不存在的容器时抛出。
+    """
+    pass
+
+
+class ContainerExecutionError(Exception):
+    """容器内执行失败
+
+    当在容器内执行命令失败时抛出。
+    """
+    pass
+
+
+class WorkspaceSwitchError(Exception):
+    """工作区切换失败
+
+    当切换工作区符号链接失败时抛出。
+    """
+    pass

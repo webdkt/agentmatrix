@@ -70,18 +70,11 @@ class Web_searchSkillMixin:
         self.logger.info(f"🔍 [WebSearch] 开始搜索: {purpose}")
 
         try:
-            # 1. 创建搜索专属的子目录（每次搜索都是新的）
-            search_context = self.working_context.create_child(
-                "web_search",
-                use_timestamp=True  # 每次搜索创建新目录
-            )
-            self.logger.info(f"✓ 创建搜索目录: {search_context.current_dir}")
-
-            # 2. 初始化 dashboard
+            # 1. 初始化 dashboard
             await self._init_dashboard()
 
-            # 3. 执行搜索循环（所有轮次共享 search_context）
-            final_dashboard = await self._do_search_task(purpose, search_context)
+            # 2. 执行搜索循环（所有轮次共享 work_files 目录）
+            final_dashboard = await self._do_search_task(purpose)
 
             self.logger.info(f"✅ [WebSearch] 搜索完成")
 
@@ -237,7 +230,7 @@ class Web_searchSkillMixin:
 
         return None
 
-    async def _do_search_task(self, purpose: str, working_context) -> str:
+    async def _do_search_task(self, purpose: str) -> str:
         """
         执行搜索任务（永久循环）
 
@@ -250,10 +243,10 @@ class Web_searchSkillMixin:
         新架构变化：
         - 通过 available_skills 声明需要的技能：["browser", "file"]
         - 不再继承 Skill Mixins
+        - 不再使用 working_context，直接使用 /work_files
 
         Args:
             purpose: 搜索目的
-            working_context: 工作上下文（所有轮次共享）
 
         Returns:
             str: 最终的 dashboard 状态
@@ -346,7 +339,6 @@ class Web_searchSkillMixin:
                 # available_skills 在初始化时设置，而不是 execute 时
                 micro_agent = MicroAgent(
                     parent=self,
-                    working_context=working_context,  # 所有轮次共享
                     available_skills=["browser", "file"]  # ← 在这里设置
                 )
 
@@ -365,7 +357,7 @@ class Web_searchSkillMixin:
                 self.logger.info(f"⏱ 本轮实际用时: {round_actual_time:.2f} 分钟")
 
                 # 检查退出条件（简化版：只检查 final_result.md）
-                should_stop, final_result_content = await self._should_stop(working_context)
+                should_stop, final_result_content = await self._should_stop()
 
                 if should_stop:
                     self.logger.info(f"✅ 搜索循环结束（第 {round_count} 轮）")
@@ -394,16 +386,13 @@ class Web_searchSkillMixin:
 
 
 
-    async def _should_stop(self, working_context) -> tuple[bool, Optional[str]]:
+    async def _should_stop(self) -> tuple[bool, Optional[str]]:
         """
         检查是否应该退出搜索循环
 
         简化逻辑：只要存在 final_result.md 文件，就说明任务完成
 
         防爆机制：限制返回 200 行，超出部分添加说明
-
-        Args:
-            working_context: 工作上下文
 
         Returns:
             tuple[bool, Optional[str]]: (是否应该退出, final_result.md 的内容或截断内容)
@@ -414,8 +403,19 @@ class Web_searchSkillMixin:
         from pathlib import Path
         import os
 
+        # 获取工作目录（不依赖 Docker）
+        if hasattr(self, 'root_agent') and self.root_agent:
+            root_agent = self.root_agent
+        else:
+            root_agent = self
+
+        workspace_root = self.workspace_root
+        agent_name = root_agent.name
+        user_session_id = root_agent.current_user_session_id or "default"
+
         # 在当前工作目录下检查 final_result.md
-        final_result_file = Path(working_context.current_dir) / "final_result.md"
+        work_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / user_session_id
+        final_result_file = work_dir / "final_result.md"
 
         if not final_result_file.exists():
             # 文件不存在，继续
@@ -450,11 +450,8 @@ class Web_searchSkillMixin:
                 # 文件较大，只返回前 200 行并添加说明
                 self.logger.info(f"✓ 发现 final_result.md ({total_lines} 行，已截断显示前 {MAX_LINES} 行)，任务完成")
 
-                # 获取相对路径（相对于 base_dir）
-                try:
-                    rel_path = os.path.relpath(final_result_file, working_context.base_dir)
-                except ValueError:
-                    rel_path = str(final_result_file)
+                # 获取相对路径
+                rel_path = f"work_files/{user_session_id}/final_result.md"
 
                 # 截取前 200 行
                 truncated_lines = lines[:MAX_LINES]

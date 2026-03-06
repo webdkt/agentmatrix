@@ -425,14 +425,15 @@ class BrowserSkillMixin:
             # 注意：使用 root_agent（BaseAgent）的名字，而不是当前 MicroAgent 的名字
             # 这样即使 MicroAgent 调用 browser skill，profile 路径也是基于 BaseAgent 的
             import os
-            from ..core.working_context import WorkingContext
 
-            # 获取 BaseAgent 的 name（通过 root_agent）
+            # 获取 BaseAgent（通过 root_agent）
             # MicroAgent 会通过 root_agent 找到最上层的 BaseAgent
             if hasattr(self, 'root_agent'):
-                agent_name = self.root_agent.name
+                root_agent = self.root_agent
+                agent_name = root_agent.name
             else:
                 # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
+                root_agent = self
                 agent_name = self.name
 
             workspace_root = self.workspace_root
@@ -443,9 +444,21 @@ class BrowserSkillMixin:
             browser_kwargs["user_data_dir"] = user_data_dir
             self.logger.info(f"BrowserUseSkill 使用 Chrome profile: {user_data_dir}")
 
-            # 设置下载路径：使用 working_context 下的 download 目录
-            working_context = self.working_context
-            download_path = os.path.join(working_context.current_dir, "download")
+            # 设置下载路径：使用工作目录
+            # 浏览器在宿主机运行，需要宿主机路径
+            # 路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/download
+            # 容器内通过挂载可以看到：/work_files/download
+            user_session_id = root_agent.current_user_session_id or "default"
+
+            download_path = os.path.join(
+                workspace_root,
+                "agent_files",
+                agent_name,
+                "work_files",
+                user_session_id,
+                "download"
+            )
+
             os.makedirs(download_path, exist_ok=True)
             self.logger.info(f"BrowserUseSkill 下载目录: {download_path}")
 
