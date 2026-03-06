@@ -701,7 +701,25 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
             agent_name = self.name
         profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", agent_name)
-        download_path = os.path.join(self.working_context.current_dir, "downloads")
+        
+        # 获取工作目录（不依赖 Docker）
+        if hasattr(self, 'root_agent') and self.root_agent:
+            root_agent = self.root_agent
+        else:
+            root_agent = self
+        
+        agent_name = root_agent.name
+        user_session_id = root_agent.current_user_session_id or "default"
+        
+        # 直接拼接路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/downloads
+        download_path = os.path.join(
+            self.workspace_root,
+            "agent_files",
+            agent_name,
+            "work_files",
+            user_session_id,
+            "downloads"
+        )
         chunk_threshold = 5000
 
         # 2. 确定 search_phrase
@@ -814,8 +832,18 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
         else:
             # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
             agent_name = self.name
+            
+        user_session_id = self.current_user_session_id or "default"
+        
         profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", agent_name)
-        download_path = os.path.join(self.working_context.current_dir, "downloads")
+        download_path = os.path.join(
+            self.workspace_root,
+            "agent_files",
+            agent_name,
+            "work_files",
+            user_session_id,
+            "downloads"
+        )
 
 
         
@@ -860,7 +888,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             filename = sanitize_filename(filename) + ".md"
 
             #把markdown保存为文件
-            with open(os.path.join(self.working_context.current_dir, filename), "w", encoding="utf-8") as f:
+            with open(os.path.join(download_path, filename), "w", encoding="utf-8") as f:
                 f.write(markdown)
             return f"网页摘要已保存到： {filename}"
 

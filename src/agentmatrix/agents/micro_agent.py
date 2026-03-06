@@ -17,7 +17,6 @@ import logging
 import time
 
 from ..core.log_util import AutoLoggerMixin
-from ..core.working_context import WorkingContext
 from ..core.session_context import SessionContext
 from ..core.exceptions import LLMServiceUnavailableError
 from ..core.action import register_action
@@ -39,7 +38,6 @@ class MicroAgent(AutoLoggerMixin):
     5. 通过 parent 参数自动继承父 Agent 的组件
 
     设计原则：
-    - working_context 在 init 时确定，生命周期内不变
     - 所有组件从 parent 继承，简化创建代码
     - 可以通过 parent 链追溯到根 Agent
     """
@@ -47,7 +45,6 @@ class MicroAgent(AutoLoggerMixin):
     def __init__(
         self,
         parent: Union['BaseAgent', 'MicroAgent'],
-        working_context: Optional[WorkingContext] = None,
         name: Optional[str] = None,
         default_max_steps: int = 50,
         independent_session_context: bool = False,
@@ -59,8 +56,6 @@ class MicroAgent(AutoLoggerMixin):
         Args:
             parent: 父级 Agent（BaseAgent 或 MicroAgent）
                 - 自动继承 brain, cerebellum, action_registry, logger
-            working_context: 工作上下文（可选）
-                - None: 使用 parent.working_context（默认）
                 - WorkingContext: 使用指定的上下文
             name: Agent 名称（可选，自动生成）
             default_max_steps: 默认最大步数
@@ -76,13 +71,6 @@ class MicroAgent(AutoLoggerMixin):
         # 🆕 动态组合 Skill Mixins（新架构核心）
         if available_skills:
             self.__class__ = self._create_dynamic_class(available_skills)
-
-        # ========== working_context ==========
-        # 使用传入的或 parent 的
-        if working_context is None:
-            self.working_context = parent.working_context
-        else:
-            self.working_context = working_context
 
         # ========== session_context ==========
         # 根据 independent_session_context 决定是共享还是独立
@@ -560,8 +548,6 @@ Start generating the Whiteboard now.
         # ========== 记录开始 ==========
         self._log(logging.INFO, f"{'='*60}")
         self._log(logging.INFO, f"MicroAgent '{self.run_label}' starting")
-        if self.working_context:
-            self._log(logging.DEBUG, f"WorkingContext: {self.working_context}")
         self._log(logging.INFO, f"Task: {task[:200]}{'...' if len(task) > 200 else ''}")
 
         # 设置本次执行的参数
