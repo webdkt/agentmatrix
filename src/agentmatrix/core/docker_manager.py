@@ -204,6 +204,9 @@ class DockerContainerManager:
         try:
             self._ensure_container()
 
+            # 刷新容器状态（确保获取最新状态）
+            self.container.reload()
+
             # 检查容器状态
             status = self.container.status.lower()
 
