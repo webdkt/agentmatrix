@@ -6,7 +6,7 @@ class_name: BaseAgent
 # Skills 配置（🆕 新架构）
 skills:
   - file  # 文件操作技能
-  - notebook  # 笔记技能
+  # notebook 已废弃
   # TODO: project_management 还未迁移到新架构
 
 # Persona 配置

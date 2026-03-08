@@ -51,6 +51,7 @@ class UserProxyAgent(BaseAgent):
             subject = None
 
         if not subject:
+            self.logger.info(f"🤖 Auto-generating subject for content: {content[:50]}...")
             resp = await self.cerebellum.think(f"""
             请你根据以下邮件内容生成一个高度扼要的邮件主题。明了的说明事情本质就行，不需要具体细节内容，例如“一个问题”，“下载任务” 等等
 
@@ -63,6 +64,7 @@ class UserProxyAgent(BaseAgent):
             subject = resp['reply'] or ""
             #取subject 最后一行
             subject = subject.split("\n")[-1]
+            self.logger.info(f"✅ Generated subject: {subject}")
 
         email = Email(
             sender=self.name,

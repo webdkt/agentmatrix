@@ -607,6 +607,11 @@ class WebSearcherContext(BaseCrawlerContext):
 
     def add_to_notebook(self, info: str):
         """添加信息到小本本"""
+        # 用于记录第一个页面是否是错误页面（visit_url 专用）
+        self.first_page_error: Optional[Dict[str, str]] = None
+
+        # 用于记录访问过程中的错误
+        self.errors: List[Dict[str, str]] = []
         if info:
             timestamp = time.strftime("%H:%M:%S")
             self.notebook += f"\n\n[{timestamp}] {info}\n"
@@ -664,7 +669,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
         param_infos={
             "purpose": "明确的搜索的目的，要找什么信息",
             "search_phrase": "可选，初始搜索关键词",
-            "max_time": "可选，最大搜索分钟，默认20",
+            "max_time": "可选，最大搜索分钟，默认30",
             "search_engine": "可选，搜索引擎（google 或 bing），默认使用 agent 配置的 default_search_engine 或 bing",
         }
     )
@@ -672,7 +677,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
         self,
         purpose: str,
         search_phrase: str = None,
-        max_time: int = 20,
+        max_time: int = 30,
         search_engine: str = None,
         temp_file_dir: Optional[str] = None
     ):
@@ -817,13 +822,31 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
         #    self.logger.info("🛑 Closing browser...")
         #    await self.browser.close()
 
+    
     @register_action(
-        "访问一个网页并查看网页内容，如果是pdf文件就下载",
+        "访问一个网页并深入分析内容以满足特定目的，必须提供purpose 参数",
         param_infos={
-            "url": "要访问的网页 URL"
+            "purpose": "研究目的或问题",
+            "url": "要访问的网页 URL",
+            "max_time": "最大搜索时间（分钟），默认 30 分钟"
         }
     )
-    async def visit_url(self,url: str):
+    async def visit_url(
+        self,
+        purpose: str,
+        url: str,
+        max_time: int = 30,
+        temp_file_dir: Optional[str] = None
+    ):
+        """
+        [Entry Point] 访问网页并深入分析内容（共享 web_search 生命周期）
+
+        Args:
+            purpose: 研究目的或问题
+            url: 起始网页 URL
+            max_time: 最大搜索时间（分钟）
+            temp_file_dir: 临时文件保存目录（可选，用于调试）
+        """
         # 1. 准备环境
         # 获取 BaseAgent 的 name（通过 root_agent）
         # Browser profile 路径应该基于 BaseAgent，而不是 MicroAgent
@@ -832,9 +855,9 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
         else:
             # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
             agent_name = self.name
-            
+
         user_session_id = self.current_user_session_id or "default"
-        
+
         profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", agent_name)
         download_path = os.path.join(
             self.workspace_root,
@@ -844,56 +867,73 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             user_session_id,
             "downloads"
         )
+        chunk_threshold = 5000
 
-
-        
         self.logger.info(f"🔍 准备访问: {url}")
+        self.logger.info(f"🔍 研究目的: {purpose}")
+        self.logger.info(f"🔍 最大时间: {max_time} minutes")
 
+        # 2. 初始化浏览器和上下文
         self.browser = DrissionPageAdapter(
             profile_path=profile_path,
             download_path=download_path
         )
+
+        ctx = WebSearcherContext(
+            purpose=purpose,
+            deadline=time.time() + int(max_time) * 60,
+            chunk_threshold=chunk_threshold,
+            temp_file_dir=temp_file_dir
+        )
+
+        self.logger.info(f"🔍 Visit URL Start: {url}")
+        self.logger.info(f"🔍 Purpose: {purpose}")
+
+        # 3. 启动浏览器
         await self.browser.start(headless=False)
 
-        tab = await self.browser.get_tab()
-        
+        try:
+            # 4. 创建 Tab 和 Session
+            tab = await self.browser.get_tab()
+            session = TabSession(handle=tab, current_url="")
 
-        nav_report = await self.browser.navigate(tab, url)
-        final_url = self.browser.get_tab_url(tab)
-        
+            # 5. 🔄 关键区别：直接加入用户提供的 URL（而不是虚拟搜索 URL）
+            session.pending_link_queue.append(url)
+            self.logger.info(f"✓ Added URL to queue: {url}")
 
-        # === Phase 2: Identify Page Type ===
-        page_type = await self.browser.analyze_page_type(tab)
+            # 6. 运行统一的搜索生命周期（和 web_search 完全一样）
+            # _run_search_lifecycle 会处理这个 URL，分析内容，提取链接，判断是否继续访问
+            answer = await self._run_search_lifecycle(session, ctx)
 
-        if page_type == PageType.ERRO_PAGE:
-            self.logger.warning(f"🚫 Error Page: {final_url}")
-            return f"Error Accessing Page: {url}"
+            # 7. 改写并返回结果（和 web_search 完全一样）
+            if answer:
+                self.logger.info(f"✅ Found answer, refining...")
+                refined_answer = await self._refine_answer(answer, ctx.purpose)
+                return refined_answer
+            else:
+                self.logger.info("⏸ Visit completed without finding complete answer")
+                # 🆕 检查第一个页面是否是错误页面
+                if ctx.first_page_error:
+                    return f"无法访问页面: {ctx.first_page_error['url']} - {ctx.first_page_error['msg']}"
+                elif ctx.notebook:
+                    refined_note = await self._refine_answer(ctx.notebook, ctx.purpose)
+                    return f"Could not find a complete answer.\n\nHere's what I found:\n{refined_note}"
+                else:
+                    return "Could not find any useful info"
 
-        # === 分支 A: 静态资源 ===
-        if page_type == PageType.STATIC_ASSET:
-            self.logger.info(f"📄 Static Asset: {final_url}")
+        except LLMServiceConnectionError as e:
+            # LLM 服务连接错误 - 静默处理，不打印 stacktrace
+            self.logger.warning(f"⚠️ LLM service connection error: {e}")
+            self.logger.info("🔄 This is expected during service unavailability. System will retry.")
+            return f"Visit interrupted: LLM service temporarily unavailable ({str(e)[:100]}...)"
 
-            download_file = await self.browser.save_static_asset(tab)
-            return f"文件已下载到： {download_file}"
-
-  
-
-        # === 分支 B: 交互式网页 ===
-        elif page_type == PageType.NAVIGABLE:
-            await self.browser.stabilize(tab)
-            markdown = await self._html_to_full_markdown(tab)
-            
-            #用markdown第一行作为文件名字
-            filename = markdown.split('\n')[0].strip().replace("#","")
-            filename = sanitize_filename(filename) + ".md"
-
-            #把markdown保存为文件
-            with open(os.path.join(download_path, filename), "w", encoding="utf-8") as f:
-                f.write(markdown)
-            return f"网页摘要已保存到： {filename}"
-
-    # ==========================================
-    # 2. 辅助方法（目录、选择章节、分段）
+        except Exception as e:
+            # 其他未知错误 - 打印完整 stacktrace
+            self.logger.exception("Visit URL crashed")
+            return f"Visit failed with error: {e}"
+        #finally:
+        #    self.logger.info("🛑 Closing browser...")
+        #    await self.browser.close()
     # ==========================================
 
     def _generate_document_toc(self, markdown: str) -> List[Dict[str, Any]]:
@@ -2011,6 +2051,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
         - 减少重复让LLM看链接
         - 流程更清晰、更高效
         """
+        is_first_url = True  # 🆕 追踪第一个页面
         while not ctx.is_time_up():
             # --- Phase 1: Navigation ---
             if not session.pending_link_queue:
@@ -2018,6 +2059,10 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
                 break
 
             next_url = session.pending_link_queue.popleft()
+            # 🆕 检查是否是第一个URL
+            first_url = next_url if is_first_url else None
+            if is_first_url:
+                is_first_url = False
             self.logger.info(f"🔗 Processing: {next_url}")
 
             # 1.1 门禁检查（next_url）
@@ -2065,6 +2110,12 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             page_type = await self.browser.analyze_page_type(session.handle)
 
             if page_type == PageType.ERRO_PAGE:
+                # 🆕 如果是第一个URL，记录错误
+                if first_url == final_url:
+                    ctx.first_page_error = {
+                        "url": final_url,
+                        "msg": "页面无法访问（404、超时或连接失败）"
+                    }
                 self.logger.warning(f"🚫 Error Page: {final_url}")
                 continue
 

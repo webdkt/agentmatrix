@@ -8,12 +8,9 @@ from ..core.loader import AgentLoader
 import asyncio
 import os
 
-import chromadb
 
-from chromadb.config import Settings
 from ..agents.post_office import PostOffice
 from ..core.log_util import LogFactory, AutoLoggerMixin
-from ..db.vector_db import VectorDB
 
 
 from ..core.message import Email
@@ -28,7 +25,6 @@ from ..core.message import Email
 # Event Payload
 
 
-VECTOR_DB_COLLECTIONS_NAMES =["email", "notebook"]
 
 async def default_event_printer(event):
     pass
@@ -84,14 +80,10 @@ class AgentMatrix(AutoLoggerMixin):
 
     #准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
-        
-        self.echo(">>> Loading Vector Database...")
-        chroma_path = os.path.join(self.matrix_path, ".matrix", "chroma_db")
-        self.vector_db = VectorDB(chroma_path, VECTOR_DB_COLLECTIONS_NAMES)
-        self.echo(">>> Vector Database Loaded.")
-        # 恢复 PostOffice 状态
+
+        # 初始化 PostOffice
         self.post_office = PostOffice(self.matrix_path, self.user_agent_name)
-        self.post_office.vector_db = self.vector_db
+        
         self.post_office_task = asyncio.create_task(self.post_office.run())
         self.echo(">>> PostOffice Loaded and Running.")
         
@@ -262,8 +254,6 @@ class AgentMatrix(AutoLoggerMixin):
             agent.workspace_root = self.matrix_path #设置root path
             agent.matrix_path = self.matrix_path #设置matrix path
             self.post_office.register(agent)
-            if hasattr(agent, 'vector_db'):
-                agent.vector_db = self.vector_db
 
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
             self.echo(f">>> Agent {agent.name} 已注册到邮局！")

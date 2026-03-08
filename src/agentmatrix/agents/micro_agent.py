@@ -624,15 +624,26 @@ Start generating the Whiteboard now.
             # 从 session 获取 history
             self.messages = session.get("history", []).copy()
             self._log(logging.INFO, f"Loaded {len(self.messages)} messages from session")
-            # 添加新的任务输入
-            if len(self.messages) >0:
-                self._add_message("user", self._format_task_message())
-            else:
+
+            # 🆕 总是使用最新的 system prompt（确保 skills 变化立即生效）
+            if self.messages and self.messages[0]["role"] == "system":
+                self.messages[0] = {"role": "system", "content": self._build_system_prompt()}
+            elif not self.messages:
                 self._initialize_conversation()
+
+            # 添加新的任务输入
+            self._add_message("user", self._format_task_message())
         elif initial_history:
             # 恢复记忆：复制历史记录
             self.messages = initial_history.copy()
             self._log(logging.INFO, f"Restoring memory with {len(initial_history)} messages")
+
+            # 🆕 总是使用最新的 system prompt
+            if self.messages and self.messages[0]["role"] == "system":
+                self.messages[0] = {"role": "system", "content": self._build_system_prompt()}
+            elif not self.messages:
+                self._initialize_conversation()
+
             # 添加新的任务输入
             self._add_message("user", self._format_task_message())
         else:
