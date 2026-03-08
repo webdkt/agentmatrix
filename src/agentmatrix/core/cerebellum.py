@@ -76,12 +76,16 @@ class Cerebellum(AutoLoggerMixin):
             0. Always judge first, if user wants to run "{action_name}"
             1. Look at the intent and find information related to "{action_name}"
             2. IGNORE information for other actions
-            3. Extract ALL required parameters for "{action_name}"
+            3. Extract ALL required parameters for "{action_name}". 
             4. DECISION:
                - If NOT TO run: Output JSON {{"status": "NOT_TO_RUN", "reason": "reason_for_not_running"}}
                - If READY: Output JSON {{"status": "READY", "params": {{"param1": "value1", "param2": "value2", ...}}}}
                - If MISSING: Output JSON {{"status": "ASK", "question": "What is the value for [param_name] of {action_name}?"}}
                - If AMBIGUOUS: Output JSON {{"status": "ASK", "question": "Clarification needed for [param_name] of {action_name}..."}}
+
+            !Important!
+            Action function knows absolutely NOTHING about the context, it only can see what's provided in paramter you generate.
+            Must provide consicse and compelete information in parameter.
 
             Output ONLY valid JSON.
         """)

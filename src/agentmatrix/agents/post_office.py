@@ -14,7 +14,6 @@ class PostOffice(AutoLoggerMixin):
         email_db_path = os.path.join(matrix_path,".matrix" , "matrix_mails.db")
         self.email_db = AgentMailDB(email_db_path) # 初始化数据库连接
         self._paused = False
-        self.vector_db = None
 
         # Store user agent name
         self.user_agent_name = user_agent_name
@@ -117,14 +116,6 @@ class PostOffice(AutoLoggerMixin):
 
     async def dispatch(self, email):
         self.email_db.log_email(email)
-        self.vector_db.add_documents("email", [str(email)],
-            metadatas={"created_at": email.timestamp,
-                       "sender": email.sender,
-                       "recipient": email.recipient,
-                       "user_session_id": email.user_session_id
-                },
-            ids=[email.id]
-        )
 
         # 维护 user_sessions
         if email.user_session_id:

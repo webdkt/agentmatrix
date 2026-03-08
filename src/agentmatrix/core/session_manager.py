@@ -60,6 +60,18 @@ class SessionManager(AutoLoggerMixin):
         # reply_mapping（按 user_session_id 分组）
         self.reply_mappings: Dict[str, Dict[str, str]] = {}  # user_session_id → {msg_id: session_id}
 
+    def _get_session_base_path(self, user_session_id: str) -> Path:
+        """
+        获取 session 基础路径
+
+        Args:
+            user_session_id: 用户会话 ID
+
+        Returns:
+            Path: session 目录的基础路径
+        """
+        return Path(self.matrix_path) / ".matrix" / "sessions" / user_session_id / "history" / self.agent_name
+
     async def get_session(self, email) -> dict:
         """
         根据 email 获取或创建 session（主要接口）
@@ -206,7 +218,7 @@ class SessionManager(AutoLoggerMixin):
         if not self.matrix_path:
             return None
 
-        session_dir = Path(self.matrix_path) / ".matrix" / user_session_id / "history" / self.agent_name / session_id
+        session_dir = self._get_session_base_path(user_session_id) / session_id
         history_file = session_dir / "history.json"
         context_file = session_dir / "context.json"
 
@@ -262,7 +274,7 @@ class SessionManager(AutoLoggerMixin):
         # 更新 last_modified
         session["last_modified"] = datetime.now().isoformat()
 
-        session_dir = Path(self.matrix_path) / ".matrix" / session["user_session_id"] / "history" / self.agent_name / session['session_id']
+        session_dir = self._get_session_base_path(session["user_session_id"]) / session['session_id']
         history_file = session_dir / "history.json"
 
         # 确保 session 目录存在
@@ -321,7 +333,7 @@ class SessionManager(AutoLoggerMixin):
         if not self.matrix_path:
             return
 
-        session_dir = Path(self.matrix_path) / ".matrix" / session["user_session_id"] / "history" / self.agent_name / session['session_id']
+        session_dir = self._get_session_base_path(session["user_session_id"]) / session['session_id']
         context_file = session_dir / "context.json"
 
         # 确保 session 目录存在
@@ -344,7 +356,7 @@ class SessionManager(AutoLoggerMixin):
         if not self.matrix_path:
             return
 
-        mapping_file = Path(self.matrix_path) / ".matrix" / user_session_id / "history" / self.agent_name / "reply_mapping.json"
+        mapping_file = self._get_session_base_path(user_session_id) / "reply_mapping.json"
 
         if not mapping_file.exists():
             self.reply_mappings[user_session_id] = {}
@@ -369,7 +381,7 @@ class SessionManager(AutoLoggerMixin):
         if not self.matrix_path:
             return
 
-        mapping_file = Path(self.matrix_path) / ".matrix" / user_session_id / "history" / self.agent_name / "reply_mapping.json"
+        mapping_file = self._get_session_base_path(user_session_id) / "reply_mapping.json"
 
         # 确保目录存在
         mapping_file.parent.mkdir(parents=True, exist_ok=True)
