@@ -26,6 +26,7 @@ class BaseAgent(AutoLoggerMixin):
 
         # 加载 persona 配置（多个 persona，按阶段或功能分类）
         self.persona_config = profile.get("persona", {"base":""})
+        self.persona = self.get_persona()
 
         # 加载其他 prompts（如 task_prompt）
         self.other_prompts = profile.get("prompts", {})
@@ -614,24 +615,22 @@ class BaseAgent(AutoLoggerMixin):
 
             # 4. 执行 Micro Agent
             # 每次创建新的 MicroAgent
+            # 🆕 传入身份特征参数
+            persona = self.get_persona()
             micro_core = MicroAgent(
                 parent=self,
                 name=self.name,
-                available_skills=available_skills  # 🆕 传递可用技能列表
+                
+                available_skills=available_skills
             )
-            persona = self.get_persona()
-
 
             result = await micro_core.execute(
-                run_label= 'Process Email',
-                persona=persona,
+                run_label='Process Email',
                 task=task,
                 max_steps=100,
-                # initial_history=session["history"],  # ← 不再需要，session 会传递
-                session=session,  # ← 传递 session
-                session_manager=self.session_manager,  # ← 传递 session_manager
                 yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
-                exit_actions=["rest_n_wait"]  # rest_n_wait 会直接退出，不执行 action 逻辑
+                session_manager=self.session_manager,
+                session=session
             )
 
             # 5. 更新 session 元数据

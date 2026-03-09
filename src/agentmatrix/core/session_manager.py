@@ -64,13 +64,15 @@ class SessionManager(AutoLoggerMixin):
         """
         获取 session 基础路径
 
+        新结构：{workspace_root}/.matrix/{agent_name}/{user_session_id}/history/
+
         Args:
             user_session_id: 用户会话 ID
 
         Returns:
             Path: session 目录的基础路径
         """
-        return Path(self.matrix_path) / ".matrix" / "sessions" / user_session_id / "history" / self.agent_name
+        return Path(self.workspace_root) / ".matrix" / self.agent_name / user_session_id / "history"
 
     async def get_session(self, email) -> dict:
         """
