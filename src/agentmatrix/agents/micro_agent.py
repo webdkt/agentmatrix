@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Callable, Any, TYPE_CHECKING, Union
 import logging
 import time
 
+
 from ..core.log_util import AutoLoggerMixin
 from ..core.session_context import SessionContext
 from ..core.exceptions import LLMServiceUnavailableError
@@ -67,6 +68,7 @@ class MicroAgent(AutoLoggerMixin):
         # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
         self.name = name or f"MicroAgent_{uuid.uuid4().hex[:8]}"
         self.parent = parent
+        self.persona = parent.persona
 
         # 🆕 动态组合 Skill Mixins（新架构核心）
         if available_skills:
@@ -98,7 +100,11 @@ class MicroAgent(AutoLoggerMixin):
         self._internal_logger = parent.logger  # 绕过 AutoLoggerMixin 的懒加载
 
         # ========== 找到根 Agent ==========
-        self.root_agent = self._find_root_agent(parent)
+        from .base import BaseAgent
+        if isinstance(parent,BaseAgent):
+            self.root_agent = parent
+        else:
+            self.root_agent = parent.root_agent
 
         # ========== 其他配置 ==========
         self.default_max_steps = default_max_steps
@@ -138,23 +144,6 @@ class MicroAgent(AutoLoggerMixin):
         # 直接调用 parent 的方法
         return self.parent.get_skill_prompt(skill_name, prompt_name, **kwargs)
 
-    def _find_root_agent(self, parent: Union['BaseAgent', 'MicroAgent']) -> 'BaseAgent':
-        """
-        递归找到最外层的 BaseAgent
-
-        Args:
-            parent: 父级 Agent（可能是 MicroAgent 或 BaseAgent）
-
-        Returns:
-            BaseAgent: 最外层的 BaseAgent
-        """
-        current = parent
-        # 沿着 parent 链向上找，直到找不到 parent 属性
-        while hasattr(current, 'parent'):
-            current = current.parent
-
-        # current 现在是 BaseAgent（没有 parent 属性）
-        return current
 
     def _create_dynamic_class(self, available_skills: List[str]) -> type:
         """
@@ -495,8 +484,8 @@ Start generating the Whiteboard now.
     async def execute(
         self,
         run_label: str,  # 必须指定，有语义的名字
-        persona: str,
         task: str,
+        persona: str = None,
         max_steps: Optional[int] = None,
         max_time: Optional[float] = None,
         initial_history: Optional[List[Dict]] = None,
@@ -551,10 +540,13 @@ Start generating the Whiteboard now.
         self._log(logging.INFO, f"Task: {task[:200]}{'...' if len(task) > 200 else ''}")
 
         # 设置本次执行的参数
-        self.persona = persona
+        if persona:
+            self.persona = persona
         self.task = task
-        self.yellow_pages = yellow_pages
-        self.simple_mode = simple_mode
+        if yellow_pages:
+            self.yellow_pages = yellow_pages
+        if simple_mode:
+            self.simple_mode = simple_mode
         self.max_steps = max_steps or self.default_max_steps
         self.max_time = max_time  # 可以是 None
 
@@ -711,7 +703,9 @@ Start generating the Whiteboard now.
         
 
         # 完整模式（默认）：包含操作环境说明
-        prompt = f"""### 运行时环境 (Runtime Environment)
+        prompt = f"""{self.persona}
+
+### 运行时环境 (Runtime Environment)
 
 你是一个运行在 **AgentMatrix 架构** 中的 **智能体 (Autonomous Agent)**。
 你的思维存在于一个持续的 **循环 (Loop)** 中：`感知 (Observe) -> 思考 (Think) -> 行动 (Act)`。
@@ -1118,11 +1112,16 @@ Start generating the Whiteboard now.
 
         # 规则1：检查是否有 [ACTIONS] section
         if "[ACTIONS]" in raw_reply:
+            # ✅ 修复：清理 [ACTIONS] 之前的所有内容，避免干扰解析
+            # 有些 LLM 喜欢在 [ACTIONS] 前加总结性文字，导致解析失败
+            actions_index = raw_reply.find('[ACTIONS]')
+            cleaned_reply = raw_reply[actions_index:].strip()
+            
             # 提取 [ACTIONS] 下的内容
             from ..skills.parser_utils import multi_section_parser
 
             result = multi_section_parser(
-                raw_reply,
+                cleaned_reply,  # 使用清理后的内容
                 section_headers=["[ACTIONS]"],
                 match_mode="ANY"
             )

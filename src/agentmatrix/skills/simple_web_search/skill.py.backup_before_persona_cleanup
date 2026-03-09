@@ -333,12 +333,7 @@ SKIP_PAGE
     # 5. 答案改写
     # ==========================================
 
-    ANSWER_REFINEMENT = """[Your Mindset: 严谨的情报主编]
-你负责最终答案的质量把关。你的标准极高，绝不允许任何模糊、臆测或未经验证的内容进入最终输出。
-- **只保留硬核事实**：只保留经过验证的、可追溯的信息。任何"可能"、"据说"、"大概"这类模糊词汇都必须删除或改为明确表述。
-- **去除噪音**：去除所有无意义的标记、重复的废话、与目标无关的背景信息。
-- **逻辑清晰**：用最简洁的语言重新组织，确保逻辑链条完整，让用户一眼就能看懂。
-
+    ANSWER_REFINEMENT = """你是一个专业的内容编辑，负责提炼和改写搜索结果。
 [我们需要的信息目标]
     {purpose}
 
@@ -991,6 +986,70 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
         #    await self.browser.close()
     # ==========================================
 
+    def _build_persona_hint(self, context: str = "general") -> str:
+        """
+        构建 Persona 提示（用于穿透到子任务）
+        
+        Args:
+            context: 上下文类型，影响提示措辞
+                - "batch_reading": 批量阅读（需要止损思维）
+                - "link_selection": 链接选择（需要鉴伪能力）
+                - "chapter_selection": 章节选择（需要判断重点）
+                - "general": 通用
+        
+        Returns:
+            Persona 提示字符串
+        """
+        # 🔍 调试：检查 persona 属性
+        persona = getattr(self, 'persona', None)
+        self.logger.debug(f"🔍 [_build_persona_hint] context={context}, has_persona={persona is not None}, persona_length={len(persona) if persona else 0}")
+        
+        if not persona:
+            self.logger.warning("⚠️ [_build_persona_hint] No persona found on self!")
+            return ""
+        
+        # 提取核心原则（避免 token 浪费，限制 800 字）
+        persona_text = persona[:800] if len(persona) > 800 else persona
+        
+        # 根据上下文定制指令
+        instructions = {
+            "batch_reading": """
+[Instruction]
+Evaluate this batch strictly based on your OSINT Expert persona. 
+If the content is low-density garbage, SEO spam, or lacks authoritative facts, 
+proactively use "##信息密度过低应放弃阅读" or "##完全不相关的文档应该放弃" to save time.
+""",
+            "link_selection": """
+[Instruction]
+As an OSINT Expert, rigorously filter these links. 
+Prioritize high-authority sources (.gov, .edu, mainstream media, primary data). 
+SKIP SEO spam, content farms, and clickbait.
+""",
+            "chapter_selection": """
+[Instruction]
+Select chapters that meet the high-quality research standards of your persona. 
+Skip irrelevant sections like comments, disclaimers, or advertisements.
+""",
+            "general": ""
+        }
+        
+        instruction = instructions.get(context, "")
+        
+        if not instruction:
+            # 通用模式，返回简洁版本
+            return f"""
+[Agent Persona Reference]
+{persona_text}
+"""
+        
+        # 带指令的完整版本
+        return f"""
+[Agent Persona Reference]
+{persona_text}
+
+{instruction}
+"""
+    # ==========================================
 
     def _generate_document_toc(self, markdown: str) -> List[Dict[str, Any]]:
         """
@@ -1409,6 +1468,14 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             url=url
         )
         
+        # 🟢 【Persona 穿透】注入 Persona（批量阅读上下文）
+        self.logger.debug("🔍 [_process_batch] Calling _build_persona_hint...")
+        persona_hint = self._build_persona_hint("batch_reading")
+        if persona_hint:
+            self.logger.info(f"✅ [_process_batch] Persona injected, length={len(persona_hint)}")
+            prompt = persona_hint + "\n" + prompt
+        else:
+            self.logger.warning("⚠️ [_process_batch] No persona hint returned!")
         
         #self.logger.debug(f"【Batch Processing Prompt】:\n{prompt}")
         try:
@@ -1917,6 +1984,11 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
                 notebook=ctx.notebook,
                 batch_text=batch
             )
+            
+            # 🟢 【Persona 穿透】注入 Persona（链接选择上下文）
+            persona_hint = self._build_persona_hint("link_selection")
+            if persona_hint:
+                prompt = persona_hint + "\n" + prompt
             
             #self.logger.debug(f"【Search Result Batch Prompt】:\n{prompt}")
 

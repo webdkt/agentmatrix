@@ -129,7 +129,16 @@ class CrawlerHelperMixin:
         )
         #self.logger.debug(f"\n\n {markdown} \n\n")
 
-
+        # ✅ 回退机制：如果 trafilatura 提取失败或内容太少，使用 html2text
+        if not markdown or len(markdown.strip()) < 150:
+            self.logger.debug("⚠️ Trafilatura 提取失败或内容太少，回退到 html2text")
+            converter = html2text.HTML2Text()
+            converter.ignore_links = False
+            converter.ignore_images = False
+            converter.body_width = 0
+            converter.ignore_emphasis = False
+            markdown = converter.handle(raw_html)
+            self.logger.debug(f"✓ html2text 回退成功: {len(markdown)} chars")
 
         return markdown or ""
 

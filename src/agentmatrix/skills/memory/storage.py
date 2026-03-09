@@ -256,11 +256,11 @@ async def get_session_db(workspace_root: str, agent_name: str,
         workspace_root,
         ".matrix",
         agent_name,
-        "memory",
         user_session_id,
+        "memory",
         "session_memory.db"
     )
-    # 示例：MyWorld/workspace/.matrix/Tom/memory/session_abc123/session_memory.db
+    # 示例：MyWorld/workspace/.matrix/Tom/session_abc123/memory/session_memory.db
 
     storage = StorageManager(db_path)
     await storage.connect()
@@ -274,7 +274,7 @@ async def get_session_db(workspace_root: str, agent_name: str,
 async def search_entities_merged(
     workspace_root: str,
     agent_name: str,
-    session_id: str,
+    user_session_id: str,
     entity_name: str
 ) -> List[Dict[str, Any]]:
     """
@@ -285,7 +285,7 @@ async def search_entities_merged(
     Args:
         workspace_root: 工作区根目录
         agent_name: Agent 名称
-        session_id: 用户会话 ID
+        user_session_id: 用户会话 ID
         entity_name: 要查询的实体名称（精确匹配）
 
     Returns:
@@ -295,7 +295,7 @@ async def search_entities_merged(
         - global_profile: dict or None (global 记录)
     """
     # 并发查询
-    session_db = await get_session_db(workspace_root, agent_name, session_id)
+    session_db = await get_session_db(workspace_root, agent_name, user_session_id)
     global_db = await get_global_db(workspace_root, agent_name)
 
     try:
@@ -335,7 +335,7 @@ async def search_entities_merged(
 async def append_timeline_events(
     workspace_root: str,
     agent_name: str,
-    session_id: str,
+    user_session_id: str,
     events: List[Dict]
 ) -> None:
     """
@@ -344,10 +344,10 @@ async def append_timeline_events(
     Args:
         workspace_root: 工作区根目录
         agent_name: Agent 名称
-        session_id: 用户会话 ID
+        user_session_id: 用户会话 ID
         events: 事件对象列表，每个事件包含 {"event": str, "entities": List[str]}
     """
-    session_db = await get_session_db(workspace_root, agent_name, session_id)
+    session_db = await get_session_db(workspace_root, agent_name, user_session_id)
     try:
         for event_obj in events:
             event_text = event_obj.get("event", "")

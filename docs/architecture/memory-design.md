@@ -80,9 +80,14 @@ BaseAgent (管理会话)
     memory/
       global_memory.db                # ← 跨 session 实体库（Agent 的全局记忆）
 
-    {user_session_id}/                # User 级别（每个用户独立）
-      session_memory.db                # ← Session 实体 + 时间线（2 张表）
-      whiteboard.md                    # ← Whiteboard 快照（Markdown 格式）
+    {user_session_id}/                # User Session级别（每个user session独立）
+      memory/
+        session_memory.db             # ← Session 实体 + 时间线（2 张表）
+      history/
+        {session_id}/                 # ← 具体会话历史
+          history.json                # ← 会话历史消息
+          context.json                # ← 会话上下文数据
+        reply_mapping.json            # ← 邮件回复映射
 ```
 
 **设计说明**：
@@ -92,12 +97,10 @@ BaseAgent (管理会话)
   - 包含 2 张表：
     - `Entity_Profiles`（Session 实体档案，临时信息）
     - `Timeline_Log`（时间线日志，原始事件）
-- ✅ `whiteboard.md`：User 级别，与 `session_memory.db` 同目录
+- ✅ `history/`：User 级别，存储该用户所有会话的历史记录
+  - `{session_id}/`：具体会话目录，包含 history.json 和 context.json
+  - `reply_mapping.json`：邮件回复链映射文件
 
-**简化优势**：
-- ✅ 路径更短（从 6 层减少到 3 层）
-- ✅ 逻辑清晰：一个 user_session 对应两个文件（session_memory.db + whiteboard.md）
-- ✅ 易于管理：同一 user_session 的数据集中在一起
 
 ### 2.2 实体档案表 (`Entity_Profiles`)
 
