@@ -330,6 +330,7 @@ class MicroAgent(AutoLoggerMixin):
         # 转换为小写
         return base_name.lower()
 
+\1
 
     def _resolve_action(self, action_call: str):
         """
