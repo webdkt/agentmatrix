@@ -37,6 +37,26 @@ class MarkdownSkillMixin:
     - MicroAgent 生命周期内复用 AST 缓存
     """
 
+    # 🆕 Skill 级别元数据
+    _skill_description = "Markdown 文档编辑技能：编辑、总结、搜索 Markdown 文档内容"
+
+    _skill_usage_guide = """
+使用场景：
+- 需要编辑 Markdown 文档
+- 需要总结文档内容
+- 需要搜索或查看文档结构
+
+使用建议：
+- 使用 get_toc 查看文档目录结构
+- 使用 search_keywords 搜索关键词
+- 使用 modify_node 修改节点内容
+- 使用 save_markdown 保存修改
+
+注意事项：
+- 所有 actions 都需要 file_path 参数
+- 修改后记得调用 save_markdown 保存
+"""
+
     # ==================== 私有方法 ====================
 
     def __init__(self, *args, **kwargs):
