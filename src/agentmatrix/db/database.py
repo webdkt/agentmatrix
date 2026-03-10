@@ -30,9 +30,9 @@ class AgentMailDB(AutoLoggerMixin):
         """记录每一封信"""
         cursor = self.conn.cursor()
         cursor.execute('''
-            INSERT OR IGNORE INTO emails 
-            (id, timestamp, sender, recipient, subject, body, in_reply_to,user_session_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO emails
+            (id, timestamp, sender, recipient, subject, body, in_reply_to, user_session_id, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             email.id,
             email.timestamp.isoformat(),
@@ -41,7 +41,8 @@ class AgentMailDB(AutoLoggerMixin):
             email.subject,
             email.body,
             email.in_reply_to,
-            email.user_session_id
+            email.user_session_id,
+            json.dumps(email.metadata) if email.metadata else None
         ))
         self.conn.commit()
 

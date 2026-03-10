@@ -164,6 +164,15 @@ class PostOffice(AutoLoggerMixin):
         email_records = self.email_db.get_mails_by_range(user_session_id, agent_name, start, end)
         emails = []
         for record in email_records:
+            # 恢复 metadata 字段
+            import json
+            metadata = {}
+            if record.get('metadata'):
+                try:
+                    metadata = json.loads(record['metadata'])
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {}
+
             email = Email(
                 id=record['id'],
                 timestamp=record['timestamp'],
@@ -172,7 +181,8 @@ class PostOffice(AutoLoggerMixin):
                 subject=record['subject'],
                 body=record['body'],
                 in_reply_to=record['in_reply_to'],
-                user_session_id=record.get('user_session_id', None)
+                user_session_id=record.get('user_session_id', None),
+                metadata=metadata
             )
             emails.append(email)
         return emails
@@ -204,6 +214,15 @@ class PostOffice(AutoLoggerMixin):
         email_records = self.email_db.get_user_session_emails(user_session_id, self.user_agent_name)
         emails = []
         for record in email_records:
+            # 恢复 metadata 字段
+            import json
+            metadata = {}
+            if record.get('metadata'):
+                try:
+                    metadata = json.loads(record['metadata'])
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {}
+
             email = Email(
                 id=record['id'],
                 timestamp=record['timestamp'],
@@ -212,7 +231,8 @@ class PostOffice(AutoLoggerMixin):
                 subject=record['subject'],
                 body=record['body'],
                 in_reply_to=record['in_reply_to'],
-                user_session_id=record.get('user_session_id', None)
+                user_session_id=record.get('user_session_id', None),
+                metadata=metadata
             )
             # Add is_from_user flag
             email.is_from_user = (email.sender == self.user_agent_name)

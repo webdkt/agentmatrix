@@ -36,7 +36,7 @@ def format_profile_card(profile: Dict[str, Any]) -> str:
         profile: 合并后的 profile，包含:
             - canonical_name: str
             - session_profile: dict or None
-            - global_profile: dict or None
+            - longterm_profile: dict or None
 
     Returns:
         str: 格式化的档案卡片文本
@@ -47,7 +47,7 @@ def format_profile_card(profile: Dict[str, Any]) -> str:
 
     canonical_name = profile['canonical_name']
     session_p = profile.get('session_profile')
-    global_p = profile.get('global_profile')
+    longterm_p = profile.get('longterm_profile')
 
     # 标题
     lines.append(f"## 档案卡片：{canonical_name}")
@@ -59,9 +59,9 @@ def format_profile_card(profile: Dict[str, Any]) -> str:
             aliases.update(json.loads(session_p['aliases']))
         except:
             pass
-    if global_p and global_p.get('aliases'):
+    if longterm_p and longterm_p.get('aliases'):
         try:
-            aliases.update(json.loads(global_p['aliases']))
+            aliases.update(json.loads(longterm_p['aliases']))
         except:
             pass
 
@@ -73,9 +73,9 @@ def format_profile_card(profile: Dict[str, Any]) -> str:
     profile_texts = []
     latest_date = None
 
-    if global_p:
-        profile_texts.append(global_p['profile_text'])
-        updated_at = global_p.get('updated_at', '')
+    if longterm_p:
+        profile_texts.append(longterm_p['profile_text'])
+        updated_at = longterm_p.get('updated_at', '')
         if updated_at:
             date_str = updated_at.split(' ')[0]
             if not latest_date or date_str > latest_date:

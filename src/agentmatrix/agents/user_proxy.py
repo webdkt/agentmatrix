@@ -40,11 +40,19 @@ class UserProxyAgent(BaseAgent):
             # 默认行为：简单的打印到控制台，防止没有任何反应
             print(f"\n[UserProxy 收到邮件] From: {email.sender}\nSubject: {email.subject}\nBody: {email.body}\n")
 
-    async def speak(self, user_session_id, to: str, subject, content: str =None, reply_to_id: str = None):
+    async def speak(self, user_session_id, to: str, subject, content: str =None, reply_to_id: str = None, attachments=None):
         """
         [Public API]
         这是给宿主程序调用的方法。
         相当于用户开口说话。
+
+        Args:
+            user_session_id: 用户会话ID
+            to: 收件人
+            subject: 邮件主题
+            content: 邮件内容
+            reply_to_id: 回复的邮件ID
+            attachments: 附件列表 (可选)
         """
         if content is None:
             content = subject
@@ -66,13 +74,20 @@ class UserProxyAgent(BaseAgent):
             subject = subject.split("\n")[-1]
             self.logger.info(f"✅ Generated subject: {subject}")
 
+        # 构建 metadata
+        metadata = {}
+        if attachments:
+            metadata['attachments'] = attachments
+            self.logger.info(f"📎 Email includes {len(attachments)} attachment(s)")
+
         email = Email(
             sender=self.name,
             recipient=to,
             subject=subject,
             body=content,
             in_reply_to=reply_to_id,
-            user_session_id=user_session_id
+            user_session_id=user_session_id,
+            metadata=metadata
         )
         await self.post_office.dispatch(email)
 
