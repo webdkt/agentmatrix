@@ -686,6 +686,25 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
     继承 CrawlerHelperMixin 以复用爬虫辅助方法
     """
 
+
+    # 🆕 Skill 级别元数据
+    _skill_description = "网络搜索技能：搜索最新信息、访问网页、提取内容"
+
+    _skill_usage_guide = """
+使用场景：
+- 需要查找最新信息或数据
+- 需要访问特定网页获取内容
+- 需要抓取网页链接和文本
+
+使用建议：
+- 使用 web_search 搜索信息
+- 使用 visit_url 访问具体页面
+- 复杂搜索可多次迭代
+
+注意事项：
+- 依赖 browser skill
+- 支持多轮搜索和信息提取
+"""
     @register_action(
         """针对特定目的上网搜索，提供明确的搜索目的和（可选但建议提供的）搜索关键字词. 
         使用指南：

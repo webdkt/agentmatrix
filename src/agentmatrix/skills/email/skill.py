@@ -22,6 +22,25 @@ class EmailSkillMixin:
     提供邮件发送功能（未来可扩展邮件检查、读取等功能）
     """
 
+    # 🆕 Skill 级别元数据
+    _skill_description = "邮件发送技能：向其他 Agent 发送邮件，支持附件传输"
+
+    _skill_usage_guide = """
+使用场景：
+- 需要与其他 Agent 沟通
+- 需要传输文件或数据给其他 Agent
+- 需要跨 Agent 协作
+
+使用建议：
+- 使用 send_email 发送邮件
+- 支持附带附件（容器内路径）
+- 主题如果不填会自动截取 body 的前20个字
+
+注意事项：
+- 这是与其他 Agent 沟通的唯一方式
+- 附件会自动复制到收件人的 attachments 目录
+"""
+
     @register_action(
         "发邮件给同事，这是和其他人沟通的唯一方式。可以附带附件文件。",
         param_infos={

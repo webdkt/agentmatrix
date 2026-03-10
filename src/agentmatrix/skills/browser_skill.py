@@ -72,6 +72,25 @@ class BrowserSkillMixin:
         "deepseek": ["deepseek"],
     }
 
+    # 🆕 Skill 级别元数据
+    _skill_description = "浏览器自动化技能：使用 LLM 驱动浏览器，自动完成导航、点击、输入等操作"
+
+    _skill_usage_guide = """
+使用场景：
+- 需要访问和操作网页
+- 需要从网页提取信息
+- 需要自动化浏览器操作（点击、输入、导航）
+
+使用建议：
+- 使用 use_browser 操作浏览器
+- 技能会自动处理页面交互（无需手动指定点击目标）
+
+注意事项：
+- 支持 Chrome profile 持久化
+- 自动兼容国产模型（GLM、Mimo、DeepSeek）
+- 需要 Playwright 和 browser-use 依赖
+"""
+
     def _get_llm_config_path(self) -> str:
         """
         获取 llm_config.json 的路径

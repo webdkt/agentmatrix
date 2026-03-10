@@ -89,6 +89,29 @@ class FileSkillMixin:
     - bash 安全白名单保留
     """
 
+    # 🆕 Skill 级别元数据
+    _skill_description = "文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令"
+
+    _skill_usage_guide = """
+使用场景：
+- 需要读取或写入文件
+- 需要列出目录内容
+- 需要在文件中搜索内容
+- 需要执行 shell 命令或脚本
+
+使用建议：
+- 使用 list_dir 查看目录结构（支持递归）
+- 使用 read 读取文件（支持行范围，默认前200行）
+- 使用 write 写入文件（默认覆盖模式，支持追加）
+- 使用 search_file 搜索文件或内容（支持文件名和内容搜索）
+- 使用 bash 执行 shell 命令（有安全白名单）
+
+注意事项：
+- 所有路径相对于 /work_files
+- write 默认覆盖，需设置 allow_overwrite=True
+- bash 命令受安全白名单限制
+"""
+
     def _get_root_agent(self):
         """获取 root_agent"""
         if hasattr(self, 'root_agent') and self.root_agent:
