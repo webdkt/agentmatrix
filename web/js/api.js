@@ -59,11 +59,79 @@ const API = {
         });
     },
 
-    async sendEmail(sessionId, emailData) {
-        return this.request(`/api/sessions/${sessionId}/emails`, {
-            method: 'POST',
-            body: JSON.stringify(emailData)
-        });
+    async sendEmail(sessionId, emailData, files = []) {
+        console.log('📤 Sending email' + (files && files.length > 0 ? ` with ${files.length} attachment(s)` : ' without attachments'));
+        
+        // 始终使用 FormData（服务器端现在只接受 FormData）
+        const formData = new FormData();
+        // 字段顺序必须与服务器端参数顺序一致
+        formData.append('recipient', emailData.recipient);
+        formData.append('subject', emailData.subject || '');
+        formData.append('body', emailData.body);
+        
+        if (emailData.user_session_id) {
+            formData.append('user_session_id', emailData.user_session_id);
+        }
+        if (emailData.in_reply_to) {
+            formData.append('in_reply_to', emailData.in_reply_to);
+        }
+        
+        // 添加所有文件
+        if (files && files.length > 0) {
+            files.forEach((file, index) => {
+                console.log(`📎 Adding file ${index + 1}:`, file.name, file.size, 'bytes');
+                formData.append('attachments', file);
+            });
+        }
+
+        console.log('📤 Sending request...');
+
+        try {
+            const response = await fetch(this.baseURL + `/api/sessions/${sessionId}/emails`, {
+                method: 'POST',
+                body: formData
+                // 注意：不要设置 Content-Type，让浏览器自动设置
+            });
+
+            console.log('📤 Response status:', response.status);
+
+            if (!response.ok) {
+                // 尝试读取错误详情
+                let errorDetail = '';
+                try {
+                    const errorData = await response.json();
+                    console.error('❌ API error response:', errorData);
+                    
+                    // FastAPI 验证错误通常是数组
+                    if (Array.isArray(errorData.detail)) {
+                        errorDetail = errorData.detail.map(err => {
+                            return `${err.loc?.join('.') || 'field'}: ${err.msg}`;
+                        }).join('; ');
+                    } else {
+                        errorDetail = errorData.detail || JSON.stringify(errorData);
+                    }
+                } catch (e) {
+                    errorDetail = await response.text();
+                }
+                console.error('❌ API error details:', errorDetail);
+                console.error('❌ FormData contents:');
+                for (let [key, value] of formData.entries()) {
+                    if (value instanceof File) {
+                        console.log(`  - ${key}: ${value.name} (${value.size} bytes)`);
+                    } else {
+                        console.log(`  - ${key}: ${value}`);
+                    }
+                }
+                throw new Error(`HTTP error! status: ${response.status}, detail: ${errorDetail}`);
+            }
+
+            const result = await response.json();
+            console.log('✅ Email sent successfully:', result);
+            return result;
+        } catch (error) {
+            console.error('❌ API request failed:', error);
+            throw error;
+        }
     },
 
     async getSessionEmails(sessionId) {

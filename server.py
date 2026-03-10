@@ -12,10 +12,11 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import List, Optional
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -161,6 +162,8 @@ REQUIRED_LLM_CONFIGS = ["default_llm", "default_slm", "browser-use-llm"]
 
 
 # === Helper Functions ===
+
+
 
 def check_cold_start(config_path: Path) -> bool:
     """Check if this is a cold start (no LLM config exists)"""
@@ -624,8 +627,17 @@ async def get_sessions():
 
 
 @app.post("/api/sessions/{session_id}/emails")
-async def send_email(session_id: str, request: SendEmailRequest):
-    """Send an email (new conversation or reply)"""
+async def send_email(
+    session_id: str,
+    user_session_id: Optional[str] = Form(None),
+    recipient: str = Form(...),
+    subject: Optional[str] = Form(''),
+    body: str = Form(...),
+    in_reply_to: Optional[str] = Form(None),
+    attachments: List[UploadFile] = File(default=[])
+):
+    """Send an email with attachments (new conversation or reply)"""
+    print(f"📧 Received email request: recipient={recipient}, subject={subject}, body_length={len(body)}, attachments={len(attachments)}")
     global matrix_runtime
 
     if not matrix_runtime:
@@ -636,39 +648,73 @@ async def send_email(session_id: str, request: SendEmailRequest):
     if not user_agent:
         raise HTTPException(status_code=404, detail=f"User agent '{user_agent_name}' not found")
 
-    # Use session_id from URL if request.user_session_id is None
+    # Use session_id from URL if user_session_id is None
     # session_id from URL is the user_session_id for existing conversations
-    user_session_id = request.user_session_id
-    if user_session_id is None:
+    effective_user_session_id = user_session_id
+    if effective_user_session_id is None:
         if session_id == 'new':
             # Generate new UUID for new conversations
             import uuid
-            user_session_id = str(uuid.uuid4())
-            print(f"📧 New conversation: generated user_session_id={user_session_id}")
+            effective_user_session_id = str(uuid.uuid4())
+            print(f"📧 New conversation: generated user_session_id={effective_user_session_id}")
         else:
             # Use existing session_id for replies (session_id from URL is user_session_id)
-            user_session_id = session_id
-            print(f"📧 Reply: using user_session_id={user_session_id}, in_reply_to={request.in_reply_to}")
+            effective_user_session_id = session_id
+            print(f"📧 Reply: using user_session_id={effective_user_session_id}, in_reply_to={in_reply_to}")
     else:
-        print(f"📧 Using provided user_session_id={user_session_id}")
+        print(f"📧 Using provided user_session_id={effective_user_session_id}")
 
     # Validate user_session_id
-    if not user_session_id or user_session_id in ('null', 'undefined', 'None'):
-        raise HTTPException(status_code=400, detail=f"Invalid user_session_id: {user_session_id}")
+    if not effective_user_session_id or effective_user_session_id in ('null', 'undefined', 'None'):
+        raise HTTPException(status_code=400, detail=f"Invalid user_session_id: {effective_user_session_id}")
+
+    # 处理附件
+    attachment_metadata = []
+    if attachments:
+        # 获取附件保存目录：{workspace_root}/agent_files/{agent_name}/work_files/{user_session_id}/attachments/
+        workspace_root = user_agent.workspace_root
+        agent_name = user_agent.name
+        attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / effective_user_session_id / "attachments"
+        attachments_dir.mkdir(parents=True, exist_ok=True)
+        
+        for attachment in attachments:
+            try:
+                # 读取文件内容
+                content = await attachment.read()
+                filename = attachment.filename or "unnamed"
+                file_path = attachments_dir / filename
+                
+                # 保存文件（同名文件直接覆盖）
+                with open(file_path, 'wb') as f:
+                    f.write(content)
+                
+                # 添加到附件 metadata
+                attachment_metadata.append({
+                    'filename': filename,
+                    'size': len(content),
+                    'container_path': f'/work_files/attachments/{filename}'
+                })
+                print(f"✅ Attachment saved: {filename} ({len(content)} bytes) -> {file_path}")
+            except Exception as e:
+                print(f"❌ Failed to save attachment {attachment.filename}: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to save attachment: {str(e)}")
 
     # Call User agent's speak method
+    # 将附件 metadata 传递给 speak 方法
     await user_agent.speak(
-        user_session_id=user_session_id,
-        to=request.recipient,
-        subject=request.subject,
-        content=request.body,
-        reply_to_id=request.in_reply_to
+        user_session_id=effective_user_session_id,
+        to=recipient,
+        subject=subject,
+        content=body,
+        reply_to_id=in_reply_to,
+        attachments=attachment_metadata if attachment_metadata else None
     )
 
     return {
         "success": True,
-        "user_session_id": user_session_id,
-        "message": "Email sent successfully"
+        "user_session_id": effective_user_session_id,
+        "message": "Email sent successfully",
+        "attachments_count": len(attachment_metadata)
     }
 
 

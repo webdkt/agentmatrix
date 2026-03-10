@@ -116,7 +116,7 @@ class BaseAgent(AutoLoggerMixin):
         template = self.persona_config.get(persona_name.lower(), "")
 
         # 直接渲染，缺变量会抛出 KeyError
-        return template.format(**kwargs)
+        return f"你的名字叫{self.name}.\n" + template.format(**kwargs)
 
     def _init_docker_manager(self):
         """初始化 Docker 容器管理器"""

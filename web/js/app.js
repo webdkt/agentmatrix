@@ -31,7 +31,8 @@ function app() {
         showAgentDropdown: false,
         newEmail: {
             recipient: '',
-            body: ''
+            body: '',
+            attachments: []  // 存储附件文件
         },
 
         // Reply state - 使用 Map 存储每个邮件的回复状态
@@ -106,6 +107,58 @@ function app() {
             return this.agents.filter(agent =>
                 agent.name.toLowerCase().includes(this.agentSearchQuery.toLowerCase())
             );
+        },
+
+        // 附件管理函数
+        addAttachments(files) {
+            console.log('➕ addAttachments called with', files.length, 'files');
+            console.log('➕ Current attachments count:', this.newEmail.attachments.length);
+            
+            if (!files || files.length === 0) return;
+            
+            for (let file of files) {
+                // 检查是否已存在同名文件
+                const exists = this.newEmail.attachments.some(f => f.name === file.name);
+                if (!exists) {
+                    console.log('➕ Adding file:', file.name, file.size, 'bytes');
+                    this.newEmail.attachments.push(file);
+                } else {
+                    console.log('⚠️ File already exists:', file.name);
+                }
+            }
+            
+            console.log('➕ New attachments count:', this.newEmail.attachments.length);
+        },
+        
+        removeAttachment(index) {
+            this.newEmail.attachments.splice(index, 1);
+        },
+        
+        handleFileSelect(event) {
+            console.log('📁 handleFileSelect called');
+            const files = event.target.files;
+            console.log('📁 Files selected:', files.length, files);
+            this.addAttachments(files);
+            // 清空 input 以允许再次选择相同文件
+            event.target.value = '';
+        },
+        
+        handleFileDrop(event) {
+            event.preventDefault();
+            const files = event.dataTransfer.files;
+            this.addAttachments(files);
+        },
+        
+        handleFileDragOver(event) {
+            event.preventDefault();
+        },
+        
+        formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
         },
 
         // Initialize application
@@ -359,7 +412,7 @@ function app() {
                     recipient: this.newEmail.recipient,
                     subject: '',  // Empty string, user_proxy will auto-generate
                     body: this.newEmail.body
-                });
+                }, this.newEmail.attachments);  // 传递附件
 
                 console.log('Email sent:', response);
 
@@ -369,7 +422,8 @@ function app() {
                 // Reset form
                 this.newEmail = {
                     recipient: '',
-                    body: ''
+                    body: '',
+                    attachments: []
                 };
                 this.agentSearchQuery = '';
 

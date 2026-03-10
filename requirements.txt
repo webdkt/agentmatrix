@@ -16,3 +16,4 @@ PyMuPDF
 docker>=6.0.0
 html2text
 markdown-it-py
+python-multipart
