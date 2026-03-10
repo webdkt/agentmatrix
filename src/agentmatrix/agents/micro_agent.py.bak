@@ -92,16 +92,8 @@ class MicroAgent(AutoLoggerMixin):
         if hasattr(parent, 'workspace_root') and parent.workspace_root:
             self.workspace_root = parent.workspace_root
 
-        # ========== 🆕 扫描所有 actions（新架构 - 嵌套结构）==========
-        # action_registry 结构：
-        #     _by_skill: {skill_name: {action_name: method}}
-        #     _flat: {action_name: method, "skill.action": method}
-        #     _aliases: {action_name: "skill.action"}
-        self.action_registry = {
-            "_by_skill": {},
-            "_flat": {},
-            "_aliases": {}
-        }
+        # ========== 🆕 扫描所有 actions（新架构）==========
+        self.action_registry = {}
         self._scan_all_actions()
 
         # logger: 直接使用 parent 的 logger（不创建新日志文件）
@@ -226,170 +218,24 @@ class MicroAgent(AutoLoggerMixin):
         """
         扫描自身（包括继承链）的所有 @register_action 方法
 
-        新架构：
-        1. 按 skill 分组存储（_by_skill）
-        2. 自动检测并重命名冲突的 action
-        3. 填充 _flat（快速查找）和 _aliases（解析映射）
+        由于已经混入了 Skill Mixins，这些方法都在 self 上
+        不再需要从 parent 的 actions_map 继承
         """
         import inspect
-
-        # 已注册的 action 名称（用于冲突检测）
-        registered_actions = set()
-        
-        # 已注册的 skill 名称（用于统计）
-        registered_skills = set()
 
         # 遍历 self 的类及其所有父类（MRO - Method Resolution Order）
         for cls in self.__class__.__mro__:
             for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
                 if hasattr(method, '_is_action') and method._is_action:
-                    # 🔥 推断 skill 名称
-                    skill_name = self._infer_skill_name(cls.__name__)
-                    registered_skills.add(skill_name)
-                    
-                    # 🔥 检测冲突
-                    if name in registered_actions:
-                        # 冲突！自动重命名
-                        new_name = f"{skill_name}_{name}"
-                        
-                        self.logger.info(
-                            f"  🔀 Action name conflict: '{name}' in {cls.__name__}. "
-                            f"Auto-renamed to '{new_name}'"
-                        )
-                        
-                        # 创建新的绑定方法
+                    # 只存储每个 action 一次（最底层的实现）
+                    if name not in self.action_registry:
+                        # 🔑 关键修复：存储绑定方法（而非未绑定函数）
+                        # 这样调用时 self 会自动传递
                         bound_method = getattr(self, name)
-                        bound_method.__name__ = new_name
-                        bound_method._action_name = new_name
-                        bound_method._is_renamed = True
-                        bound_method._original_action_name = name
-                        bound_method._skill_name = skill_name
-                        
-                        # 在实例上设置新方法
-                        setattr(self, new_name, bound_method)
-                        
-                        # 注册到 _by_skill
-                        if skill_name not in self.action_registry["_by_skill"]:
-                            self.action_registry["_by_skill"][skill_name] = {}
-                        self.action_registry["_by_skill"][skill_name][new_name] = bound_method
-                        
-                        # 注册到 _flat（完整命名）
-                        self.action_registry["_flat"][f"{skill_name}.{name}"] = bound_method
-                        self.action_registry["_flat"][new_name] = bound_method
-                        
-                        # 记录别名映射
-                        self.action_registry["_aliases"][name] = f"{skill_name}.{name}"
-                        
-                        self.logger.debug(f"  ✅ 注册 Action: {new_name} (来自 {cls.__name__}, 重命名)")
-                        
-                    else:
-                        # 无冲突，正常注册
-                        bound_method = getattr(self, name)
-                        bound_method._skill_name = skill_name
-                        bound_method._action_name = name
-                        
-                        # 注册到 _by_skill
-                        if skill_name not in self.action_registry["_by_skill"]:
-                            self.action_registry["_by_skill"][skill_name] = {}
-                        self.action_registry["_by_skill"][skill_name][name] = bound_method
-                        
-                        # 注册到 _flat（简写）
-                        self.action_registry["_flat"][name] = bound_method
-                        
-                        # 注册到 _flat（完整命名）
-                        self.action_registry["_flat"][f"{skill_name}.{name}"] = bound_method
-                        
-                        registered_actions.add(name)
-                        
+                        self.action_registry[name] = bound_method
                         self.logger.debug(f"  ✅ 注册 Action: {name} (来自 {cls.__name__})")
-        
-        # 日志汇总
-        total_actions = sum(len(actions) for actions in self.action_registry["_by_skill"].values())
-        self.logger.info(
-            f"✅ 扫描完成: {len(registered_skills)} 个 skills, "
-            f"{total_actions} 个 actions"
-        )
 
-    def _infer_skill_name(self, class_name: str) -> str:
-        """
-        从类名推断 skill 名称
-        
-        Examples:
-            FileSkillMixin → file
-            Simple_web_searchSkillMixin → simple_web_search
-            EmailSkillMixin → email
-        """
-        # 移除 SkillMixin 后缀
-        if class_name.endswith('SkillMixin'):
-            base_name = class_name[:-10]  # 移除 "SkillMixin"
-        elif class_name.endswith('Mixin'):
-            base_name = class_name[:-5]  # 移除 "Mixin"
-        else:
-            base_name = class_name
-        
-        # 转换为小写
-        return base_name.lower()
-
-
-    def _resolve_action(self, action_call: str):
-        """
-        解析 action 调用（支持命名空间）
-
-        支持：
-        - "file.read" → 完整命名（明确指定）
-        - "read" → 简写（自动解析，如果不冲突）
-
-        Args:
-            action_call: action 调用字符串
-
-        Returns:
-            bound_method: 绑定的方法
-
-        Raises:
-            ValueError: action 不存在或有歧义
-        """
-        # 格式1：完整命名 "skill.action"
-        if '.' in action_call:
-            skill_name, action_name = action_call.split('.', 1)
-            
-            # 从 _by_skill 查找
-            if skill_name in self.action_registry["_by_skill"]:
-                if action_name in self.action_registry["_by_skill"][skill_name]:
-                    return self.action_registry["_by_skill"][skill_name][action_name]
-            
-            # 如果 _by_skill 找不到，尝试 _flat
-            full_name = f"{skill_name}.{action_name}"
-            if full_name in self.action_registry["_flat"]:
-                return self.action_registry["_flat"][full_name]
-            
-            raise ValueError(f"Action '{action_call}' not found")
-        
-        # 格式2：简写 "action"
-        else:
-            # 检查是否有歧义（多个 skill 有同名 action）
-            matches = []
-            for skill_name, actions in self.action_registry["_by_skill"].items():
-                if action_call in actions:
-                    matches.append(skill_name)
-            
-            if len(matches) == 1:
-                # 唯一，返回
-                return self.action_registry["_by_skill"][matches[0]][action_call]
-            
-            elif len(matches) > 1:
-                # 歧义！
-                raise ValueError(
-                    f"Ambiguous action '{action_call}'. Found in {len(matches)} skills: {matches}. "
-                    f"Please use 'skill.action' format."
-                )
-            
-            else:
-                # 尝试从 _flat 查找
-                if action_call in self.action_registry["_flat"]:
-                    return self.action_registry["_flat"][action_call]
-                
-                raise ValueError(f"Action '{action_call}' not found")
-
+    @property
     def session_folder(self) -> str:
         """便捷访问：根 Agent 的 session_folder"""
         return self.root_agent.get_session_folder()
@@ -1061,7 +907,7 @@ Start generating the Whiteboard now.
                 thought = await self.brain.think_with_retry(
                     initial_messages = self.messages,
                     parser=self._parse_actions_from_thought,
-                    action_registry=self.action_registry["_flat"],
+                    action_registry=self.action_registry,
                     max_retries=3
                 )
                 print(thought)
@@ -1548,11 +1394,11 @@ write, send_mail, write
             action_index: 当前是第几个 action（从 1 开始）
             action_list: 完整的 action 列表
         """
-        # 1. 获取方法（使用新的解析逻辑，支持命名空间）
-        try:
-            method = self._resolve_action(action_name)
-        except ValueError as e:
-            raise ValueError(f"Action '{action_name}' not found: {e}")
+        # 1. 获取方法（已经在 self 上，无需绑定）
+        if action_name not in self.action_registry:
+            raise ValueError(f"Action '{action_name}' not found in registry")
+
+        method = self.action_registry[action_name]
 
         # 2. 获取参数信息（从 method）
         param_schema = getattr(method, "_action_param_infos", {})
