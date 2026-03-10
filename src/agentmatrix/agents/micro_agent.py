@@ -222,6 +222,123 @@ class MicroAgent(AutoLoggerMixin):
         """
         return {"result": result or "", "finished": True}
 
+
+    @register_action(
+        description="查看 skill 或 action 的详细使用信息",
+        param_infos={
+            "skill": "Skill 名称（可选）",
+            "action": "Action 名称（可选）"
+        }
+    )
+    async def help(self, skill: str = None, action: str = None) -> str:
+        """
+        查询帮助信息
+        
+        用法：
+        - help() → 列出所有 skills
+        - help(skill="file") → 显示 skill 说明和所有 actions
+        - help(skill="file", action="read") → 显示 action 的详细参数
+        
+        Args:
+            skill: Skill 名称（可选）
+            action: Action 名称（可选）
+        
+        Returns:
+            帮助信息文本
+        """
+        if not skill and not action:
+            # 列出所有 skills
+            lines = ["=== 可用的 Skills ===\n"]
+            
+            for skill_name, actions in self.action_registry["_by_skill"].items():
+                skill_desc = self._get_skill_description(skill_name)
+                action_names = list(actions.keys())
+                
+                lines.append(f"**{skill_name}**")
+                if skill_desc:
+                    lines.append(f"  {skill_desc}")
+                lines.append(f"  可用 actions: {', '.join(action_names)}")
+                lines.append("")
+            
+            lines.append("使用 help(skill=\"xxx\", action=\"yyy\") 查看详细参数")
+            return "\n".join(lines)
+        
+        elif skill and not action:
+            # 显示某个 skill 的详细信息
+            if skill not in self.action_registry["_by_skill"]:
+                return f"❌ Skill '{skill}' 不存在"
+            
+            skill_desc = self._get_skill_description(skill)
+            actions = self.action_registry["_by_skill"][skill]
+            
+            lines = [f"=== {skill.capitalize()} Skill ===\n"]
+            
+            if skill_desc:
+                lines.append(f"{skill_desc}\n")
+            
+            lines.append("可用 actions:\n")
+            
+            for action_name, method in actions.items():
+                desc = getattr(method, "_action_desc", "No description")
+                params = getattr(method, "_action_param_infos", {})
+                
+                lines.append(f"- **{action_name}**: {desc}")
+                
+                # 检查是否有参数
+                if params:
+                    lines.append(f"  参数:")
+                    for param_name, param_desc in params.items():
+                        lines.append(f"    - {param_name}: {param_desc}")
+                else:
+                    lines.append(f"  无参数")
+                
+                lines.append("")
+            
+            return "\n".join(lines)
+        
+        elif skill and action:
+            # 显示某个 action 的详细参数
+            if skill not in self.action_registry["_by_skill"]:
+                return f"❌ Skill '{skill}' 不存在"
+            
+            if action not in self.action_registry["_by_skill"][skill]:
+                # 检查是否是重命名的 action
+                found = False
+                for real_action_name in self.action_registry["_by_skill"][skill].keys():
+                    if real_action_name.endswith(f"_{action}"):
+                        action = real_action_name
+                        found = True
+                        break
+                
+                if not found:
+                    return f"❌ Action '{action}' 在 skill '{skill}' 中不存在"
+            
+            method = self.action_registry["_by_skill"][skill][action]
+            desc = getattr(method, "_action_desc", "No description")
+            params = getattr(method, "_action_param_infos", {})
+            
+            lines = [
+                f"=== {skill}.{action} Action ===\n",
+                f"描述: {desc}\n",
+                f"参数:\n"
+            ]
+            
+            if params:
+                for param_name, param_desc in params.items():
+                    lines.append(f"- **{param_name}**: {param_desc}")
+            else:
+                lines.append("(无参数)")
+            
+            # 检查是否是重命名的 action
+            if hasattr(method, '_is_renamed') and method._is_renamed:
+                original_name = getattr(method, '_original_action_name', action)
+                lines.append(f"\n注意: 此 action 已自动重命名（原名: {original_name}）")
+            
+            return "\n".join(lines)
+        
+        else:
+            return "请提供参数：help() 或 help(skill=\"xxx\") 或 help(skill=\"xxx\", action=\"yyy\")"
+
     def _scan_all_actions(self):
         """
         扫描自身（包括继承链）的所有 @register_action 方法
@@ -931,14 +1048,63 @@ Start generating the Whiteboard now.
 
 
     def _format_actions_list(self) -> str:
-        """格式化可用 actions 列表（直接使用 action_registry）"""
+        """格式化可用 actions 列表（新架构：按 skill 分组）"""
+        # 委托给 _format_skills_overview
+        return self._format_skills_overview()
+    
+    def _format_skills_overview(self) -> str:
+        """
+        格式化 skills 概览（按 skill 分组）
+        
+        格式：
+        skill_name:
+          skill 描述
+          可用 actions: action1, action2, ...
+        """
         lines = []
-        # 遍历 action_registry 中的所有 actions（来自初始化时指定的 skills）
-        for action_name, method in self.action_registry.items():
-            # 尝试获取描述
-            desc = getattr(method, "_action_desc", "No description")
-            lines.append(f"- {action_name}: {desc}")
+        
+        # 遍历 _by_skill
+        for skill_name, actions in self.action_registry["_by_skill"].items():
+            # 获取 skill 描述
+            skill_desc = self._get_skill_description(skill_name)
+            
+            # 添加 skill 名称和描述
+            lines.append(f"{skill_name}:")
+            if skill_desc:
+                lines.append(f"  {skill_desc}")
+            
+            # 添加 actions 列表
+            action_names = list(actions.keys())
+            lines.append(f"  可用 actions: {', '.join(action_names)}")
+            lines.append("")  # 空行分隔
+        
         return "\n".join(lines)
+    
+    def _get_skill_description(self, skill_name: str) -> str:
+        """
+        获取 skill 的描述
+        
+        优先级：
+        1. _skill_description（Python Skills）
+        2. brief_summary（MD Skills）
+        3. 默认描述
+        """
+        # 检查 Python Skills
+        for cls in self.__class__.__mro__:
+            if hasattr(cls, '_skill_description') and cls.__name__.endswith('Mixin'):
+                # 检查是否是匹配的 skill
+                cls_skill_name = self._infer_skill_name(cls.__name__)
+                if cls_skill_name == skill_name:
+                    return cls._skill_description
+        
+        # 检查 MD Skills
+        md_skills = getattr(self, '_md_skills', [])
+        for md_skill in md_skills:
+            if md_skill.skill_name == skill_name:
+                return md_skill.brief_summary or md_skill.description
+        
+        # 默认描述
+        return f"{skill_name} skill"
 
     def _format_md_skills_summary(self) -> str:
         """
