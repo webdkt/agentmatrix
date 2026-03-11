@@ -9,11 +9,12 @@ import re
 import asyncio
 import argparse
 from pathlib import Path
+from urllib.parse import quote, unquote
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
@@ -742,7 +743,8 @@ async def get_session_emails(session_id: str):
                 "body": email.body,
                 "in_reply_to": email.in_reply_to,
                 "user_session_id": email.user_session_id,
-                "is_from_user": getattr(email, 'is_from_user', False)
+                "is_from_user": getattr(email, 'is_from_user', False),
+                "attachments": email.attachments
             })
 
         return {
@@ -750,6 +752,106 @@ async def get_session_emails(session_id: str):
             "emails": emails_data,
             "total_count": len(emails_data)
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{session_id}/emails/{email_id}/attachments/{filename}")
+async def download_email_attachment(session_id: str, email_id: str, filename: str):
+    """Download an attachment from an email"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        # Get the email to find the recipient (who has the attachment)
+        emails = matrix_runtime.post_office.get_session_emails_for_user(session_id)
+        target_email = None
+        for email in emails:
+            if email.id == email_id:
+                target_email = email
+                break
+
+        if not target_email:
+            raise HTTPException(status_code=404, detail="Email not found")
+
+        # The recipient is the one who has the attachment
+        recipient_name = target_email.recipient
+        user_session_id = target_email.user_session_id
+
+        # Get workspace root
+        # Get workspace root from recipient agent
+        recipient_agent = matrix_runtime.agents.get(recipient_name)
+        if not recipient_agent:
+            raise HTTPException(status_code=404, detail=f"Agent not found: {recipient_name}")
+        workspace_root = recipient_agent.workspace_root
+
+        # Build the attachment path
+        # Path: {workspace_root}/agent_files/{recipient}/work_files/{user_session_id}/attachments/{filename}
+        attachment_path = (
+            Path(workspace_root) / "agent_files" / recipient_name / "work_files" / user_session_id / "attachments" / filename
+        )
+
+        # Check if file exists
+        if not attachment_path.exists():
+            raise HTTPException(status_code=404, detail=f"Attachment not found: {filename}")
+
+        # Determine media type and disposition based on file extension
+        file_ext = Path(filename).suffix.lower()
+        
+        # Files that can be previewed in browser
+        previewable_extensions = {
+            '.txt': 'text/plain',
+            '.md': 'text/markdown',
+            '.json': 'application/json',
+            '.xml': 'application/xml',
+            '.html': 'text/html',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.pdf': 'application/pdf',
+            '.svg': 'image/svg+xml',
+        }
+        
+        # Images that can be previewed
+        image_extensions = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.bmp': 'image/bmp',
+        }
+        
+        # Merge all previewable types
+        all_previewable = {**previewable_extensions, **image_extensions}
+        
+        if file_ext in all_previewable:
+            # File can be previewed in browser
+            media_type = all_previewable[file_ext]
+            # Use inline to display in browser instead of downloading
+            with open(attachment_path, 'rb') as f:
+                file_content = f.read()
+            # Encode filename for HTTP header (support Chinese and other non-ASCII characters)
+            encoded_filename = quote(filename, safe='')
+            
+            return Response(
+                content=file_content,
+                media_type=media_type,
+                headers={
+                    'Content-Disposition': f"inline; filename*=UTF-8''{encoded_filename}"
+                }
+            )
+        else:
+            # Download the file
+            return FileResponse(
+                path=str(attachment_path),
+                filename=filename,
+                media_type='application/octet-stream'
+            )
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
