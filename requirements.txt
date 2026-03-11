@@ -11,9 +11,10 @@ libtmux
 trafilatura
 DrissionPage
 beautifulsoup4
-marker-pdf
+marker-pdf==1.8.0
 PyMuPDF
 docker>=6.0.0
 html2text>=2020.1.16
 markdown-it-py>=3.0.0
 browser-use>=0.11.9,<1.0.0
+python-multipart

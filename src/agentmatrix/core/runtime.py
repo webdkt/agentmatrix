@@ -81,9 +81,18 @@ class AgentMatrix(AutoLoggerMixin):
     #准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
 
+        # 🐳 确保 Docker 运行（全局资源初始化）
+        self.echo(">>> 检查 Docker 状态...")
+        from ..core.docker_manager import ensure_docker_running
+        if not ensure_docker_running(logger=self.logger):
+            raise RuntimeError(
+                "Docker 启动失败。AgentMatrix 依赖 Docker 运行，请确保 Docker Desktop 已安装并可以启动。\n"
+                "下载地址: https://www.docker.com/products/docker-desktop/"
+            )
+
         # 初始化 PostOffice
         self.post_office = PostOffice(self.matrix_path, self.user_agent_name)
-        
+
         self.post_office_task = asyncio.create_task(self.post_office.run())
         self.echo(">>> PostOffice Loaded and Running.")
         

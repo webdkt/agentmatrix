@@ -229,121 +229,136 @@ class MicroAgent(AutoLoggerMixin):
     @register_action(
         description="查看 skill 或 action 的详细使用信息",
         param_infos={
-            "skill": "Skill 名称（可选）",
-            "action": "Action 名称（可选）"
+            "target": "目标，格式：skill_name、action_name 或 skill_name.action_name（可选）"
         }
     )
-    async def help(self, skill: str = None, action: str = None) -> str:
+    async def help(self, target: str = None) -> str:
         """
         查询帮助信息
-        
+
         用法：
         - help() → 列出所有 skills
-        - help(skill="file") → 显示 skill 说明和所有 actions
-        - help(skill="file", action="read") → 显示 action 的详细参数
-        
+        - help("file") → 显示 skill 的所有 actions
+        - help("read") → 显示 action 的详细参数（自动查找）
+        - help("file.read") → 显示 action 的详细参数（指定 skill）
+
         Args:
-            skill: Skill 名称（可选）
-            action: Action 名称（可选）
-        
+            target: 目标，支持 skill_name、action_name 或 skill_name.action_name 格式
+
         Returns:
             帮助信息文本
         """
-        if not skill and not action:
+        if not target:
             # 列出所有 skills
             lines = ["=== 可用的 Skills ===\n"]
-            
+
             for skill_name, actions in self.action_registry["_by_skill"].items():
                 skill_desc = self._get_skill_description(skill_name)
                 action_names = list(actions.keys())
-                
+
                 lines.append(f"**{skill_name}**")
                 if skill_desc:
                     lines.append(f"  {skill_desc}")
                 lines.append(f"  可用 actions: {', '.join(action_names)}")
                 lines.append("")
-            
-            lines.append("使用 help(skill=\"xxx\", action=\"yyy\") 查看详细参数")
+
+            lines.append("使用 help(\"xxx\") 查看技能或动作，help(\"xxx.yyy\") 查看指定动作")
             return "\n".join(lines)
-        
-        elif skill and not action:
-            # 显示某个 skill 的详细信息
-            if skill not in self.action_registry["_by_skill"]:
-                return f"❌ Skill '{skill}' 不存在"
-            
-            skill_desc = self._get_skill_description(skill)
-            actions = self.action_registry["_by_skill"][skill]
-            
-            lines = [f"=== {skill.capitalize()} Skill ===\n"]
-            
-            if skill_desc:
-                lines.append(f"{skill_desc}\n")
-            
-            lines.append("可用 actions:\n")
-            
-            for action_name, method in actions.items():
-                desc = getattr(method, "_action_desc", "No description")
-                params = getattr(method, "_action_param_infos", {})
-                
-                lines.append(f"- **{action_name}**: {desc}")
-                
-                # 检查是否有参数
-                if params:
-                    lines.append(f"  参数:")
-                    for param_name, param_desc in params.items():
-                        lines.append(f"    - {param_name}: {param_desc}")
-                else:
-                    lines.append(f"  无参数")
-                
-                lines.append("")
-            
-            return "\n".join(lines)
-        
-        elif skill and action:
-            # 显示某个 action 的详细参数
-            if skill not in self.action_registry["_by_skill"]:
-                return f"❌ Skill '{skill}' 不存在"
-            
-            if action not in self.action_registry["_by_skill"][skill]:
-                # 检查是否是重命名的 action
-                found = False
-                for real_action_name in self.action_registry["_by_skill"][skill].keys():
-                    if real_action_name.endswith(f"_{action}"):
-                        action = real_action_name
-                        found = True
-                        break
-                
-                if not found:
-                    return f"❌ Action '{action}' 在 skill '{skill}' 中不存在"
-            
-            method = self.action_registry["_by_skill"][skill][action]
+
+        # 解析 target
+        parts = target.split(".")
+
+        if len(parts) == 1:
+            # 可能是 skill_name 或 action_name
+            candidate = parts[0]
+
+            # 先检查是否是 skill
+            if candidate in self.action_registry["_by_skill"]:
+                # 显示 skill 的所有 actions
+                skill_desc = self._get_skill_description(candidate)
+                actions = self.action_registry["_by_skill"][candidate]
+
+                lines = [f"=== {candidate.capitalize()} Skill ===\n"]
+
+                if skill_desc:
+                    lines.append(f"{skill_desc}\n")
+
+                lines.append("可用 actions:\n")
+
+                for action_name, method in actions.items():
+                    desc = getattr(method, "_action_desc", "No description")
+                    params = getattr(method, "_action_param_infos", {})
+
+                    lines.append(f"- **{action_name}**: {desc}")
+
+                    if params:
+                        param_list = ", ".join(params.keys())
+                        lines.append(f"  参数: {param_list}")
+                    else:
+                        lines.append(f"  无参数")
+
+                    lines.append("")
+
+                return "\n".join(lines)
+
+            # 检查是否是 action（在 _flat 中查找）
+            elif candidate in self.action_registry["_flat"]:
+                # 查找 action 所属的 skill
+                for skill_name, actions in self.action_registry["_by_skill"].items():
+                    if candidate in actions:
+                        method = actions[candidate]
+                        desc = getattr(method, "_action_desc", "No description")
+                        params = getattr(method, "_action_param_infos", {})
+
+                        lines = [
+                            f"=== {skill_name}.{candidate} ===\n",
+                            f"描述: {desc}\n",
+                            f"参数:\n"
+                        ]
+
+                        if params:
+                            for param_name, param_desc in params.items():
+                                lines.append(f"- **{param_name}**: {param_desc}")
+                        else:
+                            lines.append("(无参数)")
+
+                        return "\n".join(lines)
+
+                return f"❌ Action '{candidate}' 找不到所属 skill"
+
+            else:
+                return f"❌ '{candidate}' 既不是 skill 也不是 action"
+
+        elif len(parts) == 2:
+            # help("file.read") → 显示 action 的详细参数
+            skill_name, action_name = parts
+
+            if skill_name not in self.action_registry["_by_skill"]:
+                return f"❌ Skill '{skill_name}' 不存在"
+
+            if action_name not in self.action_registry["_by_skill"][skill_name]:
+                return f"❌ Action '{action_name}' 在 skill '{skill_name}' 中不存在"
+
+            method = self.action_registry["_by_skill"][skill_name][action_name]
             desc = getattr(method, "_action_desc", "No description")
             params = getattr(method, "_action_param_infos", {})
-            
+
             lines = [
-                f"=== {skill}.{action} Action ===\n",
+                f"=== {skill_name}.{action_name} ===\n",
                 f"描述: {desc}\n",
                 f"参数:\n"
             ]
-            
+
             if params:
                 for param_name, param_desc in params.items():
                     lines.append(f"- **{param_name}**: {param_desc}")
             else:
                 lines.append("(无参数)")
-            
-            # 检查是否是重命名的 action（从 _metadata）
-            action_name = method.__name__
-            if action_name in self.action_registry["_metadata"]:
-                metadata = self.action_registry["_metadata"][action_name]
-                if metadata.get("is_renamed"):
-                    original_name = metadata.get("original_name", action_name)
-                    lines.append(f"\n注意: 此 action 已自动重命名（原名: {original_name}）")
-            
+
             return "\n".join(lines)
-        
+
         else:
-            return "请提供参数：help() 或 help(skill=\"xxx\") 或 help(skill=\"xxx\", action=\"yyy\")"
+            return f"❌ 格式错误。使用 help()、help(\"skill\")、help(\"action\") 或 help(\"skill.action\")"
 
     def _scan_all_actions(self):
         """
@@ -364,11 +379,27 @@ class MicroAgent(AutoLoggerMixin):
 
         # 遍历 self 的类及其所有父类（MRO - Method Resolution Order）
         for cls in self.__class__.__mro__:
+            # 🔥 过滤逻辑：
+            # 1. 扫描所有 *SkillMixin 类（真正的 skills）
+            # 2. 扫描 MicroAgent 类本身（获取 all_finished, help）
+            # 3. 排除动态类（DynamicAgent_*）和其他类
+            is_skill_mixin = cls.__name__.endswith('SkillMixin')
+            is_microagent_class = cls.__name__ == 'MicroAgent'
+
+            if not (is_skill_mixin or is_microagent_class):
+                continue
+
+            # 特殊处理：MicroAgent 的 actions 归入 base skill
+            if is_microagent_class:
+                skill_name = 'base'
+            else:
+                # 🔥 推断 skill 名称
+                skill_name = self._infer_skill_name(cls.__name__)
+
+            registered_skills.add(skill_name)
+
             for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
                 if hasattr(method, '_is_action') and method._is_action:
-                    # 🔥 推断 skill 名称
-                    skill_name = self._infer_skill_name(cls.__name__)
-                    registered_skills.add(skill_name)
                     
                     # 🔥 检测冲突
                     if name in registered_actions:
@@ -896,11 +927,11 @@ Start generating the Whiteboard now.
             # 🆕 总是使用最新的 system prompt（确保 skills 变化立即生效）
             if self.messages and self.messages[0]["role"] == "system":
                 self.messages[0] = {"role": "system", "content": self._build_system_prompt()}
+                # 添加新的任务输入（只在恢复已有会话时）
+                self._add_message("user", self._format_task_message())
             elif not self.messages:
                 self._initialize_conversation()
-
-            # 添加新的任务输入
-            self._add_message("user", self._format_task_message())
+                # 🔥 Bug fix: 不要重复添加 user message，_initialize_conversation 已经添加了
         elif initial_history:
             # 恢复记忆：复制历史记录
             self.messages = initial_history.copy()
@@ -909,11 +940,11 @@ Start generating the Whiteboard now.
             # 🆕 总是使用最新的 system prompt
             if self.messages and self.messages[0]["role"] == "system":
                 self.messages[0] = {"role": "system", "content": self._build_system_prompt()}
+                # 添加新的任务输入（只在恢复已有会话时）
+                self._add_message("user", self._format_task_message())
             elif not self.messages:
                 self._initialize_conversation()
-
-            # 添加新的任务输入
-            self._add_message("user", self._format_task_message())
+                # 🔥 Bug fix: 不要重复添加 user message，_initialize_conversation 已经添加了
         else:
             # 新对话：初始化
             self.messages = []
@@ -995,16 +1026,24 @@ Start generating the Whiteboard now.
 #### 2. 交互协议 (Interaction Protocol)
 *   **显式意图**: 不要含糊其辞。你的每一个 Action 都必须有明确的目的。
 *   **参数完备**: 调用 Action 时，必须自行从上下文中提取所有必要参数。如果参数缺失，**先向用户提问**，不要瞎编。
-*   **单步与并行**: 
-    *   如果任务复杂，请拆解为多个步骤。
-    *   如果多个步骤互不依赖（如搜索两个不同的关键词），请在一个 `[ACTIONS]` 块中同时发出，以并行加速。
+*   **⚠️ 单次执行原则 (CRITICAL)**:
+    *   **默认规则**: 每次 `[ACTION]` 块中**只执行一个 action**。
+    *   **任务拆解**: 如果任务复杂，拆解为多个步骤，然后**逐个执行**。执行完一个后，根据结果再决定下一步。
+    *   **例外情况**: 只有在极端明确的场景下（多个操作完全独立、无任何依赖关系）才考虑并行执行。99% 的情况下，请遵循单次执行原则。
 
 ---
 ### 🧰 可用工具箱 (Toolbox)
 
 #### A. 核心指令 (Native Actions)
-这些是你原本就具备的能力：
+这些是具备的能力，按 **Skill** 分组：
+
 {self._format_actions_list()}
+
+**📌 如何引用 Actions：**
+*   **推荐方式**：使用 `skill_name.action_name` 格式（如 `file.read`, `base.get_current_datetime`）
+*   **简化方式**：也可以直接使用 action 名称（如 `get_current_datetime`）
+*   **避免歧义**：如果有多个 skill 都有同名 action，请使用完全限定名称 `skill_name.action_name`
+*   通过 help(skill_name.action_name) 来查看 action 的详细说明和参数列表
 """
 
         # 🆕 添加 MD Document Skills 摘要
@@ -1036,15 +1075,25 @@ Start generating the Whiteboard now.
 在这里尽情思考，分析 Whiteboard，拆解任务。这是你的草稿纸，不需要拘泥于格式。
 
 **2. 行动块**
-使用 `[ACTIONS]` 标签开始。
+使用 `[ACTION]` 标签开始。
+
+#### ⚠️ 执行原则
+*   **每次只执行一个 action**（99% 的情况）
+*   执行完成后，根据结果再决定下一步行动
+*   避免一次性执行多个 action，除非你 100% 确定它们完全独立
+
 #### 输出样例
 ```
 [THOUGHTS]
 你的想法和意图，这是给你自己的，工具看不到，不需要担心格式，只要清晰表达思考过程和下一步计划即可
 
-[ACTIONS]
-为实现意图而立刻要做的动作（只能从可用动作里选择，例如send_email），并提供完成该动作需要的全部信息。
-如果要做多个动作，必须是可以并行执行、互不依赖的动作。
+[ACTION]
+为实现意图而立刻要做的动作（只能从可用动作里选择），并提供完成该动作需要的全部信息。
+
+示例格式：
+• base.get_current_datetime()
+• file.read(path="/path/to/file.txt")
+• send_email(to="alice@example.com", subject="项目更新", content="...")
 ```
 """
 
@@ -1060,29 +1109,29 @@ Start generating the Whiteboard now.
     def _format_skills_overview(self) -> str:
         """
         格式化 skills 概览（按 skill 分组）
-        
+
         格式：
-        skill_name:
-          skill 描述
-          可用 actions: action1, action2, ...
+        **skill_name**: skill 描述
+          • action1, action2, action3
         """
         lines = []
-        
+
         # 遍历 _by_skill
         for skill_name, actions in self.action_registry["_by_skill"].items():
             # 获取 skill 描述
             skill_desc = self._get_skill_description(skill_name)
-            
+
             # 添加 skill 名称和描述
-            lines.append(f"{skill_name}:")
             if skill_desc:
-                lines.append(f"  {skill_desc}")
-            
-            # 添加 actions 列表
+                lines.append(f"**{skill_name}**: {skill_desc}")
+            else:
+                lines.append(f"**{skill_name}**:")
+
+            # 添加 actions 列表（使用项目符号）
             action_names = list(actions.keys())
-            lines.append(f"  可用 actions: {', '.join(action_names)}")
+            lines.append(f"  • {', '.join(action_names)}")
             lines.append("")  # 空行分隔
-        
+
         return "\n".join(lines)
     
     def _get_skill_description(self, skill_name: str) -> str:
@@ -1236,7 +1285,7 @@ Start generating the Whiteboard now.
                     max_retries=3
                 )
                 print(thought)
-                action_thought = thought["[ACTIONS]"]
+                action_thought = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
                 
 
@@ -1415,10 +1464,10 @@ Start generating the Whiteboard now.
         Parser for think_with_retry - 验证 LLM 输出是否包含有效的 action 声明
 
         规则：
-        1. 如果有 [ACTIONS] section → 检查下面是否有有效的 action name
+        1. 如果有 [ACTION] section → 检查下面是否有有效的 action name
            - 有 → 返回 raw_reply（验证通过）
            - 没有 → 返回 error（让 LLM 重试）
-        2. 如果没有 [ACTIONS] section → 检查全文是否只提到一个 action
+        2. 如果没有 [ACTION] section → 检查全文是否只提到一个 action
            - 是 → 返回 raw_reply（验证通过）
            - 否则 → 返回 error（让 LLM 重试）
 
@@ -1435,24 +1484,24 @@ Start generating the Whiteboard now.
         """
         import re
 
-        # 规则1：检查是否有 [ACTIONS] section
-        if "[ACTIONS]" in raw_reply:
-            # ✅ 修复：清理 [ACTIONS] 之前的所有内容，避免干扰解析
-            # 有些 LLM 喜欢在 [ACTIONS] 前加总结性文字，导致解析失败
-            actions_index = raw_reply.find('[ACTIONS]')
+        # 规则1：检查是否有 [ACTION] section
+        if "[ACTION]" in raw_reply:
+            # ✅ 修复：清理 [ACTION] 之前的所有内容，避免干扰解析
+            # 有些 LLM 喜欢在 [ACTION] 前加总结性文字，导致解析失败
+            actions_index = raw_reply.find('[ACTION]')
             cleaned_reply = raw_reply[actions_index:].strip()
             
-            # 提取 [ACTIONS] 下的内容
+            # 提取 [ACTION] 下的内容
             from ..skills.parser_utils import multi_section_parser
 
             result = multi_section_parser(
                 cleaned_reply,  # 使用清理后的内容
-                section_headers=["[ACTIONS]"],
+                section_headers=["[ACTION]"],
                 match_mode="ANY"
             )
 
             if result["status"] == "success":
-                actions_text = result["content"]["[ACTIONS]"]
+                actions_text = result["content"]["[ACTION]"]
                 
                 
 
@@ -1469,24 +1518,24 @@ Start generating the Whiteboard now.
                         detected_actions.add(action_name)
 
                 if detected_actions:
-                    # 验证通过：[ACTIONS] 下有有效的 action
+                    # 验证通过：[ACTION] 下有有效的 action
                     result["content"]["[RAW_REPLY]"] = raw_reply
                     return result
                 else:
-                    # 验证失败：[ACTIONS] 下没有有效的 action
+                    # 验证失败：[ACTION] 下没有有效的 action
                     return {
                         "status": "error",
-                        "feedback": f"[ACTIONS] 下必须要指明使用什么动作(action 名字)"
+                        "feedback": f"[ACTION] 下必须要指明使用什么动作(action 名字)"
                     }
             else:
                 # multi_section_parser 失败
                 return {
                     "status": "error",
-                    "feedback": "必须在[ACTIONS] 下指明使用什么动作(action 名字)"
+                    "feedback": "必须在[ACTION] 下指明使用什么动作(action 名字)"
                 }
         
 
-        # 规则2：没有 [ACTIONS] section，检查全文是否只提到一个 action
+        # 规则2：没有 [ACTION] section，检查全文是否只提到一个 action
         # 正则提取所有 action names
         action_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)'
         matches = re.finditer(action_pattern, raw_reply)
@@ -1501,16 +1550,16 @@ Start generating the Whiteboard now.
         if len(detected_actions) == 1:
             # 只有一个 action，验证通过
             content = {
-                "[ACTIONS]": raw_reply,
+                "[ACTION]": raw_reply,
                 "[RAW_REPLY]": raw_reply
             }
             return {"status": "success", "content": content}
         
         else:
-            # 多个 actions，但没有用 [ACTIONS] section
+            # 多个 actions，但没有用 [ACTION] section
             return {
                 "status": "error",
-                "feedback": "必须使用 [ACTIONS] section 来明确列出要执行的动作"
+                "feedback": "必须使用 [ACTION] section 来明确列出要执行的动作"
             }
 
     
@@ -1550,8 +1599,9 @@ Start generating the Whiteboard now.
             # 转小写（action names 通常是 snake_case）
             action_name_lower = action_name.lower()
 
-            # 只保留有效的 action names（在 action_registry 中）
-            if action_name_lower in self.action_registry:
+            # 只保留有效的 action names（在 action_registry["_flat"] 中）
+            # 支持 "action_name" 和 "skill.action_name" 两种格式
+            if action_name_lower in self.action_registry["_flat"]:
                 detected.append((position, action_name_lower))
 
         # 按出现位置排序
@@ -1569,7 +1619,7 @@ Start generating the Whiteboard now.
         Parser: 提取并验证要执行的 actions
 
         流程：
-        1. 使用 multi_section_parser 提取 [ACTIONS]
+        1. 使用 multi_section_parser 提取 [ACTION]
         2. 解析 action 列表（保留重复，支持多次执行同一个 action）
         3. 验证：防止幻觉（必须在 mentioned_actions 中）
         4. 验证：必须可用（在 available_actions 中）
@@ -1584,10 +1634,10 @@ Start generating the Whiteboard now.
         """
         from ..skills.parser_utils import multi_section_parser
 
-        # 1. 提取 [ACTIONS] section
+        # 1. 提取 [ACTION] section
         result = multi_section_parser(
             raw_reply,
-            section_headers=["[ACTIONS]"],
+            section_headers=["[ACTION]"],
             match_mode="ALL"
         )
 
@@ -1595,7 +1645,7 @@ Start generating the Whiteboard now.
             return result
 
         # 2. 解析 actions 列表（保留重复，不去重）
-        actions_text = result["content"]["[ACTIONS]"]
+        actions_text = result["content"]["[ACTION]"]
         # 先整体清理：去除换行符、回车符、代码块标记、各种引号括号
         for char in ['\n', '\r', '```', '"', "'", '`', '(', ')', '[', ']', '{', '}']:
             actions_text = actions_text.replace(char, '')
@@ -1665,13 +1715,13 @@ Start generating the Whiteboard now.
 
 **注意：**
 - 如果要做多个action，必须按用户指定的顺序列出来, 
-- 在[ACTIONS]下列出所有要执行的 actions，用逗号分隔，保持顺序，不要因为名字相同就合并成一个。
+- 在[ACTION]下列出所有要执行的 actions，用逗号分隔，保持顺序，不要因为名字相同就合并成一个。
 
 
 **输出格式：**
 ```
 (可选的）whatever you thinks...
-[ACTIONS]
+[ACTION]
 action1, action2, action3
 ```
 
@@ -1680,7 +1730,7 @@ action1, action2, action3
 （注意，有多个 write，保持顺序）
 输出：
 ```
-[ACTIONS]
+[ACTION]
 write, send_mail, write
 ```
 """

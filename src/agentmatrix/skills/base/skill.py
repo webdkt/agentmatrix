@@ -23,6 +23,8 @@ class BaseSkillMixin:
     提供通用的基础功能，如获取时间、用户交互等。
     """
 
+    _skill_description = "基础技能"
+
     @register_action(
         "检查当前日期和时间，你不知道日期和时间，如果需要日期时间信息必须调用此action",
         param_infos={}

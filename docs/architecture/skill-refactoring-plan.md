@@ -792,7 +792,7 @@ markdown:
 [THOUGHTS]
 你的思考...
 
-[ACTIONS]
+[ACTION]
 1. file.read(file_path="test.txt")
 2. markdown.get_toc(file_path="doc.md")
 ```

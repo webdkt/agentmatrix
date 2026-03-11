@@ -10,6 +10,143 @@ from pathlib import Path
 from typing import Tuple, Dict, Optional
 import logging
 from datetime import datetime
+import platform
+import subprocess
+import time
+
+
+def ensure_docker_running(logger: Optional[logging.Logger] = None) -> bool:
+    """
+    确保 Docker 正在运行，如果未运行则尝试自动启动
+
+    这是一个全局初始化函数，应该在系统启动时调用一次，
+    而不是在每个 Agent 初始化时调用。
+
+    Args:
+        logger: 日志记录器（可选）
+
+    Returns:
+        bool: Docker 是否成功运行
+    """
+    def log(msg: str, level: int = logging.INFO):
+        if logger:
+            logger.log(level, msg)
+        else:
+            print(msg)
+
+    # 首先检查 Docker 是否已经在运行
+    try:
+        client = docker.from_env()
+        client.ping()
+        log("✅ Docker 已在运行")
+        return True
+    except DockerException:
+        log("⚠️ Docker 未运行，尝试自动启动...")
+
+    # Docker 未运行，尝试启动
+    system = platform.system()
+
+    try:
+        if system == "Darwin":  # macOS
+            log("🔍 检测到 macOS，尝试启动 Docker Desktop...")
+            subprocess.run(
+                ["open", "-a", "Docker"],
+                check=True,
+                capture_output=True
+            )
+            log("⏳ Docker Desktop 启动中，等待连接...")
+
+            # 等待 Docker daemon 启动（最多等待 30 秒）
+            for i in range(30):
+                time.sleep(1)
+                try:
+                    test_client = docker.from_env()
+                    test_client.ping()
+                    log(f"✅ Docker Desktop 已启动（耗时 {i + 1} 秒）")
+                    return True
+                except DockerException:
+                    if i < 29:
+                        log(f"等待中... ({i + 1}/30)", logging.DEBUG)
+                    continue
+
+            log("⚠️ Docker Desktop 启动超时，请手动启动", logging.WARNING)
+            return False
+
+        elif system == "Linux":
+            log("🔍 检测到 Linux，尝试启动 Docker 服务...")
+            # 尝试使用 systemctl
+            try:
+                subprocess.run(
+                    ["sudo", "systemctl", "start", "docker"],
+                    check=True,
+                    capture_output=True
+                )
+                log("✅ Docker 服务启动命令已执行，等待就绪...")
+
+                # 等待 Docker daemon 启动（最多等待 10 秒）
+                for i in range(10):
+                    time.sleep(1)
+                    try:
+                        test_client = docker.from_env()
+                        test_client.ping()
+                        log(f"✅ Docker 服务已就绪（耗时 {i + 1} 秒）")
+                        return True
+                    except DockerException:
+                        continue
+
+                return True  # systemctl 成功，假设会最终启动
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                log("⚠️ 无法自动启动 Docker，请手动执行: sudo systemctl start docker", logging.WARNING)
+                return False
+
+        elif system == "Windows":
+            log("🔍 检测到 Windows，尝试启动 Docker Desktop...")
+            # Docker Desktop 在 Windows 上的常见路径
+            docker_paths = [
+                r"C:\Program Files\Docker\Docker\Docker Desktop.exe",
+                r"C:\Program Files\Docker\Docker\DockerCli.exe",
+            ]
+
+            for docker_path in docker_paths:
+                try:
+                    if Path(docker_path).exists():
+                        subprocess.Popen(
+                            [docker_path],
+                            shell=True
+                        )
+                        log("⏳ Docker Desktop 启动中，等待连接...")
+
+                        # 等待 Docker daemon 启动（最多等待 30 秒）
+                        for i in range(30):
+                            time.sleep(1)
+                            try:
+                                test_client = docker.from_env()
+                                test_client.ping()
+                                log(f"✅ Docker Desktop 已启动（耗时 {i + 1} 秒）")
+                                return True
+                            except DockerException:
+                                if i < 29:
+                                    log(f"等待中... ({i + 1}/30)", logging.DEBUG)
+                                continue
+
+                        log("⚠️ Docker Desktop 启动超时，请手动启动", logging.WARNING)
+                        return False
+                except Exception as e:
+                    log(f"尝试路径 {docker_path} 失败: {e}", logging.DEBUG)
+                    continue
+
+            log(
+                "⚠️ 未找到 Docker Desktop，请确保已安装 Docker Desktop\n"
+                "下载地址: https://www.docker.com/products/docker-desktop/",
+                logging.WARNING
+            )
+            return False
+
+    except Exception as e:
+        log(f"⚠️ 自动启动 Docker 失败: {e}", logging.WARNING)
+        return False
+
+    return False
 
 
 class DockerContainerManager:
@@ -53,13 +190,23 @@ class DockerContainerManager:
             self.logger = logging.getLogger(f"docker.{agent_name}")
 
         # 初始化 Docker 客户端
+        # 注意: Docker 的启动检查应该在系统初始化时完成（见 ensure_docker_running）
+        # 这里只负责连接，如果连接失败说明系统初始化有问题
         try:
             self.client = docker.from_env()
             # 测试连接
             self.client.ping()
             self.logger.info("✅ Docker 连接成功")
         except DockerException as e:
-            raise RuntimeError(f"Docker 连接失败: {e}") from e
+            raise RuntimeError(
+                f"Docker 连接失败。如果 Docker Desktop 未运行，请手动启动。\n"
+                f"启动方法：\n"
+                f"  - macOS: 打开 Docker Desktop 应用\n"
+                f"  - Linux: sudo systemctl start docker\n"
+                f"  - Windows: 从开始菜单启动 Docker Desktop\n"
+                f"下载: https://www.docker.com/products/docker-desktop/\n"
+                f"原始错误: {e}"
+            ) from e
 
         # 目录路径
         self.skills_dir = self.workspace_root / "SKILLS"
