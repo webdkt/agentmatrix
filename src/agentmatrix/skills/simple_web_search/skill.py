@@ -639,14 +639,14 @@ class WebSearcherContext(BaseCrawlerContext):
         self.temp_file_dir = temp_file_dir
         # 用于存储待处理的链接（在流式阅读过程中发现）
         self.pending_links_from_reading: List[str] = []
+        # 🔥 Bug fix: 用于记录第一个页面是否是错误页面（visit_url 专用）
+        # 移到 __init__ 中，确保属性始终存在
+        self.first_page_error: Optional[Dict[str, str]] = None
+        # 用于记录访问过程中的错误
+        self.errors: List[Dict[str, str]] = []
 
     def add_to_notebook(self, info: str):
         """添加信息到小本本"""
-        # 用于记录第一个页面是否是错误页面（visit_url 专用）
-        self.first_page_error: Optional[Dict[str, str]] = None
-
-        # 用于记录访问过程中的错误
-        self.errors: List[Dict[str, str]] = []
         if info:
             timestamp = time.strftime("%H:%M:%S")
             self.notebook += f"\n\n[{timestamp}] {info}\n"
@@ -688,7 +688,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
 
 
     # 🆕 Skill 级别元数据
-    _skill_description = "网络搜索技能：搜索最新信息、访问网页、提取内容"
+    _skill_description = "网络搜索技能：搜索信息、访问网页、提取内容"
 
     _skill_usage_guide = """
 使用场景：

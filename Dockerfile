@@ -23,7 +23,6 @@ RUN mkdir -p /SKILLS /home /work_files_base
 WORKDIR /
 
 # 设置环境变量
-ENV PYTHONPATH=/workspace:$PYTHONPATH
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
