@@ -97,10 +97,12 @@ class MicroAgent(AutoLoggerMixin):
         #     _by_skill: {skill_name: {action_name: method}}
         #     _flat: {action_name: method, "skill.action": method}
         #     _aliases: {action_name: "skill.action"}
+        #     _metadata: {action_name: {skill_name, action_name, original_name}}
         self.action_registry = {
             "_by_skill": {},
             "_flat": {},
-            "_aliases": {}
+            "_aliases": {},
+            "_metadata": {}  # 🆕 存储元数据（因为绑定方法无法设置属性）
         }
         self._scan_all_actions()
 
@@ -117,6 +119,7 @@ class MicroAgent(AutoLoggerMixin):
         # ========== 其他配置 ==========
         self.default_max_steps = default_max_steps
         self.messages: List[Dict] = []  # 对话历史
+        self.yellow_pages = None  # 黄页信息（初始化为 None）
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
         self.max_steps = 1024
@@ -329,10 +332,13 @@ class MicroAgent(AutoLoggerMixin):
             else:
                 lines.append("(无参数)")
             
-            # 检查是否是重命名的 action
-            if hasattr(method, '_is_renamed') and method._is_renamed:
-                original_name = getattr(method, '_original_action_name', action)
-                lines.append(f"\n注意: 此 action 已自动重命名（原名: {original_name}）")
+            # 检查是否是重命名的 action（从 _metadata）
+            action_name = method.__name__
+            if action_name in self.action_registry["_metadata"]:
+                metadata = self.action_registry["_metadata"][action_name]
+                if metadata.get("is_renamed"):
+                    original_name = metadata.get("original_name", action_name)
+                    lines.append(f"\n注意: 此 action 已自动重命名（原名: {original_name}）")
             
             return "\n".join(lines)
         
@@ -376,11 +382,6 @@ class MicroAgent(AutoLoggerMixin):
                         
                         # 创建新的绑定方法
                         bound_method = getattr(self, name)
-                        bound_method.__name__ = new_name
-                        bound_method._action_name = new_name
-                        bound_method._is_renamed = True
-                        bound_method._original_action_name = name
-                        bound_method._skill_name = skill_name
                         
                         # 在实例上设置新方法
                         setattr(self, new_name, bound_method)
@@ -402,8 +403,12 @@ class MicroAgent(AutoLoggerMixin):
                     else:
                         # 无冲突，正常注册
                         bound_method = getattr(self, name)
-                        bound_method._skill_name = skill_name
-                        bound_method._action_name = name
+                        # 🆕 在 _metadata 中记录元数据
+                        self.action_registry["_metadata"][name] = {
+                            "skill_name": skill_name,
+                            "action_name": name,
+                            "is_renamed": False
+                        }
                         
                         # 注册到 _by_skill
                         if skill_name not in self.action_registry["_by_skill"]:

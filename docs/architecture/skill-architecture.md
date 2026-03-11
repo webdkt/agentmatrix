@@ -586,3 +586,508 @@ result = SKILL_REGISTRY.get_skills(["web_search"])
 - ✅ **可扩展**: 添加新 Skill 无需修改核心代码
 - ✅ **灵活**: Agent 可以动态组合不同的 Skills
 - ✅ **类型安全**: Mixin 机制保证代码可读性和 IDE 支持
+
+---
+
+## 🆕 十一、新架构特性（2026-03-10 更新）
+
+### 11.1 嵌套 action_registry 结构
+
+**背景**: 旧版本使用扁平结构 `{"action_name": method}`，无法支持命名空间和冲突检测。
+
+**新结构**:
+```python
+self.action_registry = {
+    "_by_skill": {},      # {skill_name: {action_name: bound_method}}
+    "_flat": {},          # {action_name: method, "skill.action": method}
+    "_aliases": {},       # {alias_name: "skill.action"}
+    "_metadata": {}       # {action_name: {skill_name, original_name, is_renamed}}
+}
+```
+
+**代码位置**: `src/agentmatrix/agents/micro_agent.py:96-108`
+
+**各部分说明**:
+
+| 字段 | 类型 | 用途 |
+|------|------|------|
+| `_by_skill` | `Dict[str, Dict[str, Method]]` | 按 skill 分组的 actions，支持 `file.list_dir` 调用 |
+| `_flat` | `Dict[str, Method]` | 扁平化索引，同时支持 `list_dir` 和 `file.list_dir` |
+| `_aliases` | `Dict[str, str]` | 存储别名映射（用于冲突重命名） |
+| `_metadata` | `Dict[str, Dict]` | 存储 action 的元数据（因为绑定方法无法设置属性） |
+
+### 11.2 命名空间支持
+
+**功能**: 支持两种 action 调用格式
+
+```python
+# 格式 1: 简写格式（向后兼容）
+await agent.list_dir()
+
+# 格式 2: 完整命名（新特性）
+await agent._execute_action("file.list_dir", path="/tmp")
+```
+
+**解析逻辑** (`_resolve_action` 方法):
+```python
+def _resolve_action(self, action_call: str):
+    """
+    解析 action 调用，支持两种格式：
+    
+    1. "skill.action" → 从 _by_skill[skill][action] 获取
+    2. "action" → 从 _flat[action] 获取
+    """
+    if '.' in action_call:
+        skill_name, action_name = action_call.split('.', 1)
+        return self.action_registry["_by_skill"][skill_name][action_name]
+    else:
+        return self.action_registry["_flat"][action_call]
+```
+
+**代码位置**: `src/agentmatrix/agents/micro_agent.py:333-390`
+
+### 11.3 冲突检测与自动重命名
+
+**问题**: 不同 skills 可能有同名 actions（如 `file.read` 和 `markdown.read`）
+
+**解决方案**: 自动检测冲突并重命名
+
+```python
+# 示例：两个 skills 都有 read 方法
+file_skill:     async def read(...)
+markdown_skill: async def read(...)
+
+# 冲突检测逻辑
+if action_name in registered_actions:
+    # 自动重命名
+    new_name = f"{skill_name}_{action_name}"
+    # file.read → file_read
+    # markdown.read → markdown_read
+```
+
+**元数据记录**:
+```python
+self.action_registry["_metadata"]["file_read"] = {
+    "skill_name": "file",
+    "action_name": "file_read",
+    "original_name": "read",
+    "is_renamed": True
+}
+```
+
+**代码位置**: `src/agentmatrix/agents/micro_agent.py:225-350`
+
+**使用建议**:
+- ✅ 优先使用完整命名：`file.read`, `markdown.read`
+- ⚠️  简写格式有歧义时使用完整命名
+
+### 11.4 Skill 级别元数据
+
+**新特性**: 每个 Python Skill 可以声明自己的元数据
+
+```python
+class FileSkillMixin:
+    # 🆕 Skill 级别描述
+    _skill_description = "文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令"
+    
+    # 🆕 使用指南
+    _skill_usage_guide = """
+使用场景：
+- 需要读取或写入文件
+- 需要列出目录内容
+- 需要在文件中搜索内容
+
+使用建议：
+- 使用 list_dir 查看目录结构
+- 使用 read 读取文件内容
+- 使用 write 写入文件
+
+注意事项：
+- 所有路径都是相对于 workspace_root
+- shell 命令在容器内执行（如果是 Docker 环境）
+"""
+```
+
+**元数据用途**:
+1. **System Prompt**: 生成 Skill 分组描述
+2. **Help Action**: 提供详细的使用说明
+
+**示例 Skills 已添加元数据**:
+- ✅ `file` - 文件操作
+- ✅ `email` - 邮件发送
+- ✅ `memory` - 记忆管理
+- ✅ `markdown` - Markdown 编辑
+- ✅ `simple_web_search` - 网页搜索
+- ✅ `browser` - 浏览器自动化
+
+### 11.5 Help Action 系统
+
+**功能**: 提供可查询的在线帮助系统
+
+**三种调用模式**:
+
+#### 模式 1: 列出所有 Skills
+```python
+result = await agent.help()
+```
+
+**输出示例**:
+```
+=== 可用的 Skills ===
+
+**file**
+  文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令
+  
+**email**
+  邮件发送技能：向其他 Agent 发送邮件，支持附件传输
+  
+**markdown**
+  Markdown 文档编辑技能：编辑、总结、搜索 Markdown 文档内容
+```
+
+#### 模式 2: 查看单个 Skill 详情
+```python
+result = await agent.help(skill="file")
+```
+
+**输出示例**:
+```
+=== File Skill ===
+
+文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令
+
+使用场景：
+- 需要读取或写入文件
+- 需要列出目录内容
+- 需要在文件中搜索内容
+
+可用 actions:
+
+- **file_bash**: 执行 bash 命令或脚本（在容器内执行）
+  参数:
+    - command: bash 命令或脚本（多行脚本用 \n 分隔）
+
+- **file_list_dir**: 列出目录内容
+  参数:
+    - path: 目录路径
+
+- **file_read**: 读取文件内容
+  参数:
+    - file_path: 文件路径
+    - start_line: 起始行（可选，默认 0）
+    - end_line: 结束行（可选，默认 None）
+```
+
+#### 模式 3: 查看单个 Action 详情
+```python
+result = await agent.help(skill="file", action="read")
+```
+
+**输出示例**:
+```
+=== file.read Action ===
+
+读取文件内容
+
+参数：
+- file_path: 文件路径
+- start_line: 起始行（可选，默认 0）
+- end_line: 结束行（可选，默认 None）
+
+使用场景：
+需要查看文件内容时
+
+返回值：
+文件内容（字符串）
+```
+
+**代码位置**: `src/agentmatrix/agents/micro_agent.py:500-700`
+
+### 11.6 System Prompt 改进
+
+**旧格式**: 扁平列出所有 actions（包含完整参数）
+
+```text
+可用工具：
+- list_dir(path): 列出目录内容
+- read(file_path, start_line, end_line): 读取文件
+- write(file_path, content): 写入文件
+- get_toc(file_path, depth): 获取目录
+... (可能有 50+ 行)
+```
+
+**新格式**: 按 Skill 分组，只显示 action 名称
+
+```text
+### 🧰 可用工具箱 (Toolbox)
+
+#### A. 核心指令 (Native Actions)
+这些是你原本就具备的能力：
+- all_finished: 任务完成通知
+- help: 查看帮助信息
+
+#### B. 文件操作 (file)
+文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令
+可用 actions: list_dir, read, write, search_file, bash
+
+#### C. 邮件发送 (email)
+邮件发送技能：向其他 Agent 发送邮件，支持附件传输
+可用 actions: send_email
+
+#### D. 记忆管理 (memory)
+记忆管理技能：存储、查询、更新实体和事件的记忆
+可用 actions: recall, update_memory
+
+💡 提示：使用 help(skill="xxx") 查看详细参数说明
+```
+
+**优势**:
+1. ✅ **更清晰**: 按功能分组，易于理解
+2. ✅ **更简洁**: 只显示 action 名称，不显示完整参数
+3. ✅ **可扩展**: 新增 skill 不会让 prompt 过长
+4. ✅ **引导查询**: 提示使用 help() 查看详情
+
+**代码位置**: `src/agentmatrix/agents/micro_agent.py:950-1100`
+
+---
+
+## 十二、迁移指南
+
+### 12.1 从旧版本迁移
+
+**无需改动的情况**:
+```python
+# ✅ 简写格式仍然支持
+await agent.list_dir()
+await agent.read(file_path="test.txt")
+```
+
+**建议改用新格式**:
+```python
+# ✅ 更明确（推荐）
+await agent._execute_action("file.list_dir", path="/tmp")
+await agent._execute_action("markdown.get_toc", file_path="test.md")
+```
+
+### 12.2 处理冲突重命名
+
+**检测冲突**:
+```python
+# 检查 action 是否被重命名
+metadata = agent.action_registry["_metadata"]
+for name, meta in metadata.items():
+    if meta["is_renamed"]:
+        print(f"⚠️  {meta['original_name']} → {name}")
+        print(f"   来自 skill: {meta['skill_name']}")
+```
+
+**使用重命名后的 action**:
+```python
+# 原始名称: read
+# 重命名后: file_read, markdown_read
+
+# 方式 1: 使用完整命名（推荐）
+await agent._execute_action("file.read", ...)
+
+# 方式 2: 使用重命名后的简写
+await agent.file_read(...)
+```
+
+### 12.3 添加 Skill 元数据
+
+**步骤**:
+1. 打开你的 skill 文件（如 `my_skill/skill.py`）
+2. 添加类属性 `_skill_description` 和 `_skill_usage_guide`
+3. 测试 help 功能
+
+**示例**:
+```python
+class My_skillSkillMixin:
+    # 添加这两行
+    _skill_description = "我的技能描述"
+    _skill_usage_guide = "使用指南..."
+    
+    @register_action(...)
+    async def my_action(self, ...):
+        pass
+```
+
+---
+
+## 十三、最佳实践
+
+### 13.1 命名规范
+
+**Skill 命名**:
+- ✅ 小写，下划线分隔: `simple_web_search`
+- ❌ 避免驼峰: `SimpleWebSearch`
+- ❌ 避免连字符: `simple-web-search`
+
+**Action 命名**:
+- ✅ 动词开头: `read_file`, `search_keywords`
+- ✅ 小写，下划线分隔
+- ❌ 避免过于通用: `process`, `handle` → `process_order`, `handle_request`
+
+### 13.2 避免冲突
+
+**检查现有 actions**:
+```python
+# 在开发新 skill 前，先检查是否已有同名 action
+existing_actions = set()
+for name, meta in agent.action_registry["_metadata"].items():
+    existing_actions.add(meta["original_name"])
+
+# 如果冲突，考虑使用更具体的名称
+# ❌ read() → ✅ read_file(), read_config()
+```
+
+**使用完整命名**:
+```python
+# 即使有冲突，也可以用完整命名区分
+await agent._execute_action("file.read", ...)
+await agent._execute_action("markdown.read", ...)
+```
+
+### 13.3 文档建议
+
+**添加元数据**:
+```python
+_skill_description = "简洁的一句话描述"
+
+_skill_usage_guide = """
+## 使用场景
+- 场景 1
+- 场景 2
+
+## 使用建议
+- 建议 1
+- 建议 2
+
+## 注意事项
+- 注意 1
+- 注意 2
+"""
+```
+
+**Action 文档**:
+```python
+@register_action(
+    description="清晰的一句话说明",
+    param_infos={
+        "param1": "参数1说明（包括类型、是否可选、默认值）",
+        "param2": "参数2说明"
+    }
+)
+async def my_action(self, param1: str, param2: int = 10) -> str:
+    """
+    可选：更详细的实现说明
+    """
+    pass
+```
+
+---
+
+## 十四、性能优化
+
+### 14.1 Action 扫描优化
+
+**现状**: 每次创建 Agent 都扫描整个 MRO
+
+**优化建议**:
+```python
+# 考虑缓存 action_registry
+class MicroAgent:
+    _action_registry_cache = {}  # 类级别缓存
+    
+    def _scan_all_actions(self):
+        cache_key = tuple(self.__class__.__mro__)
+        if cache_key in self._action_registry_cache:
+            self.action_registry = self._action_registry_cache[cache_key]
+            return
+        # ... 扫描逻辑
+        self._action_registry_cache[cache_key] = self.action_registry
+```
+
+### 14.2 Help 查询优化
+
+**现状**: 每次 help() 都重新格式化
+
+**优化建议**:
+```python
+# 缓存 help 结果
+class MicroAgent:
+    _help_cache = {}
+    
+    async def help(self, skill: str = None, action: str = None):
+        cache_key = f"{skill}:{action}" if skill else "all"
+        if cache_key in self._help_cache:
+            return self._help_cache[cache_key]
+        # ... 生成 help
+        self._help_cache[cache_key] = result
+        return result
+```
+
+---
+
+## 十五、故障排查
+
+### 15.1 Help 不显示 Skill？
+
+**症状**: `help()` 没有列出我的 skill
+
+**排查**:
+```python
+# 1. 检查 skill 是否加载
+print(list(agent.action_registry["_by_skill"].keys()))
+
+# 2. 检查元数据
+my_skill = agent.action_registry["_by_skill"].get("my_skill")
+if my_skill:
+    print("Skill 已加载")
+else:
+    print("Skill 未加载")
+
+# 3. 检查 _skill_description
+from agentmatrix.skills.my_skill.skill import My_skillSkillMixin
+print(hasattr(My_skillSkillMixin, '_skill_description'))
+```
+
+### 15.2 Action 调用失败？
+
+**症状**: `_execute_action()` 报错
+
+**排查**:
+```python
+# 1. 检查 action 是否存在
+try:
+    method = agent._resolve_action("file.read")
+    print("Action 存在")
+except ValueError as e:
+    print(f"Action 不存在: {e}")
+
+# 2. 检查参数是否正确
+import inspect
+sig = inspect.signature(method)
+print(f"参数: {sig}")
+```
+
+### 15.3 冲突重命名导致调用失败？
+
+**症状**: 调用 `agent.read()` 失败
+
+**解决**:
+```python
+# 1. 查看重命名映射
+for name, meta in agent.action_registry["_metadata"].items():
+    if meta["original_name"] == "read":
+        print(f"read → {name} (来自 {meta['skill_name']})")
+
+# 2. 使用完整命名
+await agent._execute_action("file.read", ...)
+
+# 3. 或使用重命名后的方法
+await agent.file_read(...)
+```
+
+---
+

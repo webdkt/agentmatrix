@@ -415,3 +415,174 @@ async def recursive_task(self, task: str, depth: int = 0) -> dict:
 - [Agent 和 Micro Agent 设计](agent-and-micro-agent-design-cn.md)
 - [Think-With-Retry 模式](think-with-retry-pattern-cn.md)
 - [Matrix World 架构](matrix-world-cn.md)
+
+---
+
+## 🆕 新架构特性（2026-03-10 更新）
+
+### 命名空间支持
+
+**问题**: 旧版本中，不同 skills 的同名 actions 会冲突。
+
+**解决方案**: 支持命名空间调用
+
+```python
+# 旧方式（仍然支持）
+await agent.read(file_path="test.txt")
+
+# 新方式（推荐）
+await agent._execute_action("file.read", file_path="test.txt")
+await agent._execute_action("markdown.read", file_path="test.md")
+```
+
+**优势**:
+- ✅ 明确指定来源 skill
+- ✅ 避免命名冲突
+- ✅ 更好的代码可读性
+
+### Help 系统
+
+**内置在线帮助**:
+
+```python
+# 列出所有 skills
+result = await agent.help()
+
+# 查看 skill 详情
+result = await agent.help(skill="file")
+
+# 查看 action 详情
+result = await agent.help(skill="file", action="read")
+```
+
+**使用建议**:
+- 在开发时使用 `help()` 查看可用功能
+- 在文档中引用 `help()` 的输出
+- 鼓励用户使用 `help()` 自助查询
+
+### 添加 Skill 元数据
+
+**最佳实践**: 为你的 skill 添加描述和使用指南
+
+```python
+class My_skillSkillMixin:
+    # 🆕 添加这些类属性
+    _skill_description = "我的技能描述"
+    
+    _skill_usage_guide = """
+## 使用场景
+- 场景 1
+- 场景 2
+
+## 使用建议
+- 建议 1
+- 建议 2
+
+## 注意事项
+- 注意 1
+- 注意 2
+"""
+    
+    @register_action(
+        description="执行某个操作",
+        param_infos={
+            "param1": "参数1说明",
+            "param2": "参数2说明（可选）"
+        }
+    )
+    async def my_action(self, param1: str, param2: str = None) -> str:
+        """实现"""
+        pass
+```
+
+### System Prompt 优化
+
+**新格式**: 按 skill 分组，更简洁
+
+```text
+### 🧰 可用工具箱 (Toolbox)
+
+#### 文件操作 (file)
+文件操作技能：读取、写入、搜索文件和目录
+可用 actions: list_dir, read, write, search_file
+
+#### 邮件发送 (email)
+邮件发送技能：向其他 Agent 发送邮件，支持附件
+可用 actions: send_email
+
+💡 提示：使用 help(skill="xxx") 查看详细参数说明
+```
+
+**影响**:
+- ✅ LLM 更容易理解功能分组
+- ✅ 减少 prompt 长度
+- ✅ 引导使用 help() 查询详情
+
+### 迁移指南
+
+**现有代码无需修改**:
+```python
+# ✅ 仍然支持
+await agent.list_dir()
+await agent.read(file_path="test.txt")
+```
+
+**建议改用新格式**:
+```python
+# ✅ 更明确（推荐）
+await agent._execute_action("file.list_dir", path="/tmp")
+await agent._execute_action("markdown.get_toc", file_path="test.md")
+```
+
+**处理冲突**:
+```python
+# 如果 action 被重命名（冲突检测）
+# 1. 使用完整命名
+await agent._execute_action("file.read", ...)
+
+# 2. 或使用重命名后的方法
+await agent.file_read(...)
+```
+
+### 开发检查清单
+
+开发新 skill 时，确保：
+
+- [ ] 添加 `_skill_description` 和 `_skill_usage_guide`
+- [ ] 为每个 action 添加 `@register_action` 装饰器
+- [ ] 使用明确的 action 名称（避免过于通用）
+- [ ] 测试 `help()` 功能
+- [ ] 检查是否有命名冲突
+- [ ] 编写使用示例
+
+### 调试技巧
+
+**查看 action_registry**:
+```python
+# 查看所有 skills
+print(agent.action_registry["_by_skill"].keys())
+
+# 查看某个 skill 的 actions
+print(agent.action_registry["_by_skill"]["file"].keys())
+
+# 查看重命名映射
+for name, meta in agent.action_registry["_metadata"].items():
+    if meta["is_renamed"]:
+        print(f"{meta['original_name']} → {name}")
+```
+
+**测试 action 解析**:
+```python
+# 测试简写格式
+method = agent._resolve_action("list_dir")
+
+# 测试完整命名
+method = agent._resolve_action("file.list_dir")
+
+# 测试不存在的 action
+try:
+    agent._resolve_action("nonexistent")
+except ValueError as e:
+    print(f"预期错误: {e}")
+```
+
