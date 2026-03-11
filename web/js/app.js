@@ -313,9 +313,22 @@ function app() {
             try {
                 const response = await API.getSessionEmails(sessionId);
                 this.currentSessionEmails = response.emails || [];
+                
+                // 等待 DOM 更新后滚动到底部
+                this.$nextTick(() => {
+                    this.scrollToBottom();
+                });
             } catch (error) {
                 console.error('Failed to load session emails:', error);
                 this.currentSessionEmails = [];
+            }
+        },
+
+        // 滚动到消息容器底部
+        scrollToBottom() {
+            const container = document.getElementById('messages-container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
             }
         },
 
@@ -587,16 +600,76 @@ function app() {
         },
 
         // Send quick reply from input box
+        // 获取最后一封邮件的发送者（用于显示）
+        getLastEmailSender() {
+            if (!this.currentSessionEmails || this.currentSessionEmails.length === 0) {
+                return this.currentSession?.name || 'Unknown';
+            }
+            const lastEmail = this.currentSessionEmails[this.currentSessionEmails.length - 1];
+            
+            // 如果最后一封是用户发的，回复给收件人
+            if (lastEmail.is_from_user) {
+                return lastEmail.recipient || this.currentSession.name;
+            }
+            // 如果最后一封是别人发的，回复给发送者
+            return lastEmail.sender || this.currentSession.name;
+        },
+
         async sendQuickReply() {
             if (!this.quickReplyBody.trim() || !this.currentSession) {
                 return;
             }
 
+            // 如果没有邮件，发送给会话的 agent
+            if (this.currentSessionEmails.length === 0) {
+                try {
+                    const emailData = {
+                        recipient: this.currentSession.name,
+                        subject: '',
+                        body: this.quickReplyBody
+                    };
+
+                    const response = await API.sendEmail(
+                        this.currentSession.session_id,
+                        emailData
+                    );
+
+                    console.log('Quick reply sent:', response);
+                    this.quickReplyBody = '';
+                    await this.loadSessions();
+                    await this.loadSessionEmails(this.currentSession.session_id);
+                    return;
+                } catch (error) {
+                    console.error('Failed to send quick reply:', error);
+                    alert(`发送失败: ${error.message}`);
+                    return;
+                }
+            }
+
+            // 获取最后一封邮件
+            const lastEmail = this.currentSessionEmails[this.currentSessionEmails.length - 1];
+            
+            // 确定回复对象和 in_reply_to
+            let recipient;
+            let inReplyTo;
+            
+            if (lastEmail.is_from_user) {
+                // 最后一封是用户发的，回复给收件人
+                recipient = lastEmail.recipient || this.currentSession.name;
+            } else {
+                // 最后一封是别人发的，回复给发送者
+                recipient = lastEmail.sender;
+            }
+            
+            // 使用邮件 ID 作为 in_reply_to
+            inReplyTo = lastEmail.id;
+
             try {
                 const emailData = {
-                    recipient: this.currentSession.name,  // Send to the session's agent
+                    recipient: recipient,
                     subject: '',
-                    body: this.quickReplyBody
+                    body: this.quickReplyBody,
+                    in_reply_to: inReplyTo
                 };
 
                 const response = await API.sendEmail(
@@ -612,6 +685,11 @@ function app() {
                 // Refresh session list and messages
                 await this.loadSessions();
                 await this.loadSessionEmails(this.currentSession.session_id);
+                
+                // 滚动到底部（loadSessionEmails 已经会自动滚动，但为了保险再调用一次）
+                this.$nextTick(() => {
+                    this.scrollToBottom();
+                });
 
             } catch (error) {
                 console.error('Failed to send quick reply:', error);

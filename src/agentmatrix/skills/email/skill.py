@@ -141,20 +141,22 @@ class EmailSkillMixin:
         复制附件到目标 agent 的 attachments 目录
 
         Args:
-            attachments: 附件文件列表（容器内路径，例如 ['/work_files/report.pdf']）
+            attachments: 附件文件列表（容器内路径，例如 ['report.pdf', '/work_files/data.pdf']）
             recipient_name: 收件人 agent 名称
             user_session_id: 用户会话 ID
 
         Returns:
             附件 metadata 列表
+
+        容器内路径映射规则：
+        - 相对路径（如 'report.pdf'）→ 相对于 /work_files
+        - /work_files/xxx → work_files 目录下的文件
+        - /home/xxx → home 目录下的文件
         """
         workspace_root = self.root_agent.workspace_root
         source_agent = self.root_agent.name
 
-        # 构建源和目标目录
-        source_attachments_dir = (
-            Path(workspace_root) / "agent_files" / source_agent / "work_files" / user_session_id / "attachments"
-        )
+        # 目标目录（收件人的 attachments 目录）
         target_attachments_dir = (
             Path(workspace_root) / "agent_files" / recipient_name / "work_files" / user_session_id / "attachments"
         )
@@ -165,16 +167,16 @@ class EmailSkillMixin:
         attachment_metadata = []
 
         for container_path in attachments:
-            # 从容器内路径提取文件名：/work_files/report.pdf -> report.pdf
-            filename = Path(container_path).name
+            # 将容器内路径转换为宿主机路径
+            host_path = self._resolve_container_path_to_host(container_path, user_session_id)
 
-            # 源文件路径（宿主机）
-            source_file = source_attachments_dir / filename
-
-            # 检查源文件是否存在
-            if not source_file.exists():
-                self.logger.warning(f"附件文件不存在：{source_file}")
+            if host_path is None or not Path(host_path).exists():
+                self.logger.warning(f"附件文件不存在：{container_path} (解析后的宿主机路径: {host_path})")
                 continue
+
+            # 从容器路径提取文件名
+            filename = Path(container_path).name
+            source_file = Path(host_path)
 
             # 目标文件路径（同名文件直接覆盖）
             target_file = target_attachments_dir / filename
@@ -191,4 +193,46 @@ class EmailSkillMixin:
             })
 
         return attachment_metadata
+
+    def _resolve_container_path_to_host(self, container_path: str, user_session_id: str) -> str:
+        """
+        将容器内路径转换为宿主机路径
+
+        路径映射规则：
+        - 相对路径（如 'report.pdf'）→ 相对于 /work_files
+        - /work_files/test.md → {workspace_root}/agent_files/{agent_name}/work_files/{session_id}/test.md
+        - /home/plan.md → {workspace_root}/agent_files/{agent_name}/home/plan.md
+        - 其他路径 → 直接返回（假设是宿主机路径）
+
+        Args:
+            container_path: 容器内路径或宿主机路径
+            user_session_id: 用户会话 ID
+
+        Returns:
+            宿主机路径
+        """
+        docker_manager = self.root_agent.docker_manager
+
+        # 非 Docker 环境：直接返回原路径
+        if not docker_manager:
+            return container_path
+
+        path = Path(container_path)
+
+        # 情况 1: 相对路径（如 'report.pdf'）→ 当作相对于 /work_files
+        if not path.is_absolute():
+            return str(docker_manager.work_files_base / user_session_id / container_path)
+
+        # 情况 2: /work_files/* → 映射到 work_files 目录
+        if container_path.startswith("/work_files/"):
+            relative_path = container_path[len("/work_files/"):]
+            return str(docker_manager.work_files_base / user_session_id / relative_path)
+
+        # 情况 3: /home/* → 映射到 home 目录
+        if container_path.startswith("/home/"):
+            relative_path = container_path[len("/home/"):]
+            return str(docker_manager.agent_home / relative_path)
+
+        # 情况 4: 其他路径（可能是宿主机路径，直接返回）
+        return container_path
 

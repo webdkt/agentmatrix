@@ -36,7 +36,7 @@ class MemorySkillMixin:
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = "记忆管理技能：存储、查询、更新实体和事件的记忆"
+    _skill_description = "记忆管理技能：存储、查询、更新实体和事件的记忆。经常update_memory有助于保持注意力"
 
     _skill_usage_guide = """
 使用场景：

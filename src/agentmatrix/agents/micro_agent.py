@@ -1284,7 +1284,7 @@ Start generating the Whiteboard now.
                     action_registry=self.action_registry["_flat"],
                     max_retries=3
                 )
-                print(thought)
+                #print(thought)
                 action_thought = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
                 
@@ -1457,7 +1457,7 @@ Start generating the Whiteboard now.
         Returns:
             反馈消息字符串
         """
-        return f"[💡Body Feedback]:\n {combined_result}"
+        return f"{combined_result}"
 
     def _parse_actions_from_thought(self, raw_reply: str, action_registry: dict) -> dict:
         """

@@ -90,7 +90,7 @@ class FileSkillMixin:
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = "文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令"
+    _skill_description = "文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令。默认当前路径是`/work_files`，你的私人长期目录是`/home`"
 
     _skill_usage_guide = """
 使用场景：

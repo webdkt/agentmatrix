@@ -287,8 +287,38 @@
                                                 <div x-show="email && email.subject" class="message-subject" x-text="email.subject"></div>
                                                 <!-- Body -->
                                                 <div class="message-body markdown-content" x-html="email && email.body ? renderMarkdown(email.body) : ''"></div>
+
+
+                                                <!-- Attachments -->
+                                                <div x-show="email.attachments && email.attachments.length > 0" class="mt-3 space-y-2">
+                                                    <div class="text-xs font-medium text-surface-500 uppercase tracking-wide">Attachments</div>
+                                                    <template x-for="(attachment, index) in email.attachments" :key="index">
+                                                        <div class="flex items-center justify-between p-2 rounded-lg bg-surface-50 hover:bg-surface-100 transition-colors group">
+                                                            <!-- 点击附件预览（新标签页） -->
+                                                            <a :href="`/api/sessions/${currentSession?.session_id}/emails/${email.id}/attachments/${attachment.filename}`"
+                                                               target="_blank"
+                                                               rel="noopener noreferrer"
+                                                               class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                                                                <div class="w-8 h-8 rounded bg-primary-100 flex items-center justify-center flex-shrink-0">
+                                                                    <i class="ti ti-file text-primary-600 text-sm"></i>
+                                                                </div>
+                                                                <div class="flex flex-col min-w-0">
+                                                                    <span class="text-sm font-medium text-surface-700 truncate" x-text="attachment.filename"></span>
+                                                                    <span class="text-xs text-surface-400" x-text="formatFileSize(attachment.size)"></span>
+                                                                </div>
+                                                            </a>
+                                                            <!-- 下载按钮（右键或悬停显示） -->
+                                                            <a :href="`/api/sessions/${currentSession?.session_id}/emails/${email.id}/attachments/${attachment.filename}`"
+                                                               :download="attachment.filename"
+                                                               class="opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded hover:bg-surface-200 text-surface-600 hover:text-primary-600 flex-shrink-0"
+                                                               title="Download attachment (或右键另存为)">
+                                                                <i class="ti ti-download"></i>
+                                                            </a>
+                                                        </div>
+                                                    </template>
+                                                </div>
                                             </div>
-                                            
+
                                             <!-- Action Buttons -->
                                             <div class="message-actions">
                                                 <button @click="startReply(email, 'reply')" class="message-action-btn">
@@ -357,16 +387,22 @@
                             </div>
                         </div>
 
-                        <!-- Message Input Area -->
+                        <!-- Quick Reply Area -->
                         <div class="px-6 pb-6 pt-2 flex-shrink-0" x-show="currentSession">
+                            <!-- Reply Info -->
+                            <div class="flex items-center gap-2 mb-2 px-1" x-show="currentSessionEmails.length > 0">
+                                <span class="text-xs text-surface-500">
+                                    <i class="ti ti-arrow-back-up"></i>
+                                    回复给 <span class="font-medium text-surface-700" x-text="getLastEmailSender()"></span>
+                                </span>
+                            </div>
+                            
                             <div class="glass rounded-2xl border border-surface-200/60 shadow-elevated p-2">
                                 <div class="flex items-end gap-2">
-                                    <button class="w-10 h-10 rounded-xl text-surface-400 hover:bg-surface-100 hover:text-surface-600 flex items-center justify-center transition-all duration-200 btn-press flex-shrink-0">
-                                        <i class="ti ti-paperclip text-xl"></i>
-                                    </button>
                                     <textarea x-model="quickReplyBody" 
                                               @keydown.enter.prevent="sendQuickReply()"
-                                              placeholder="Type your message..." rows="1" 
+                                              :placeholder="currentSessionEmails.length > 0 ? '回复最后一封邮件...' : '发送消息...'" 
+                                              rows="1" 
                                               class="flex-1 py-2.5 px-2 bg-transparent border-0 text-surface-700 placeholder-surface-400 resize-none focus:outline-none focus:ring-0 text-[15px] max-h-32"
                                               style="min-height: 44px;"
                                               oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 128) + 'px'"></textarea>
@@ -376,57 +412,13 @@
                                         <i class="ti ti-send text-lg"></i>
                                     </button>
                                 </div>
-                                <div class="flex items-center justify-between px-3 pb-1 pt-1">
-                                    <div class="flex items-center gap-1">
-                                        <button class="w-7 h-7 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-600 flex items-center justify-center transition-all duration-200">
-                                            <i class="ti ti-mood-smile text-base"></i>
-                                        </button>
-                                        <button class="w-7 h-7 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-600 flex items-center justify-center transition-all duration-200">
-                                            <i class="ti ti-at text-base"></i>
-                                        </button>
-                                    </div>
-                                    <span class="text-xs text-surface-400">Press Enter to send</span>
+                                <div class="flex items-center justify-end px-3 pb-1 pt-1">
+                                    <span class="text-xs text-surface-400">按 Enter 发送</span>
                                 </div>
                             </div>
                         </div>
                     </main>
 
-                    <!-- RIGHT FILE PANEL -->
-                    <aside class="w-[280px] bg-white border-l border-surface-200/60 flex flex-col flex-shrink-0" x-show="showFilePanel">
-                        <!-- Panel Header -->
-                        <div class="px-5 py-4 border-b border-surface-100 flex items-center justify-between">
-                            <h2 class="font-semibold text-surface-900">Files</h2>
-                            <button @click="showFilePanel = false" class="w-8 h-8 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-600 flex items-center justify-center transition-all duration-200 btn-press">
-                                <i class="ti ti-chevron-right"></i>
-                            </button>
-                        </div>
-                        
-                        <!-- File List -->
-                        <div class="flex-1 overflow-y-auto p-4">
-                            <div class="empty-state" x-show="files.length === 0">
-                                <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface-100 flex items-center justify-center">
-                                    <i class="ti ti-folder-off text-3xl text-surface-300"></i>
-                                </div>
-                                <h4 class="text-lg font-semibold text-surface-700 mb-2">No files</h4>
-                                <p class="text-sm text-surface-500">This session has no files yet</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Upload Area -->
-                        <div class="p-4 border-t border-surface-100">
-                            <div class="border-2 border-dashed border-surface-200 rounded-xl p-4 text-center hover:border-primary-300 hover:bg-primary-50/30 cursor-pointer transition-all duration-200">
-                                <i class="ti ti-cloud-upload text-surface-400 text-2xl mb-2"></i>
-                                <p class="text-xs text-surface-500">Drop files here or click to upload</p>
-                            </div>
-                        </div>
-                    </aside>
-                    
-                    <!-- Toggle File Panel Button (when hidden) -->
-                    <button x-show="!showFilePanel" 
-                            @click="showFilePanel = true"
-                            class="fixed right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl bg-white border border-surface-200 shadow-card text-surface-500 hover:text-surface-700 flex items-center justify-center transition-all duration-200 btn-press z-10">
-                        <i class="ti ti-chevron-left"></i>
-                    </button>
                 </div>
             </template>
 
