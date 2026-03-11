@@ -2,7 +2,7 @@ fastapi
 uvicorn
 websockets
 pyyaml
-dotenv
+python-dotenv
 requests
 aioconsole
 aiohttp
@@ -14,6 +14,6 @@ beautifulsoup4
 marker-pdf
 PyMuPDF
 docker>=6.0.0
-html2text
-markdown-it-py
-python-multipart
+html2text>=2020.1.16
+markdown-it-py>=3.0.0
+browser-use>=0.11.9,<1.0.0
