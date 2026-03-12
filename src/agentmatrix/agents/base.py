@@ -559,6 +559,14 @@ class BaseAgent(AutoLoggerMixin):
         self.current_session = session
         self.current_user_session_id = session["user_session_id"]
 
+        # 2. 更新 receiver_session_id（如果尚未设置）
+        if email.receiver_session_id is None:
+            await self.post_office.update_email_receiver_session(
+                email_id=email.id,
+                receiver_session_id=session["session_id"],
+                receiver_name=self.name
+            )
+
         # 🐳 容器模式：唤醒并切换工作区
         user_session_id = session["user_session_id"]
 
@@ -807,7 +815,7 @@ class BaseAgent(AutoLoggerMixin):
 
 # 提取流程
 
-0. **相关性识别**: 只关注对话本身的事实和事件，而非所讨论的事实和事件。例如在“搜索某某新闻”的任务对话中，搜索的进度和状态是会话本身的事实和事件，而具体新闻本身是讨论的事实和事件。
+0. **相关性识别**: 只关注对话涉及的重要事实和事件
 1. **识别实体**：提取对话涉及的主要实体名，即事件的“主语”和“宾语”,并且只保留主干，例如“财务经理张三”，应该识别为“张三”
 2. **提取跃迁**：创建、变化、连接、属性获得
 3. **消歧去噪**：还原代词，剔除过程性信息
@@ -871,13 +879,12 @@ Extract facts now.
         # 获取上下文信息
         workspace_root = self._workspace_root
         agent_name = self.name
-        session_id = self.current_user_session_id or "default"
-
+        
         try:
             await append_timeline_events(
                 workspace_root=workspace_root,
                 agent_name=agent_name,
-                session_id=session_id,
+                user_session_id= self.current_user_session_id,
                 events=events  # 直接传递事件对象列表
             )
             self.logger.info(f"💾 成功持久化 {len(events)} 个事件到 Timeline")

@@ -21,9 +21,38 @@ class AgentMailDB(AutoLoggerMixin):
                 body TEXT,
                 in_reply_to TEXT,
                 user_session_id TEXT,
+                sender_session_id TEXT,
+                receiver_session_id TEXT,
                 metadata TEXT -- 存 JSON 格式的附件或其他信息
             )
         ''')
+        self.conn.commit()
+
+        # 创建索引
+        self._create_indexes()
+
+    def _create_indexes(self):
+        """创建索引以提升查询性能"""
+        cursor = self.conn.cursor()
+
+        # sender_session_id 索引（查询发出的邮件）
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sender_session
+            ON emails(sender_session_id, sender, user_session_id)
+        ''')
+
+        # receiver_session_id 索引（查询收到的邮件）
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_receiver_session
+            ON emails(receiver_session_id, recipient, user_session_id)
+        ''')
+
+        # in_reply_to 索引（用于 reply_mapping 查询）
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_in_reply_to
+            ON emails(in_reply_to)
+        ''')
+
         self.conn.commit()
 
     def log_email(self, email):
@@ -31,8 +60,8 @@ class AgentMailDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT OR IGNORE INTO emails
-            (id, timestamp, sender, recipient, subject, body, in_reply_to, user_session_id, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, timestamp, sender, recipient, subject, body, in_reply_to, user_session_id, sender_session_id, receiver_session_id, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             email.id,
             email.timestamp.isoformat(),
@@ -42,6 +71,8 @@ class AgentMailDB(AutoLoggerMixin):
             email.body,
             email.in_reply_to,
             email.user_session_id,
+            email.sender_session_id,
+            email.receiver_session_id,
             json.dumps(email.metadata) if email.metadata else None
         ))
         self.conn.commit()
@@ -50,7 +81,7 @@ class AgentMailDB(AutoLoggerMixin):
         """查询某个 Agent 的收件箱历史"""
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT * FROM emails 
+            SELECT * FROM emails
             WHERE recipient = ? OR sender = ?
             ORDER BY timestamp DESC LIMIT ?
         ''', (agent_name, agent_name, limit))
@@ -93,5 +124,62 @@ class AgentMailDB(AutoLoggerMixin):
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+    def update_receiver_session(self, email_id: str, receiver_session_id: str, receiver_name: str):
+        """
+        更新邮件的 receiver_session_id
 
+        Args:
+            email_id: 邮件ID
+            receiver_session_id: 收件人的 session
+            receiver_name: 收件人名称
 
+        Raises:
+            RuntimeError: 如果更新失败（邮件不存在或收件人不匹配）
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE emails
+            SET receiver_session_id = ?
+            WHERE id = ? AND recipient = ?
+        ''', (receiver_session_id, email_id, receiver_name))
+
+        if cursor.rowcount == 0:
+            raise RuntimeError(
+                f"Failed to update receiver_session_id: "
+                f"email_id={email_id}, receiver={receiver_name}, "
+                f"receiver_session_id={receiver_session_id}. "
+                f"Email not found or recipient mismatch."
+            )
+
+        self.conn.commit()
+
+    def get_emails_by_session(self, session_id: str, agent_name: str, user_session_id: str):
+        """
+        获取某个 session 的所有邮件（发出去的 + 收到的）
+
+        单次 SQL 查询，无需递归！
+
+        Args:
+            session_id: 会话ID
+            agent_name: Agent名称
+            user_session_id: 用户会话ID
+
+        Returns:
+            该 session 的所有邮件列表（按时间升序）
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT * FROM emails
+            WHERE user_session_id = ?
+              AND (
+                -- 发出去的邮件
+                (sender_session_id = ? AND sender = ?)
+                OR
+                -- 收到的邮件
+                (receiver_session_id = ? AND recipient = ?)
+              )
+            ORDER BY timestamp ASC
+        ''', (user_session_id, session_id, agent_name, session_id, agent_name))
+
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]

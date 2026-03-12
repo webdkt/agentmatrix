@@ -5,6 +5,7 @@ import os
 import json
 import textwrap
 from pathlib import Path
+from datetime import datetime
 from ..core.message import Email
 from ..core.log_util import AutoLoggerMixin
 class PostOffice(AutoLoggerMixin):
@@ -175,13 +176,15 @@ class PostOffice(AutoLoggerMixin):
 
             email = Email(
                 id=record['id'],
-                timestamp=record['timestamp'],
+                timestamp=datetime.fromisoformat(record['timestamp']),
                 sender=record['sender'],
                 recipient=record['recipient'],
                 subject=record['subject'],
                 body=record['body'],
                 in_reply_to=record['in_reply_to'],
                 user_session_id=record.get('user_session_id', None),
+                sender_session_id=record.get('sender_session_id'),
+                receiver_session_id=record.get('receiver_session_id'),
                 metadata=metadata
             )
             emails.append(email)
@@ -225,16 +228,89 @@ class PostOffice(AutoLoggerMixin):
 
             email = Email(
                 id=record['id'],
-                timestamp=record['timestamp'],
+                timestamp=datetime.fromisoformat(record['timestamp']),
                 sender=record['sender'],
                 recipient=record['recipient'],
                 subject=record['subject'],
                 body=record['body'],
                 in_reply_to=record['in_reply_to'],
                 user_session_id=record.get('user_session_id', None),
+                sender_session_id=record.get('sender_session_id'),
+                receiver_session_id=record.get('receiver_session_id'),
                 metadata=metadata
             )
             # Add is_from_user flag
             email.is_from_user = (email.sender == self.user_agent_name)
+            emails.append(email)
+        return emails
+
+    async def update_email_receiver_session(
+        self,
+        email_id: str,
+        receiver_session_id: str,
+        receiver_name: str
+    ):
+        """
+        更新邮件的 receiver_session_id（由收件人调用）
+
+        Args:
+            email_id: 邮件ID
+            receiver_session_id: 收件人的 session
+            receiver_name: 收件人名称
+
+        Raises:
+            RuntimeError: 如果更新失败
+        """
+        import asyncio
+        await asyncio.to_thread(
+            self.email_db.update_receiver_session,
+            email_id,
+            receiver_session_id,
+            receiver_name
+        )
+
+    def get_emails_by_session(
+        self,
+        session_id: str,
+        agent_name: str,
+        user_session_id: str
+    ):
+        """
+        获取某个 session 的所有邮件（发出去的 + 收到的）
+
+        Args:
+            session_id: 会话ID
+            agent_name: Agent名称
+            user_session_id: 用户会话ID
+
+        Returns:
+            Email对象列表
+        """
+        email_records = self.email_db.get_emails_by_session(
+            session_id, agent_name, user_session_id
+        )
+        emails = []
+        for record in email_records:
+            # 恢复 metadata 字段
+            metadata = {}
+            if record.get('metadata'):
+                try:
+                    metadata = json.loads(record['metadata'])
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {}
+
+            email = Email(
+                id=record['id'],
+                timestamp=datetime.fromisoformat(record['timestamp']),
+                sender=record['sender'],
+                recipient=record['recipient'],
+                subject=record['subject'],
+                body=record['body'],
+                in_reply_to=record['in_reply_to'],
+                user_session_id=record.get('user_session_id'),
+                sender_session_id=record.get('sender_session_id'),
+                receiver_session_id=record.get('receiver_session_id'),
+                metadata=metadata
+            )
             emails.append(email)
         return emails

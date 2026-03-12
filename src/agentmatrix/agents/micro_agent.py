@@ -21,6 +21,7 @@ from ..core.log_util import AutoLoggerMixin
 from ..core.session_context import SessionContext
 from ..core.exceptions import LLMServiceUnavailableError
 from ..core.action import register_action
+from ..core.message import Email
 from ..utils.token_utils import estimate_messages_tokens, format_conversation_messages
 
 if TYPE_CHECKING:
@@ -691,17 +692,15 @@ Start generating the Whiteboard now.
 
         新逻辑：
         1. 永远保留第一个 system message（如果有的话）
-        2. 找到第一个 user message（原始用户请求）
-        3. 检查是否包含 [WHITEBOARD] 标志：
-           - 有：替换掉旧 whiteboard（[WHITEBOARD] 之后的内容）
-           - 没有：在原始内容后追加新 whiteboard
-        4. 结果：[system?, user(原始+新whiteboard)]
+        2. Top-level MicroAgent: 使用邮件历史 + WHITEBOARD
+        3. 嵌套 MicroAgent: 保留原始 user message + WHITEBOARD
+        4. 结果：[system?, user(邮件历史/原始+whiteboard)]
 
         Returns:
             str: 生成的 whiteboard
         """
         # 🆕 压缩前：保存待总结 messages（仅 top-level）
-        if self._should_collect_summaries():
+        if self._is_top_level_microagent():
             self._push_pending_summary()
 
         whiteboard = await self._generate_whiteboard_summary(self.messages)
@@ -709,31 +708,64 @@ Start generating the Whiteboard now.
         # ========== 1. 处理 system message ==========
         has_system = self.messages and self.messages[0].get("role") == "system"
 
-        # ========== 2. 找到第一个 user message（原始用户请求）==========
-        first_user_msg = None
-        for msg in self.messages:
-            if msg.get("role") == "user":
-                first_user_msg = msg
-                break
+        # ========== 2. 判断是否是 top-level MicroAgent ==========
+        if self._is_top_level_microagent():
+            # === Top-level MicroAgent 特殊逻辑：使用邮件历史 ===
+            try:
+                # 获取 session 所有邮件
+                emails = self.root_agent.post_office.get_emails_by_session(
+                    session_id=self.session["session_id"],
+                    agent_name=self.root_agent.name,
+                    user_session_id=self.session["user_session_id"]
+                )
+                self.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
 
-        if not first_user_msg:
-            # 异常情况：没有 user message，创建一个新的
-            new_user_content = f"[WHITEBOARD]\n{whiteboard}\n\n请继续执行下一步。"
+                # 构建 Email History（聊天风格）
+                email_history = self._format_email_history(emails)
+
+                # 构建 user message: Email History + WHITEBOARD
+                new_user_content = f"{email_history}\n\n[WHITEBOARD]\n{whiteboard}"
+            except Exception as e:
+                # 如果获取邮件失败，降级到原有逻辑
+                self.logger.warning(f"⚠️ 获取邮件历史失败，降级到原有逻辑: {e}")
+                # 找到第一个 user message 作为原始内容
+                first_user_msg = None
+                for msg in self.messages:
+                    if msg.get("role") == "user":
+                        first_user_msg = msg
+                        break
+                if first_user_msg:
+                    original_content = first_user_msg.get("content", "")
+                    new_user_content = f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+                else:
+                    new_user_content = f"[WHITEBOARD]\n{whiteboard}\n\n请继续执行下一步。"
         else:
-            # 正常情况：处理第一个 user message
-            original_content = first_user_msg.get("content", "")
+            # === 嵌套 MicroAgent：保持现有逻辑 ===
+            # 找到第一个 user message（原始用户请求）
+            first_user_msg = None
+            for msg in self.messages:
+                if msg.get("role") == "user":
+                    first_user_msg = msg
+                    break
 
-            # ========== 3. 检查是否有旧 whiteboard ==========
-            if "[WHITEBOARD]" in original_content:
-                # 有旧 whiteboard：替换掉（保留 [WHITEBOARD] 之前的内容）
-                whiteboard_index = original_content.index("[WHITEBOARD]")
-                original_without_old_whiteboard = original_content[:whiteboard_index].strip()
-                new_user_content = f"{original_without_old_whiteboard}\n\n[WHITEBOARD]\n{whiteboard}"
+            if not first_user_msg:
+                # 异常情况：没有 user message，创建一个新的
+                new_user_content = f"[WHITEBOARD]\n{whiteboard}\n\n请继续执行下一步。"
             else:
-                # 没有旧 whiteboard：追加
-                new_user_content = f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+                # 正常情况：处理第一个 user message
+                original_content = first_user_msg.get("content", "")
 
-        # ========== 4. 重新构建 messages ==========
+                # 检查是否有旧 whiteboard
+                if "[WHITEBOARD]" in original_content:
+                    # 有旧 whiteboard：替换掉（保留 [WHITEBOARD] 之前的内容）
+                    whiteboard_index = original_content.index("[WHITEBOARD]")
+                    original_without_old_whiteboard = original_content[:whiteboard_index].strip()
+                    new_user_content = f"{original_without_old_whiteboard}\n\n[WHITEBOARD]\n{whiteboard}"
+                else:
+                    # 没有旧 whiteboard：追加
+                    new_user_content = f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+
+        # ========== 3. 重新构建 messages ==========
         if has_system:
             system_msg = self.messages[0]
             self.messages = [
@@ -750,12 +782,12 @@ Start generating the Whiteboard now.
 
         return whiteboard
 
-    def _should_collect_summaries(self) -> bool:
+    def _is_top_level_microagent(self) -> bool:
         """
-        判断是否应该收集待总结内容
+        判断是否是 top-level MicroAgent
 
         Returns:
-            bool: 是否是 top-level MicroAgent
+            bool: 是否是 top-level MicroAgent（parent 是 BaseAgent）
         """
         from .base import BaseAgent
         return isinstance(self.parent, BaseAgent)
@@ -785,6 +817,34 @@ Start generating the Whiteboard now.
             f"📥 已推送待总结消息到队列 "
             f"(当前队列长度: {len(self.root_agent.pending_summaries_queue)})"
         )
+
+    def _format_email_history(self, emails: List[Email]) -> str:
+        """
+        格式化邮件历史为聊天风格
+
+        Args:
+            emails: 邮件列表（已按时间排序）
+
+        Returns:
+            str: 格式化的邮件历史字符串
+        """
+        if not emails:
+            return "[EMAIL HISTORY]\n暂无邮件历史\n"
+
+        lines = ["[EMAIL HISTORY]", "------------"]
+
+        for email in emails:
+            agent_name = email.sender.split('@')[0] if '@' in email.sender else email.sender
+            speaker = f"{agent_name} ({email.timestamp.strftime('%H:%M')}):"
+            lines.append("")
+            lines.append(speaker)
+            lines.append("")
+            lines.append(email.body)
+            lines.append("")
+            lines.append("------------")
+        lines.append('[END OF EMAIL HISTORY]')
+
+        return "\n".join(lines)
 
     # ==================== 🆕 自动压缩机制结束 ====================
 
@@ -1324,8 +1384,10 @@ Start generating the Whiteboard now.
                         # 执行 update_memory（特殊处理：不记录结果，因为它压缩 messages）
                         await self._execute_action("update_memory", action_thought, idx, action_names)
                         self.logger.debug(f"✅ {action_name} done (messages compressed)")
-                        # 不记录到 execution_results（action 已内部处理）
-                        # 不退出循环，继续下一轮
+                        #update_memory会触发compress,那么最后一条记录肯定是user message.
+                        #这样编造最后的两个message，让会话圆满
+                        self._add_message("assistant", "[ACTION] 执行update_memory" )
+                        self._add_message("user","[update_memory] DONE SUCCESSFULLY")
 
                     elif action_name in exit_actions:
                         # rest_n_wait 不需要执行，直接等待
@@ -1714,8 +1776,9 @@ Start generating the Whiteboard now.
 请判断：这些 actions 中，哪些是**真正要执行**的？
 
 **注意：**
+- 用户提到，不代表要执行，对每一个action的名字，要根据用户的原话来判断，是要执行它，还是只是提到他。通常用户只会执行一个action
 - 如果要做多个action，必须按用户指定的顺序列出来, 
-- 在[ACTION]下列出所有要执行的 actions，用逗号分隔，保持顺序，不要因为名字相同就合并成一个。
+- 在[ACTION]下列出所有**要执行**的 actions，用逗号分隔，保持顺序，不要因为名字相同就合并成一个。
 
 
 **输出格式：**
