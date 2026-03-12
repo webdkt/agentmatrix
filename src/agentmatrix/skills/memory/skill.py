@@ -36,7 +36,7 @@ class MemorySkillMixin:
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = "记忆管理技能：存储、查询、更新实体和事件的记忆。经常update_memory有助于保持注意力"
+    _skill_description = "记忆管理技能，使用recall来回忆一件事情，update_memory不需要参数，会自动维护记忆内容"
 
     _skill_usage_guide = """
 使用场景：
@@ -86,7 +86,7 @@ class MemorySkillMixin:
         merged_profiles = await search_entities_merged(
             self.root_agent.workspace_root,
             self.root_agent.name,
-            self.root_agent.user_session_id,
+            self.root_agent.current_user_session_id,
             entity_name
         )
 
@@ -174,21 +174,92 @@ JSON 格式示例：
         """
         # 1. 调用内置压缩方法（生成 whiteboard 并压缩 messages）
         # 注意：_compress_messages() 由 MicroAgent 提供
+        uncompressed_msg = None
+        if self._is_top_level():
+            print("===========TOP Level Micro Agent")
+            uncompressed_msg = self.messages.copy()
+            print(uncompressed_msg)
+            print("=======END OF UNCOMPRESSSED")
+        
         whiteboard = await self._compress_messages()
 
         # 2. Top-Level: 持久化（仅 top-level 需要持久化）
         if self._is_top_level():
             # 保存 whiteboard（直接调用 utils）
             await self._persist_whiteboard(whiteboard)
-
-            # 生成并追加 timeline events
-            messages = self.messages  # 已压缩后的
-            events = await self._generate_memory_events(messages)
+            # ✅ TODO 1: 过滤邮件历史（避免重复保存）
+            messages_for_events = self._filter_email_history(uncompressed_msg)
+            
+            # ✅ TODO 2: 添加完成标记
+            self._add_update_memory_done_marker()
+            
+            events = await self._generate_memory_events(messages_for_events)
             await self._persist_timeline(events)
+            print("NOW MESSAGES:")
+            print(self.messages)
 
         return "记忆已更新"
 
     # ==================== 私有方法 ====================
+
+    def _filter_email_history(self, messages: list) -> list:
+        """
+        过滤掉邮件历史（避免在 timeline 中重复保存）
+        
+        如果第一个 user message 以 "[EMAIL HISTORY]" 开头，则丢弃它。
+        
+        Args:
+            messages: 原始消息列表
+            
+        Returns:
+            list: 过滤后的消息列表
+        """
+        if not messages:
+            return messages
+            
+        # 找到第一个 user message
+        filtered = messages.copy()
+        for i, msg in enumerate(filtered):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                # 检查是否以 [EMAIL HISTORY] 开头
+                if content.strip().startswith("[EMAIL HISTORY]"):
+                    # 丢弃这个 message
+                    filtered.pop(i)
+                    self.logger.debug(f"✅ 过滤掉邮件历史 message (position {i})")
+                    break
+                else:
+                    # 不是邮件历史，不需要过滤
+                    break
+        
+        return filtered
+
+    def _add_update_memory_done_marker(self):
+        """
+        在对话末尾添加 "[update_memory Done]" 标记
+        
+        规则：
+        - 如果最后一条是 assistant：追加新的 user message
+        - 如果最后一条是 user：在其 content 后追加标记
+        """
+        if not self.messages:
+            return
+            
+        last_msg = self.messages[-1]
+        last_role = last_msg.get("role", "")
+        
+        if last_role == "assistant":
+            # 追加新的 user message
+            self.messages.append({
+                "role": "user",
+                "content": "[update_memory Done]"
+            })
+            self.logger.debug("✅ 添加 update_memory 完成标记（新 message）")
+        elif last_role == "user":
+            # 在现有 user message 的 content 后追加
+            current_content = last_msg.get("content", "")
+            last_msg["content"] = f"{current_content}\n\n[update_memory Done]"
+            self.logger.debug("✅ 添加 update_memory 完成标记（追加内容）")
 
     def _is_top_level(self) -> bool:
         """判断是否是 top-level MicroAgent"""
@@ -230,7 +301,7 @@ JSON 格式示例：
             content,
             self.root_agent.workspace_root,
             self.root_agent.name,
-            self.root_agent.user_session_id
+            self.root_agent.current_user_session_id
         )
 
     async def _persist_timeline(self, events: List[str]):
@@ -238,6 +309,6 @@ JSON 格式示例：
         await append_timeline_events(
             self.root_agent.workspace_root,
             self.root_agent.name,
-            self.root_agent.user_session_id,
+            self.root_agent.current_user_session_id,
             events
         )

@@ -14,6 +14,8 @@ class Email:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.now)
     user_session_id: Optional[str] = None  # 用于区分不同用户会话
+    sender_session_id: Optional[str] = None  # 发件人的 session_id（发送时设置）
+    receiver_session_id: Optional[str] = None  # 收件人的 session_id（接收时更新）
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据，包括附件信息等
     
     def __repr__(self):

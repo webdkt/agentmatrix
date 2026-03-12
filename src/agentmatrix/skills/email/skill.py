@@ -112,6 +112,8 @@ class EmailSkillMixin:
             body=body,
             in_reply_to=in_reply_to,
             user_session_id=session["user_session_id"],
+            sender_session_id=session["session_id"],  # 🆕 发件人的 session
+            receiver_session_id=None,  # 收件人的 session（由收件人收到后更新）
             metadata={'attachments': attachment_metadata} if attachment_metadata else {}
         )
 
@@ -235,4 +237,3 @@ class EmailSkillMixin:
 
         # 情况 4: 其他路径（可能是宿主机路径，直接返回）
         return container_path
-
