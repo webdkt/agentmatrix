@@ -62,7 +62,7 @@ class LLMClient(AutoLoggerMixin):
                                     initial_messages: Union[str, List[str]],
                                     parser: callable,
                                     max_retries: int = 3,
-                                    debug: bool = True,
+                                    debug: bool = False,
                                     **parser_kwargs) -> any:
         """
         A generic micro-agent that interacts with an LLM in a loop until the

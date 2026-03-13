@@ -846,7 +846,20 @@ Start generating the Whiteboard now.
 
         return "\n".join(lines)
 
-    # ==================== 🆕 自动压缩机制结束 ====================
+    def update_status(self, message: str):
+        """
+        更新状态（直接通知 root_agent）
+        
+        这个方法会直接调用 root_agent.update_status()，将状态消息
+        透传到 BaseAgent，最终可以展示给前端用户。
+        
+        Args:
+            message: 状态消息（简单文本）
+        """
+        if self.root_agent and hasattr(self.root_agent, 'update_status'):
+            self.root_agent.update_status(message)
+
+        # ==================== 🆕 自动压缩机制结束 ====================
 
     async def execute(
         self,
@@ -1338,13 +1351,26 @@ Start generating the Whiteboard now.
 
             try:
                 # 1. Think（使用 think_with_retry + actions parser）
+                # ✅ 状态更新：Thinking
+                self.update_status("Thinking...")
+                
                 thought = await self.brain.think_with_retry(
                     initial_messages = self.messages,
                     parser=self._parse_actions_from_thought,
                     action_registry=self.action_registry["_flat"],
                     max_retries=3
                 )
-                #print(thought)
+                
+                # ✅ 状态更新：LLM 返回内容（"[ACTION]" 之前的部分）
+                if raw_reply := thought.get("[RAW_REPLY]"):
+                    # 提取 "[ACTION]" 之前的部分
+                    if "[ACTION]" in raw_reply:
+                        thinking_part = raw_reply.split("[ACTION]")[0].strip()
+                        self.update_status(thinking_part)
+                    else:
+                        # 如果没有 "[ACTION]" 标记，全部返回
+                        self.update_status(raw_reply)
+                
                 action_thought = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
                 
@@ -1357,6 +1383,11 @@ Start generating the Whiteboard now.
                 action_names = await self._detect_actions(action_thought)
 
                 self.logger.debug(f"Detected actions: {action_names}")
+                
+                # ✅ 状态更新：开始执行 actions
+                if action_names:
+                    actions_str = ", ".join(action_names)
+                    self.update_status(f"开始执行: {actions_str}")
 
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply )
@@ -1401,8 +1432,12 @@ Start generating the Whiteboard now.
                             result = await self._execute_action(action_name, action_thought, idx, action_names)
                             if result!="NOT_TO_RUN":
                                 execution_results.append(f"[{action_name} Done]:\n {result}")
-                            self.logger.debug(f"✅ {action_name} done")
-                            self.logger.debug(result)
+                                self.logger.debug(f"✅ {action_name} done")
+                                self.logger.debug(result)
+                                
+                                # ✅ 状态更新：Action 执行结果
+                                action_status = f"{action_name}: {result[:100] if len(result) > 100 else result}"
+                                self.update_status(action_status)
 
                         except Exception as e:
                             error_msg = str(e)

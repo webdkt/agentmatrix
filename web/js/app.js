@@ -46,6 +46,12 @@ function app() {
 
         // New email popup state
         newEmailPopup: null,
+        
+        // Agent 状态轮询
+        agentStatusPolling: false,  // 是否正在轮询
+        agentStatusTarget: '',      // 目标 Agent 名称
+        agentStatusHistory: [],     // 状态历史（最近 3 条）
+        agentStatusError: null,     // 错误信息
 
         // Settings state
         settingsView: 'main',  // 'main', 'agents', 'llm'
@@ -314,6 +320,9 @@ function app() {
                 const response = await API.getSessionEmails(sessionId);
                 this.currentSessionEmails = response.emails || [];
                 
+                // ✅ 检查最后一封邮件，判断是否需要轮询 Agent 状态
+                this.checkAndStartStatusPolling();
+                
                 // 等待 DOM 更新后滚动到底部
                 this.$nextTick(() => {
                     this.scrollToBottom();
@@ -330,6 +339,156 @@ function app() {
             if (container) {
                 container.scrollTop = container.scrollHeight;
             }
+        },
+        
+        // ========== Agent 状态轮询 ==========
+        
+        /**
+         * 检查最后一封邮件，判断是否需要开始轮询 Agent 状态
+         */
+        checkAndStartStatusPolling() {
+            // 停止之前的轮询
+            this.stopAgentStatusPolling();
+            
+            // 检查是否有邮件
+            if (!this.currentSessionEmails || this.currentSessionEmails.length === 0) {
+                return;
+            }
+            
+            // 获取最后一封邮件
+            const lastEmail = this.currentSessionEmails[this.currentSessionEmails.length - 1];
+            
+            // 判断是否是用户发出的邮件
+            if (lastEmail.is_from_user) {
+                // 获取收件人（目标 Agent）
+                const targetAgent = lastEmail.recipient || this.currentSession?.name;
+                
+                console.log('📊 最后一封邮件是用户发出的，开始轮询 Agent 状态:', targetAgent);
+                
+                // 开始轮询
+                this.startAgentStatusPolling(targetAgent);
+            } else {
+                console.log('📊 最后一封邮件是 Agent 回复的，不需要轮询状态');
+            }
+        },
+        
+        /**
+         * 开始轮询 Agent 状态
+         * @param {string} agentName - Agent 名称
+         */
+        startAgentStatusPolling(agentName) {
+            if (this.agentStatusPolling) {
+                console.warn('⚠️ Status polling already active');
+                return;
+            }
+            
+            this.agentStatusPolling = true;
+            this.agentStatusTarget = agentName;
+            this.agentStatusError = null;
+            
+            // 立即获取一次状态
+            this.fetchAgentStatus();
+            
+            // 每 2 秒轮询一次
+            this.pollingInterval = setInterval(() => {
+                this.fetchAgentStatus();
+            }, 2000);
+        },
+        
+        /**
+         * 停止轮询 Agent 状态
+         */
+        stopAgentStatusPolling() {
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+                this.pollingInterval = null;
+            }
+            
+            this.agentStatusPolling = false;
+            this.agentStatusTarget = '';
+            this.agentStatusHistory = [];
+            this.agentStatusError = null;
+        },
+        
+        /**
+         * 获取 Agent 状态
+         */
+        async fetchAgentStatus() {
+            if (!this.agentStatusTarget) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/agents/${this.agentStatusTarget}/status/history`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // 更新状态历史
+                this.agentStatusHistory = data || [];
+                this.agentStatusError = null;
+                
+                console.log('📊 Agent 状态更新:', this.agentStatusHistory);
+                
+                // 检查最后一封邮件是否还是用户发出的
+                // 如果不是（收到新回复），停止轮询
+                this.checkLastEmailChanged();
+                
+            } catch (error) {
+                console.error('❌ 获取 Agent 状态失败:', error);
+                this.agentStatusError = error.message;
+            }
+        },
+        
+        /**
+         * 检查最后一封邮件是否变化（收到 Agent 回复）
+         */
+        checkLastEmailChanged() {
+            if (!this.currentSessionEmails || this.currentSessionEmails.length === 0) {
+                // 没有邮件了，停止轮询
+                this.stopAgentStatusPolling();
+                return;
+            }
+            
+            const lastEmail = this.currentSessionEmails[this.currentSessionEmails.length - 1];
+            
+            // 如果最后一封邮件不是用户发出的，说明收到回复了
+            if (!lastEmail.is_from_user) {
+                console.log('✅ 收到 Agent 回复，停止状态轮询');
+                this.stopAgentStatusPolling();
+            }
+        },
+        
+        /**
+         * 格式化状态时间戳
+         */
+        formatStatusTime(timestamp) {
+            if (!timestamp) return '';
+            
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+            
+            // 小于 1 分钟
+            if (diff < 60000) {
+                return '刚刚';
+            }
+            
+            // 小于 1 小时
+            if (diff < 3600000) {
+                const minutes = Math.floor(diff / 60000);
+                return `${minutes} 分钟前`;
+            }
+            
+            // 大于 1 小时，显示时间
+            return date.toLocaleTimeString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
         },
 
         // Format timestamp

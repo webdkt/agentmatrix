@@ -914,6 +914,26 @@ async def get_agent(agent_name: str):
     }
 
 
+@app.get("/api/agents/{agent_name}/status/history")
+async def get_agent_status_history(agent_name: str):
+    """获取 Agent 状态历史（最近 3 条）"""
+    global matrix_runtime
+    
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+    
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    
+    agent = matrix_runtime.agents[agent_name]
+    
+    # 检查是否有状态管理方法
+    if hasattr(agent, 'get_status_history'):
+        return agent.get_status_history()
+    else:
+        return []
+
+
 @app.get("/api/files")
 async def get_files(path: str = ""):
     """Get files in workspace"""
@@ -1638,13 +1658,22 @@ async def get_agent_status(agent_name: str):
 
     try:
         agent = matrix_runtime.agents[agent_name]
-        status = agent.current_status
-
-        return {
-            "success": True,
-            "agent_name": agent_name,
-            "status": status
-        }
+        
+        # 使用新的状态管理方法
+        if hasattr(agent, 'get_current_status'):
+            return {
+                "success": True,
+                "agent_name": agent_name,
+                **agent.get_current_status()  # 展开返回 message 和 timestamp
+            }
+        else:
+            # 向后兼容：使用旧方法
+            return {
+                "success": True,
+                "agent_name": agent_name,
+                "message": str(getattr(agent, 'status', 'unknown')),
+                "timestamp": None
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
