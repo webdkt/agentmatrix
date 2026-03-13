@@ -35,17 +35,17 @@ class BaseSkillMixin:
         now = datetime.now()
         return now.strftime("%Y-%m-%d %H:%M:%S")
 
-    @register_action(
-        "Take a break，让身体恢复一下",
-        param_infos={}
-    )
-    async def take_a_break(self):
-        """扩展休息（60秒 sleep）"""
-        await asyncio.sleep(60)
-        return "Return from Break"
+    #@register_action(
+    ##    "Take a break，让身体恢复一下",
+    #    param_infos={}
+    #)
+    #async def take_a_break(self):
+    #    """扩展休息（60秒 sleep）"""
+    #    await asyncio.sleep(60)
+    #    return "Return from Break"
 
     @register_action(
-        "向用户提问并等待回答。当你需要用户提供信息（如预算、偏好、确认等）时调用此 action。",
+        "向用户提问并等待回答。当你需要用户提供信息时调用此 action。",
         param_infos={
             "question": "要向用户提出的问题（清晰、具体）"
         }
