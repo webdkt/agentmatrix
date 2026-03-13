@@ -2,6 +2,13 @@
 
 function app() {
     return {
+        // ========== 合并所有 Stores ==========
+        ...useSessionStore(),
+        ...useEmailStore(),
+        ...useAgentStore(),
+        ...useSettingsStore(),
+        ...useUiStore(),
+
         // Application state
         currentTab: 'master',
         isColdStart: false,
@@ -50,12 +57,15 @@ function app() {
         // ask_user 对话框状态
         askUserDialog: {
             show: false,
+            minimized: false,  // 是否最小化到会话底部
             agent_name: '',
             question: '',
             user_session_id: null,
+            session_id: null,  // 记录会话ID，用于跨会话显示
             answer: '',
             submitting: false,
-            error: null
+            error: null,
+            persistent: true  // 持久化标志，不会因为切换会话而消失
         },
         
         // Agent 状态轮询
@@ -287,51 +297,12 @@ function app() {
             }
         },
 
-        // Handle new email received via WebSocket
-        async handleNewEmail(emailData) {
-        
-        // ========== Runtime Event Handling ==========
-        async handleRuntimeEvent(eventData) {
             try {
-                // eventData 是字符串，需要解析 AgentEvent
-                // 格式: "AgentEvent(event_type='...', source='...', ...)"
-                const eventMatch = eventData.match(/AgentEvent\(([^)]+)\)/);
-                if (!eventMatch) {
-                    console.warn('Invalid runtime event format:', eventData);
-                    return;
-                }
-                
-                // 解析事件属性
-                const eventStr = eventMatch[1];
-                const eventTypeMatch = eventStr.match(/event_type='([^']*)'/);
-                const sourceMatch = eventStr.match(/source='([^']*)'/);
-                const contentMatch = eventStr.match(/content='([^']*)'/);
-                const payloadMatch = eventStr.match(/payload=({[^}]*})/);
-                
-                if (!eventTypeMatch || !sourceMatch || !contentMatch) {
-                    console.warn('Failed to parse event:', eventData);
-                    return;
-                }
-                
-                const eventType = eventTypeMatch[1];
-                const source = sourceMatch[1];
-                const content = contentMatch[1];
-                
-                // 解析 payload（如果是字典格式）
-                let payload = {};
-                if (payloadMatch) {
-                    try {
-                        // 移除单引号，替换为双引号，解析 JSON
-                        const payloadStr = payloadMatch[1]
-                            .replace(/'/g, '"')
-                            .replace(/True/g, 'true')
-                            .replace(/False/g, 'false')
-                            .replace(/None/g, 'null');
-                        payload = JSON.parse(payloadStr);
-                    } catch (e) {
-                        console.warn('Failed to parse payload:', payloadMatch[1]);
-                    }
-                }
+                // eventData 现在是 JSON 对象（来自 event.to_dict()）
+                const eventType = eventData.type;
+                const source = eventData.source;
+                const content = eventData.content;
+                const payload = eventData.payload || {};
                 
                 // 处理 ASK_USER 事件
                 if (eventType === 'ASK_USER') {
@@ -343,10 +314,6 @@ function app() {
                 console.error('Failed to handle runtime event:', error);
             }
         },
-        
-        /**
-         * 处理 Agent ask_user 事件
-         */
         async handleAskUser(agentName, question, payload) {
             const { user_session_id } = payload;
             
@@ -380,22 +347,29 @@ function app() {
         showAskUserDialog(data) {
             this.askUserDialog = {
                 show: true,
+                minimized: false,
                 agent_name: data.agent_name,
                 question: data.question,
                 user_session_id: data.user_session_id,
+                session_id: data.session_id || this.currentSession?.session_id || null,
                 answer: '',
                 submitting: false,
-                error: null
+                error: null,
+                persistent: true
             };
         },
         
         /**
          * 提交用户回答
          */
+        /**
+         * 提交用户回答
+         */
         async submitUserAnswer() {
-            if (!this.askUserDialog.answer.trim()) {
-                this.askUserDialog.error = '请输入回答内容';
-                return;
+            // 🔧 如果回答为空，自动填充 "OK"
+            let answer = this.askUserDialog.answer.trim();
+            if (!answer) {
+                answer = "OK";
             }
             
             this.askUserDialog.submitting = true;
@@ -403,14 +377,24 @@ function app() {
             
             try {
                 await API.submitUserInput(this.askUserDialog.agent_name, {
-                    answer: this.askUserDialog.answer
+                    answer: answer
                 });
                 
                 console.log('✅ 用户回答已提交');
                 
-                // 关闭对话框
-                this.askUserDialog.show = false;
-                this.askUserDialog.answer = '';
+                // 🔧 完全清空状态（回答成功后）
+                this.askUserDialog = {
+                    show: false,
+                    minimized: false,
+                    agent_name: '',
+                    question: '',
+                    user_session_id: null,
+                    session_id: null,
+                    answer: '',
+                    submitting: false,
+                    error: null,
+                    persistent: true
+                };
                 
             } catch (error) {
                 console.error('❌ 提交回答失败:', error);
@@ -423,16 +407,13 @@ function app() {
         /**
          * 关闭用户输入对话框
          */
+        /**
+         * 关闭用户输入对话框（最小化到会话底部）
+         */
         closeAskUserDialog() {
-            this.askUserDialog = {
-                show: false,
-                agent_name: '',
-                question: '',
-                user_session_id: null,
-                answer: '',
-                submitting: false,
-                error: null
-            };
+            // 🔧 不清空状态，而是最小化
+            this.askUserDialog.show = false;
+            this.askUserDialog.minimized = true;
         },
         
         // Handle new email received via WebSocket
