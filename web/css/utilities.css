@@ -1,0 +1,143 @@
+/* ============================================
+   AgentMatrix Design System v2.0 - Utilities
+   Animations and Utility Classes
+   ============================================ */
+
+/* ============================================
+   Animations
+   ============================================ */
+
+/* Fade In */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Slide Up */
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Scale In */
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Message In */
+@keyframes messageIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Pulse Soft */
+@keyframes pulseSoft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Typing Bounce */
+@keyframes typingBounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-4px); }
+}
+
+/* Spin */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Tag In */
+@keyframes tagIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* ============================================
+   Animation Classes
+   ============================================ */
+.animate-fade-in {
+    animation: fadeIn 0.4s var(--ease-out-expo) forwards;
+}
+
+.animate-slide-up {
+    animation: slideUp 0.5s var(--ease-out-expo) forwards;
+}
+
+.animate-scale-in {
+    animation: scaleIn 0.3s var(--ease-bounce) forwards;
+}
+
+/* Settings view transitions */
+.settings-view-enter {
+    animation: slideUp 0.3s var(--ease-out-expo) forwards;
+}
+
+/* ============================================
+   Transition Utilities
+   ============================================ */
+.transition-smooth {
+    transition: all 0.25s var(--ease-smooth);
+}
+
+.transition-bounce {
+    transition: all 0.3s var(--ease-bounce);
+}
+
+/* ============================================
+   Visual Utilities
+   ============================================ */
+
+/* Gradient Text */
+.gradient-text {
+    background: linear-gradient(135deg, var(--primary-600), var(--primary-400));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Shadow Glow */
+.shadow-glow-primary {
+    box-shadow: var(--shadow-glow-sm);
+}
+
+.shadow-glow-primary:hover {
+    box-shadow: var(--shadow-glow);
+}
+
+/* ============================================
+   Loading Spinner
+   ============================================ */
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--primary-100);
+    border-top-color: var(--primary-600);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}

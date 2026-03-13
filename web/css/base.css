@@ -1,0 +1,158 @@
+/* ============================================
+   AgentMatrix Design System v2.0 - Base Styles
+   Modern, World-class UI Design
+   ============================================ */
+
+/* Import Inter Font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ============================================
+   CSS Custom Properties (Design Tokens)
+   ============================================ */
+:root {
+    /* Primary Color - Deep Violet */
+    --primary-50: #f5f3ff;
+    --primary-100: #ede9fe;
+    --primary-200: #ddd6fe;
+    --primary-300: #c4b5fd;
+    --primary-400: #a78bfa;
+    --primary-500: #8b5cf6;
+    --primary-600: #7c3aed;
+    --primary-700: #6d28d9;
+    --primary-800: #5b21b6;
+    --primary-900: #4c1d95;
+
+    /* Accent Color - Teal */
+    --accent-50: #f0fdfa;
+    --accent-100: #ccfbf1;
+    --accent-500: #14b8a6;
+    --accent-600: #0d9488;
+
+    /* Surface Colors - Warm Stone */
+    --surface-50: #fafaf9;
+    --surface-100: #f5f5f4;
+    --surface-200: #e7e5e4;
+    --surface-300: #d6d3d1;
+    --surface-400: #a8a29e;
+    --surface-500: #78716c;
+    --surface-600: #57534e;
+    --surface-700: #44403c;
+    --surface-800: #292524;
+    --surface-900: #1c1917;
+
+    /* Semantic Colors */
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --info: #3b82f6;
+
+    /* Border Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --radius-full: 9999px;
+
+    /* Shadows */
+    --shadow-soft: 0 2px 8px rgba(0,0,0,0.04);
+    --shadow-card: 0 4px 16px rgba(0,0,0,0.05), 0 2px 6px rgba(0,0,0,0.02);
+    --shadow-elevated: 0 12px 32px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.03);
+    --shadow-glow: 0 0 40px rgba(124,58,237,0.12);
+    --shadow-glow-sm: 0 0 20px rgba(124,58,237,0.08);
+
+    /* Transitions */
+    --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+    --duration-fast: 150ms;
+    --duration-normal: 250ms;
+    --duration-slow: 400ms;
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+* {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: linear-gradient(135deg, #fafaf9 0%, #f5f5f4 100%);
+    color: var(--surface-800);
+}
+
+/* ============================================
+   Scrollbar
+   ============================================ */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--surface-300);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--surface-400);
+}
+
+/* ============================================
+   Layout Components
+   ============================================ */
+
+/* Glassmorphism Effect */
+.glass {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Sidebar Navigation */
+.sidebar-nav {
+    width: 72px;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-right: 1px solid rgba(231, 229, 228, 0.6);
+}
+
+.nav-item {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s var(--ease-smooth);
+    color: var(--surface-500);
+}
+
+.nav-item:hover {
+    background: var(--surface-100);
+    color: var(--surface-700);
+}
+
+.nav-item.active {
+    background: var(--primary-50);
+    color: var(--primary-600);
+    box-shadow: var(--shadow-soft);
+}
+
+/* Panel Styles */
+.panel {
+    background: white;
+    border-right: 1px solid rgba(231, 229, 228, 0.6);
+}
+
+/* Hide Alpine.js until loaded */
+[x-cloak] {
+    display: none !important;
+}
