@@ -323,23 +323,24 @@ class BaseAgent(AutoLoggerMixin):
 
         self.logger.info(f"💬 向用户提问: {question[:50]}{'...' if len(question) > 50 else ''}")
 
-        # 3. 等待用户输入（同时检查全局暂停）
-        while True:
-            # 检查全局暂停
+        try:
+            # 发起提问前，先确保当前没有被暂停
             await self._checkpoint()
 
-            try:
-                # 等待用户输入（短暂超时，以便循环检查暂停状态）
-                answer = await asyncio.wait_for(
-                    self._user_input_future,
-                    timeout=0.1
-                )
-                # 拿到答案，退出循环
-                self.logger.info(f"✅ 收到用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}")
-                return answer
-            except asyncio.TimeoutError:
-                # 超时了，循环回去检查 _paused
-                continue
+            # 🔧 修复：直接 await Future，不使用 wait_for（避免 Future 被取消）
+            # 无限期挂起，直到前端调用 submit_user_input(answer) 触发 set_result(answer)
+            answer = await self._user_input_future
+            
+            # 拿到答案后，再次检查是否在等待期间系统被暂停了
+            await self._checkpoint()
+
+            self.logger.info(f"✅ 收到用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}")
+            return answer
+            
+        finally:
+            # 🔧 修复：状态清理（避免内存泄漏）
+            self._user_input_future = None
+            self._pending_user_question = None
 
     async def submit_user_input(self, answer: str):
         """

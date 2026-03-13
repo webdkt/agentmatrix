@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -343,7 +343,7 @@ async def lifespan(app: FastAPI):
                 try:
                     message = json.dumps({
                         "type": "runtime_event",
-                        "data": str(event)
+                        "data": event.to_dict()
                     })
                     # Send to all active WebSocket connections
                     for ws in active_websockets[:]:  # Copy list to avoid modification during iteration
@@ -1711,8 +1711,8 @@ async def get_pending_user_input(agent_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/agents/{agent_name}/user_input")
-async def submit_user_input(agent_name: str, request: dict):
+@app.post("/api/agents/{agent_name}/submit_user_input")
+async def submit_user_input(agent_name: str, request: Request):
     """提交用户输入，唤醒正在等待的 Agent"""
     global matrix_runtime
 
@@ -1723,7 +1723,8 @@ async def submit_user_input(agent_name: str, request: dict):
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
 
     # 获取用户输入
-    answer = request.get("answer")
+    request_data = await request.json()
+    answer = request_data.get("answer")
     if not answer:
         raise HTTPException(status_code=400, detail="Missing 'answer' field")
 
