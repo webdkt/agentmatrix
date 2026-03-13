@@ -44,6 +44,11 @@ class BaseAgent(AutoLoggerMixin):
         self.vision_brain = None  # 🆕 视觉大模型（支持图片理解的LLM）
 
         self.status = "IDLE"
+        
+        # 📊 状态历史（最近 3 条，用于前端查询）
+        self.status_history = []
+        self._max_status_history = 3
+        
         self.last_received_email = None #最后收到的信
         self._workspace_root = None
         self._matrix_path = None
@@ -665,7 +670,53 @@ class BaseAgent(AutoLoggerMixin):
             # 🐳 容器模式：休眠容器
             self.docker_manager.hibernate()
 
-    # ==================== 🆕 双 Worker 模型 ====================
+    # ==================== 📊 状态管理 ====================
+    
+    def update_status(self, message: str):
+        """
+        更新状态（保存最近 3 条到历史记录）
+        
+        这个方法会被 MicroAgent 调用，将状态消息
+        保存到 BaseAgent 的状态历史中。
+        
+        Args:
+            message: 状态消息（简单文本）
+        """
+        from datetime import datetime
+        
+        status = {
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # 保存最近 3 条
+        self.status_history.append(status)
+        if len(self.status_history) > self._max_status_history:
+            self.status_history.pop(0)
+        
+        self.logger.debug(f"📊 Status: {message}")
+    
+    def get_current_status(self) -> dict:
+        """
+        获取当前状态（最新一条）
+        
+        Returns:
+            dict: {"message": str, "timestamp": str}
+        """
+        if self.status_history:
+            return self.status_history[-1]
+        return {"message": "空闲", "timestamp": None}
+    
+    def get_status_history(self) -> list:
+        """
+        获取状态历史（最近 3 条）
+        
+        Returns:
+            list: [{"message": str, "timestamp": str}, ...]
+        """
+        return self.status_history.copy()
+    
+        # ==================== 🆕 双 Worker 模型 ====================
 
     async def _email_worker(self):
         """
