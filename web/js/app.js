@@ -47,6 +47,17 @@ function app() {
         // New email popup state
         newEmailPopup: null,
         
+        // ask_user 对话框状态
+        askUserDialog: {
+            show: false,
+            agent_name: '',
+            question: '',
+            user_session_id: null,
+            answer: '',
+            submitting: false,
+            error: null
+        },
+        
         // Agent 状态轮询
         agentStatusPolling: false,  // 是否正在轮询
         agentStatusTarget: '',      // 目标 Agent 名称
@@ -218,7 +229,7 @@ function app() {
                             if (data.type === 'new_email') {
                                 this.handleNewEmail(data.data);
                             } else if (data.type === 'runtime_event') {
-                                console.log('Runtime event:', data.data);
+                                this.handleRuntimeEvent(data.data);
                             }
                         });
                     }
@@ -276,6 +287,154 @@ function app() {
             }
         },
 
+        // Handle new email received via WebSocket
+        async handleNewEmail(emailData) {
+        
+        // ========== Runtime Event Handling ==========
+        async handleRuntimeEvent(eventData) {
+            try {
+                // eventData 是字符串，需要解析 AgentEvent
+                // 格式: "AgentEvent(event_type='...', source='...', ...)"
+                const eventMatch = eventData.match(/AgentEvent\(([^)]+)\)/);
+                if (!eventMatch) {
+                    console.warn('Invalid runtime event format:', eventData);
+                    return;
+                }
+                
+                // 解析事件属性
+                const eventStr = eventMatch[1];
+                const eventTypeMatch = eventStr.match(/event_type='([^']*)'/);
+                const sourceMatch = eventStr.match(/source='([^']*)'/);
+                const contentMatch = eventStr.match(/content='([^']*)'/);
+                const payloadMatch = eventStr.match(/payload=({[^}]*})/);
+                
+                if (!eventTypeMatch || !sourceMatch || !contentMatch) {
+                    console.warn('Failed to parse event:', eventData);
+                    return;
+                }
+                
+                const eventType = eventTypeMatch[1];
+                const source = sourceMatch[1];
+                const content = contentMatch[1];
+                
+                // 解析 payload（如果是字典格式）
+                let payload = {};
+                if (payloadMatch) {
+                    try {
+                        // 移除单引号，替换为双引号，解析 JSON
+                        const payloadStr = payloadMatch[1]
+                            .replace(/'/g, '"')
+                            .replace(/True/g, 'true')
+                            .replace(/False/g, 'false')
+                            .replace(/None/g, 'null');
+                        payload = JSON.parse(payloadStr);
+                    } catch (e) {
+                        console.warn('Failed to parse payload:', payloadMatch[1]);
+                    }
+                }
+                
+                // 处理 ASK_USER 事件
+                if (eventType === 'ASK_USER') {
+                    console.log('📬 收到 ASK_USER 事件:', { source, content, payload });
+                    await this.handleAskUser(source, content, payload);
+                }
+                
+            } catch (error) {
+                console.error('Failed to handle runtime event:', error);
+            }
+        },
+        
+        /**
+         * 处理 Agent ask_user 事件
+         */
+        async handleAskUser(agentName, question, payload) {
+            const { user_session_id } = payload;
+            
+            // 1. 查找并切换到对应的对话
+            if (user_session_id) {
+                const session = this.sessions.find(s => s.session_id === user_session_id);
+                
+                if (session) {
+                    // 如果不在当前对话，切换过去
+                    if (!this.currentSession || this.currentSession.session_id !== user_session_id) {
+                        this.currentSession = session;
+                        await this.loadSessionEmails(session.session_id);
+                        console.log('✅ 切换到对话:', session.name);
+                    }
+                } else {
+                    console.warn('⚠️ 未找到对应的对话:', user_session_id);
+                }
+            }
+            
+            // 2. 显示用户输入对话框
+            this.showAskUserDialog({
+                agent_name: agentName,
+                question: question,
+                user_session_id: user_session_id
+            });
+        },
+        
+        /**
+         * 显示用户输入对话框
+         */
+        showAskUserDialog(data) {
+            this.askUserDialog = {
+                show: true,
+                agent_name: data.agent_name,
+                question: data.question,
+                user_session_id: data.user_session_id,
+                answer: '',
+                submitting: false,
+                error: null
+            };
+        },
+        
+        /**
+         * 提交用户回答
+         */
+        async submitUserAnswer() {
+            if (!this.askUserDialog.answer.trim()) {
+                this.askUserDialog.error = '请输入回答内容';
+                return;
+            }
+            
+            this.askUserDialog.submitting = true;
+            this.askUserDialog.error = null;
+            
+            try {
+                await API.submitUserInput(this.askUserDialog.agent_name, {
+                    answer: this.askUserDialog.answer
+                });
+                
+                console.log('✅ 用户回答已提交');
+                
+                // 关闭对话框
+                this.askUserDialog.show = false;
+                this.askUserDialog.answer = '';
+                
+            } catch (error) {
+                console.error('❌ 提交回答失败:', error);
+                this.askUserDialog.error = error.message || '提交失败';
+            } finally {
+                this.askUserDialog.submitting = false;
+            }
+        },
+        
+        /**
+         * 关闭用户输入对话框
+         */
+        closeAskUserDialog() {
+            this.askUserDialog = {
+                show: false,
+                agent_name: '',
+                question: '',
+                user_session_id: null,
+                answer: '',
+                submitting: false,
+                error: null
+            };
+        },
+        
         // Handle new email received via WebSocket
         async handleNewEmail(emailData) {
             console.log('📧 New email received:', emailData);

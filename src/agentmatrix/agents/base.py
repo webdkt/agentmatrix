@@ -307,10 +307,18 @@ class BaseAgent(AutoLoggerMixin):
             answer = await self.root_agent.ask_user("请确认预算范围")
             # 返回: "5万-10万"
         """
-        # 1. 记录问题（给 API 查询）
+        # ✅ 1. 发送事件（通知前端）
+        user_session_id = self.current_user_session_id or self.current_session.get("user_session_id") if self.current_session else None
+        await self.emit("ASK_USER", question, {
+            "agent_name": self.name,
+            "user_session_id": user_session_id,
+            "session_id": self.current_session.get("session_id") if self.current_session else None
+        })
+        
+        # 2. 记录问题（给 API 查询）
         self._pending_user_question = question
 
-        # 2. 创建 Future 并挂起
+        # 3. 创建 Future 并挂起
         self._user_input_future = asyncio.Future()
 
         self.logger.info(f"💬 向用户提问: {question[:50]}{'...' if len(question) > 50 else ''}")

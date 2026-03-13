@@ -134,7 +134,16 @@ const API = {
         }
     },
 
-    async getSessionEmails(sessionId) {
+    async submitUserInput(agentName, inputData) {
+        console.log('💬 Submitting user input to', agentName);
+        
+        return this.request(`/api/agents/${agentName}/submit_user_input`, {
+            method: 'POST',
+            body: JSON.stringify(inputData)
+        });
+    },
+
+        async getSessionEmails(sessionId) {
         return this.request(`/api/sessions/${sessionId}/emails`);
     },
 
