@@ -29,7 +29,7 @@ function useUiStore() {
             show: false,
             agent_name: '',
             question: '',
-            user_session_id: null,
+            task_id: null,
             session_id: null,
             answer: '',
             submitting: false,
@@ -159,11 +159,11 @@ function useUiStore() {
         async handleAskUser(agentName, question, payload) {
             console.log('ASK_USER event:', { agentName, question, payload });
 
-            // 如果有 user_session_id，切换到对应的会话
-            if (payload.user_session_id) {
+            // 如果有 task_id，切换到对应的会话
+            if (payload.task_id) {
                 // 查找对应的 session
-                const targetSession = this.sessions.find(s => s.user_session_id === payload.user_session_id);
-                if (targetSession && this.currentSession?.user_session_id !== payload.user_session_id) {
+                const targetSession = this.sessions.find(s => s.task_id === payload.task_id);
+                if (targetSession && this.currentSession?.task_id !== payload.task_id) {
                     await this.selectSession(targetSession);
                 }
             }
@@ -173,7 +173,7 @@ function useUiStore() {
                 show: true,
                 agent_name: agentName,
                 question: question,
-                user_session_id: payload.user_session_id || null,
+                task_id: payload.task_id || null,
                 session_id: payload.session_id || null,
                 answer: '',
                 submitting: false,
@@ -217,7 +217,7 @@ function useUiStore() {
                 show: false,
                 agent_name: '',
                 question: '',
-                user_session_id: null,
+                task_id: null,
                 session_id: null,
                 answer: '',
                 submitting: false,

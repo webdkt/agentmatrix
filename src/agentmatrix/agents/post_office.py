@@ -207,14 +207,14 @@ class PostOffice(AutoLoggerMixin):
             # 返回深拷贝，避免外部修改影响内部数据
             return json.loads(json.dumps(self.user_sessions))
 
-    def get_session_emails_for_user(self, task_id):
+    def get_session_emails_for_user(self, session_id):
         """获取某个用户会话中所有与User相关的邮件
         Args:
-            task_id: 用户会话ID
+            session_id: 会话ID
         Returns:
             Email对象列表，每个Email包含额外的 is_from_user 布尔字段
         """
-        email_records = self.email_db.get_user_session_emails(task_id, self.user_agent_name)
+        email_records = self.email_db.get_emails_by_session(session_id, self.user_agent_name)
         emails = []
         for record in email_records:
             # 恢复 metadata 字段
@@ -242,6 +242,7 @@ class PostOffice(AutoLoggerMixin):
             # Add is_from_user flag
             email.is_from_user = (email.sender == self.user_agent_name)
             emails.append(email)
+        return emails
         return emails
 
     async def update_email_receiver_session(

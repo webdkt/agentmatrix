@@ -15,12 +15,20 @@ function app() {
         isLoading: true,
         runtimeError: null,
         runtimeStatus: null,
-        sessions: [],
+        sessions: [],  // 改为 conversations
         currentSession: null,
         currentSessionEmails: [],
         agents: [],
         files: [],
         user_agent_name: 'User',  // Store user agent name dynamically
+
+        // Pagination state for conversations
+        conversations: [],
+        currentPage: 1,
+        perPage: 20,
+        totalConversations: 0,
+        totalPages: 0,
+        hasMoreConversations: false,
 
         // Panel resizing state
         leftPanelWidth: 280,
@@ -60,7 +68,7 @@ function app() {
             minimized: false,  // 是否最小化到会话底部
             agent_name: '',
             question: '',
-            user_session_id: null,
+            task_id: null,
             session_id: null,  // 记录会话ID，用于跨会话显示
             answer: '',
             submitting: false,
@@ -222,9 +230,16 @@ function app() {
                     if (runtimeStatus.agents && runtimeStatus.agents.length > 0) {
                         const rawAgents = [...runtimeStatus.agents];
                         console.log('Raw agents:', rawAgents, 'Type:', Array.isArray(rawAgents));
-                        const filtered = rawAgents.filter(a => a !== this.user_agent_name);
-                        console.log('Filtered agents:', filtered, 'Length:', filtered.length);
-                        this.agents = filtered;
+                        const filteredNames = rawAgents.filter(a => a !== this.user_agent_name);
+                        // Convert string array to object array, preserving existing descriptions
+                        this.agents = filteredNames.map(name => {
+                            const existing = this.agents.find(a => a.name === name);
+                            return {
+                                name: name,
+                                description: existing?.description || ''
+                            };
+                        });
+                        console.log('Filtered agents:', this.agents, 'Length:', this.agents.length);
                     } else {
                         console.log('No agents found in runtimeStatus');
                     }
@@ -287,49 +302,67 @@ function app() {
         },
 
         // Load sessions
-        async loadSessions() {
+        async loadSessions(loadMore = false) {
             try {
-                const sessionsData = await API.getSessions();
-                this.sessions = sessionsData.sessions || [];
+                const page = loadMore ? this.currentPage + 1 : 1;
+                const result = await API.getSessions(page, this.perPage);
+
+                if (loadMore) {
+                    // 追加数据
+                    this.conversations = [...this.conversations, ...result.conversations];
+                    this.currentPage = result.page;
+                } else {
+                    // 重新加载
+                    this.conversations = result.conversations;
+                    this.currentPage = result.page;
+                }
+
+                this.totalConversations = result.total;
+                this.totalPages = result.totalPages;
+                this.hasMoreConversations = this.currentPage < this.totalPages;
+
+                // 保持向后兼容：同时更新 sessions
+                this.sessions = this.conversations;
             } catch (error) {
                 console.error('Failed to load sessions:', error);
                 throw error;
             }
         },
 
+        async handleRuntimeEvent(eventData) {
             try {
                 // eventData 现在是 JSON 对象（来自 event.to_dict()）
                 const eventType = eventData.type;
                 const source = eventData.source;
                 const content = eventData.content;
                 const payload = eventData.payload || {};
-                
+
                 // 处理 ASK_USER 事件
                 if (eventType === 'ASK_USER') {
                     console.log('📬 收到 ASK_USER 事件:', { source, content, payload });
                     await this.handleAskUser(source, content, payload);
                 }
-                
+
             } catch (error) {
                 console.error('Failed to handle runtime event:', error);
             }
         },
         async handleAskUser(agentName, question, payload) {
-            const { user_session_id } = payload;
+            const { task_id } = payload;
             
             // 1. 查找并切换到对应的对话
-            if (user_session_id) {
-                const session = this.sessions.find(s => s.session_id === user_session_id);
+            if (task_id) {
+                const session = this.sessions.find(s => s.session_id === task_id);
                 
                 if (session) {
                     // 如果不在当前对话，切换过去
-                    if (!this.currentSession || this.currentSession.session_id !== user_session_id) {
+                    if (!this.currentSession || this.currentSession.session_id !== task_id) {
                         this.currentSession = session;
                         await this.loadSessionEmails(session.session_id);
-                        console.log('✅ 切换到对话:', session.name);
+                        console.log('✅ 切换到对话:', session.subject);
                     }
                 } else {
-                    console.warn('⚠️ 未找到对应的对话:', user_session_id);
+                    console.warn('⚠️ 未找到对应的对话:', task_id);
                 }
             }
             
@@ -337,7 +370,7 @@ function app() {
             this.showAskUserDialog({
                 agent_name: agentName,
                 question: question,
-                user_session_id: user_session_id
+                task_id: task_id
             });
         },
         
@@ -350,8 +383,8 @@ function app() {
                 minimized: false,
                 agent_name: data.agent_name,
                 question: data.question,
-                user_session_id: data.user_session_id,
-                session_id: data.session_id || this.currentSession?.session_id || null,
+                task_id: data.task_id,
+                session_id: data.session_id || this.currentSession?.task_id || null,
                 answer: '',
                 submitting: false,
                 error: null,
@@ -388,7 +421,7 @@ function app() {
                     minimized: false,
                     agent_name: '',
                     question: '',
-                    user_session_id: null,
+                    task_id: null,
                     session_id: null,
                     answer: '',
                     submitting: false,
@@ -429,9 +462,9 @@ function app() {
             // Refresh session list
             await this.loadSessions();
 
-            // Select the session if user_session_id is available
-            if (emailData.user_session_id) {
-                const session = this.sessions.find(s => s.session_id === emailData.user_session_id);
+            // Select the session if task_id is available
+            if (emailData.task_id) {
+                const session = this.sessions.find(s => s.session_id === emailData.task_id);
                 if (session) {
                     await this.selectSession(session);
                 }
@@ -743,9 +776,9 @@ function app() {
                 await this.loadSessions();
 
                 // Auto-select the newly created session
-                if (response.user_session_id) {
+                if (response.task_id) {
                     // Find the new session in the updated list
-                    const newSession = this.sessions.find(s => s.session_id === response.user_session_id);
+                    const newSession = this.sessions.find(s => s.session_id === response.task_id);
                     if (newSession) {
                         await this.selectSession(newSession);
                     }
@@ -849,12 +882,12 @@ function app() {
                 return;
             }
 
-            // 确保有有效的 user_session_id
-            const targetSessionId = email.user_session_id || this.currentSession?.session_id;
+            // 确保有有效的 task_id
+            const targetSessionId = email.task_id || this.currentSession?.session_id;
             if (!targetSessionId) {
                 console.error('Cannot determine session ID', { 
-                    emailUserSessionId: email.user_session_id, 
-                    currentSessionId: this.currentSession?.session_id 
+                    emailUserSessionId: email.task_id, 
+                    currentSessionId: this.currentSession?.task_id 
                 });
                 alert('无法确定会话 ID，请刷新页面重试');
                 return;

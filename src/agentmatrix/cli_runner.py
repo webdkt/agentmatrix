@@ -102,6 +102,7 @@ async def main():
                 target = mail_id_sender_map[reply_to_id]
                 user_agent_name = matrix.get_user_agent_name()
                 await matrix.agents[user_agent_name].speak(
+                    session_id=task_id,  # For CLI, session_id is the same as task_id
                     task_id=task_id,
                     to=target,
                     subject=f"Re: 回复您的消息 {reply_to_id}",
@@ -115,7 +116,13 @@ async def main():
                 target, content = user_input.split(":", 1)
                 # 5. 调用 UserProxy 说话
                 user_agent_name = matrix.get_user_agent_name()
-                await matrix.agents[user_agent_name].speak(task_id, target.strip(), content.strip())
+                await matrix.agents[user_agent_name].speak(
+                    session_id=task_id,  # For CLI, session_id is the same as task_id
+                    task_id=task_id,
+                    to=target.strip(),
+                    subject=None,
+                    content=content.strip()
+                )
             else:
                 await asyncio.to_thread(print,"❌ 格式错误，请使用 'Target: Content'")
                 
