@@ -57,22 +57,22 @@ class SessionManager(AutoLoggerMixin):
         # 内存缓存
         self.sessions: Dict[str, dict] = {}  # session_id → session dict
 
-        # reply_mapping（按 user_session_id 分组）
-        self.reply_mappings: Dict[str, Dict[str, str]] = {}  # user_session_id → {msg_id: session_id}
+        # reply_mapping（按 task_id 分组）
+        self.reply_mappings: Dict[str, Dict[str, str]] = {}  # task_id → {msg_id: session_id}
 
-    def _get_session_base_path(self, user_session_id: str) -> Path:
+    def _get_session_base_path(self, task_id: str) -> Path:
         """
         获取 session 基础路径
 
-        新结构：{workspace_root}/.matrix/{agent_name}/{user_session_id}/history/
+        新结构：{workspace_root}/.matrix/{agent_name}/{task_id}/history/
 
         Args:
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
 
         Returns:
             Path: session 目录的基础路径
         """
-        return Path(self.workspace_root) / ".matrix" / self.agent_name / user_session_id / "history"
+        return Path(self.workspace_root) / ".matrix" / self.agent_name / task_id / "history"
 
     async def get_session(self, email) -> dict:
         """
@@ -86,13 +86,13 @@ class SessionManager(AutoLoggerMixin):
         """
         # Case A: Reply（恢复已存在的 session）
         if hasattr(email, 'in_reply_to') and email.in_reply_to:
-            user_session_id = getattr(email, 'user_session_id', 'default')
+            task_id = getattr(email, 'task_id', 'default')
 
             # 确保该 user_session 的 reply_mapping 已加载
-            if user_session_id not in self.reply_mappings:
-                await self._load_reply_mapping(user_session_id)
+            if task_id not in self.reply_mappings:
+                await self._load_reply_mapping(task_id)
 
-            reply_mapping = self.reply_mappings[user_session_id]
+            reply_mapping = self.reply_mappings[task_id]
 
             if email.in_reply_to in reply_mapping:
                 session_id = reply_mapping.pop(email.in_reply_to)
@@ -105,21 +105,21 @@ class SessionManager(AutoLoggerMixin):
 
                 # 2. 内存没有，尝试从磁盘加载（lazy load）
                 self.logger.info(f"🔄 Session {session_id[:8]} not in memory, loading from disk...")
-                session = await self._load_session_from_disk(session_id, user_session_id)
+                session = await self._load_session_from_disk(session_id, task_id)
                 if session:
                     self.sessions[session_id] = session
                     return session
 
                 # 3. 磁盘也没有，创建新的
                 self.logger.warning(f"⚠️ Session {session_id[:8]} not found on disk, creating new session")
-                session = await self._create_new_session(session_id, email.sender, user_session_id)
+                session = await self._create_new_session(session_id, email.sender, task_id)
                 self.sessions[session_id] = session
                 await self._save_session_to_disk(session)
                 return session
 
         # Case B: New Task（创建新 session）
-        user_session_id = getattr(email, 'user_session_id', 'default')
-        session = await self._create_new_session(email.id, email.sender, user_session_id)
+        task_id = getattr(email, 'task_id', 'default')
+        session = await self._create_new_session(email.id, email.sender, task_id)
         self.sessions[email.id] = session
 
         # 🔑 关键修复：将 User 的邮件 ID 也加入 reply_mapping
@@ -127,7 +127,7 @@ class SessionManager(AutoLoggerMixin):
         await self.update_reply_mapping(
             msg_id=email.id,
             session_id=session['session_id'],
-            user_session_id=user_session_id
+            task_id=task_id
         )
         self.logger.debug(f"📄 Created new session {session['session_id'][:8]} and added email {email.id[:8]} to reply_mapping")
 
@@ -156,33 +156,33 @@ class SessionManager(AutoLoggerMixin):
         """
         await self._save_session_context(session)
 
-    async def update_reply_mapping(self, msg_id: str, session_id: str, user_session_id: str):
+    async def update_reply_mapping(self, msg_id: str, session_id: str, task_id: str):
         """
         更新 reply_mapping（由 BaseAgent.send_email 调用）
 
         Args:
             msg_id: 发送的邮件 ID
             session_id: 当前 session ID
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
         """
         # 确保该 user_session 的 reply_mapping 已加载
-        if user_session_id not in self.reply_mappings:
-            self.reply_mappings[user_session_id] = {}
+        if task_id not in self.reply_mappings:
+            self.reply_mappings[task_id] = {}
 
         # 更新映射
-        self.reply_mappings[user_session_id][msg_id] = session_id
+        self.reply_mappings[task_id][msg_id] = session_id
 
         # 自动保存到磁盘
-        await self._save_reply_mapping(user_session_id)
+        await self._save_reply_mapping(task_id)
 
-    async def _create_new_session(self, session_id: str, sender: str, user_session_id: str) -> dict:
+    async def _create_new_session(self, session_id: str, sender: str, task_id: str) -> dict:
         """
         创建新的 session dict
 
         Args:
             session_id: session ID
             sender: 发送者
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
 
         Returns:
             dict: 新创建的 session 对象
@@ -193,7 +193,7 @@ class SessionManager(AutoLoggerMixin):
             "original_sender": sender,
             "last_sender": None,
             "status": "RUNNING",
-            "user_session_id": user_session_id,
+            "task_id": task_id,
             "created_at": now,
             "last_modified": now,
             "history": [],
@@ -206,13 +206,13 @@ class SessionManager(AutoLoggerMixin):
 
         return session
 
-    async def _load_session_from_disk(self, session_id: str, user_session_id: str) -> Optional[dict]:
+    async def _load_session_from_disk(self, session_id: str, task_id: str) -> Optional[dict]:
         """
         从磁盘加载 session（lazy load，分别加载 history 和 context）
 
         Args:
             session_id: session ID
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
 
         Returns:
             dict: session 对象（包含元数据、history 和 context），如果文件不存在返回 None
@@ -220,7 +220,7 @@ class SessionManager(AutoLoggerMixin):
         if not self.matrix_path:
             return None
 
-        session_dir = self._get_session_base_path(user_session_id) / session_id
+        session_dir = self._get_session_base_path(task_id) / session_id
         history_file = session_dir / "history.json"
         context_file = session_dir / "context.json"
 
@@ -276,7 +276,7 @@ class SessionManager(AutoLoggerMixin):
         # 更新 last_modified
         session["last_modified"] = datetime.now().isoformat()
 
-        session_dir = self._get_session_base_path(session["user_session_id"]) / session['session_id']
+        session_dir = self._get_session_base_path(session["task_id"]) / session['session_id']
         history_file = session_dir / "history.json"
 
         # 确保 session 目录存在
@@ -288,7 +288,7 @@ class SessionManager(AutoLoggerMixin):
             "original_sender": session["original_sender"],
             "last_sender": session.get("last_sender"),
             "status": session.get("status", "RUNNING"),
-            "user_session_id": session["user_session_id"],
+            "task_id": session["task_id"],
             "created_at": session["created_at"],
             "last_modified": session["last_modified"],
             "history": session["history"]
@@ -335,7 +335,7 @@ class SessionManager(AutoLoggerMixin):
         if not self.matrix_path:
             return
 
-        session_dir = self._get_session_base_path(session["user_session_id"]) / session['session_id']
+        session_dir = self._get_session_base_path(session["task_id"]) / session['session_id']
         context_file = session_dir / "context.json"
 
         # 确保 session 目录存在
@@ -348,49 +348,49 @@ class SessionManager(AutoLoggerMixin):
 
         self.logger.debug(f"💾 Saved session context {session['session_id'][:8]}")
 
-    async def _load_reply_mapping(self, user_session_id: str):
+    async def _load_reply_mapping(self, task_id: str):
         """
         从磁盘加载 reply_mapping
 
         Args:
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
         """
         if not self.matrix_path:
             return
 
-        mapping_file = self._get_session_base_path(user_session_id) / "reply_mapping.json"
+        mapping_file = self._get_session_base_path(task_id) / "reply_mapping.json"
 
         if not mapping_file.exists():
-            self.reply_mappings[user_session_id] = {}
+            self.reply_mappings[task_id] = {}
             return
 
         try:
-            self.reply_mappings[user_session_id] = await asyncio.to_thread(
+            self.reply_mappings[task_id] = await asyncio.to_thread(
                 lambda p=mapping_file: json.load(open(p, "r", encoding="utf-8"))
             )
-            self.logger.info(f"✅ Loaded reply_mapping for {user_session_id} ({len(self.reply_mappings[user_session_id])} entries)")
+            self.logger.info(f"✅ Loaded reply_mapping for {task_id} ({len(self.reply_mappings[task_id])} entries)")
         except Exception as e:
             self.logger.warning(f"Failed to load reply_mapping: {e}")
-            self.reply_mappings[user_session_id] = {}
+            self.reply_mappings[task_id] = {}
 
-    async def _save_reply_mapping(self, user_session_id: str):
+    async def _save_reply_mapping(self, task_id: str):
         """
         保存 reply_mapping 到磁盘
 
         Args:
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
         """
         if not self.matrix_path:
             return
 
-        mapping_file = self._get_session_base_path(user_session_id) / "reply_mapping.json"
+        mapping_file = self._get_session_base_path(task_id) / "reply_mapping.json"
 
         # 确保目录存在
         mapping_file.parent.mkdir(parents=True, exist_ok=True)
 
         # 异步写入
         await asyncio.to_thread(
-            lambda p=mapping_file, m=self.reply_mappings[user_session_id]: json.dump(m, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+            lambda p=mapping_file, m=self.reply_mappings[task_id]: json.dump(m, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
         )
 
-        self.logger.debug(f"💾 Saved reply_mapping for {user_session_id}")
+        self.logger.debug(f"💾 Saved reply_mapping for {task_id}")

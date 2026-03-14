@@ -79,7 +79,7 @@ email = Email(
     recipient="MyAgent",
     subject="你好",
     body="你能帮我吗？",
-    user_session_id="session_123"
+    task_id="session_123"
 )
 
 await matrix.post_office.send_email(email)

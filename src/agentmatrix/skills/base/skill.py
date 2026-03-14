@@ -26,7 +26,8 @@ class BaseSkillMixin:
     _skill_description = "基础技能"
 
     @register_action(
-        "检查当前日期和时间，你不知道日期和时间，如果需要日期时间信息必须调用此action",
+            short_desc="",
+        description="检查当前日期和时间，你不知道日期和时间，如果需要日期时间信息必须调用此action",
         param_infos={}
     )
     async def get_current_datetime(self):
@@ -45,7 +46,8 @@ class BaseSkillMixin:
     #    return "Return from Break"
 
     @register_action(
-        "向用户提问并等待回答。当你需要用户提供信息时调用此 action。",
+            short_desc="向用户提问并等待回答",
+        description="向用户提问并等待回答。当你需要用户提供信息时调用此 action。",
         param_infos={
             "question": "要向用户提出的问题（清晰、具体）"
         }

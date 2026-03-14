@@ -408,15 +408,15 @@ class DockerContainerManager:
         except APIError as e:
             raise RuntimeError(f"容器休眠失败: {e}") from e
 
-    def switch_workspace(self, user_session_id: str) -> bool:
+    def switch_workspace(self, task_id: str) -> bool:
         """
         切换工作区符号链接
 
         在容器内重新创建 /work_files 符号链接，指向：
-        /work_files_base/{user_session_id}/
+        /work_files_base/{task_id}/
 
         Args:
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
 
         Returns:
             bool: 成功返回 True
@@ -432,7 +432,7 @@ class DockerContainerManager:
                 self.wakeup()
 
             # 2. 确保 session 目录存在（宿主机）
-            session_dir = self.work_files_base / user_session_id
+            session_dir = self.work_files_base / task_id
             session_dir.mkdir(parents=True, exist_ok=True)
 
             # 3. 容器内删除旧链接
@@ -442,14 +442,14 @@ class DockerContainerManager:
                 self.logger.warning(f"删除旧链接失败（可能不存在）: {rm_cmd}")
 
             # 4. 容器内创建新符号链接
-            ln_cmd = f"ln -s /work_files_base/{user_session_id} /work_files"
+            ln_cmd = f"ln -s /work_files_base/{task_id} /work_files"
             exit_code, output = self.container.exec_run(ln_cmd, workdir="/")
 
             if exit_code != 0:
                 error_msg = output.decode('utf-8', errors='ignore').strip()
                 raise RuntimeError(f"符号链接创建失败: {error_msg}")
 
-            self.logger.info(f"🔄 工作区已切换: /work_files -> /work_files_base/{user_session_id}")
+            self.logger.info(f"🔄 工作区已切换: /work_files -> /work_files_base/{task_id}")
 
             return True
 

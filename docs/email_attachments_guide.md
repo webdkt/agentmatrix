@@ -14,8 +14,8 @@ Email 附件系统允许 User 通过 web 应用发送带附件的邮件给 Agent
 
 2. **AttachmentManager** (`src/agentmatrix/core/attachment_manager.py`)
    - 管理附件的临时上传和永久存储
-   - 临时目录：`.matrix/temp_uploads/{user_session_id}/`
-   - 共享存储：`.matrix/email_attachments/{user_session_id}/{email_id}/`
+   - 临时目录：`.matrix/temp_uploads/{task_id}/`
+   - 共享存储：`.matrix/email_attachments/{task_id}/{email_id}/`
 
 3. **API 端点** (`server.py`)
    - 扩展了 `POST /api/sessions/{session_id}/emails` 端点
@@ -44,7 +44,7 @@ curl -X POST http://localhost:8000/api/sessions/new/emails \
 ```json
 {
   "success": true,
-  "user_session_id": "abc-123-def",
+  "task_id": "abc-123-def",
   "message": "Email sent successfully",
   "attachments_count": 1
 }
@@ -145,14 +145,14 @@ for attachment in email.attachments:
 ```python
 # 保存临时上传文件
 temp_info = attachment_manager.save_temp_upload(
-    user_session_id='session_123',
+    task_id='session_123',
     filename='document.pdf',
     content=file_content
 )
 
 # 保存到共享存储
 attachment_info = attachment_manager.save_attachment(
-    user_session_id='session_123',
+    task_id='session_123',
     email_id='email_456',
     file_id=temp_info['file_id'],
     filename='document.pdf',
@@ -161,14 +161,14 @@ attachment_info = attachment_manager.save_attachment(
 
 # 获取附件路径
 path = attachment_manager.get_attachment_path(
-    user_session_id='session_123',
+    task_id='session_123',
     email_id='email_456',
     filename='document.pdf'
 )
 
 # 检查附件是否存在
 exists = attachment_manager.attachment_exists(
-    user_session_id='session_123',
+    task_id='session_123',
     email_id='email_456',
     filename='document.pdf'
 )
@@ -204,10 +204,10 @@ for record in records:
 ```
 .matrix/
 ├── temp_uploads/           # 临时上传目录
-│   └── {user_session_id}/  # 用户会话目录
+│   └── {task_id}/  # 用户会话目录
 │       └── {file_id}_{filename}  # 临时文件
 └── email_attachments/      # 永久附件存储
-    └── {user_session_id}/  # 用户会话目录
+    └── {task_id}/  # 用户会话目录
         └── {email_id}/     # 邮件目录
             └── {filename}  # 附件文件
 ```

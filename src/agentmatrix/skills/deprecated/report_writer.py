@@ -44,7 +44,8 @@ class ReportWriterSkillMixin:
         return response['reply']
 
     @register_action(
-        "编写报告blueprint，需要提供报告主题和研究目的说明，生成研究方案",
+            short_desc="",
+        description="编写报告blueprint，需要提供报告主题和研究目的说明，生成研究方案",
         param_infos={
             
             "main_subject": "报告主题",

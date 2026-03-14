@@ -56,7 +56,8 @@ class MemorySkillMixin:
     # ==================== Public Actions ====================
 
     @register_action(
-        "回忆实体或事件。当你需要查询之前提到的实体（人物、项目等）或历史事件时调用此 action。",
+        short_desc="(entity_name, question)",
+        description="回忆实体或事件。当你需要查询之前提到的实体（人物、项目等）或历史事件时调用此 action。",
         param_infos={
             "entity_name": "要查询的实体名称（如'张三'、'Alpha项目'）",
             "question": "关于该实体的具体问题（如'张三之前的决策是什么？'）"
@@ -86,7 +87,7 @@ class MemorySkillMixin:
         merged_profiles = await search_entities_merged(
             self.root_agent.workspace_root,
             self.root_agent.name,
-            self.root_agent.current_user_session_id,
+            self.root_agent.current_task_id,
             entity_name
         )
 
@@ -152,7 +153,8 @@ JSON 格式示例：
         return f"记忆里没有找到相关信息"
 
     @register_action(
-        "更新记忆。当对话告一段落或完成重要信息澄清时调用此 action。可以提示记忆总结重点，如'重点关注财务决策'、'突出实体关系变化'等",
+            short_desc="() #自动更新维护记忆",
+        description="更新记忆。当对话告一段落或完成重要信息澄清时调用此 action。可以提示记忆总结重点，如'重点关注财务决策'、'突出实体关系变化'等",
         param_infos={
             "focus_hint": "可选。指导总结重点，如'重点关注财务决策'、'突出实体关系变化'等"
         }
@@ -301,7 +303,7 @@ JSON 格式示例：
             content,
             self.root_agent.workspace_root,
             self.root_agent.name,
-            self.root_agent.current_user_session_id
+            self.root_agent.current_task_id
         )
 
     async def _persist_timeline(self, events: List[str]):
@@ -309,6 +311,6 @@ JSON 格式示例：
         await append_timeline_events(
             self.root_agent.workspace_root,
             self.root_agent.name,
-            self.root_agent.current_user_session_id,
+            self.root_agent.current_task_id,
             events
         )

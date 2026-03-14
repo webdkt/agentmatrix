@@ -46,6 +46,7 @@ class Web_searchSkillMixin:
     # ==========================================
 
     @register_action(
+            short_desc="用浏览器搜索[purpose]",
         description="使用浏览器来查找需要的信息",
         param_infos={
             "purpose": "使用浏览器的目的，例如需要查找的问题或主题，想要发现什么"
@@ -128,33 +129,34 @@ class Web_searchSkillMixin:
             return capacity_info
 
     @register_action(
+            short_desc="更新白板内容[new_full_content or modification_instruct]",
         description="更新白板内容。可以提供完整的新的dashboard文本，或者局部修改意见",
         param_infos={
-            "new_content": "（可选）完整的白板内容文本",
-            "modification_feedback": "（可选）对现有白板内容的修改意见"
+            "new_full_content": "（可选）完整的白板内容文本",
+            "modification_instruct": "（可选）对现有白板内容的修改意见"
         }
     )
-    async def update_dashboard(self, new_content: str = "", modification_feedback: str = "") -> str:
+    async def update_dashboard(self, new_full_content: str = "", modification_instruct: str = "") -> str:
         """
         更新 dashboard（Micro Agent 调用）
 
         支持两种模式：
         1. 全文替换：new_content 有值 → 直接更新
-        2. 智能修改：modification_feedback 有值 → LLM 根据当前内容 + 修改意见生成新版本
+        2. 智能修改：modification_instruct 有值 → LLM 根据当前内容 + 修改意见生成新版本
 
         Args:
             new_content: 完整的新 dashboard 内容（纯文本）
-            modification_feedback: 对当前 dashboard 的修改意见
+            modification_instruct: 对当前 dashboard 的修改意见
 
         Returns:
             确认消息
         """
-        if not new_content and not modification_feedback:
+        if not new_full_content and not modification_instruct:
             return "❌ 请提供完整的白板内容或修改意见"
 
         # 模式1：全文替换
-        if new_content:
-            dashboard = new_content.strip()
+        if new_full_content:
+            dashboard = new_full_content.strip()
             if not dashboard:
                 return "❌ 白板内容不能空"
 
@@ -163,7 +165,7 @@ class Web_searchSkillMixin:
             return f"✅ 白板已更新（{len(dashboard)} 字符）"
 
         # 模式2：智能修改
-        if modification_feedback:
+        if modification_instruct:
             ctx = self.get_session_context()
             current_dashboard = ctx.get("search_dashboard", "")
 
@@ -174,7 +176,7 @@ class Web_searchSkillMixin:
 {current_dashboard}
 
 项目经理的修改意见：
-{modification_feedback}
+{modification_instruct}
 
 请根据修改意见，生成更新后的白板内容。
 
@@ -411,10 +413,10 @@ class Web_searchSkillMixin:
 
         workspace_root = self.workspace_root
         agent_name = root_agent.name
-        user_session_id = root_agent.current_user_session_id or "default"
+        task_id = root_agent.current_task_id or "default"
 
         # 在当前工作目录下检查 final_result.md
-        work_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / user_session_id
+        work_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / task_id
         final_result_file = work_dir / "final_result.md"
 
         if not final_result_file.exists():
@@ -451,7 +453,7 @@ class Web_searchSkillMixin:
                 self.logger.info(f"✓ 发现 final_result.md ({total_lines} 行，已截断显示前 {MAX_LINES} 行)，任务完成")
 
                 # 获取相对路径
-                rel_path = f"work_files/{user_session_id}/final_result.md"
+                rel_path = f"work_files/{task_id}/final_result.md"
 
                 # 截取前 200 行
                 truncated_lines = lines[:MAX_LINES]

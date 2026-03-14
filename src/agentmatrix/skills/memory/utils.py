@@ -174,14 +174,14 @@ def split_profiles_by_tokens(
 # ==================== Whiteboard 文件管理 ====================
 
 def get_whiteboard_path(workspace_root: str, agent_name: str,
-                        user_session_id: str) -> str:
+                        task_id: str) -> str:
     """
     获取 whiteboard.md 文件路径
 
     Args:
         workspace_root: 工作区根目录
         agent_name: Agent 名称
-        user_session_id: 用户会话 ID
+        task_id: 用户会话 ID
 
     Returns:
         str: whiteboard.md 文件的完整路径
@@ -191,25 +191,25 @@ def get_whiteboard_path(workspace_root: str, agent_name: str,
         ".matrix",
         agent_name,
         "memory",
-        user_session_id,
+        task_id,
         "whiteboard.md"
     )
 
 
 def load_whiteboard(workspace_root: str, agent_name: str,
-                   user_session_id: str) -> str:
+                   task_id: str) -> str:
     """
     加载 whiteboard 内容
 
     Args:
         workspace_root: 工作区根目录
         agent_name: Agent 名称
-        user_session_id: 用户会话 ID
+        task_id: 用户会话 ID
 
     Returns:
         str: whiteboard 内容（如果文件不存在则返回空字符串）
     """
-    path = get_whiteboard_path(workspace_root, agent_name, user_session_id)
+    path = get_whiteboard_path(workspace_root, agent_name, task_id)
 
     if not os.path.exists(path):
         return ""
@@ -219,7 +219,7 @@ def load_whiteboard(workspace_root: str, agent_name: str,
 
 
 def save_whiteboard(content: str, workspace_root: str, agent_name: str,
-                   user_session_id: str) -> bool:
+                   task_id: str) -> bool:
     """
     保存 whiteboard 内容
 
@@ -227,12 +227,12 @@ def save_whiteboard(content: str, workspace_root: str, agent_name: str,
         content: whiteboard 内容（Markdown 格式）
         workspace_root: 工作区根目录
         agent_name: Agent 名称
-        user_session_id: 用户会话 ID
+        task_id: 用户会话 ID
 
     Returns:
         bool: 是否保存成功
     """
-    path = get_whiteboard_path(workspace_root, agent_name, user_session_id)
+    path = get_whiteboard_path(workspace_root, agent_name, task_id)
 
     # 确保目录存在
     Path(path).parent.mkdir(parents=True, exist_ok=True)

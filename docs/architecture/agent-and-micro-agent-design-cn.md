@@ -416,7 +416,7 @@ micro3 = MicroAgent(
 
 ```
 workspace_root/
-├── {user_session_id}/
+├── {task_id}/
 │   └── agents/
 │       └── {agent_name}/  # Agent 的私有工作目录
 │           ├── 20250226_143022/  # MicroAgent 子任务目录（带时间戳）
@@ -697,13 +697,26 @@ class Email:
     subject: str             # 邮件主题
     body: str                # 正文（自然语言）
     in_reply_to: str         # 回复关系（维护对话线程）
-    user_session_id: str     # 用户会话跟踪
+    task_id: str             # 任务ID（全局任务标识符）
 ```
 
 **特性**：
 - **Threading**：`in_reply_to` 维护对话线程
 - **自然语言**：body 包含自由文本
-- **会话跟踪**：`user_session_id` 跟踪用户对话
+- **任务跟踪**：`task_id` 跟踪全局任务
+
+### 会话ID的两种概念
+
+**task_id（任务ID）**
+- 全局任务标识符，用于文件空间划分
+- 任何Agent都可以发起（User、Daemon、普通Agent）
+- 一个task = 一件"正在协作的事情"
+- 文件路径：`{workspace_root}/{task_id}/`
+
+**session_id（会话ID）**
+- 每个Agent视角的对话历史ID
+- 一个task下可以有多个session（每个Agent一个）
+- 文件路径：`.matrix/{agent_name}/{task_id}/history/{session_id}/`
 
 ### PostOffice 系统
 
@@ -742,7 +755,7 @@ async def delegate_research(self, task_description: str) -> str:
         recipient="Researcher",
         subject=f"研究任务：{task_description}",
         body=task_description,
-        user_session_id=self.current_user_session_id
+        task_id=self.current_task_id
     )
 
     # 通过 PostOffice 发送

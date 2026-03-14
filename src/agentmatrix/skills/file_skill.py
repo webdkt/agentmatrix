@@ -130,6 +130,7 @@ class FileSkillMixin:
     # ==================== Actions ====================
 
     @register_action(
+        short_desc="列目录[directory, recursive=False]",
         description="列出目录内容。支持单层或递归列出",
         param_infos={
             "directory": "目录路径（可选，默认当前目录 /work_files）",
@@ -168,6 +169,7 @@ class FileSkillMixin:
         return stdout or "目录为空"
 
     @register_action(
+        short_desc="读文件内容[file_path, start_line=1,end_line=200]",
         description="读取文件内容。支持指定行范围（默认前200行）",
         param_infos={
             "file_path": "文件路径（相对于 /work_files）",
@@ -213,6 +215,7 @@ class FileSkillMixin:
         return f"# 文件: {file_path} (共 {total_lines} 行)\n# 显示第 {start_line}-{end_line} 行\n\n{stdout}"
 
     @register_action(
+        short_desc="写入文件[file_path,content,mode='overwrite',allow_overwrite=False]",
         description="写入文件内容。默认覆盖模式。",
         param_infos={
             "file_path": "文件路径（相对于 /work_files）",
@@ -285,6 +288,7 @@ class FileSkillMixin:
         return f"成功{mode_desc} {file_path}\n"
 
     @register_action(
+        short_desc="搜文件(详细用法看help)",
         description="搜索文件或文件里的内容。支持按文件名或文件内容搜索",
         param_infos={
             "pattern": "搜索模式（文件名模式或文本内容）",
@@ -335,6 +339,7 @@ class FileSkillMixin:
         return stdout or "未找到匹配结果"
 
     @register_action(
+        short_desc="执行base脚本",
         description="""执行 bash 命令或脚本（在容器内执行）""",
         param_infos={
             "command": "bash 命令或脚本（多行脚本用 \\n 分隔）",
@@ -380,6 +385,7 @@ class FileSkillMixin:
         return result
 
     @register_action(
+        short_desc="文件内替换[file_path,old_pattern,new_string,use_regex=False]",
         description="字符串替换：在文件中查找并替换字符串。",
         param_infos={
             "file_path": "文件路径（相对于 /work_files）",

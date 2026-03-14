@@ -465,16 +465,16 @@ class BrowserSkillMixin:
 
             # 设置下载路径：使用工作目录
             # 浏览器在宿主机运行，需要宿主机路径
-            # 路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/download
+            # 路径：workspace_root/agent_files/{agent_name}/work_files/{task_id}/download
             # 容器内通过挂载可以看到：/work_files/download
-            user_session_id = root_agent.current_user_session_id or "default"
+            task_id = root_agent.current_task_id or "default"
 
             download_path = os.path.join(
                 workspace_root,
                 "agent_files",
                 agent_name,
                 "work_files",
-                user_session_id,
+                task_id,
                 "download"
             )
 
@@ -612,6 +612,7 @@ class BrowserSkillMixin:
 
 
     @register_action(
+        short_desc="给浏览器自然语言命令[task]",
         description="""操作浏览器，简单描述对浏览器做什么，例如访问某个网站，查看当前页面内容，点击某个按钮等等针对浏览器的操作,可以一次一个动作，也可以一次描述多个动作。""",
         param_infos={
             "task": "对浏览器器的具体操作和要求，包括访问哪里，要获取什么数据等等，注意区别用户描述里哪些是具体针对浏览器的，哪些是做这些事情的最终目的。这个参数应该只包含针对浏览器的操作描述，不需要包含更高级最终意图的描述。",

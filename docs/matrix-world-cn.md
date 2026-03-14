@@ -437,7 +437,7 @@ email = Email(
     recipient="Planner",
     subject="规划网站",
     body="创建一个投资组合网站的计划",
-    user_session_id="session_123"
+    task_id="session_123"
 )
 
 await matrix.post_office.send_email(email)
@@ -510,7 +510,7 @@ async def delegate_planning(self, research_results: str) -> str:
         recipient="Planner",
         subject="根据研究创建计划",
         body=f"基于研究: {research_results}\n创建项目计划。",
-        user_session_id=self.current_session_id
+        task_id=self.current_session_id
     )
 
     # 发送给 Planner
@@ -574,7 +574,7 @@ examples/MyWorld/
 │   ├── User.yml
 │   └── researcher.yml
 ├── workspace/               # 工作区数据
-│   └── {user_session_id}/  # 用户会话目录
+│   └── {task_id}/  # 用户会话目录
 │       ├── agents/         # Agent 工作目录
 │       │   ├── Mark/      # Agent Mark 的私有工作区
 │       │   ├── Tom/       # Agent Tom 的私有工作区
@@ -582,7 +582,7 @@ examples/MyWorld/
 │       ├── shared/         # 多 Agent 共享工作区
 │       └── SKILLS/         # MD 技能文档
 ├── .matrix/                # 系统状态目录
-│   ├── {user_session_id}/ # 用户会话状态
+│   ├── {task_id}/ # 用户会话状态
 │   │   └── history/       # Session 状态存储
 │   │       ├── Mark/      # Agent Mark 的会话历史
 │   │       ├── Tom/       # Agent Tom 的会话历史
@@ -596,12 +596,12 @@ examples/MyWorld/
 ### 目录说明
 
 **工作目录**（Agent 可见和操作）:
-- `{user_session_id}/agents/{agent_name}/` - Agent 私有工作区
-- `{user_session_id}/shared/` - 多 Agent 共享工作区
-- `{user_session_id}/SKILLS/` - MD 技能文档
+- `{task_id}/agents/{agent_name}/` - Agent 私有工作区
+- `{task_id}/shared/` - 多 Agent 共享工作区
+- `{task_id}/SKILLS/` - MD 技能文档
 
 **状态目录**（代码维护，Agent 不可见）:
-- `.matrix/{user_session_id}/history/{agent_name}/{session_id}/` - Session 状态存储
+- `.matrix/{task_id}/history/{agent_name}/{session_id}/` - Session 状态存储
   - `history.json` - 对话历史
   - `context.json` - 会话上下文
   - `reply_mapping.json` - 邮件回复映射
