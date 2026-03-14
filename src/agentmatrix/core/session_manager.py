@@ -57,8 +57,8 @@ class SessionManager(AutoLoggerMixin):
         # 内存缓存
         self.sessions: Dict[str, dict] = {}  # session_id → session dict
 
-        # reply_mapping（按 task_id 分组）
-        self.reply_mappings: Dict[str, Dict[str, str]] = {}  # task_id → {msg_id: session_id}
+        # email-to-session 缓存（替代 reply_mappings）
+        self._email_session_cache: Dict[str, str] = {}  # email_id → session_id
 
     def _get_session_base_path(self, task_id: str) -> Path:
         """
@@ -74,6 +74,50 @@ class SessionManager(AutoLoggerMixin):
         """
         return Path(self.workspace_root) / ".matrix" / self.agent_name / task_id / "history"
 
+    async def get_session_by_id(self, session_id: str) -> dict:
+        """
+        根据 session_id 获取 session（不创建新 session）
+
+        Args:
+            session_id: session ID
+
+        Returns:
+            dict: session 对象（包含元数据和 history）
+
+        Raises:
+            ValueError: 如果 session 不存在
+        """
+        # 1. 先查内存
+        if session_id in self.sessions:
+            return self.sessions[session_id]
+
+        # 2. 从磁盘加载（需要知道 task_id）
+        # 由于只有 session_id，我们需要遍历所有 task_id 来查找
+        if not self.matrix_path:
+            raise ValueError(f"Cannot load session {session_id[:8]}: matrix_path not set")
+
+        # 尝试直接从磁盘结构查找
+        # 这需要遍历所有 task_id 目录
+        import os
+        workspace_root = Path(self.workspace_root)
+        matrix_dir = workspace_root / ".matrix" / self.agent_name
+
+        if not matrix_dir.exists():
+            raise ValueError(f"Session {session_id[:8]} not found (no sessions directory)")
+
+        # 遍历所有 task_id 目录
+        for task_id_dir in matrix_dir.iterdir():
+            if task_id_dir.is_dir():
+                task_id = task_id_dir.name
+                session_dir = task_id_dir / "history" / session_id
+                if session_dir.exists():
+                    session = await self._load_session_from_disk(session_id, task_id)
+                    if session:
+                        self.sessions[session_id] = session
+                        return session
+
+        raise ValueError(f"Session {session_id[:8]} not found")
+
     async def get_session(self, email) -> dict:
         """
         根据 email 获取或创建 session（主要接口）
@@ -87,16 +131,27 @@ class SessionManager(AutoLoggerMixin):
         # Case A: Reply（恢复已存在的 session）
         if hasattr(email, 'in_reply_to') and email.in_reply_to:
             task_id = getattr(email, 'task_id', 'default')
+            session_id = None
 
-            # 确保该 user_session 的 reply_mapping 已加载
-            if task_id not in self.reply_mappings:
-                await self._load_reply_mapping(task_id)
+            # 1. 先查缓存
+            if email.in_reply_to in self._email_session_cache:
+                session_id = self._email_session_cache.pop(email.in_reply_to)
+                self.logger.debug(f"📋 Found session {session_id[:8]} in cache")
+            else:
+                # 2. 查询数据库
+                original_email = await asyncio.to_thread(
+                    self._get_email_from_db,
+                    email.in_reply_to
+                )
 
-            reply_mapping = self.reply_mappings[task_id]
+                if original_email and original_email.get('sender_session_id'):
+                    session_id = original_email['sender_session_id']
+                    self.logger.debug(f"💾 Found session {session_id[:8]} in database")
+                else:
+                    self.logger.warning(f"⚠️ Cannot find session for email {email.in_reply_to[:8]}")
 
-            if email.in_reply_to in reply_mapping:
-                session_id = reply_mapping.pop(email.in_reply_to)
-
+            # 3. 如果找到了 session_id，恢复 session
+            if session_id:
                 # 1. 先查内存
                 if session_id in self.sessions:
                     session = self.sessions[session_id]
@@ -158,22 +213,17 @@ class SessionManager(AutoLoggerMixin):
 
     async def update_reply_mapping(self, msg_id: str, session_id: str, task_id: str):
         """
-        更新 reply_mapping（由 BaseAgent.send_email 调用）
+        更新 email-to-session 缓存（不再写磁盘）
+
+        由 BaseAgent.send_email 调用
 
         Args:
             msg_id: 发送的邮件 ID
             session_id: 当前 session ID
-            task_id: 用户会话 ID
+            task_id: 用户会话 ID（此参数保留用于向后兼容，但不再使用）
         """
-        # 确保该 user_session 的 reply_mapping 已加载
-        if task_id not in self.reply_mappings:
-            self.reply_mappings[task_id] = {}
-
-        # 更新映射
-        self.reply_mappings[task_id][msg_id] = session_id
-
-        # 自动保存到磁盘
-        await self._save_reply_mapping(task_id)
+        self._email_session_cache[msg_id] = session_id
+        self.logger.debug(f"📝 Cached email {msg_id[:8]} → session {session_id[:8]}")
 
     async def _create_new_session(self, session_id: str, sender: str, task_id: str) -> dict:
         """
@@ -205,6 +255,29 @@ class SessionManager(AutoLoggerMixin):
         await self._save_session_context(session)
 
         return session
+
+    def _get_email_from_db(self, email_id: str) -> Optional[dict]:
+        """
+        从数据库获取邮件记录（同步方法）
+
+        Args:
+            email_id: 邮件ID
+
+        Returns:
+            dict: 邮件记录，如果不存在返回 None
+        """
+        if not self.matrix_path:
+            return None
+
+        try:
+            import os
+            db_path = os.path.join(self.matrix_path, ".matrix", "agentmatrix.db")
+            from ..db.agent_matrix_db import AgentMatrixDB
+            db = AgentMatrixDB(db_path)
+            return db.get_email_by_id(email_id)
+        except Exception as e:
+            self.logger.warning(f"Failed to query email {email_id[:8]} from DB: {e}")
+            return None
 
     async def _load_session_from_disk(self, session_id: str, task_id: str) -> Optional[dict]:
         """
@@ -347,50 +420,3 @@ class SessionManager(AutoLoggerMixin):
         )
 
         self.logger.debug(f"💾 Saved session context {session['session_id'][:8]}")
-
-    async def _load_reply_mapping(self, task_id: str):
-        """
-        从磁盘加载 reply_mapping
-
-        Args:
-            task_id: 用户会话 ID
-        """
-        if not self.matrix_path:
-            return
-
-        mapping_file = self._get_session_base_path(task_id) / "reply_mapping.json"
-
-        if not mapping_file.exists():
-            self.reply_mappings[task_id] = {}
-            return
-
-        try:
-            self.reply_mappings[task_id] = await asyncio.to_thread(
-                lambda p=mapping_file: json.load(open(p, "r", encoding="utf-8"))
-            )
-            self.logger.info(f"✅ Loaded reply_mapping for {task_id} ({len(self.reply_mappings[task_id])} entries)")
-        except Exception as e:
-            self.logger.warning(f"Failed to load reply_mapping: {e}")
-            self.reply_mappings[task_id] = {}
-
-    async def _save_reply_mapping(self, task_id: str):
-        """
-        保存 reply_mapping 到磁盘
-
-        Args:
-            task_id: 用户会话 ID
-        """
-        if not self.matrix_path:
-            return
-
-        mapping_file = self._get_session_base_path(task_id) / "reply_mapping.json"
-
-        # 确保目录存在
-        mapping_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # 异步写入
-        await asyncio.to_thread(
-            lambda p=mapping_file, m=self.reply_mappings[task_id]: json.dump(m, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-        )
-
-        self.logger.debug(f"💾 Saved reply_mapping for {task_id}")
