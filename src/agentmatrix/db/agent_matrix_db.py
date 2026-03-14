@@ -378,21 +378,21 @@ class AgentMatrixDB(AutoLoggerMixin):
 
         # 第一步：获取所有唯一的 session_id 和它们的最后邮件时间（两个 view 的 UNION）
         cursor.execute('''
-            SELECT 
+            SELECT
                 session_id,
                 MAX(timestamp) as last_timestamp
             FROM (
                 -- View A: 发出的邮件
                 SELECT sender_session_id as session_id, timestamp
                 FROM emails
-                WHERE sender = ?
-                
+                WHERE sender = ? AND sender_session_id IS NOT NULL
+
                 UNION
-                
+
                 -- View B: 收到的邮件
                 SELECT receiver_session_id as session_id, timestamp
                 FROM emails
-                WHERE recipient = ?
+                WHERE recipient = ? AND receiver_session_id IS NOT NULL
             )
             GROUP BY session_id
             ORDER BY last_timestamp DESC
