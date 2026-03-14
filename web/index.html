@@ -189,28 +189,40 @@
                                             'from-rose-400 to-pink-600': index % 5 === 4,
                                         }"
                                              class="w-11 h-11 rounded-full bg-gradient-to-br flex items-center justify-center text-white font-semibold shadow-card flex-shrink-0">
-                                            <span x-text="session.name.charAt(0).toUpperCase()"></span>
+                                            <span x-text="session.subject.charAt(0).toUpperCase()"></span>
                                         </div>
                                         <div class="flex-1 min-w-0">
+                                            <!-- Agent Names (top, bold, prominent) -->
                                             <div class="flex items-center justify-between">
-                                                <div class="flex items-center gap-2">
-                                                    <span class="font-semibold text-surface-900 truncate" x-text="session.name"></span>
+                                                <div class="flex items-center gap-2 flex-1 min-w-0">
+                                                    <span class="font-bold text-black text-base truncate" x-text="session.participants && session.participants.length > 0 ? session.participants.join(', ') : 'New Chat'"></span>
                                                     <!-- 🔔 待回答标志 -->
                                                     <span x-show="askUserDialog.minimized && askUserDialog.session_id === session.session_id"
-                                                          class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full flex items-center gap-1">
+                                                          class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full flex items-center gap-1 flex-shrink-0">
                                                         <i class="ti ti-bell-ringing text-xs"></i>
                                                         待回答
                                                     </span>
                                                 </div>
-                                                <span class="text-xs text-surface-400" x-text="formatDate(session.last_email_time)"></span>
+                                                <span class="text-xs text-surface-400 flex-shrink-0" x-text="formatDate(session.last_email_time)"></span>
                                             </div>
-                                            <p class="text-sm text-surface-500 truncate mt-0.5" x-text="getAgentDescription(session.name) || 'Click to view messages'"></p>
+                                            <!-- Subject (bottom, regular, prevents overflow) -->
+                                            <p class="text-sm text-surface-600 truncate mt-1" x-text="session.subject || 'No Subject'"></p>
                                         </div>
                                     </div>
                                 </div>
                             </template>
                             
                             <!-- Empty State for Sessions -->
+
+                            <!-- Load More Button -->
+                            <div x-show="hasMoreConversations" class="p-3">
+                                <button @click="loadSessions(true)"
+                                        class="w-full py-2.5 px-4 bg-surface-100 hover:bg-surface-200 text-surface-700 rounded-xl text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2">
+                                    <i class="ti ti-loader"></i>
+                                    Load More Conversations
+                                </button>
+                            </div>
+
                             <div x-show="sessions.length === 0" class="p-8 text-center">
                                 <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface-100 flex items-center justify-center">
                                     <i class="ti ti-messages text-3xl text-surface-300"></i>
