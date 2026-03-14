@@ -11,7 +11,7 @@
 ```python
 # 错误：假设附件已经在发送者的 attachments 目录下
 source_attachments_dir = (
-    Path(workspace_root) / "agent_files" / source_agent / "work_files" / user_session_id / "attachments"
+    Path(workspace_root) / "agent_files" / source_agent / "work_files" / task_id / "attachments"
 )
 source_file = source_attachments_dir / filename
 ```
@@ -24,7 +24,7 @@ source_file = source_attachments_dir / filename
 ### 1. 新增 `_resolve_container_path_to_host` 方法
 
 ```python
-def _resolve_container_path_to_host(self, container_path: str, user_session_id: str) -> str:
+def _resolve_container_path_to_host(self, container_path: str, task_id: str) -> str:
     """
     将容器内路径转换为宿主机路径
 
@@ -39,11 +39,11 @@ def _resolve_container_path_to_host(self, container_path: str, user_session_id: 
 **路径映射逻辑**：
 
 1. **相对路径** (`report.pdf`)
-   - 解析为：`{work_files_base}/{user_session_id}/report.pdf`
+   - 解析为：`{work_files_base}/{task_id}/report.pdf`
    - 示例：`/MatrixWorld/agent_files/Mark/work_files/session123/report.pdf`
 
 2. **/work_files/* 路径** (`/work_files/data/report.pdf`)
-   - 解析为：`{work_files_base}/{user_session_id}/data/report.pdf`
+   - 解析为：`{work_files_base}/{task_id}/data/report.pdf`
    - 示例：`/MatrixWorld/agent_files/Mark/work_files/session123/data/report.pdf`
 
 3. **/home/* 路径** (`/home/config.json`)
@@ -63,7 +63,7 @@ def _resolve_container_path_to_host(self, container_path: str, user_session_id: 
 **修改前**：
 ```python
 source_attachments_dir = (
-    Path(workspace_root) / "agent_files" / source_agent / "work_files" / user_session_id / "attachments"
+    Path(workspace_root) / "agent_files" / source_agent / "work_files" / task_id / "attachments"
 )
 source_file = source_attachments_dir / filename
 ```
@@ -71,7 +71,7 @@ source_file = source_attachments_dir / filename
 **修改后**：
 ```python
 # 将容器内路径转换为宿主机路径
-host_path = self._resolve_container_path_to_host(container_path, user_session_id)
+host_path = self._resolve_container_path_to_host(container_path, task_id)
 
 if host_path is None or not Path(host_path).exists():
     self.logger.warning(f"附件文件不存在：{container_path} (解析后的宿主机路径: {host_path})")

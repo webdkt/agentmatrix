@@ -1,6 +1,6 @@
 import asyncio
 from typing import Dict, Optional
-from ..db.database import AgentMailDB
+from ..db.agent_matrix_db import AgentMatrixDB
 import os
 import json
 import textwrap
@@ -12,8 +12,8 @@ class PostOffice(AutoLoggerMixin):
     def __init__(self, matrix_path, user_agent_name: str = "User"):
         self.directory = {}
         self.queue = asyncio.Queue()
-        email_db_path = os.path.join(matrix_path,".matrix" , "matrix_mails.db")
-        self.email_db = AgentMailDB(email_db_path) # 初始化数据库连接
+        email_db_path = os.path.join(matrix_path,".matrix" , "agentmatrix.db")
+        self.email_db = AgentMatrixDB(email_db_path) # 初始化数据库连接
         self._paused = False
 
         # Store user agent name
@@ -119,18 +119,18 @@ class PostOffice(AutoLoggerMixin):
         self.email_db.log_email(email)
 
         # 维护 user_sessions
-        if email.user_session_id:
-            if email.user_session_id not in self.user_sessions:
+        if email.task_id:
+            if email.task_id not in self.user_sessions:
                 # 新的 session，添加记录
-                self.user_sessions[email.user_session_id] = {
+                self.user_sessions[email.task_id] = {
                     "name": email.subject,
                     "last_email_time": str(email.timestamp)
                 }
-                self.logger.info(f"New user session created: {email.user_session_id} - {email.subject}")
+                self.logger.info(f"New user session created: {email.task_id} - {email.subject}")
             else:
                 # 已存在的 session，更新时间戳
-                self.user_sessions[email.user_session_id]["last_email_time"] = str(email.timestamp)
-                self.logger.debug(f"User session updated: {email.user_session_id}")
+                self.user_sessions[email.task_id]["last_email_time"] = str(email.timestamp)
+                self.logger.debug(f"User session updated: {email.task_id}")
 
             # 同步到磁盘
             self._save_user_sessions()
@@ -153,7 +153,7 @@ class PostOffice(AutoLoggerMixin):
             else:
                 await asyncio.sleep(0.1)
 
-    def get_mails_by_range(self, user_session_id, agent_name, start=0, end=1):
+    def get_mails_by_range(self, task_id, agent_name, start=0, end=1):
         """查询某个Agent的指定Range的邮件
         Args:
             agent_name: Agent名称
@@ -162,7 +162,7 @@ class PostOffice(AutoLoggerMixin):
         Returns:
             指定范围内的邮件列表
         """
-        email_records = self.email_db.get_mails_by_range(user_session_id, agent_name, start, end)
+        email_records = self.email_db.get_mails_by_range(task_id, agent_name, start, end)
         emails = []
         for record in email_records:
             # 恢复 metadata 字段
@@ -182,7 +182,7 @@ class PostOffice(AutoLoggerMixin):
                 subject=record['subject'],
                 body=record['body'],
                 in_reply_to=record['in_reply_to'],
-                user_session_id=record.get('user_session_id', None),
+                task_id=record.get('task_id', None),
                 sender_session_id=record.get('sender_session_id'),
                 receiver_session_id=record.get('receiver_session_id'),
                 metadata=metadata
@@ -190,31 +190,31 @@ class PostOffice(AutoLoggerMixin):
             emails.append(email)
         return emails
 
-    def get_user_sessions(self, user_session_id: Optional[str] = None) -> Dict:
+    def get_user_sessions(self, task_id: Optional[str] = None) -> Dict:
         """
         获取 user_sessions 数据
 
         Args:
-            user_session_id: 可选，如果提供则返回指定 session 的数据，否则返回所有 sessions
+            task_id: 可选，如果提供则返回指定 session 的数据，否则返回所有 sessions
 
         Returns:
-            如果提供了 user_session_id：返回该 session 的信息字典，不存在则返回 None
+            如果提供了 task_id：返回该 session 的信息字典，不存在则返回 None
             如果未提供：返回所有 sessions 的副本（避免外部修改）
         """
-        if user_session_id:
-            return self.user_sessions.get(user_session_id)
+        if task_id:
+            return self.user_sessions.get(task_id)
         else:
             # 返回深拷贝，避免外部修改影响内部数据
             return json.loads(json.dumps(self.user_sessions))
 
-    def get_session_emails_for_user(self, user_session_id):
+    def get_session_emails_for_user(self, task_id):
         """获取某个用户会话中所有与User相关的邮件
         Args:
-            user_session_id: 用户会话ID
+            task_id: 用户会话ID
         Returns:
             Email对象列表，每个Email包含额外的 is_from_user 布尔字段
         """
-        email_records = self.email_db.get_user_session_emails(user_session_id, self.user_agent_name)
+        email_records = self.email_db.get_user_session_emails(task_id, self.user_agent_name)
         emails = []
         for record in email_records:
             # 恢复 metadata 字段
@@ -234,7 +234,7 @@ class PostOffice(AutoLoggerMixin):
                 subject=record['subject'],
                 body=record['body'],
                 in_reply_to=record['in_reply_to'],
-                user_session_id=record.get('user_session_id', None),
+                task_id=record.get('task_id', None),
                 sender_session_id=record.get('sender_session_id'),
                 receiver_session_id=record.get('receiver_session_id'),
                 metadata=metadata
@@ -273,7 +273,7 @@ class PostOffice(AutoLoggerMixin):
         self,
         session_id: str,
         agent_name: str,
-        user_session_id: str
+        task_id: str
     ):
         """
         获取某个 session 的所有邮件（发出去的 + 收到的）
@@ -281,13 +281,13 @@ class PostOffice(AutoLoggerMixin):
         Args:
             session_id: 会话ID
             agent_name: Agent名称
-            user_session_id: 用户会话ID
+            task_id: 用户会话ID
 
         Returns:
             Email对象列表
         """
         email_records = self.email_db.get_emails_by_session(
-            session_id, agent_name, user_session_id
+            session_id, agent_name, task_id
         )
         emails = []
         for record in email_records:
@@ -307,7 +307,7 @@ class PostOffice(AutoLoggerMixin):
                 subject=record['subject'],
                 body=record['body'],
                 in_reply_to=record['in_reply_to'],
-                user_session_id=record.get('user_session_id'),
+                task_id=record.get('task_id'),
                 sender_session_id=record.get('sender_session_id'),
                 receiver_session_id=record.get('receiver_session_id'),
                 metadata=metadata

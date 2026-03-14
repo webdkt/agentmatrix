@@ -44,7 +44,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         self.logger.debug(str(email))
         session = await self.session_manager.get_session(email)
         self.current_session = session
-        self.current_user_session_id = session["user_session_id"]
+        self.current_task_id = session["task_id"]
 
 
 
@@ -59,7 +59,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         # 设置当前 session 目录
         self.current_session_folder = str(
                 Path(self.workspace_root) /
-                session["user_session_id"] /
+                session["task_id"] /
                 "history" /
                 self.name /
                 session["session_id"]
@@ -309,7 +309,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         clean_session["history"] = []
 
         # Preserve all other fields:
-        # - user_session_id
+        # - task_id
         # - session_id
         # - context
         # - last_sender
@@ -330,14 +330,14 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         Returns:
             白板内容（纯文本）
         """
-        # 白板路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/whiteboard.md
-        user_session_id = self.current_user_session_id or "default"
+        # 白板路径：workspace_root/agent_files/{agent_name}/work_files/{task_id}/whiteboard.md
+        task_id = self.current_task_id or "default"
         whiteboard_path = os.path.join(
             self.workspace_root,
             "agent_files",
             self.name,
             "work_files",
-            user_session_id,
+            task_id,
             "whiteboard.md"
         )
         if not os.path.exists(whiteboard_path):
@@ -396,14 +396,14 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         if not full_new_content and not partial_edit:
             return "❌ 请提供完整的白板内容或修改意见"
 
-        # 白板路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/whiteboard.md
-        user_session_id = self.current_user_session_id or "default"
+        # 白板路径：workspace_root/agent_files/{agent_name}/work_files/{task_id}/whiteboard.md
+        task_id = self.current_task_id or "default"
         whiteboard_path = os.path.join(
             self.workspace_root,
             "agent_files",
             self.name,
             "work_files",
-            user_session_id,
+            task_id,
             "whiteboard.md"
         )
         existing_content = ""

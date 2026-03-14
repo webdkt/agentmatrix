@@ -40,8 +40,8 @@ class Email:
 - `_sanitize_filename()` - 清理文件名，移除危险字符
 
 **存储结构**:
-- 临时目录：`.matrix/temp_uploads/{user_session_id}/{file_id}_{filename}`
-- 共享存储：`.matrix/email_attachments/{user_session_id}/{email_id}/{filename}`
+- 临时目录：`.matrix/temp_uploads/{task_id}/{file_id}_{filename}`
+- 共享存储：`.matrix/email_attachments/{task_id}/{email_id}/{filename}`
 
 ### 3. ✅ 数据库支持
 **文件**: `src/agentmatrix/db/database.py`
@@ -70,7 +70,7 @@ class Email:
 @app.post("/api/sessions/{session_id}/emails")
 async def send_email(
     session_id: str,
-    user_session_id: Optional[str] = Form(None),
+    task_id: Optional[str] = Form(None),
     recipient: str = Form(...),
     subject: str = Form(...),
     body: str = Form(...),

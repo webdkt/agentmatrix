@@ -70,6 +70,7 @@ class MicroAgent(AutoLoggerMixin):
         self.name = name or f"MicroAgent_{uuid.uuid4().hex[:8]}"
         self.parent = parent
         self.persona = parent.persona
+        self.current_task_id = parent.current_task_id
 
         # 🆕 动态组合 Skill Mixins（新架构核心）
         if available_skills:
@@ -207,6 +208,7 @@ class MicroAgent(AutoLoggerMixin):
         return dynamic_class
 
     @register_action(
+            short_desc="全部工作完成",
         description="所有任务都已完成。当你觉得没有其他要做的，就必须调用此 action。",
         param_infos={
             "result": "最终结果的描述（可选）"
@@ -228,6 +230,7 @@ class MicroAgent(AutoLoggerMixin):
 
 
     @register_action(
+        short_desc="查看skill或action帮助[skill?, action?], ",
         description="查看 skill 或 action 的详细使用信息",
         param_infos={
             "target": "目标，格式：skill_name、action_name 或 skill_name.action_name（可选）"
@@ -544,11 +547,11 @@ class MicroAgent(AutoLoggerMixin):
                 
                 raise ValueError(f"Action '{action_call}' not found")
 
-    def session_folder(self) -> str:
+    def deprecated_session_folder(self) -> str:
         """便捷访问：根 Agent 的 session_folder"""
         return self.root_agent.get_session_folder()
 
-    def get_session_context(self):
+    def deprecated_get_session_context(self):
         """
         获取 session context
 
@@ -557,7 +560,7 @@ class MicroAgent(AutoLoggerMixin):
         """
         return self._session_context
 
-    async def update_session_context(self, **kwargs):
+    async def deprecated_update_session_context(self, **kwargs):
         """
         更新 session context
 
@@ -716,7 +719,7 @@ Start generating the Whiteboard now.
                 emails = self.root_agent.post_office.get_emails_by_session(
                     session_id=self.session["session_id"],
                     agent_name=self.root_agent.name,
-                    user_session_id=self.session["user_session_id"]
+                    task_id=self.session["task_id"]
                 )
                 self.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
 
@@ -938,7 +941,7 @@ Start generating the Whiteboard now.
         # 当 session 参数被提供时，设置与 BaseAgent 相同的属性
         if session:
             self.current_session = session
-            self.current_user_session_id = session.get("user_session_id")
+            self.current_task_id = session.get("task_id")
 
             # 创建 SessionContext 对象（如果 session_manager 可用）
             if session_manager and hasattr(session_manager, 'session_context_class'):
@@ -957,7 +960,7 @@ Start generating the Whiteboard now.
                 from pathlib import Path
                 self.current_session_folder = str(
                     Path(self.root_agent.workspace_root) /
-                    session.get("user_session_id", "default") /
+                    session.get("task_id", "default") /
                     "history" /
                     (self.root_agent.name if self.root_agent else "unknown") /
                     session.get("session_id", "unknown")
@@ -1108,7 +1111,7 @@ Start generating the Whiteboard now.
 ### 🧰 可用工具箱 (Toolbox)
 
 #### A. 核心指令 (Native Actions)
-这些是具备的能力，按 **Skill** 分组：
+这些是可用能力，按 **Skill** 分组：
 
 {self._format_actions_list()}
 
@@ -1185,7 +1188,9 @@ Start generating the Whiteboard now.
 
         格式：
         **skill_name**: skill 描述
-          • action1, action2, action3
+          • action1: action1_short_desc
+          • action2: action2_short_desc
+          • action3: action3_short_desc
         """
         lines = []
 
@@ -1200,9 +1205,15 @@ Start generating the Whiteboard now.
             else:
                 lines.append(f"**{skill_name}**:")
 
-            # 添加 actions 列表（使用项目符号）
-            action_names = list(actions.keys())
-            lines.append(f"  • {', '.join(action_names)}")
+            # 添加 actions 列表（每个 action 一行，包含 short_desc）
+            for action_name, method in actions.items():
+                short_desc = getattr(method, "_action_short_desc", None)
+                if short_desc:
+                    lines.append(f"  • {action_name}: {short_desc}")
+                else:
+                    # 如果没有 short_desc，只显示 action_name
+                    lines.append(f"  • {action_name}")
+
             lines.append("")  # 空行分隔
 
         return "\n".join(lines)
@@ -1962,7 +1973,7 @@ write, send_mail, write
             # 创建异步任务来保存（不阻塞主流程）
             asyncio.create_task(self.session_manager.save_session(self.session))
 
-    def get_history(self) -> List[Dict]:
+    def deprecated_get_history(self) -> List[Dict]:
         """
         获取完整的对话历史
 

@@ -71,7 +71,7 @@ class BaseAgent(AutoLoggerMixin):
         self.action_registry = {}  # name -> bound_method (新架构)
         self.actions_meta = {}  # name -> metadata (给小脑看)
         self.current_session = None
-        self.current_user_session_id = None
+        self.current_task_id = None
 
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
@@ -308,10 +308,10 @@ class BaseAgent(AutoLoggerMixin):
             # 返回: "5万-10万"
         """
         # ✅ 1. 发送事件（通知前端）
-        user_session_id = self.current_user_session_id or self.current_session.get("user_session_id") if self.current_session else None
+        task_id = self.current_task_id or self.current_session.get("task_id") if self.current_session else None
         await self.emit("ASK_USER", question, {
             "agent_name": self.name,
-            "user_session_id": user_session_id,
+            "task_id": task_id,
             "session_id": self.current_session.get("session_id") if self.current_session else None
         })
         
@@ -443,14 +443,14 @@ class BaseAgent(AutoLoggerMixin):
         获取当前 session 的个人工作目录（如果不存在则自动创建）
 
         Returns:
-            Path: 个人工作目录路径，格式为 workspace_root / user_session_id / agents / agent_name
+            Path: 个人工作目录路径，格式为 workspace_root / task_id / agents / agent_name
         """
         if not self.workspace_root:
             #raise ValueError("workspace_root is not set")
             return None
 
-        user_session_id = self.current_user_session_id or "default"
-        workspace = Path(self.workspace_root) / user_session_id / "agents" / self.name
+        task_id = self.current_task_id or "default"
+        workspace = Path(self.workspace_root) / task_id / "agents" / self.name
 
         # 如果目录不存在，创建目录
         workspace.mkdir(parents=True, exist_ok=True)
@@ -463,14 +463,14 @@ class BaseAgent(AutoLoggerMixin):
         获取当前 session 的共享工作目录（如果不存在则自动创建）
 
         Returns:
-            Path: 共享工作目录路径，格式为 workspace_root / user_session_id / shared
+            Path: 共享工作目录路径，格式为 workspace_root / task_id / shared
         """
         if not self.workspace_root:
             #raise ValueError("workspace_root is not set")
             return None
 
-        user_session_id = self.current_user_session_id or "default"
-        workspace = Path(self.workspace_root) / user_session_id / "shared"
+        task_id = self.current_task_id or "default"
+        workspace = Path(self.workspace_root) / task_id / "shared"
 
         # 如果目录不存在，创建目录
         workspace.mkdir(parents=True, exist_ok=True)
@@ -479,41 +479,6 @@ class BaseAgent(AutoLoggerMixin):
 
 
 
-    def _generate_tools_prompt(self):
-        """生成给 SLM 看的 Prompt"""
-        prompt = ""
-        for name, meta in self.actions_meta.items():
-            # 这里直接把 Schema dump 成 json 字符串
-            # 这种格式是目前开源模型微调 Function Calling 最常用的格式
-            schema_str = json.dumps(meta["params"], ensure_ascii=False)
-            prompt += textwrap.dedent(f"""
-                ### Action name: {name} ###
-                Description:
-                    {meta['description']}
-
-                ACTION JSON DEFINITION: 
-                    {schema_str}
-
-            """)
-            
-        return prompt
-
-    
-    
-    def get_introduction(self):
-        """
-        生成给其他 Agent 看的说明书 (Protocol Description)
-        这是之前 AgentManifest.to_prompt() 的逻辑
-        """
-        
-        return (
-            f"--- Agent: {self.name} ---\n"
-            f"Description: {self.description}\n"
-            f"--------------------------\n"
-        )
-    
-    
-        
     async def emit(self, event_type, content, payload={}):
         """
         发送事件到注册的事件回调函数
@@ -571,7 +536,7 @@ class BaseAgent(AutoLoggerMixin):
         self.logger.debug(str(email))
         session = await self.session_manager.get_session(email)
         self.current_session = session
-        self.current_user_session_id = session["user_session_id"]
+        self.current_task_id = session["task_id"]
 
         # 2. 更新 receiver_session_id（如果尚未设置）
         if email.receiver_session_id is None:
@@ -582,7 +547,7 @@ class BaseAgent(AutoLoggerMixin):
             )
 
         # 🐳 容器模式：唤醒并切换工作区
-        user_session_id = session["user_session_id"]
+        task_id = session["task_id"]
 
         # 检查 Docker 管理器是否已初始化
         if self.docker_manager is None:
@@ -595,9 +560,9 @@ class BaseAgent(AutoLoggerMixin):
         self.docker_manager.wakeup()
 
         # 切换工作区
-        success = self.docker_manager.switch_workspace(user_session_id)
+        success = self.docker_manager.switch_workspace(task_id)
         if not success:
-            raise RuntimeError(f"工作区切换失败: {user_session_id}")
+            raise RuntimeError(f"工作区切换失败: {task_id}")
 
         try:
             # 创建 SessionContext 对象（包装 session["context"]）
@@ -613,7 +578,7 @@ class BaseAgent(AutoLoggerMixin):
                 from pathlib import Path
                 self.current_session_folder = str(
                     Path(self.workspace_root) /
-                    session["user_session_id"] /
+                    session["task_id"] /
                     "history" /
                     self.name /
                     session["session_id"]
@@ -944,7 +909,7 @@ Extract facts now.
             await append_timeline_events(
                 workspace_root=workspace_root,
                 agent_name=agent_name,
-                user_session_id= self.current_user_session_id,
+                task_id= self.current_task_id,
                 events=events  # 直接传递事件对象列表
             )
             self.logger.info(f"💾 成功持久化 {len(events)} 个事件到 Timeline")
@@ -953,28 +918,11 @@ Extract facts now.
 
     # ==================== 🆕 双 Worker 模型结束 ====================
 
-    def _get_llm_context(self, session: dict) -> List[Dict]:
-        """
-        [多态的关键]
-        Worker: 返回完整的 history。
-        Planner: 将重写此方法，返回 State + Latest Message。
-        """
-        return session["history"]
 
 
 
 
 
-
-    def get_snapshot(self):
-        """
-        核心可观察性方法：返回 Agent 当前的完整状态快照
-        """
-        return {
-            "name": self.name,
-            "is_alive": True,
-            "inbox_depth": self.inbox.qsize()
-        }
     
     def dump_state(self) -> Dict:
         """生成当前 Agent 的完整快照"""
@@ -1227,30 +1175,6 @@ Extract facts now.
     # 通用 Actions
     # ==========================================
 
-    @register_action(
-        description="所有任务都已完成。当你觉得没有其他要做的，就必须调用此 action。",
-        param_infos={
-            "result": "最终结果的描述（可选）"
-        }
-    )
-    async def all_finished(self, result: str = None) -> Any:
-        """
-        [TERMINAL ACTION] 完成任务并返回最终结果
-
-        这是 BaseAgent 提供的通用 all_finished action。
-        子类可以覆盖此方法以实现自定义的完成逻辑。
-
-        Args:
-            result: 任务结果描述（可选）
-
-        Returns:
-            Any: 返回给调用者的结果
-                 - 如果提供 result：返回字符串
-                 - 如果不提供：返回空字典
-        """
-        if result:
-            return result
-        return {}
 
     @classmethod
     def shutdown_all_docker_containers(cls):

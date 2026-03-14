@@ -80,7 +80,7 @@ BaseAgent (管理会话)
     memory/
       global_memory.db                # ← 跨 session 实体库（Agent 的全局记忆）
 
-    {user_session_id}/                # User Session级别（每个user session独立）
+    {task_id}/                # User Session级别（每个user session独立）
       memory/
         session_memory.db             # ← Session 实体 + 时间线（2 张表）
       history/
@@ -673,8 +673,8 @@ isinstance(self.parent, BaseAgent)
     *   CRUD 操作封装
     *   **测试**：验证读写并发不会阻塞
 - [ ] 实现 `whiteboard.py`: Whiteboard 加载/保存工具
-    *   `load_whiteboard(agent_name, user_session_id)`
-    *   `save_whiteboard(content, agent_name, user_session_id)`
+    *   `load_whiteboard(agent_name, task_id)`
+    *   `save_whiteboard(content, agent_name, task_id)`
 
 ### P1 - 前台 Loop
 - [ ] 实现 `skill.py`: recall action

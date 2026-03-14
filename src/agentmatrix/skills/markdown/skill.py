@@ -38,7 +38,7 @@ class MarkdownSkillMixin:
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = "Markdown 文档编辑技能：编辑、总结、搜索 Markdown 文档内容"
+    _skill_description = "Markdown 文档编辑技能：编辑、总结、搜索 Markdown 文档内容。所有命令都需要提供file_path参数。所有节点会被编号赋予唯一路径 ID (如 root/h1_2/p_3)。超大节点会被自动切分(如 root/h1_2/code_1/chunk_02)"
 
     _skill_usage_guide = """
 使用场景：
@@ -77,18 +77,7 @@ class MarkdownSkillMixin:
 
         return None
 
-    def _get_current_session_id(self) -> str:
-        """
-        获取当前 user_session_id
-
-        用于 Docker 路径转换。
-        """
-        if hasattr(self, 'current_user_session_id'):
-            return self.current_user_session_id
-        elif hasattr(self, 'root_agent') and hasattr(self.root_agent, 'current_user_session_id'):
-            return self.root_agent.current_user_session_id
-        else:
-            return "default"
+    
 
     def _resolve_to_host_path(self, container_path: str) -> str:
         """
@@ -119,7 +108,7 @@ class MarkdownSkillMixin:
         # Docker 环境：转换路径
         if container_path.startswith("/work_files/"):
             relative_path = container_path[len("/work_files/"):]
-            session_id = self._get_current_session_id()
+            session_id = self.current_task_id
             return str(docker_manager.work_files_base / session_id / relative_path)
         elif container_path.startswith("/SKILLS/"):
             relative_path = container_path[len("/SKILLS/"):]
@@ -238,7 +227,8 @@ class MarkdownSkillMixin:
     # ==================== Actions ====================
 
     @register_action(
-        "获取 Markdown 文档的目录结构（TOC）",
+            short_desc="",
+        description="获取 Markdown 文档的目录结构（TOC）",
         param_infos={
             "file_path": "Markdown 文件路径",
             "depth": "目录深度（默认 2）"
@@ -259,7 +249,8 @@ class MarkdownSkillMixin:
         return ast.get_toc(depth)
 
     @register_action(
-        "在 Markdown 文档中搜索关键字",
+        short_desc="[file_path,query, context_lines] #query支持正则表达式",
+        description="在 Markdown 文档中搜索关键字",
         param_infos={
             "file_path": "Markdown 文件路径",
             "query": "搜索关键词或正则表达式",
@@ -282,7 +273,8 @@ class MarkdownSkillMixin:
         return ast.search_keywords(query, context_lines)
 
     @register_action(
-        "读取 Markdown 节点的内容",
+        short_desc="[file_path,node_id]",
+        description="读取 Markdown 节点的内容",
         param_infos={
             "file_path": "Markdown 文件路径",
             "node_id": "节点 ID（如 root/h1_1/h2_2/p_3）"
@@ -320,7 +312,8 @@ class MarkdownSkillMixin:
         return node.content
 
     @register_action(
-        "修改 Markdown 节点的内容",
+        short_desc="[file_path,node_id,edit_instruction]",
+        description="修改 Markdown 节点的内容",
         param_infos={
             "file_path": "Markdown 文件路径",
             "node_id": "节点 ID",
@@ -355,7 +348,8 @@ class MarkdownSkillMixin:
         return f"✅ 已修改节点 {node_id}"
 
     @register_action(
-        "精确替换文本",
+        short_desc="提供node_id, old_str, new_str",
+        description="精确替换文本",
         param_infos={
             "file_path": "Markdown 文件路径",
             "node_id": "节点 ID",
@@ -391,7 +385,8 @@ class MarkdownSkillMixin:
         return f"✅ 已替换节点 {node_id} 中的文本"
 
     @register_action(
-        "追加新节点",
+        short_desc="建议使用前看help",
+        description="追加新节点",
         param_infos={
             "file_path": "Markdown 文件路径",
             "parent_id": "父节点 ID",
@@ -444,7 +439,8 @@ class MarkdownSkillMixin:
         return f"✅ 已追加节点 {new_node_id}"
 
     @register_action(
-        "插入新节点",
+        short_desc="建议使用前看help",
+        description="插入新节点",
         param_infos={
             "file_path": "Markdown 文件路径",
             "after_node": "在哪个节点后插入（node_id）",
@@ -503,7 +499,8 @@ class MarkdownSkillMixin:
         return f"✅ 已插入节点 {new_node_id}"
 
     @register_action(
-        "删除节点",
+        short_desc="参数`文件路径`,`要删除的node_id`",
+        description="删除节点",
         param_infos={
             "file_path": "Markdown 文件路径",
             "node_id": "要删除的节点 ID"
@@ -539,7 +536,8 @@ class MarkdownSkillMixin:
         return f"✅ 已删除节点 {node_id}"
 
     @register_action(
-        "总结节点内容",
+        short_desc="参数`文件路径`,`要总结的node_id`",
+        description="总结节点内容",
         param_infos={
             "file_path": "Markdown 文件路径",
             "node_id": "节点 ID"
@@ -568,12 +566,13 @@ class MarkdownSkillMixin:
         return f"📝 节点 {node_id} 的总结：\n\n{summary}"
 
     @register_action(
-        "保存 Markdown 文件的修改",
+        short_desc="唯一参数`文件路径`,把刚才对该文件的修改存盘",
+        description="保存 Markdown 文件的修改",
         param_infos={
             "file_path": "Markdown 文件路径"
         }
     )
-    async def save_markdown(self, file_path: str) -> str:
+    async def save_modified_file(self, file_path: str) -> str:
         """
         保存修改
 

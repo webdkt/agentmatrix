@@ -6,7 +6,7 @@
 MatrixWorld/                    ← matrix_path (默认 ./MatrixWorld/)
 ├── .matrix/                    ← 运行时数据（自动生成）
 │   ├── logs/                   ← 日志
-│   ├── matrix_mails.db         ← 邮件数据库
+│   ├── agentmatrix.db         ← 邮件数据库
 │   └── matrix_snapshot.json    ← 世界快照
 ├── agents/                     ← Agent 配置
 ├── workspace/                  ← 工作空间
@@ -14,7 +14,7 @@ MatrixWorld/                    ← matrix_path (默认 ./MatrixWorld/)
 │       └── {agent_name}/       ← Agent 名称
 │           ├── home/           ← Agent Home（容器内 /home）
 │           └── work_files/     ← 工作文件（容器内 /work_files_base）
-│               └── {user_session_id}/  ← 用户会话
+│               └── {task_id}/  ← 任务ID
 │                   └── attachments/      ← 邮件附件（新）
 │                       └── {filename}    ← 文件名（可能重命名）
 └── matrix_world.yml            ← 配置文件
@@ -29,17 +29,17 @@ MatrixWorld/                    ← matrix_path (默认 ./MatrixWorld/)
 | `/SKILLS` | `workspace_root/SKILLS` | ro | 全局技能目录 |
 | `/home` | `workspace_root/agent_files/{agent_name}/home` | rw | Agent Home |
 | `/work_files_base` | `workspace_root/agent_files/{agent_name}/work_files` | rw | 所有 session 工作文件父目录 |
-| `/work_files` | 符号链接 → `/work_files_base/{user_session_id}` | rw | 当前 session 工作文件（动态切换） |
+| `/work_files` | 符号链接 → `/work_files_base/{task_id}` | rw | 当前 task 工作文件（动态切换） |
 
 ### 容器内路径说明
 
-- **`/work_files`**：符号链接，通过 `switch_workspace(user_session_id)` 动态切换
+- **`/work_files`**：符号链接，通过 `switch_workspace(task_id)` 动态切换
 - **`/work_files/attachments/`**：邮件附件保存目录
-- 对应宿主机路径：`workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/attachments/`
+- 对应宿主机路径：`workspace_root/agent_files/{agent_name}/work_files/{task_id}/attachments/`
 
 ## 邮件附件存储（新）
 
-**宿主机路径**：`{workspace_root}/agent_files/{agent_name}/work_files/{user_session_id}/attachments/{filename}`
+**宿主机路径**：`{workspace_root}/agent_files/{agent_name}/work_files/{task_id}/attachments/{filename}`
 
 **容器内路径**：`/work_files/attachments/{filename}`
 
@@ -56,7 +56,7 @@ MatrixWorld/                    ← matrix_path (默认 ./MatrixWorld/)
 # server.py - 保存附件
 workspace_root = user_agent.workspace_root
 agent_name = user_agent.name
-attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / user_session_id / "attachments"
+attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / task_id / "attachments"
 attachments_dir.mkdir(parents=True, exist_ok=True)
 
 # 处理重名并保存
@@ -75,7 +75,7 @@ attachment_metadata.append({
 
 ## 邮件附件存储（旧 - 已废弃）
 
-**旧路径**：`{matrix_path}/.matrix/email_attachments/{user_session_id}/{email_id}/{filename}`
+**旧路径**：`{matrix_path}/.matrix/email_attachments/{task_id}/{email_id}/{filename}`
 
 **注意**：此路径已废弃，仅保留用于历史记录。新代码请使用 `work_files/attachments/` 路径。
 
@@ -88,13 +88,13 @@ attachment_metadata.append({
 from pathlib import Path
 
 # 附件目录（新）
-attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / user_session_id / "attachments"
+attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / task_id / "attachments"
 
 # 日志目录
 log_path = Path(matrix_path) / ".matrix" / "logs"
 
 # 数据库
-db_path = Path(matrix_path) / ".matrix" / "matrix_mails.db"
+db_path = Path(matrix_path) / ".matrix" / "agentmatrix.db"
 ```
 
 ## 关键点

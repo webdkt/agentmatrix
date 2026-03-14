@@ -706,7 +706,8 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
 - 支持多轮搜索和信息提取
 """
     @register_action(
-        """针对特定目的上网搜索，提供明确的搜索目的和（可选但建议提供的）搜索关键字词. 
+        short_desc="[purpsose, search_phrase, max_time=30min] ",
+        description="""针对特定目的上网搜索，提供明确的搜索目的和（可选但建议提供的）搜索关键字词. 
         使用指南：
         1. 搜索前：明确目标
         - 定义问题：用一句话写下你到底要找什么
@@ -768,15 +769,15 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             root_agent = self
         
         agent_name = root_agent.name
-        user_session_id = root_agent.current_user_session_id or "default"
+        task_id = root_agent.current_task_id or "default"
         
-        # 直接拼接路径：workspace_root/agent_files/{agent_name}/work_files/{user_session_id}/downloads
+        # 直接拼接路径：workspace_root/agent_files/{agent_name}/work_files/{task_id}/downloads
         download_path = os.path.join(
             self.workspace_root,
             "agent_files",
             agent_name,
             "work_files",
-            user_session_id,
+            task_id,
             "downloads"
         )
 
@@ -899,7 +900,8 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
 
     
     @register_action(
-        "访问一个网页并深入分析内容以满足特定目的，必须提供purpose 参数",
+        short_desc="[purpose, url]",
+        description="访问一个网页并深入分析内容以满足特定目的，必须提供purpose 参数",
         param_infos={
             "purpose": "研究目的或问题",
             "url": "要访问的网页 URL",
@@ -931,7 +933,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
             agent_name = self.name
 
-        user_session_id = self.current_user_session_id or "default"
+        task_id = self.current_task_id or "default"
 
         profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", agent_name)
         download_path = os.path.join(
@@ -939,7 +941,7 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             "agent_files",
             agent_name,
             "work_files",
-            user_session_id,
+            task_id,
             "downloads"
         )
 

@@ -203,7 +203,7 @@ micro3 = MicroAgent(
 
 ```
 workspace_root/
-├── {user_session_id}/
+├── {task_id}/
 │   └── agents/
 │       └── {agent_name}/  # Agent's private working directory
 │           ├── 20250226_143022/  # MicroAgent subtask directory (with timestamp)
@@ -490,14 +490,27 @@ class Email:
     subject: str             # Email subject
     body: str                # Body (natural language)
     in_reply_to: str         # Reply relationship (maintains conversation thread)
-    user_session_id: str     # User session tracking
+    task_id: str             # Task ID (global task identifier)
 ```
 
 **Features**:
 - **Threading**: `in_reply_to` maintains conversation threads
 - **Natural Language**: body contains free text
-- **Session Tracking**: `user_session_id` tracks user conversations
+- **Task Tracking**: `task_id` tracks global tasks
 
+
+### Two Types of Session IDs
+
+**task_id (Task ID)**
+- Global task identifier for file space division
+- Can be initiated by any Agent (User, Daemon, regular Agent)
+- One task = one "collaborative thing"
+- File path: `{workspace_root}/{task_id}/`
+
+**session_id (Session ID)**
+- Conversation history ID from each Agent's perspective
+- A task can have multiple sessions (one per Agent)
+- File path: `.matrix/{agent_name}/{task_id}/history/{session_id}/`
 ### PostOffice System
 
 **Code Location**: `src/agentmatrix/agents/post_office.py`
@@ -535,7 +548,7 @@ async def delegate_research(self, task_description: str) -> str:
         recipient="Researcher",
         subject=f"Research task: {task_description}",
         body=task_description,
-        user_session_id=self.current_user_session_id
+        task_id=self.current_task_id
     )
 
     # Send through PostOffice

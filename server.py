@@ -95,7 +95,7 @@ class ColdStartConfigRequest(BaseModel):
 
 class SendEmailRequest(BaseModel):
     """Send email request model"""
-    user_session_id: Optional[str] = None  # None = new session, str = existing session
+    task_id: Optional[str] = None  # None = new session, str = existing session
     recipient: str
     subject: str
     body: str
@@ -391,7 +391,7 @@ async def lifespan(app: FastAPI):
                             "subject": email.subject,
                             "body": email.body,
                             "in_reply_to": email.in_reply_to,
-                            "user_session_id": email.user_session_id
+                            "task_id": email.task_id
                         }
 
                         message = json.dumps({
@@ -630,7 +630,7 @@ async def get_sessions():
 @app.post("/api/sessions/{session_id}/emails")
 async def send_email(
     session_id: str,
-    user_session_id: Optional[str] = Form(None),
+    task_id: Optional[str] = Form(None),
     recipient: str = Form(...),
     subject: Optional[str] = Form(''),
     body: str = Form(...),
@@ -649,33 +649,33 @@ async def send_email(
     if not user_agent:
         raise HTTPException(status_code=404, detail=f"User agent '{user_agent_name}' not found")
 
-    # Use session_id from URL if user_session_id is None
-    # session_id from URL is the user_session_id for existing conversations
-    effective_user_session_id = user_session_id
-    if effective_user_session_id is None:
+    # Use session_id from URL if task_id is None
+    # session_id from URL is the task_id for existing conversations
+    effective_task_id = task_id
+    if effective_task_id is None:
         if session_id == 'new':
             # Generate new UUID for new conversations
             import uuid
-            effective_user_session_id = str(uuid.uuid4())
-            print(f"📧 New conversation: generated user_session_id={effective_user_session_id}")
+            effective_task_id = str(uuid.uuid4())
+            print(f"📧 New conversation: generated task_id={effective_task_id}")
         else:
-            # Use existing session_id for replies (session_id from URL is user_session_id)
-            effective_user_session_id = session_id
-            print(f"📧 Reply: using user_session_id={effective_user_session_id}, in_reply_to={in_reply_to}")
+            # Use existing session_id for replies (session_id from URL is task_id)
+            effective_task_id = session_id
+            print(f"📧 Reply: using task_id={effective_task_id}, in_reply_to={in_reply_to}")
     else:
-        print(f"📧 Using provided user_session_id={effective_user_session_id}")
+        print(f"📧 Using provided task_id={effective_task_id}")
 
-    # Validate user_session_id
-    if not effective_user_session_id or effective_user_session_id in ('null', 'undefined', 'None'):
-        raise HTTPException(status_code=400, detail=f"Invalid user_session_id: {effective_user_session_id}")
+    # Validate task_id
+    if not effective_task_id or effective_task_id in ('null', 'undefined', 'None'):
+        raise HTTPException(status_code=400, detail=f"Invalid task_id: {effective_task_id}")
 
     # 处理附件
     attachment_metadata = []
     if attachments:
-        # 获取附件保存目录：{workspace_root}/agent_files/{agent_name}/work_files/{user_session_id}/attachments/
+        # 获取附件保存目录：{workspace_root}/agent_files/{agent_name}/work_files/{task_id}/attachments/
         workspace_root = user_agent.workspace_root
         agent_name = user_agent.name
-        attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / effective_user_session_id / "attachments"
+        attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / effective_task_id / "attachments"
         attachments_dir.mkdir(parents=True, exist_ok=True)
         
         for attachment in attachments:
@@ -703,7 +703,7 @@ async def send_email(
     # Call User agent's speak method
     # 将附件 metadata 传递给 speak 方法
     await user_agent.speak(
-        user_session_id=effective_user_session_id,
+        task_id=effective_task_id,
         to=recipient,
         subject=subject,
         content=body,
@@ -713,7 +713,7 @@ async def send_email(
 
     return {
         "success": True,
-        "user_session_id": effective_user_session_id,
+        "task_id": effective_task_id,
         "message": "Email sent successfully",
         "attachments_count": len(attachment_metadata)
     }
@@ -742,7 +742,7 @@ async def get_session_emails(session_id: str):
                 "subject": email.subject,
                 "body": email.body,
                 "in_reply_to": email.in_reply_to,
-                "user_session_id": email.user_session_id,
+                "task_id": email.task_id,
                 "is_from_user": getattr(email, 'is_from_user', False),
                 "attachments": email.attachments
             })
@@ -778,7 +778,7 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
 
         # The recipient is the one who has the attachment
         recipient_name = target_email.recipient
-        user_session_id = target_email.user_session_id
+        task_id = target_email.task_id
 
         # Get workspace root
         # Get workspace root from recipient agent
@@ -788,9 +788,9 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
         workspace_root = recipient_agent.workspace_root
 
         # Build the attachment path
-        # Path: {workspace_root}/agent_files/{recipient}/work_files/{user_session_id}/attachments/{filename}
+        # Path: {workspace_root}/agent_files/{recipient}/work_files/{task_id}/attachments/{filename}
         attachment_path = (
-            Path(workspace_root) / "agent_files" / recipient_name / "work_files" / user_session_id / "attachments" / filename
+            Path(workspace_root) / "agent_files" / recipient_name / "work_files" / task_id / "attachments" / filename
         )
 
         # Check if file exists

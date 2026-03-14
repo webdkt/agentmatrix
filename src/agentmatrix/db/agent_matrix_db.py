@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from ..core.log_util import AutoLoggerMixin
 
-class AgentMailDB(AutoLoggerMixin):
+class AgentMatrixDB(AutoLoggerMixin):
     def __init__(self, db_path):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.create_tables()
@@ -20,7 +20,7 @@ class AgentMailDB(AutoLoggerMixin):
                 subject TEXT,
                 body TEXT,
                 in_reply_to TEXT,
-                user_session_id TEXT,
+                task_id TEXT,
                 sender_session_id TEXT,
                 receiver_session_id TEXT,
                 metadata TEXT -- 存 JSON 格式的附件或其他信息
@@ -38,13 +38,13 @@ class AgentMailDB(AutoLoggerMixin):
         # sender_session_id 索引（查询发出的邮件）
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_sender_session
-            ON emails(sender_session_id, sender, user_session_id)
+            ON emails(sender_session_id, sender, task_id)
         ''')
 
         # receiver_session_id 索引（查询收到的邮件）
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_receiver_session
-            ON emails(receiver_session_id, recipient, user_session_id)
+            ON emails(receiver_session_id, recipient, task_id)
         ''')
 
         # in_reply_to 索引（用于 reply_mapping 查询）
@@ -60,7 +60,7 @@ class AgentMailDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT OR IGNORE INTO emails
-            (id, timestamp, sender, recipient, subject, body, in_reply_to, user_session_id, sender_session_id, receiver_session_id, metadata)
+            (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, receiver_session_id, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             email.id,
@@ -70,7 +70,7 @@ class AgentMailDB(AutoLoggerMixin):
             email.subject,
             email.body,
             email.in_reply_to,
-            email.user_session_id,
+            email.task_id,
             email.sender_session_id,
             email.receiver_session_id,
             json.dumps(email.metadata) if email.metadata else None
@@ -88,7 +88,7 @@ class AgentMailDB(AutoLoggerMixin):
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def get_mails_by_range(self, agent_name, user_session_id, start=0, end=1):
+    def get_mails_by_range(self, agent_name, task_id, start=0, end=1):
         """查询某个Agent的指定日期范围的邮件
         Args:
             agent_name: Agent名称
@@ -100,17 +100,17 @@ class AgentMailDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT * FROM emails
-            WHERE user_session_id = ? and (recipient = ? OR sender = ?)
+            WHERE task_id = ? and (recipient = ? OR sender = ?)
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
-        ''', (user_session_id, agent_name, agent_name, end - start + 1, start))
+        ''', (task_id, agent_name, agent_name, end - start + 1, start))
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def get_user_session_emails(self, user_session_id, user_agent_name='User'):
+    def get_user_session_emails(self, task_id, user_agent_name='User'):
         """查询某个用户会话中所有与User相关的邮件
         Args:
-            user_session_id: 用户会话ID
+            task_id: 用户会话ID
             user_agent_name: User agent 的名称（默认 'User'，向后兼容）
         Returns:
             该会话中所有与User相关的邮件列表（按时间升序）
@@ -118,9 +118,9 @@ class AgentMailDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT * FROM emails
-            WHERE user_session_id = ? AND (sender = ? OR recipient = ?)
+            WHERE task_id = ? AND (sender = ? OR recipient = ?)
             ORDER BY timestamp ASC
-        ''', (user_session_id, user_agent_name, user_agent_name))
+        ''', (task_id, user_agent_name, user_agent_name))
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
@@ -153,7 +153,7 @@ class AgentMailDB(AutoLoggerMixin):
 
         self.conn.commit()
 
-    def get_emails_by_session(self, session_id: str, agent_name: str, user_session_id: str):
+    def get_emails_by_session(self, session_id: str, agent_name: str, task_id: str):
         """
         获取某个 session 的所有邮件（发出去的 + 收到的）
 
@@ -162,7 +162,7 @@ class AgentMailDB(AutoLoggerMixin):
         Args:
             session_id: 会话ID
             agent_name: Agent名称
-            user_session_id: 用户会话ID
+            task_id: 用户会话ID
 
         Returns:
             该 session 的所有邮件列表（按时间升序）
@@ -170,7 +170,7 @@ class AgentMailDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT * FROM emails
-            WHERE user_session_id = ?
+            WHERE task_id = ?
               AND (
                 -- 发出去的邮件
                 (sender_session_id = ? AND sender = ?)
@@ -179,7 +179,7 @@ class AgentMailDB(AutoLoggerMixin):
                 (receiver_session_id = ? AND recipient = ?)
               )
             ORDER BY timestamp ASC
-        ''', (user_session_id, session_id, agent_name, session_id, agent_name))
+        ''', (task_id, session_id, agent_name, session_id, agent_name))
 
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]

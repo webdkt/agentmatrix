@@ -238,7 +238,7 @@ WebSearcherV2 为每次 `web_search` 调用创建专属工作目录：
 
 ```
 {workspace_root}/
-└── {user_session_id}/
+└── {task_id}/
     └── history/
         └── {agent_name}/
             └── {session_id}/           # ← session_folder

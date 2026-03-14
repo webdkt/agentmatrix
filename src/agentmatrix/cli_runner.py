@@ -75,7 +75,7 @@ async def main():
     
     import sys
     from aioconsole import ainput # pip install aioconsole
-    user_session_id = str(uuid.uuid4())
+    task_id = str(uuid.uuid4())
     while True:
         try:
             user_input = await ainput(">> ") # 异步等待输入
@@ -85,8 +85,8 @@ async def main():
                 break
 
             if user_input.lower() == "new session":
-                user_session_id = str(uuid.uuid4())
-                await asyncio.to_thread(print, f"✅ 新会话开始 ID: {user_session_id}")
+                task_id = str(uuid.uuid4())
+                await asyncio.to_thread(print, f"✅ 新会话开始 ID: {task_id}")
                 continue
 
             if user_input.lower().startswith("reply:"):
@@ -102,7 +102,7 @@ async def main():
                 target = mail_id_sender_map[reply_to_id]
                 user_agent_name = matrix.get_user_agent_name()
                 await matrix.agents[user_agent_name].speak(
-                    user_session_id=user_session_id,
+                    task_id=task_id,
                     to=target,
                     subject=f"Re: 回复您的消息 {reply_to_id}",
                     content=content,
@@ -115,7 +115,7 @@ async def main():
                 target, content = user_input.split(":", 1)
                 # 5. 调用 UserProxy 说话
                 user_agent_name = matrix.get_user_agent_name()
-                await matrix.agents[user_agent_name].speak(user_session_id, target.strip(), content.strip())
+                await matrix.agents[user_agent_name].speak(task_id, target.strip(), content.strip())
             else:
                 await asyncio.to_thread(print,"❌ 格式错误，请使用 'Target: Content'")
                 

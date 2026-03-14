@@ -409,7 +409,7 @@ class BaseAgent:
 
         try:
             # 2. 切换 workspace
-            session_id = email["user_session_id"]
+            session_id = email["task_id"]
             self._attach_workspace(session_id)
 
             # 3. 处理

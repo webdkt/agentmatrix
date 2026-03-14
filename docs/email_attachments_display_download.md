@@ -27,7 +27,7 @@ emails_data.append({
     "subject": email.subject,
     "body": email.body,
     "in_reply_to": email.in_reply_to,
-    "user_session_id": email.user_session_id,
+    "task_id": email.task_id,
     "is_from_user": getattr(email, 'is_from_user', False),
     "attachments": email.attachments  # 新增：附件列表
 })
@@ -45,7 +45,7 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
 **API 路径规则**：
 - 路径: `/api/sessions/{session_id}/emails/{email_id}/attachments/{filename}`
 - 根据邮件的 `recipient` 字段确定附件所在目录
-- 附件物理路径: `{workspace_root}/agent_files/{recipient}/work_files/{user_session_id}/attachments/{filename}`
+- 附件物理路径: `{workspace_root}/agent_files/{recipient}/work_files/{task_id}/attachments/{filename}`
 
 ### 2. 前端修改 (web/index.html)
 
@@ -80,7 +80,7 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
 
 ### 路径格式
 ```
-{workspace_root}/agent_files/{agent_name}/work_files/{user_session_id}/attachments/{filename}
+{workspace_root}/agent_files/{agent_name}/work_files/{task_id}/attachments/{filename}
 ```
 
 ### 示例

@@ -42,7 +42,8 @@ class EmailSkillMixin:
 """
 
     @register_action(
-        "发邮件给同事，这是和其他人沟通的唯一方式。可以附带附件文件。",
+            short_desc="",
+        description="发邮件给同事，这是和其他人沟通的唯一方式。可以附带附件文件。",
         param_infos={
             "to": "收件人 (e.g. 'User')",
             "body": "邮件内容",
@@ -101,7 +102,7 @@ class EmailSkillMixin:
             attachment_metadata = await self._copy_attachments_to_recipient(
                 attachments=attachments,
                 recipient_name=to,
-                user_session_id=session["user_session_id"]
+                task_id=session["task_id"]
             )
 
         # 构造邮件
@@ -111,7 +112,7 @@ class EmailSkillMixin:
             subject=subject,
             body=body,
             in_reply_to=in_reply_to,
-            user_session_id=session["user_session_id"],
+            task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 🆕 发件人的 session
             receiver_session_id=None,  # 收件人的 session（由收件人收到后更新）
             metadata={'attachments': attachment_metadata} if attachment_metadata else {}
@@ -124,7 +125,7 @@ class EmailSkillMixin:
         await self.root_agent.session_manager.update_reply_mapping(
             msg_id=msg.id,
             session_id=session["session_id"],  # 使用已获取的 session 变量
-            user_session_id=session["user_session_id"]
+            task_id=session["task_id"]
         )
 
         # 返回成功信息
@@ -137,7 +138,7 @@ class EmailSkillMixin:
         self,
         attachments: List[str],
         recipient_name: str,
-        user_session_id: str
+        task_id: str
     ) -> List[dict]:
         """
         复制附件到目标 agent 的 attachments 目录
@@ -145,7 +146,7 @@ class EmailSkillMixin:
         Args:
             attachments: 附件文件列表（容器内路径，例如 ['report.pdf', '/work_files/data.pdf']）
             recipient_name: 收件人 agent 名称
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
 
         Returns:
             附件 metadata 列表
@@ -160,7 +161,7 @@ class EmailSkillMixin:
 
         # 目标目录（收件人的 attachments 目录）
         target_attachments_dir = (
-            Path(workspace_root) / "agent_files" / recipient_name / "work_files" / user_session_id / "attachments"
+            Path(workspace_root) / "agent_files" / recipient_name / "work_files" / task_id / "attachments"
         )
 
         # 确保目标目录存在
@@ -170,7 +171,7 @@ class EmailSkillMixin:
 
         for container_path in attachments:
             # 将容器内路径转换为宿主机路径
-            host_path = self._resolve_container_path_to_host(container_path, user_session_id)
+            host_path = self._resolve_container_path_to_host(container_path, task_id)
 
             if host_path is None or not Path(host_path).exists():
                 self.logger.warning(f"附件文件不存在：{container_path} (解析后的宿主机路径: {host_path})")
@@ -196,7 +197,7 @@ class EmailSkillMixin:
 
         return attachment_metadata
 
-    def _resolve_container_path_to_host(self, container_path: str, user_session_id: str) -> str:
+    def _resolve_container_path_to_host(self, container_path: str, task_id: str) -> str:
         """
         将容器内路径转换为宿主机路径
 
@@ -208,7 +209,7 @@ class EmailSkillMixin:
 
         Args:
             container_path: 容器内路径或宿主机路径
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
 
         Returns:
             宿主机路径
@@ -223,12 +224,12 @@ class EmailSkillMixin:
 
         # 情况 1: 相对路径（如 'report.pdf'）→ 当作相对于 /work_files
         if not path.is_absolute():
-            return str(docker_manager.work_files_base / user_session_id / container_path)
+            return str(docker_manager.work_files_base / task_id / container_path)
 
         # 情况 2: /work_files/* → 映射到 work_files 目录
         if container_path.startswith("/work_files/"):
             relative_path = container_path[len("/work_files/"):]
-            return str(docker_manager.work_files_base / user_session_id / relative_path)
+            return str(docker_manager.work_files_base / task_id / relative_path)
 
         # 情况 3: /home/* → 映射到 home 目录
         if container_path.startswith("/home/"):

@@ -22,6 +22,7 @@ class ActionMetadata:
     implementation: Optional[Callable] = None  # Python 实现（仅 PYTHON_METHOD） 
 
 def register_action(
+    short_desc: str,
     description: str,
     param_infos: Dict[str, str] = None,
     skill_type: SkillType = SkillType.PYTHON_METHOD  # 🆕 新参数（默认向后兼容）
@@ -37,6 +38,7 @@ def register_action(
 
     def decorator(func):
         func._is_action = True
+        func._action_short_desc = short_desc  # 🆕 保存简短描述
         func._action_desc = description
         func._action_param_infos = param_infos
         func._skill_type = skill_type  # 🆕

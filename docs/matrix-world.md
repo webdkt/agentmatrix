@@ -349,7 +349,7 @@ email = Email(
     recipient="Planner",
     subject="Plan a website",
     body="Create a plan for building a portfolio website",
-    user_session_id="session_123"
+    task_id="session_123"
 )
 
 await matrix.post_office.send_email(email)
@@ -422,7 +422,7 @@ async def delegate_planning(self, research_results: str) -> str:
         recipient="Planner",
         subject="Create plan from research",
         body=f"Based on research: {research_results}\nCreate a project plan.",
-        user_session_id=self.current_session_id
+        task_id=self.current_session_id
     )
 
     # Send to Planner

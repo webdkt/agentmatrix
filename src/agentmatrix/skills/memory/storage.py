@@ -4,8 +4,8 @@ SQLite 数据库管理器（支持 WAL 模式）
 管理一个统一的数据库文件：
 - memory.db: Agent 的统一记忆数据库，包含 3 张表：
   - longterm_entity: 长期实体档案（跨会话）
-  - entity_profile: 会话级实体档案（带 user_session_id）
-  - timeline: 时间线日志（带 user_session_id）
+  - entity_profile: 会话级实体档案（带 task_id）
+  - timeline: 时间线日志（带 task_id）
 """
 
 import sqlite3
@@ -59,11 +59,11 @@ class StorageManager:
             ON longterm_entity(canonical_name)
         """)
 
-        # 2. entity_profile 表（原 session Entity_Profiles + user_session_id）
+        # 2. entity_profile 表（原 session Entity_Profiles + task_id）
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS entity_profile (
                 uid TEXT PRIMARY KEY,
-                user_session_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
                 canonical_name TEXT,
                 aliases JSON,
                 summary TEXT,
@@ -74,14 +74,14 @@ class StorageManager:
         """)
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_profile_session_name
-            ON entity_profile(user_session_id, canonical_name)
+            ON entity_profile(task_id, canonical_name)
         """)
 
-        # 3. timeline 表（原 Timeline_Log + user_session_id）
+        # 3. timeline 表（原 Timeline_Log + task_id）
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS timeline (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_session_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
                 event_text TEXT NOT NULL,
                 entities JSON,
                 processed BOOLEAN DEFAULT FALSE,
@@ -90,18 +90,18 @@ class StorageManager:
         """)
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_timeline_session_processed
-            ON timeline(user_session_id, processed)
+            ON timeline(task_id, processed)
         """)
 
         self.conn.commit()
 
     # ==================== Session Entity Profile CRUD ====================
-    # 所有方法都需要 user_session_id
+    # 所有方法都需要 task_id
 
     def insert_session_entity(
         self,
         uid: str,
-        user_session_id: str,
+        task_id: str,
         canonical_name: str,
         aliases: list,
         summary: str,
@@ -111,9 +111,9 @@ class StorageManager:
         try:
             import json
             self.conn.execute("""
-                INSERT INTO entity_profile (uid, user_session_id, canonical_name, aliases, summary, profile_text)
+                INSERT INTO entity_profile (uid, task_id, canonical_name, aliases, summary, profile_text)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (uid, user_session_id, canonical_name, json.dumps(aliases), summary, profile_text))
+            """, (uid, task_id, canonical_name, json.dumps(aliases), summary, profile_text))
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -122,7 +122,7 @@ class StorageManager:
     def update_session_entity(
         self,
         uid: str,
-        user_session_id: str,
+        task_id: str,
         summary: str = None,
         profile_text: str = None,
         aliases: list = None
@@ -147,12 +147,12 @@ class StorageManager:
         if not updates:
             return False
 
-        params.extend([user_session_id, uid])
+        params.extend([task_id, uid])
 
         self.conn.execute(f"""
             UPDATE entity_profile
             SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
-            WHERE user_session_id = ? AND uid = ?
+            WHERE task_id = ? AND uid = ?
         """, params)
 
         self.conn.commit()
@@ -161,33 +161,33 @@ class StorageManager:
     def get_session_entity(
         self,
         uid: str,
-        user_session_id: str
+        task_id: str
     ) -> Optional[Dict[str, Any]]:
         """获取单个 session 实体档案"""
         cursor = self.conn.execute("""
             SELECT * FROM entity_profile
-            WHERE user_session_id = ? AND uid = ?
-        """, (user_session_id, uid))
+            WHERE task_id = ? AND uid = ?
+        """, (task_id, uid))
 
         row = cursor.fetchone()
         return dict(row) if row else None
 
     def search_session_entities(
         self,
-        user_session_id: str,
+        task_id: str,
         entity_name: str
     ) -> List[Dict[str, Any]]:
         """搜索 session 实体档案（精确匹配 canonical_name 或 aliases）"""
         cursor = self.conn.execute("""
             SELECT * FROM entity_profile
-            WHERE user_session_id = ?
+            WHERE task_id = ?
               AND (canonical_name = ?
                    OR EXISTS (
                        SELECT 1 FROM json_each(aliases)
                        WHERE json_each.value = ?
                    ))
             ORDER BY updated_at DESC
-        """, (user_session_id, entity_name, entity_name))
+        """, (task_id, entity_name, entity_name))
 
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
@@ -195,19 +195,19 @@ class StorageManager:
     def delete_session_entity(
         self,
         uid: str,
-        user_session_id: str
+        task_id: str
     ) -> bool:
         """删除 session 实体档案"""
         cursor = self.conn.execute("""
             DELETE FROM entity_profile
-            WHERE user_session_id = ? AND uid = ?
-        """, (user_session_id, uid))
+            WHERE task_id = ? AND uid = ?
+        """, (task_id, uid))
 
         self.conn.commit()
         return cursor.rowcount > 0
 
     # ==================== Longterm Entity Profile CRUD ====================
-    # 所有方法都不需要 user_session_id
+    # 所有方法都不需要 task_id
 
     def insert_longterm_entity(
         self,
@@ -313,7 +313,7 @@ class StorageManager:
 
     def search_entities_merged(
         self,
-        user_session_id: str,
+        task_id: str,
         entity_name: str
     ) -> List[Dict[str, Any]]:
         """
@@ -322,7 +322,7 @@ class StorageManager:
         从同一个数据库的两张表查询，然后按 canonical_name 合并。
 
         Args:
-            user_session_id: 用户会话 ID（用于查询 session 表）
+            task_id: 用户会话 ID（用于查询 session 表）
             entity_name: 要查找的实体名称（精确匹配）
 
         Returns:
@@ -331,20 +331,20 @@ class StorageManager:
             - session_profile: dict or None (session 记录)
             - longterm_profile: dict or None (longterm 记录)
         """
-        # 1. 查询 entity_profile（session，带 user_session_id 过滤）
+        # 1. 查询 entity_profile（session，带 task_id 过滤）
         cursor = self.conn.execute("""
             SELECT * FROM entity_profile
-            WHERE user_session_id = ?
+            WHERE task_id = ?
               AND (canonical_name = ?
                    OR EXISTS (
                        SELECT 1 FROM json_each(aliases)
                        WHERE json_each.value = ?
                    ))
             ORDER BY updated_at DESC
-        """, (user_session_id, entity_name, entity_name))
+        """, (task_id, entity_name, entity_name))
         session_profiles = [dict(row) for row in cursor.fetchall()]
 
-        # 2. 查询 longterm_entity（无 user_session_id 过滤）
+        # 2. 查询 longterm_entity（无 task_id 过滤）
         cursor = self.conn.execute("""
             SELECT * FROM longterm_entity
             WHERE canonical_name = ?
@@ -386,14 +386,14 @@ class StorageManager:
 
     def append_timeline(
         self,
-        user_session_id: str,
+        task_id: str,
         event_text: str,
         entities: List[str] = None
     ) -> int:
         """追加 timeline 日志
 
         Args:
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
             event_text: 事件描述文本
             entities: 实体列表（可选）
 
@@ -405,22 +405,22 @@ class StorageManager:
         entities_json = json.dumps(entities) if entities else None
 
         cursor = self.conn.execute("""
-            INSERT INTO timeline (user_session_id, event_text, entities, processed)
+            INSERT INTO timeline (task_id, event_text, entities, processed)
             VALUES (?, ?, ?, FALSE)
-        """, (user_session_id, event_text, entities_json))
+        """, (task_id, event_text, entities_json))
 
         self.conn.commit()
         return cursor.lastrowid
 
     def fetch_unprocessed_events(
         self,
-        user_session_id: str,
+        task_id: str,
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """获取未处理的 timeline 事件
 
         Args:
-            user_session_id: 用户会话 ID
+            task_id: 用户会话 ID
             limit: 最大返回数量
 
         Returns:
@@ -428,11 +428,11 @@ class StorageManager:
         """
         cursor = self.conn.execute("""
             SELECT * FROM timeline
-            WHERE user_session_id = ?
+            WHERE task_id = ?
               AND processed = FALSE
             ORDER BY created_at ASC
             LIMIT ?
-        """, (user_session_id, limit))
+        """, (task_id, limit))
 
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
@@ -444,7 +444,7 @@ class StorageManager:
         """标记事件为已处理
 
         Args:
-            event_id: 事件 ID（主键，不需要 user_session_id）
+            event_id: 事件 ID（主键，不需要 task_id）
 
         Returns:
             bool: 是否成功
@@ -484,7 +484,7 @@ async def get_db(workspace_root: str, agent_name: str) -> StorageManager:
 async def search_entities_merged(
     workspace_root: str,
     agent_name: str,
-    user_session_id: str,
+    task_id: str,
     entity_name: str
 ) -> List[Dict[str, Any]]:
     """
@@ -495,7 +495,7 @@ async def search_entities_merged(
     Args:
         workspace_root: 工作区根目录
         agent_name: Agent 名称
-        user_session_id: 用户会话 ID
+        task_id: 用户会话 ID
         entity_name: 要查询的实体名称（精确匹配）
 
     Returns:
@@ -508,7 +508,7 @@ async def search_entities_merged(
 
     try:
         # 调用 StorageManager 的合并查询方法
-        result = db.search_entities_merged(user_session_id, entity_name)
+        result = db.search_entities_merged(task_id, entity_name)
     finally:
         await db.close()
 
@@ -518,7 +518,7 @@ async def search_entities_merged(
 async def append_timeline_events(
     workspace_root: str,
     agent_name: str,
-    user_session_id: str,
+    task_id: str,
     events: List[Dict]
 ) -> None:
     """
@@ -527,7 +527,7 @@ async def append_timeline_events(
     Args:
         workspace_root: 工作区根目录
         agent_name: Agent 名称
-        user_session_id: 用户会话 ID
+        task_id: 用户会话 ID
         events: 事件对象列表，每个事件包含 {"event": str, "entities": List[str]}
     """
     db = await get_db(workspace_root, agent_name)
@@ -536,6 +536,6 @@ async def append_timeline_events(
         for event_obj in events:
             event_text = event_obj.get("event", "")
             entities = event_obj.get("entities", [])
-            db.append_timeline(user_session_id, event_text, entities)
+            db.append_timeline(task_id, event_text, entities)
     finally:
         await db.close()
