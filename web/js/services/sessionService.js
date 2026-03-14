@@ -12,12 +12,20 @@ export class SessionService {
 
     /**
      * 获取所有会话
-     * @returns {Promise<Array>} 会话列表
+     * @param {number} page - 页码
+     * @param {number} perPage - 每页数量
+     * @returns {Promise<Object>} 会话列表数据
      */
-    async getSessions() {
+    async getSessions(page = 1, perPage = 20) {
         try {
-            const sessionsData = await this.api.getSessions();
-            return sessionsData.sessions || [];
+            const sessionsData = await this.api.getSessions(page, perPage);
+            return {
+                conversations: sessionsData.conversations || [],
+                total: sessionsData.total || 0,
+                page: sessionsData.page || 1,
+                perPage: sessionsData.per_page || 20,
+                totalPages: sessionsData.total_pages || 0
+            };
         } catch (error) {
             console.error('Failed to get sessions:', error);
             throw error;

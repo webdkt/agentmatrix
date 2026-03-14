@@ -196,7 +196,7 @@ email = Email(
     recipient="Writer",
     subject="Research Report Request",
     body="Please compile a summary based on the research...",
-    user_session_id="session_123"
+    task_id="session_123"
 )
 await post_office.send_email(email)
 ```
@@ -258,7 +258,7 @@ email = Email(
     recipient="Researcher",
     subject="Research Task",
     body="Help me research AI safety best practices",
-    user_session_id="my-session"
+    task_id="my-session"
 )
 
 await matrix.post_office.send_email(email)

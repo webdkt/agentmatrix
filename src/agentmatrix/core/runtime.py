@@ -95,6 +95,16 @@ class AgentMatrix(AutoLoggerMixin):
 
         self.post_office_task = asyncio.create_task(self.post_office.run())
         self.echo(">>> PostOffice Loaded and Running.")
+
+        # 🆕 初始化 TaskScheduler（全局服务）
+        from ..core.scheduler_service import TaskScheduler
+        scheduler_db_path = os.path.join(self.matrix_path, ".matrix", "agentmatrix.db")
+        self.task_scheduler = TaskScheduler(
+            db_path=scheduler_db_path,
+            post_office=self.post_office,
+            logger=self.logger
+        )
+        self.echo(">>> TaskScheduler Loaded.")
         
     def _prepare_agents(self):
         loader = AgentLoader(self.agent_profile_path)
@@ -158,6 +168,10 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 2. 暂停邮局
         self.post_office.pause()
+
+        # 🆕 停止调度器
+        if hasattr(self, 'task_scheduler'):
+            await self.task_scheduler.stop()
         
         # 3. 取消所有正在运行的agent任务
         if self.running_agent_tasks:
@@ -276,6 +290,10 @@ class AgentMatrix(AutoLoggerMixin):
                 self.post_office.queue.put_nowait(Email(**email_dict))
         
         
+        # 🆕 启动TaskScheduler
+        if hasattr(self, 'task_scheduler'):
+            asyncio.ensure_future(self.task_scheduler.start())
+
         self.running = True
         self.echo(">>> 世界已恢复，系统继续运行！")
         yellow_page = self.post_office.yellow_page()

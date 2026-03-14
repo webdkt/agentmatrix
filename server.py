@@ -599,33 +599,49 @@ async def complete_cold_start(configs: ColdStartConfigRequest):
 
 
 @app.get("/api/sessions")
-async def get_sessions():
-    """Get all user sessions"""
-    config = app.state.config
-    sessions_file = config['workspace_dir'] / ".matrix" / "user_sessions.json"
+async def get_sessions(page: int = 1, per_page: int = 20):
+    """
+    Get user's email conversations (sessions)
 
-    if not sessions_file.exists():
-        raise HTTPException(status_code=404, detail="user_sessions.json not found")
+    Args:
+        page: Page number (starts from 1, default: 1)
+        per_page: Items per page (default: 20, max: 100)
+    """
+    global matrix_runtime
 
-    data = json.loads(sessions_file.read_text())
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-    # Convert to list and sort by last_email_time descending
-    sessions_list = []
-    for session_id, session_data in data.items():
-        sessions_list.append({
-            "session_id": session_id,
-            "name": session_data["name"],
-            "last_email_time": session_data["last_email_time"]
+    # Limit per_page to avoid excessive queries
+    per_page = min(per_page, 100)
+
+    user_agent_name = matrix_runtime.get_user_agent_name()
+
+    # Query conversations from database
+    result = matrix_runtime.post_office.email_db.get_user_conversations(
+        user_agent_name=user_agent_name,
+        page=page,
+        per_page=per_page
+    )
+
+    # Transform to response format
+    conversations = []
+    for conv in result['conversations']:
+        conversations.append({
+            "session_id": conv['session_id'],
+            "subject": conv['subject'],
+            "last_email_time": conv['last_email_time'],
+            "participants": conv['participants']
         })
-
-    sessions_list.sort(key=lambda x: x["last_email_time"], reverse=True)
 
     return {
         "success": True,
-        "sessions": sessions_list,
-        "total_count": len(sessions_list)
+        "conversations": conversations,
+        "total": result['total'],
+        "page": result['page'],
+        "per_page": result['per_page'],
+        "total_pages": result['total_pages']
     }
-
 
 @app.post("/api/sessions/{session_id}/emails")
 async def send_email(
@@ -700,9 +716,26 @@ async def send_email(
                 print(f"❌ Failed to save attachment {attachment.filename}: {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to save attachment: {str(e)}")
 
+    # Determine session_id
+    # For new conversations, we need to create/get a session first
+    # For replies, we use the existing session_id from the email being replied to
+    effective_session_id = session_id
+
+    if session_id == 'new':
+        # New conversation: need to create a session
+        # We'll use the task_id as the session_id for User's outgoing emails
+        # This will be stored in the reply_mapping
+        effective_session_id = effective_task_id
+        print(f"📧 New conversation: using session_id={effective_session_id}")
+    else:
+        # Reply: use the existing session_id
+        effective_session_id = session_id
+        print(f"📧 Reply: using session_id={effective_session_id}")
+
     # Call User agent's speak method
     # 将附件 metadata 传递给 speak 方法
     await user_agent.speak(
+        session_id=effective_session_id,
         task_id=effective_task_id,
         to=recipient,
         subject=subject,

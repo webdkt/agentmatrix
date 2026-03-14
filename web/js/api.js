@@ -44,8 +44,8 @@ const API = {
     },
 
     // Session APIs
-    async getSessions() {
-        return this.request('/api/sessions');
+    async getSessions(page = 1, perPage = 20) {
+        return this.request(`/api/sessions?page=${page}&per_page=${perPage}`);
     },
 
     async getSession(sessionId) {
@@ -69,8 +69,8 @@ const API = {
         formData.append('subject', emailData.subject || '');
         formData.append('body', emailData.body);
         
-        if (emailData.user_session_id) {
-            formData.append('user_session_id', emailData.user_session_id);
+        if (emailData.task_id) {
+            formData.append('task_id', emailData.task_id);
         }
         if (emailData.in_reply_to) {
             formData.append('in_reply_to', emailData.in_reply_to);
