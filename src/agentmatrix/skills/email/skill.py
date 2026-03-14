@@ -23,7 +23,7 @@ class EmailSkillMixin:
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = "邮件发送技能：向其他 Agent 发送邮件，支持附件"
+    _skill_description = "邮件发送技能：向其他 Agent 发送邮件，支持附件. 名字就是邮件地址"
 
     _skill_usage_guide = """
 使用场景：
