@@ -156,12 +156,14 @@ class EmailSkillMixin:
         - /work_files/xxx → work_files 目录下的文件
         - /home/xxx → home 目录下的文件
         """
-        workspace_root = self.root_agent.workspace_root
+        if self.root_agent.runtime is None:
+            raise ValueError("runtime 未注入，无法发送附件")
+        
         source_agent = self.root_agent.name
 
         # 目标目录（收件人的 attachments 目录）
-        target_attachments_dir = (
-            Path(workspace_root) / "agent_files" / recipient_name / "work_files" / task_id / "attachments"
+        target_attachments_dir = self.root_agent.runtime.paths.get_agent_attachments_dir(
+            recipient_name, task_id
         )
 
         # 确保目标目录存在

@@ -754,32 +754,24 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
             self.logger.info(f"Using configured default search engine: {search_engine}")
         # 1. 准备环境
         # 获取 BaseAgent 的 name（通过 root_agent）
-        # Browser profile 路径应该基于 BaseAgent，而不是 MicroAgent
-        if hasattr(self, 'root_agent'):
-            agent_name = self.root_agent.name
-        else:
-            # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
-            agent_name = self.name
-        profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", agent_name)
-        
-        # 获取工作目录（不依赖 Docker）
         if hasattr(self, 'root_agent') and self.root_agent:
             root_agent = self.root_agent
         else:
+            # 如果是 BaseAgent 直接调用（没有 root_agent 属性）
             root_agent = self
         
         agent_name = root_agent.name
         task_id = root_agent.current_task_id or "default"
         
-        # 直接拼接路径：workspace_root/agent_files/{agent_name}/work_files/{task_id}/downloads
-        download_path = os.path.join(
-            self.workspace_root,
-            "agent_files",
-            agent_name,
-            "work_files",
-            task_id,
-            "downloads"
-        )
+        # 通过 runtime.paths 获取路径
+        if root_agent.runtime is None:
+            raise ValueError("runtime 未注入，无法确定路径")
+        
+        profile_path = str(root_agent.runtime.paths.get_browser_profile_dir(agent_name))
+        
+        # 获取下载目录
+        work_files_dir = root_agent.runtime.paths.get_agent_work_files_dir(agent_name, task_id)
+        download_path = str(work_files_dir / "downloads")
 
         # 2. 确定 search_phrase（多维度搜索词生成）
         if not search_phrase:
@@ -935,15 +927,11 @@ class Simple_web_searchSkillMixin(CrawlerHelperMixin):
 
         task_id = self.current_task_id or "default"
 
-        profile_path = os.path.join(self.workspace_root, ".matrix", "browser_profile", agent_name)
-        download_path = os.path.join(
-            self.workspace_root,
-            "agent_files",
-            agent_name,
-            "work_files",
-            task_id,
-            "downloads"
-        )
+        
+        
+        profile_path = str(self.root_agent.runtime.paths.get_browser_profile_dir(agent_name))
+        work_files_dir = self.root_agent.runtime.paths.get_agent_work_files_dir(agent_name, task_id)
+        download_path = str(work_files_dir / "downloads")
 
         self.logger.info(f"🔍 准备访问: {url}")
         self.logger.info(f"🔍 研究目的: {purpose}")

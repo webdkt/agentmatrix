@@ -49,7 +49,7 @@ class MicroAgent(AutoLoggerMixin):
         parent: Union['BaseAgent', 'MicroAgent'],
         name: Optional[str] = None,
         default_max_steps: int = 50,
-        independent_session_context: bool = False,
+        #independent_session_context: bool = False,
         available_skills: Optional[List[str]] = None,  # 🆕 可用技能列表
     ):
         """
@@ -78,12 +78,12 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== session_context ==========
         # 根据 independent_session_context 决定是共享还是独立
-        if independent_session_context:
-            # 独立模式：创建新的 SessionContext（不可持久化）
-            self._session_context = SessionContext(persistent=False)
-        else:
-            # 共享模式：使用 parent 的 SessionContext
-            self._session_context = parent._session_context
+        #if independent_session_context:
+        #    # 独立模式：创建新的 SessionContext（不可持久化）
+        #    self._session_context = SessionContext(persistent=False)
+        #else:
+        #    # 共享模式：使用 parent 的 SessionContext
+        #    self._session_context = parent._session_context
 
         # ========== 从 parent 自动继承组件 ==========
         self.brain = parent.brain
@@ -133,7 +133,7 @@ class MicroAgent(AutoLoggerMixin):
         # 日志
         self.logger.info(f"MicroAgent '{self.name}' initialized (parent: {parent.name})")
 
-    def get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+    def deprecated_get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
         """
         获取 skill prompt（从 parent Agent）
 
@@ -942,20 +942,22 @@ Start generating the Whiteboard now.
         if session:
             self.current_session = session
             self.current_task_id = session.get("task_id")
-
+            #TODO: 下面的应该都不用了
             # 创建 SessionContext 对象（如果 session_manager 可用）
-            if session_manager and hasattr(session_manager, 'session_context_class'):
-                from ..core.session_context import SessionContext
-                self._session_context = SessionContext(
-                    persistent=True,
-                    session_manager=session_manager,
-                    session=session,
-                    initial_data=session.get("context", {})
-                )
-            else:
-                self._session_context = None
+            #if session_manager and hasattr(session_manager, 'session_context_class'):
+            #    from ..core.session_context import SessionContext
+            #    self._session_context = SessionContext(
+            #        persistent=True,
+            #        session_manager=session_manager,
+            #        session=session,
+            #        initial_data=session.get("context", {})
+            #    )
+            #else:
+            #    self._session_context = None
 
             # 设置 session 文件夹（如果 root_agent 有 workspace_root）
+            '''
+            TODO: 应该不需要了，准备删除
             if self.root_agent and hasattr(self.root_agent, 'workspace_root') and self.root_agent.workspace_root:
                 from pathlib import Path
                 self.current_session_folder = str(
@@ -967,6 +969,7 @@ Start generating the Whiteboard now.
                 )
             else:
                 self.current_session_folder = None
+            '''
 
         # 硬限制：如果都没有设置，最多 1024 步（确保总是会返回）
         if self.max_steps is None and self.max_time is None:

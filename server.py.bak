@@ -111,7 +111,8 @@ class AgentConfigRequest(BaseModel):
     """Agent configuration request model - 灵活的Agent配置"""
     name: str
     description: str
-    class_name: str = "agentmatrix.agents.base.BaseAgent"  # 新格式：完整类路径
+    module: str = "agentmatrix.agents.base"
+    class_name: str = "BaseAgent"
     backend_model: str = "default_llm"
     skills: list = []
     persona: dict = {}
@@ -127,10 +128,11 @@ class AgentConfigRequest(BaseModel):
 class AgentUpdateRequest(BaseModel):
     """Agent update request model - 灵活的Agent更新"""
     description: Optional[str] = None
-    class_name: Optional[str] = None  # 新格式：完整类路径
     backend_model: Optional[str] = None
     skills: Optional[list] = None
     persona: Optional[dict] = None
+    module: Optional[str] = None
+    class_name: Optional[str] = None
     cerebellum: Optional[dict] = None
     vision_brain: Optional[dict] = None
     prompts: Optional[dict] = None
@@ -202,14 +204,6 @@ def load_user_agent_name(matrix_world_dir: Path) -> str:
     except Exception as e:
         print(f"⚠️  Error loading matrix_config.yml: {e}, using default 'User'")
         return "User"
-
-
-def create_directory_structure(matrix_world_dir: Path, user_name: str):
-    """
-    创建 Matrix World 目录结构并复制模板，并替换 User agent 名称
-
-    新架构：模板已经是正确的结构，直接复制即可
-    """
     import shutil
 
     template_dir = Path(__file__).resolve().parent / "web" / "matrix_template"
@@ -224,7 +218,6 @@ def create_directory_structure(matrix_world_dir: Path, user_name: str):
     print(f"✅ Copied matrix template from {template_dir}")
 
     # 替换 User.yml 中的 {{USER_NAME}} 占位符
-    # 新架构：User.yml 在 .matrix/configs/agents/User.yml
     user_yml_path = matrix_world_dir / ".matrix" / "configs" / "agents" / "User.yml"
     if user_yml_path.exists():
         with open(user_yml_path, 'r', encoding='utf-8') as f:
@@ -367,7 +360,8 @@ async def lifespan(app: FastAPI):
 
             # Initialize AgentMatrix
             matrix_runtime = AgentMatrix(
-                matrix_root=str(config['matrix_world_dir']),
+                agent_profile_path=str(config['agents_dir']),
+                matrix_path=str(config['workspace_dir']),
                 async_event_callback=event_callback,
                 user_agent_name=user_agent_name
             )
@@ -452,19 +446,6 @@ app = FastAPI(
 )
 
 # Store configuration in app.state
-app.state.config = {
-    "matrix_world_dir": matrix_world_dir,
-    "workspace_dir": workspace_dir,
-    "system_dir": system_dir,
-    "configs_dir": configs_dir,
-    "agents_dir": agents_dir,
-    "llm_config_path": llm_config_path,
-    "system_config_path": system_config_path,
-    "matrix_config_path": matrix_config_path,
-    "host": args.host,
-    "port": args.port,
-    "reload": args.reload
-}
 # === Static Files ===
 
 # Mount the web directory for static files
@@ -699,12 +680,10 @@ async def send_email(
     # 处理附件
     attachment_metadata = []
     if attachments:
-        # 获取附件保存目录（通过 runtime.paths）
-        attachments_dir = user_agent.runtime.paths.get_agent_attachments_dir(
-            user_agent.name, 
-            effective_task_id
-        )
-        
+        # 获取附件保存目录：{workspace_root}/agent_files/{agent_name}/work_files/{task_id}/attachments/
+        workspace_root = user_agent.workspace_root
+        agent_name = user_agent.name
+        attachments_dir = Path(workspace_root) / "agent_files" / agent_name / "work_files" / effective_task_id / "attachments"
         attachments_dir.mkdir(parents=True, exist_ok=True)
         
         for attachment in attachments:
@@ -826,16 +805,18 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
         recipient_name = target_email.recipient
         task_id = target_email.task_id
 
-        # Get recipient agent
+        # Get workspace root
+        # Get workspace root from recipient agent
         recipient_agent = matrix_runtime.agents.get(recipient_name)
         if not recipient_agent:
             raise HTTPException(status_code=404, detail=f"Agent not found: {recipient_name}")
+        workspace_root = recipient_agent.workspace_root
 
-        # Build the attachment path (via runtime.paths)
-        attachment_path = recipient_agent.runtime.paths.get_agent_attachments_dir(
-            recipient_name, 
-            task_id
-        ) / filename
+        # Build the attachment path
+        # Path: {workspace_root}/agent_files/{recipient}/work_files/{task_id}/attachments/{filename}
+        attachment_path = (
+            Path(workspace_root) / "agent_files" / recipient_name / "work_files" / task_id / "attachments" / filename
+        )
 
         # Check if file exists
         if not attachment_path.exists():
@@ -1245,7 +1226,8 @@ async def create_agent_profile(request: AgentConfigRequest):
         profile = {
             "name": request.name,
             "description": request.description,
-            "class_name": request.class_name,  # 新格式：完整类路径
+            "module": request.module,
+            "class_name": request.class_name,
         }
         
         # 可选字段 - 只在有值时添加
@@ -1271,26 +1253,11 @@ async def create_agent_profile(request: AgentConfigRequest):
                     profile[key] = value
         
         save_agent_profile(request.name, profile)
-
-        # 🆕 动态加载并注册新Agent到运行时
-        global matrix_runtime
-        runtime_loaded = False
-        if matrix_runtime:
-            try:
-                await matrix_runtime.load_and_register_agent(request.name)
-                runtime_loaded = True
-                print(f"✅ Agent '{request.name}' 已动态加载并注册到系统")
-            except Exception as e:
-                print(f"⚠️  Agent配置已保存，但动态加载失败: {e}")
-                # 注意：即使加载失败，配置文件也已保存，用户可以重启系统来加载
-        else:
-            print("⚠️  Runtime未初始化，Agent配置已保存，需要重启系统才能加载")
-
+        
         return {
             "success": True,
             "message": f"Agent '{request.name}' created successfully",
-            "agent": agent_profile_to_response(profile),
-            "runtime_loaded": runtime_loaded  # 返回是否已加载到运行时
+            "agent": agent_profile_to_response(profile)
         }
     except HTTPException:
         raise
@@ -1319,6 +1286,8 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
                 profile["persona"] = request.persona
             else:
                 profile.pop("persona", None)
+        if request.module is not None:
+            profile["module"] = request.module
         if request.class_name is not None:
             profile["class_name"] = request.class_name
         
