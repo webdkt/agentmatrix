@@ -9,10 +9,12 @@ from datetime import datetime
 from ..core.message import Email
 from ..core.log_util import AutoLoggerMixin
 class PostOffice(AutoLoggerMixin):
-    def __init__(self, matrix_path, user_agent_name: str = "User"):
+    def __init__(self, paths: 'MatrixPaths', user_agent_name: str = "User"):
+        self.paths = paths
+
         self.directory = {}
         self.queue = asyncio.Queue()
-        email_db_path = os.path.join(matrix_path,".matrix" , "agentmatrix.db")
+        email_db_path = str(self.paths.database_path)
         self.email_db = AgentMatrixDB(email_db_path) # 初始化数据库连接
         self._paused = False
 
@@ -21,7 +23,7 @@ class PostOffice(AutoLoggerMixin):
 
         # 初始化 user_sessions 管理
         self.user_sessions = {}
-        self.user_sessions_file = os.path.join(matrix_path, ".matrix", "user_sessions.json")
+        self.user_sessions_file = str(self.paths.user_sessions_path)
         self._load_user_sessions()
 
     def _load_user_sessions(self):
@@ -115,6 +117,12 @@ class PostOffice(AutoLoggerMixin):
     def resume(self):
         self._paused = False
 
+    def close(self):
+        """关闭 PostOffice，释放资源"""
+        if hasattr(self.email_db, 'conn') and self.email_db.conn:
+            self.email_db.conn.close()
+            self.logger.info("PostOffice DB connection closed.")
+
     async def dispatch(self, email):
         self.email_db.log_email(email)
 
@@ -141,17 +149,21 @@ class PostOffice(AutoLoggerMixin):
 
     async def run(self):
         self.logger.info("[PostOffice] Service Started")
-        while True:
-            if not self._paused:
-                email = await self.queue.get()
-                if email.recipient in self.directory:
-                    target = self.directory[email.recipient]
-                    await target.inbox.put(email)
+        try:
+            while True:
+                if not self._paused:
+                    email = await self.queue.get()
+                    if email.recipient in self.directory:
+                        target = self.directory[email.recipient]
+                        await target.inbox.put(email)
+                    else:
+                        self.logger.warning(f"Dropped mail to {email.recipient}")
+                    self.queue.task_done()
                 else:
-                    self.logger.warning(f"Dropped mail to {email.recipient}")
-                self.queue.task_done()
-            else:
-                await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            self.logger.info("[PostOffice] Service Stopped")
+            raise  # Re-raise to properly propagate cancellation
 
     def get_mails_by_range(self, task_id, agent_name, start=0, end=1):
         """查询某个Agent的指定Range的邮件

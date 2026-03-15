@@ -138,4 +138,8 @@ class TaskScheduler(AutoLoggerMixin):
                 await self._scheduler_task
             except asyncio.CancelledError:
                 pass
+        # 关闭数据库连接
+        if hasattr(self.db, 'conn') and self.db.conn:
+            self.db.conn.close()
+            self.echo(">>> TaskScheduler DB connection closed.")
         self.echo(">>> TaskScheduler stopped.")

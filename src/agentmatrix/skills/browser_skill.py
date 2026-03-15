@@ -102,13 +102,11 @@ class BrowserSkillMixin:
         - workspace_root 指向 MyWorld/workspace
         - llm_config.json 在 MyWorld/agents/llm_config.json
         """
-        if not (hasattr(self, 'workspace_root') and self.workspace_root):
-            raise ValueError("workspace_root 未设置，无法确定 llm_config.json 路径")
+        if self.root_agent.runtime is None:
+            raise ValueError("runtime 未注入，无法确定 llm_config.json 路径")
 
-        # 从 workspace_root 推断：workspace 是 MyWorld 的子目录
-        # 所以 agents 目录是 workspace 的兄弟目录
-        workspace_root_path = Path(self.workspace_root)
-        config_path = workspace_root_path.parent / "agents" / "llm_config.json"
+        # 通过 runtime.paths 获取配置路径
+        config_path = self.root_agent.runtime.paths.llm_config_path
 
         if not config_path.exists():
             raise FileNotFoundError(f"llm_config.json 不存在: {config_path}")
@@ -455,28 +453,22 @@ class BrowserSkillMixin:
                 root_agent = self
                 agent_name = self.name
 
-            workspace_root = self.workspace_root
-
-            user_data_dir = os.path.join(workspace_root, ".matrix", "browser_profile", agent_name)
+            # 通过 runtime.paths 获取路径
+            if root_agent.runtime is None:
+                raise ValueError("runtime 未注入，无法确定 browser 路径")
+            
+            user_data_dir = str(root_agent.runtime.paths.get_browser_profile_dir(agent_name))
             os.makedirs(user_data_dir, exist_ok=True)  # 确保 profile 目录存在
 
             browser_kwargs["user_data_dir"] = user_data_dir
             self.logger.info(f"BrowserUseSkill 使用 Chrome profile: {user_data_dir}")
 
             # 设置下载路径：使用工作目录
-            # 浏览器在宿主机运行，需要宿主机路径
-            # 路径：workspace_root/agent_files/{agent_name}/work_files/{task_id}/download
-            # 容器内通过挂载可以看到：/work_files/download
             task_id = root_agent.current_task_id or "default"
 
-            download_path = os.path.join(
-                workspace_root,
-                "agent_files",
-                agent_name,
-                "work_files",
-                task_id,
-                "download"
-            )
+            # 通过 runtime.paths 获取工作目录
+            work_files_dir = root_agent.runtime.paths.get_agent_work_files_dir(agent_name, task_id)
+            download_path = str(work_files_dir / "download")
 
             os.makedirs(download_path, exist_ok=True)
             self.logger.info(f"BrowserUseSkill 下载目录: {download_path}")

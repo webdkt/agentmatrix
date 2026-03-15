@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Dict, Optional, TYPE_CHECKING
 from datetime import datetime
 from ..core.log_util import AutoLoggerMixin
+from ..core.id_generator import IDGenerator
+from .paths import MatrixPaths
 import logging
 
 if TYPE_CHECKING:
@@ -29,8 +31,7 @@ class SessionManager(AutoLoggerMixin):
 
     _log_from_attr = "name"
 
-    def __init__(self, agent_name: str, workspace_root: Optional[str] = None,
-                 matrix_path: Optional[str] = None,
+    def __init__(self, agent_name: str, matrixpath: 'MatrixPaths',
                  parent_logger: Optional[logging.Logger] = None,
                  log_config: Optional['LogConfig'] = None):
         """
@@ -38,15 +39,13 @@ class SessionManager(AutoLoggerMixin):
 
         Args:
             agent_name: 所属Agent的名称
-            workspace_root: 工作区根路径
-            matrix_path: matrix 根路径（用于状态目录）
+            paths: MatrixPaths 对象，统一路径管理器
             parent_logger: 父组件的logger（可选，用于共享日志）
             log_config: 日志配置（可选）
         """
         self.name = f"{agent_name}_SessionManager"
         self.agent_name = agent_name
-        self.workspace_root = workspace_root
-        self.matrix_path = matrix_path
+        self.matrixpath = matrixpath  # 直接使用传入的 MatrixPaths 对象
 
         # 可选：使用父 logger（如果不提供则创建独立日志文件）
         if parent_logger and log_config:
@@ -60,19 +59,7 @@ class SessionManager(AutoLoggerMixin):
         # email-to-session 缓存（替代 reply_mappings）
         self._email_session_cache: Dict[str, str] = {}  # email_id → session_id
 
-    def _get_session_base_path(self, task_id: str) -> Path:
-        """
-        获取 session 基础路径
-
-        新结构：{workspace_root}/.matrix/{agent_name}/{task_id}/history/
-
-        Args:
-            task_id: 用户会话 ID
-
-        Returns:
-            Path: session 目录的基础路径
-        """
-        return Path(self.workspace_root) / ".matrix" / self.agent_name / task_id / "history"
+    
 
     async def get_session_by_id(self, session_id: str) -> dict:
         """
@@ -93,28 +80,17 @@ class SessionManager(AutoLoggerMixin):
 
         # 2. 从磁盘加载（需要知道 task_id）
         # 由于只有 session_id，我们需要遍历所有 task_id 来查找
-        if not self.matrix_path:
-            raise ValueError(f"Cannot load session {session_id[:8]}: matrix_path not set")
 
         # 尝试直接从磁盘结构查找
-        # 这需要遍历所有 task_id 目录
-        import os
-        workspace_root = Path(self.workspace_root)
-        matrix_dir = workspace_root / ".matrix" / self.agent_name
+        
 
-        if not matrix_dir.exists():
-            raise ValueError(f"Session {session_id[:8]} not found (no sessions directory)")
 
-        # 遍历所有 task_id 目录
-        for task_id_dir in matrix_dir.iterdir():
-            if task_id_dir.is_dir():
-                task_id = task_id_dir.name
-                session_dir = task_id_dir / "history" / session_id
-                if session_dir.exists():
-                    session = await self._load_session_from_disk(session_id, task_id)
-                    if session:
-                        self.sessions[session_id] = session
-                        return session
+        session_dir = self.matrixpath.get_agent_session_dir(self.agent_name, session_id)
+        if session_dir.exists():
+            session = await self._load_session_from_disk(session_id)
+            if session:
+                self.sessions[session_id] = session
+                return session
 
         raise ValueError(f"Session {session_id[:8]} not found")
 
@@ -160,22 +136,23 @@ class SessionManager(AutoLoggerMixin):
 
                 # 2. 内存没有，尝试从磁盘加载（lazy load）
                 self.logger.info(f"🔄 Session {session_id[:8]} not in memory, loading from disk...")
-                session = await self._load_session_from_disk(session_id, task_id)
+                session = await self._load_session_from_disk(session_id)
                 if session:
                     self.sessions[session_id] = session
                     return session
 
                 # 3. 磁盘也没有，创建新的
                 self.logger.warning(f"⚠️ Session {session_id[:8]} not found on disk, creating new session")
-                session = await self._create_new_session(session_id, email.sender, task_id)
+                session = await self._create_new_session(session_id, email.sender, email.task_id)
                 self.sessions[session_id] = session
                 await self._save_session_to_disk(session)
                 return session
 
         # Case B: New Task（创建新 session）
         task_id = getattr(email, 'task_id', 'default')
-        session = await self._create_new_session(email.id, email.sender, task_id)
-        self.sessions[email.id] = session
+        # 传递None，让_create_new_session自动生成session_id
+        session = await self._create_new_session(None, email.sender, task_id)
+        self.sessions[session['session_id']] = session
 
         # 🔑 关键修复：将 User 的邮件 ID 也加入 reply_mapping
         # 这样 User 可以 reply 自己的邮件（在 Agent 回复之前连续发送多封邮件）
@@ -200,16 +177,7 @@ class SessionManager(AutoLoggerMixin):
         """
         await self._save_session_to_disk(session)
 
-    async def save_session_context_only(self, session: dict):
-        """
-        只保存 session 的 context 到磁盘（不保存 history）
-
-        用于频繁更新 context 而不需要更新 history 的场景
-
-        Args:
-            session: session dict
-        """
-        await self._save_session_context(session)
+    
 
     async def update_reply_mapping(self, msg_id: str, session_id: str, task_id: str):
         """
@@ -225,18 +193,23 @@ class SessionManager(AutoLoggerMixin):
         self._email_session_cache[msg_id] = session_id
         self.logger.debug(f"📝 Cached email {msg_id[:8]} → session {session_id[:8]}")
 
-    async def _create_new_session(self, session_id: str, sender: str, task_id: str) -> dict:
+    async def _create_new_session(self, session_id: Optional[str], sender: str, task_id: str) -> dict:
         """
         创建新的 session dict
 
         Args:
-            session_id: session ID
+            session_id: session ID（如果为None，将自动生成）
             sender: 发送者
             task_id: 用户会话 ID
 
         Returns:
             dict: 新创建的 session 对象
         """
+        # 如果没有提供session_id，生成新的（使用IDGenerator）
+        if not session_id:
+            session_id = IDGenerator.generate_session_id()
+            self.logger.debug(f"🆕 Generated new session_id: {session_id}")
+
         now = datetime.now().isoformat()
         session = {
             "session_id": session_id,
@@ -252,7 +225,7 @@ class SessionManager(AutoLoggerMixin):
 
         # 创建 session 目录并保存初始文件
         await self._save_session_history(session)
-        await self._save_session_context(session)
+        
 
         return session
 
@@ -266,20 +239,22 @@ class SessionManager(AutoLoggerMixin):
         Returns:
             dict: 邮件记录，如果不存在返回 None
         """
-        if not self.matrix_path:
-            return None
 
         try:
             import os
-            db_path = os.path.join(self.matrix_path, ".matrix", "agentmatrix.db")
+            db_path = str(self.matrixpath.database_path)
             from ..db.agent_matrix_db import AgentMatrixDB
             db = AgentMatrixDB(db_path)
-            return db.get_email_by_id(email_id)
+            result = db.get_email_by_id(email_id)
+            # 关闭数据库连接
+            if hasattr(db, 'conn') and db.conn:
+                db.conn.close()
+            return result
         except Exception as e:
             self.logger.warning(f"Failed to query email {email_id[:8]} from DB: {e}")
             return None
 
-    async def _load_session_from_disk(self, session_id: str, task_id: str) -> Optional[dict]:
+    async def _load_session_from_disk(self, session_id: str) -> Optional[dict]:
         """
         从磁盘加载 session（lazy load，分别加载 history 和 context）
 
@@ -290,12 +265,10 @@ class SessionManager(AutoLoggerMixin):
         Returns:
             dict: session 对象（包含元数据、history 和 context），如果文件不存在返回 None
         """
-        if not self.matrix_path:
-            return None
 
-        session_dir = self._get_session_base_path(task_id) / session_id
-        history_file = session_dir / "history.json"
-        context_file = session_dir / "context.json"
+        history_file = self.matrixpath.get_agent_session_history_dir(self.agent_name,session_id)
+        #history_file = session_dir / "history.json"
+        #context_file = session_dir / "context.json"
 
         if not history_file.exists():
             return None
@@ -306,14 +279,7 @@ class SessionManager(AutoLoggerMixin):
                 lambda p=history_file: json.load(open(p, "r", encoding="utf-8"))
             )
 
-            # 加载 context.json（如果存在）
-            if context_file.exists():
-                context_data = await asyncio.to_thread(
-                    lambda p=context_file: json.load(open(p, "r", encoding="utf-8"))
-                )
-                session_data["context"] = context_data
-            else:
-                session_data["context"] = {}
+            
 
             self.logger.info(f"✅ Loaded session {session_id[:8]} from disk ({len(session_data.get('history', []))} messages)")
             return session_data
@@ -332,7 +298,7 @@ class SessionManager(AutoLoggerMixin):
             session: session dict
         """
         await self._save_session_history(session)
-        await self._save_session_context(session)
+        #await self._save_session_context(session)
 
     async def _save_session_history(self, session: dict):
         """
@@ -343,17 +309,14 @@ class SessionManager(AutoLoggerMixin):
         Args:
             session: session dict（包含元数据和 history）
         """
-        if not self.matrix_path:
-            return
 
         # 更新 last_modified
         session["last_modified"] = datetime.now().isoformat()
+        history_file = self.matrixpath.get_agent_session_history_dir(self.agent_name,session['session_id'])
+        
 
-        session_dir = self._get_session_base_path(session["task_id"]) / session['session_id']
-        history_file = session_dir / "history.json"
-
-        # 确保 session 目录存在
-        session_dir.mkdir(parents=True, exist_ok=True)
+        # 确保父目录存在（文件本身由后续写入创建）
+        history_file.parent.mkdir(parents=True, exist_ok=True)
 
         # 准备保存的数据（不包含 context）
         history_data = {
@@ -398,25 +361,4 @@ class SessionManager(AutoLoggerMixin):
 
         self.logger.debug(f"💾 Saved session history {session['session_id'][:8]} (atomic)")
 
-    async def _save_session_context(self, session: dict):
-        """
-        保存 session 的 context 到磁盘（不包含 history）
-
-        Args:
-            session: session dict
-        """
-        if not self.matrix_path:
-            return
-
-        session_dir = self._get_session_base_path(session["task_id"]) / session['session_id']
-        context_file = session_dir / "context.json"
-
-        # 确保 session 目录存在
-        session_dir.mkdir(parents=True, exist_ok=True)
-
-        # 异步写入 context.json
-        await asyncio.to_thread(
-            lambda p=context_file, c=session.get("context", {}): json.dump(c, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-        )
-
-        self.logger.debug(f"💾 Saved session context {session['session_id'][:8]}")
+    

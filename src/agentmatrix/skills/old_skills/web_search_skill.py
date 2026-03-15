@@ -16,9 +16,9 @@ Web Search Skill - 基于 Micro Agent 的网络搜索技能
 
 import time
 from typing import Optional
-from ..core.action import register_action
-from ..agents.base import BaseAgent
-from ..agents.micro_agent import MicroAgent
+from ...core.action import register_action
+from ...agents.base import BaseAgent
+from ...agents.micro_agent import MicroAgent
 
 
 class Web_searchSkillMixin:
@@ -190,7 +190,7 @@ class Web_searchSkillMixin:
 """
 
             try:
-                from ..skills.parser_utils import multi_section_parser
+                from ..parser_utils import multi_section_parser
 
                 result = await self.brain.think_with_retry(
                     generate_prompt,

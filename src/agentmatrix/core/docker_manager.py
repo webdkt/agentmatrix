@@ -163,7 +163,7 @@ class DockerContainerManager:
     def __init__(
         self,
         agent_name: str,
-        workspace_root: str,
+        workspace_root: Path,
         image_name: str = "agentmatrix:latest",
         parent_logger: Optional[logging.Logger] = None
     ):
@@ -180,7 +180,7 @@ class DockerContainerManager:
             RuntimeError: Docker 未安装或未运行
         """
         self.agent_name = agent_name
-        self.workspace_root = Path(workspace_root)
+        self.workspace_root = workspace_root
         self.image_name = image_name
 
         # 设置 logger

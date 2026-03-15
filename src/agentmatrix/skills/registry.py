@@ -54,20 +54,20 @@ class SkillRegistry:
         # 默认只包含内置路径
         self.search_paths: List[str] = ["agentmatrix.skills"]
 
-    def add_workspace_skills(self, matrix_path: str):
+    def add_workspace_skills(self, paths):
         """
-        自动添加 workspace/skills/ 目录到搜索路径
+        自动添加 workspace/SKILLS/ 目录到搜索路径
 
         由 AgentMatrix.__init__() 调用，自动发现应用级 skills。
 
         Args:
-            matrix_path: Workspace 根目录（例如 "./MyWorld"）
+            paths: MatrixPaths 对象
 
         示例:
-            SKILL_REGISTRY.add_workspace_skills("./MyWorld")
-            # 自动添加 "./MyWorld/skills/" 到搜索路径
+            SKILL_REGISTRY.add_workspace_skills(runtime.paths)
+            # 自动添加 "./MyWorld/workspace/SKILLS/" 到搜索路径
         """
-        skills_dir = Path(matrix_path) / "skills"
+        skills_dir = paths.get_skills_dir()
 
         if skills_dir.exists():
             # 添加到搜索路径（位置1，在默认路径之后）

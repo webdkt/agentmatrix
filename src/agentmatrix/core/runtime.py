@@ -31,20 +31,40 @@ async def default_event_printer(event):
     #self.echo(event)
 
 class AgentMatrix(AutoLoggerMixin):
-    def __init__(self, agent_profile_path, matrix_path, async_event_callback = default_event_printer, user_agent_name: str = "User"):
+    def __init__(self, matrix_root: str, async_event_callback = default_event_printer, user_agent_name: str = None):
+        """
+        初始化AgentMatrix
+
+        Args:
+            matrix_root: Matrix World根目录（唯一必需的参数）
+            async_event_callback: 异步事件回调函数
+            user_agent_name: 用户Agent名称（可选，默认从配置读取）
+        """
+        # === 初始化路径管理器 ===
+        from ..core.paths import MatrixPaths
+        self.paths = MatrixPaths(matrix_root)
+
+        # 确保所有必需的目录存在
+        self.paths.ensure_directories()
+
+        # === 初始化配置管理器 ===
+        from ..core.config import MatrixConfig
+        self.config = MatrixConfig(self.paths)
+
+        # 从配置获取user_agent_name（如果未提供）
+        if user_agent_name is None:
+            user_agent_name = self.config.matrix.user_agent_name
+
         # === 全局实例 ===
-        log_path = os.path.join(matrix_path,".matrix", "logs")
-        LogFactory.set_log_dir(log_path)
+        LogFactory.set_log_dir(str(self.paths.logs_dir))
 
         self.async_event_callback = async_event_callback
-        self.agent_profile_path= agent_profile_path
-
-        self.matrix_path = matrix_path
+        self.matrix_path = matrix_root  # 保留向后兼容
 
         # 🆕 配置 SKILL_REGISTRY，自动添加 workspace/skills/ 目录
         # 导入在这里，避免循环依赖
         from ..skills.registry import SKILL_REGISTRY
-        SKILL_REGISTRY.add_workspace_skills(self.matrix_path)
+        SKILL_REGISTRY.add_workspace_skills(self.paths)
 
         # Store user agent name
         self.user_agent_name = user_agent_name
@@ -54,6 +74,11 @@ class AgentMatrix(AutoLoggerMixin):
         self.post_office_task = None
         self.running_agent_tasks = []
         self.running = False
+
+        # 🆕 系统配置（向后兼容）
+        self.system_config = None
+        self.email_proxy = None
+
         self.echo(">>> 初始化世界资源...")
         self._prepare_world_resource()
         self.echo(">>> 初始化Agents...")
@@ -62,6 +87,8 @@ class AgentMatrix(AutoLoggerMixin):
         self.load_matrix()
         self.echo(">>> 启动 LLM 服务监控...")
         self._start_llm_monitor()
+        self.echo(">>> 初始化系统配置...")
+        self._init_system_config()
 
     def get_user_agent_name(self) -> str:
         """Get the configured user agent name"""
@@ -91,23 +118,23 @@ class AgentMatrix(AutoLoggerMixin):
             )
 
         # 初始化 PostOffice
-        self.post_office = PostOffice(self.matrix_path, self.user_agent_name)
+        self.post_office = PostOffice(self.paths, self.user_agent_name)
 
         self.post_office_task = asyncio.create_task(self.post_office.run())
         self.echo(">>> PostOffice Loaded and Running.")
 
         # 🆕 初始化 TaskScheduler（全局服务）
         from ..core.scheduler_service import TaskScheduler
-        scheduler_db_path = os.path.join(self.matrix_path, ".matrix", "agentmatrix.db")
         self.task_scheduler = TaskScheduler(
-            db_path=scheduler_db_path,
+            db_path=str(self.paths.database_path),
             post_office=self.post_office,
             logger=self.logger
         )
         self.echo(">>> TaskScheduler Loaded.")
-        
+
     def _prepare_agents(self):
-        loader = AgentLoader(self.agent_profile_path)
+        # 使用新的agent配置目录
+        loader = AgentLoader(str(self.paths.agent_config_dir), str(self.paths.llm_config_path))
 
         # 3. 自动加载所有 Agent
         self.agents = loader.load_all()
@@ -136,11 +163,91 @@ class AgentMatrix(AutoLoggerMixin):
         # 启动监控任务
         self.monitor_task = asyncio.create_task(self.llm_monitor.start())
 
-        # 为每个 Agent 注入 runtime 引用
-        for agent in self.agents.values():
-            agent.runtime = self
-
         self.echo(f">>> LLM Service Monitor started (interval: 60s)")
+
+    async def load_and_register_agent(self, agent_name: str):
+        """
+        动态加载并注册一个新的Agent
+
+        Args:
+            agent_name: 要加载的Agent名称
+
+        Returns:
+            加载的Agent实例
+
+        Raises:
+            ValueError: 如果Agent已存在或加载失败
+        """
+        # 检查Agent是否已存在
+        if agent_name in self.agents:
+            raise ValueError(f"Agent '{agent_name}' already exists in runtime")
+
+        self.echo(f">>> 动态加载Agent: {agent_name}")
+
+        # 使用保存的loader加载Agent
+        agent_yml_path = self.paths.agent_config_dir / f"{agent_name}.yml"
+        if not agent_yml_path.exists():
+            raise FileNotFoundError(f"Agent配置文件不存在: {agent_yml_path}")
+
+        # 加载Agent
+        try:
+            agent = self.loader.load_from_file(str(agent_yml_path))
+        except Exception as e:
+            raise RuntimeError(f"加载Agent失败: {e}")
+
+        # ⚠️ 重要：必须先设置 runtime，再启动 agent.run()
+        # 因为 agent.run() 内部会访问 self.runtime
+        agent.async_event_callback = self.async_event_callback
+        agent.runtime = self  # 这会触发 SessionManager 和其他资源的初始化
+
+        # 添加到agents字典
+        self.agents[agent_name] = agent
+
+        # 注册到PostOffice
+        self.post_office.register(agent)
+
+        # 启动Agent任务
+        agent_task = asyncio.create_task(agent.run())
+        self.running_agent_tasks.append(agent_task)
+
+        self.echo(f">>> Agent '{agent_name}' 已成功加载并注册到系统")
+
+        return agent
+
+    def _init_system_config(self):
+        """初始化系统配置"""
+        from ..core.config import MatrixConfig
+        self.system_config = MatrixConfig(self.paths)
+
+        # 检查是否启用EmailProxy
+        if self.system_config.is_email_proxy_enabled():
+            self._init_email_proxy()
+        else:
+            self.echo(">>> EmailProxy未启用")
+
+    def _init_email_proxy(self):
+        """初始化EmailProxy服务"""
+        from ..services.email_proxy_service import EmailProxyService
+
+        email_config = self.system_config.get_email_proxy_config()
+        if not email_config:
+            self.echo(">>> EmailProxy配置不完整，跳过初始化")
+            return
+
+        self.email_proxy = EmailProxyService(
+            paths=self.paths,
+            config=email_config,
+            post_office=self.post_office,
+            db_path=str(self.paths.database_path),
+            parent_logger=self.logger
+        )
+
+        # 注入到UserProxyAgent
+        user_agent = self.agents.get(self.user_agent_name)
+        if user_agent and hasattr(user_agent, 'set_email_proxy'):
+            user_agent.set_email_proxy(self.email_proxy)
+
+        self.echo(">>> EmailProxy服务已初始化")
 
 
 
@@ -170,6 +277,15 @@ class AgentMatrix(AutoLoggerMixin):
         self.post_office.pause()
 
         # 🆕 停止调度器
+
+        # 🆕 停止EmailProxy
+        if self.email_proxy:
+            try:
+                await self.email_proxy.stop()
+                self.echo(">>> EmailProxy stopped")
+            except Exception as e:
+                self.echo(f">>> EmailProxy stop error: {e}")
+
         if hasattr(self, 'task_scheduler'):
             await self.task_scheduler.stop()
         
@@ -200,6 +316,10 @@ class AgentMatrix(AutoLoggerMixin):
                 pass
             self.post_office_task = None
         
+        # 5. 关闭 PostOffice 数据库连接
+        if self.post_office:
+            self.post_office.close()
+        
         world_state = {
             "timestamp": str(datetime.now()),
             "agents": {},
@@ -218,7 +338,7 @@ class AgentMatrix(AutoLoggerMixin):
             po_queue.append(asdict(email))
             self.post_office.queue.task_done()
         world_state["post_office"] = po_queue
-        filepath = os.path.join(self.matrix_path, ".matrix", "matrix_snapshot.json")
+        filepath = str(self.paths.snapshot_path)
         # 3. 写入磁盘
         try:
             with open(filepath, "w", encoding='utf-8') as f:
@@ -233,13 +353,23 @@ class AgentMatrix(AutoLoggerMixin):
         self.echo(f">>> 世界已保存至 {filepath}")
         # 9. 清理资源
         self.running = False
+        
+        # 10. 关闭默认线程池（防止退出时hang住）
+        try:
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(loop.shutdown_default_executor(), timeout=5.0)
+            self.echo(">>> Default executor shut down")
+        except asyncio.TimeoutError:
+            self.echo(">>> Executor shutdown timed out")
+        except Exception as e:
+            self.echo(f">>> Executor shutdown error: {e}")
 
     def load_matrix(self):
-        
+
         """一键复活"""
         self.echo(f">>> 正在从 {self.matrix_path} 恢复世界...")
-        
-        matrix_snapshot_path = os.path.join(self.matrix_path,".matrix" , "matrix_snapshot.json")
+
+        matrix_snapshot_path = str(self.paths.snapshot_path)
         os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
         #加载向量数据库
         
@@ -274,8 +404,8 @@ class AgentMatrix(AutoLoggerMixin):
         self.running_agent_tasks =[]
         # 3. 注册到邮局
         for agent in self.agents.values():
-            agent.workspace_root = self.matrix_path #设置root path
-            agent.matrix_path = self.matrix_path #设置matrix path
+            # 注入 runtime 引用（setter 会自动初始化 SessionManager 等资源）
+            agent.runtime = self
             self.post_office.register(agent)
 
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
@@ -291,10 +421,15 @@ class AgentMatrix(AutoLoggerMixin):
         
         
         # 🆕 启动TaskScheduler
+
+        # 🆕 启动TaskScheduler
         if hasattr(self, 'task_scheduler'):
             asyncio.ensure_future(self.task_scheduler.start())
 
-        self.running = True
+        # 🆕 启动EmailProxy
+        if self.email_proxy:
+            asyncio.ensure_future(self.email_proxy.start())
+            self.echo(">>> EmailProxy service started")
         self.echo(">>> 世界已恢复，系统继续运行！")
         yellow_page = self.post_office.yellow_page()
         self.echo(f">>> 当前世界中的 Agent 有：\n{yellow_page}")

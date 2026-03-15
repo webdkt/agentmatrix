@@ -62,9 +62,22 @@ class AgentLoader(AutoLoggerMixin):
         with open(file_path, 'r', encoding='utf-8') as f:
             profile = yaml.safe_load(f)
 
-        # 1. 解析基础类信息
-        module_name = profile["module"]
-        class_name = profile["class_name"]
+        # 1. 解析基础类信息（新格式：完整类路径）
+        class_full_path = profile.get("class_name", "agentmatrix.agents.base.BaseAgent")
+
+        # 支持向后兼容：如果存在旧的 module 字段，则合并
+        if "module" in profile:
+            module_name = profile["module"]
+            class_name = profile["class_name"]
+            class_full_path = f"{module_name}.{class_name}"
+            self.logger.warning(f">>> ⚠️  配置文件使用旧格式 (module + class_name)，建议改为单一 class_name: {class_full_path}")
+            del profile["module"]
+        else:
+            # 新格式：从完整路径解析 module 和 class
+            parts = class_full_path.rsplit(".", 1)
+            if len(parts) != 2:
+                raise ValueError(f"class_name 格式错误: {class_full_path}，应为 'module.path.ClassName'")
+            module_name, class_name = parts
 
         # 2. 解析属性初始化配置
         attribute_inits = profile.pop("attribute_initializations", {})
@@ -73,8 +86,8 @@ class AgentLoader(AutoLoggerMixin):
         class_attrs = profile.pop("class_attributes", {})
 
         # 清理配置中的特殊字段
-        del profile["module"]
-        del profile["class_name"]
+        if "class_name" in profile:
+            del profile["class_name"]
         if "mixins" in profile:
             # ❌ 旧架构：mixins 已废弃（新架构使用 skills + Lazy Load）
             self.logger.warning(f">>> ⚠️  配置文件中包含已废弃的 'mixins' 字段，请使用 'skills' 代替")
@@ -85,7 +98,7 @@ class AgentLoader(AutoLoggerMixin):
             module = importlib.import_module(module_name)
             agent_class = getattr(module, class_name)
         except (ImportError, AttributeError) as e:
-            raise ImportError(f"无法加载 Agent 类: {module_name}.{class_name}. 错误: {e}")
+            raise ImportError(f"无法加载 Agent 类: {class_full_path}. 错误: {e}")
 
         # 5. 设置类属性（如果有）
         if class_attrs:

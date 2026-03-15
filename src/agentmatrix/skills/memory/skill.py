@@ -83,9 +83,12 @@ class MemorySkillMixin:
         from .parser_utils import recall_answer_parser
         from .utils import split_profiles_by_tokens, format_profiles_batch
 
+        if self.root_agent.runtime is None:
+            return f"错误：runtime 未注入"
+        
         # 1. 查询并合并 profiles（使用 storage 高层 API）
         merged_profiles = await search_entities_merged(
-            self.root_agent.workspace_root,
+            str(self.root_agent.runtime.paths.workspace_dir),
             self.root_agent.name,
             self.root_agent.current_task_id,
             entity_name
@@ -299,17 +302,21 @@ JSON 格式示例：
 
     async def _persist_whiteboard(self, content: str):
         """持久化 whiteboard 到文件"""
+        if self.root_agent.runtime is None:
+            return
         save_whiteboard(
             content,
-            self.root_agent.workspace_root,
+            str(self.root_agent.runtime.paths.workspace_dir),
             self.root_agent.name,
             self.root_agent.current_task_id
         )
 
     async def _persist_timeline(self, events: List[str]):
         """持久化 timeline 到数据库"""
+        if self.root_agent.runtime is None:
+            return
         await append_timeline_events(
-            self.root_agent.workspace_root,
+            str(self.root_agent.runtime.paths.workspace_dir),
             self.root_agent.name,
             self.root_agent.current_task_id,
             events

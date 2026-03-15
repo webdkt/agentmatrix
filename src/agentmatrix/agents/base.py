@@ -50,8 +50,6 @@ class BaseAgent(AutoLoggerMixin):
         self._max_status_history = 3
         
         self.last_received_email = None #最后收到的信
-        self._workspace_root = None
-        self._matrix_path = None
         self.post_office = None
         self.last_email_processed = True
 
@@ -65,7 +63,7 @@ class BaseAgent(AutoLoggerMixin):
         self.async_event_callback: Optional[Callable] = None
 
         # Runtime 引用 (由 AgentMatrix 注入)
-        self.runtime = None
+        self._runtime = None
 
         # ✨ 新架构：使用 action_registry 代替 actions_map
         self.action_registry = {}  # name -> bound_method (新架构)
@@ -127,13 +125,13 @@ class BaseAgent(AutoLoggerMixin):
         """初始化 Docker 容器管理器"""
         from ..core.docker_manager import DockerContainerManager
 
-        if not self._workspace_root:
-            raise RuntimeError("workspace_root 未设置，无法初始化 Docker")
+        if self.runtime is None:
+            raise RuntimeError("runtime 未注入，无法初始化 Docker")
 
         try:
             self.docker_manager = DockerContainerManager(
                 agent_name=self.name,
-                workspace_root=self._workspace_root,
+                workspace_root=self.runtime.paths.workspace_dir,
                 parent_logger=self.logger
             )
 
@@ -146,7 +144,7 @@ class BaseAgent(AutoLoggerMixin):
             self.logger.error(f"Docker 初始化失败: {e}")
             raise  # 不降级，直接抛出异常
 
-    def get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+    def deprecated_get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
         """
         获取并渲染 skill prompt
 
@@ -163,9 +161,9 @@ class BaseAgent(AutoLoggerMixin):
             KeyError: 缺少必需的变量
         """
         # 从文件加载（带缓存）
-        return self._load_skill_prompt(skill_name, prompt_name, **kwargs)
+        return self.deprecated_load_skill_prompt(skill_name, prompt_name, **kwargs)
 
-    def _load_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+    def deprecated_load_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
         """
         从文件加载 skill prompt
 
@@ -209,24 +207,24 @@ class BaseAgent(AutoLoggerMixin):
 
 
     @property
-    def workspace_root(self):
-        return self._workspace_root
+    def runtime(self):
+        return self._runtime
 
-    @workspace_root.setter
-    def workspace_root(self, value):
-        self._workspace_root = value
+    @runtime.setter
+    def runtime(self, value):
+        self._runtime = value  # 注意：必须用 _runtime，否则会递归
         if value is not None:
+            # 初始化SessionManager（使用 runtime.paths）
             self.session_manager = SessionManager(
                 agent_name=self.name,
-                workspace_root=value,
-                matrix_path=self._matrix_path
+                matrixpath=self.runtime.paths
             )
 
             # 🆕 初始化 SKILLS 目录（用于 MD Document Skills）
             from ..skills.registry import SKILL_REGISTRY
             from pathlib import Path
 
-            skills_dir = Path(value) / "SKILLS"
+            skills_dir = self.runtime.paths.get_skills_dir()
             skills_dir.mkdir(parents=True, exist_ok=True)
 
             # 设置到 SKILL_REGISTRY（供 MD skill 加载使用）
@@ -238,16 +236,7 @@ class BaseAgent(AutoLoggerMixin):
             if self.docker_manager is None:
                 self._init_docker_manager()
 
-    @property
-    def matrix_path(self):
-        return self._matrix_path
-
-    @matrix_path.setter
-    def matrix_path(self, value):
-        self._matrix_path = value
-        # 如果 session_manager 已经存在，需要更新它的 matrix_path
-        if self.session_manager is not None:
-            self.session_manager.matrix_path = value
+    
 
     # ========== 暂停/恢复机制 ==========
 
@@ -443,14 +432,14 @@ class BaseAgent(AutoLoggerMixin):
         获取当前 session 的个人工作目录（如果不存在则自动创建）
 
         Returns:
-            Path: 个人工作目录路径，格式为 workspace_root / task_id / agents / agent_name
+            Path: 个人工作目录路径
         """
-        if not self.workspace_root:
-            #raise ValueError("workspace_root is not set")
+        if self.runtime is None:
             return None
 
         task_id = self.current_task_id or "default"
-        workspace = Path(self.workspace_root) / task_id / "agents" / self.name
+        # 通过 runtime.paths 获取路径
+        workspace = self.runtime.paths.get_agent_work_files_dir(self.name, task_id)
 
         # 如果目录不存在，创建目录
         workspace.mkdir(parents=True, exist_ok=True)
@@ -463,14 +452,14 @@ class BaseAgent(AutoLoggerMixin):
         获取当前 session 的共享工作目录（如果不存在则自动创建）
 
         Returns:
-            Path: 共享工作目录路径，格式为 workspace_root / task_id / shared
+            Path: 共享工作目录路径
         """
-        if not self.workspace_root:
-            #raise ValueError("workspace_root is not set")
+        if self.runtime is None:
             return None
 
         task_id = self.current_task_id or "default"
-        workspace = Path(self.workspace_root) / task_id / "shared"
+        # 通过 runtime.paths 获取路径
+        workspace = self.runtime.paths.workspace_dir / task_id / "shared"
 
         # 如果目录不存在，创建目录
         workspace.mkdir(parents=True, exist_ok=True)
@@ -522,6 +511,12 @@ class BaseAgent(AutoLoggerMixin):
                 self.email_worker_task.cancel()
             if self.history_worker_task:
                 self.history_worker_task.cancel()
+            # 等待worker任务完成
+            try:
+                await asyncio.gather(self.email_worker_task, self.history_worker_task, return_exceptions=True)
+            except Exception:
+                pass
+            raise  # Re-raise CancelledError to properly propagate cancellation
         except Exception as e:
             self.logger.exception(f"Unexpected error in {self.name} main loop")
 
@@ -566,6 +561,8 @@ class BaseAgent(AutoLoggerMixin):
 
         try:
             # 创建 SessionContext 对象（包装 session["context"]）
+            '''
+            TODO: TO Remove
             self._session_context = SessionContext(
                 persistent=True,
                 session_manager=self.session_manager,
@@ -574,17 +571,16 @@ class BaseAgent(AutoLoggerMixin):
             )
 
             # 设置当前 session 目录
-            if self.workspace_root:
-                from pathlib import Path
+            if self.runtime is not None:
                 self.current_session_folder = str(
-                    Path(self.workspace_root) /
-                    session["task_id"] /
-                    "history" /
-                    self.name /
-                    session["session_id"]
+                    self.runtime.paths.get_agent_session_history_dir(
+                        self.name, 
+                        session["session_id"]
+                    )
                 )
             else:
                 self.current_session_folder = None
+            '''
 
             # 2. 准备参数
             task = str(email)
@@ -729,6 +725,7 @@ class BaseAgent(AutoLoggerMixin):
                             f"{self.last_received_email.id if self.last_received_email else 'None'} "
                             f"not completed"
                         )
+                        raise  # Re-raise to stop the worker
                     except Exception as e:
                         self.logger.exception(f"Failed to process email in {self.name}")
                     finally:
@@ -901,13 +898,16 @@ Extract facts now.
 
         from ..skills.memory.storage import append_timeline_events
 
+        if self.runtime is None:
+            self.logger.error("❌ runtime 未注入，无法持久化事件")
+            return
+        
         # 获取上下文信息
-        workspace_root = self._workspace_root
         agent_name = self.name
         
         try:
             await append_timeline_events(
-                workspace_root=workspace_root,
+                workspace_root=str(self.runtime.paths.workspace_dir),
                 agent_name=agent_name,
                 task_id= self.current_task_id,
                 events=events  # 直接传递事件对象列表
@@ -963,7 +963,7 @@ Extract facts now.
             self.project_state = snapshot["extra_state"]
 
 
-    def _resolve_real_path(self, filename: str) -> Path:
+    def deprecated_resolve_real_path(self, filename: str) -> Path:
         """
         解析文件名并返回真实的绝对路径
         
@@ -975,23 +975,28 @@ Extract facts now.
             
         Raises:
             FileNotFoundError: 文件未找到
-            ValueError: 路径超出 workspace_root 范围
+            ValueError: 路径超出 workspace 范围
         """
         from pathlib import Path
+        
+        if self.runtime is None:
+            raise RuntimeError("runtime 未注入，无法解析路径")
         
         # 转换为 Path 对象
         input_path = Path(filename)
         
+        # 获取 workspace 路径
+        workspace_root = self.runtime.paths.workspace_dir.resolve()
+        
         # 情况1: 处理绝对路径
         if input_path.is_absolute():
             try:
-                # 检查是否在 workspace_root 范围内
+                # 检查是否在 workspace 范围内
                 resolved_path = input_path.resolve()
-                workspace_root = Path(self.workspace_root).resolve()
                 
-                # 检查路径是否在 workspace_root 下
+                # 检查路径是否在 workspace 下
                 if not str(resolved_path).startswith(str(workspace_root)):
-                    raise ValueError(f"Path {filename} is outside workspace_root")
+                    raise ValueError(f"Path {filename} is outside workspace")
                     
                 # 检查文件是否存在
                 if not resolved_path.exists():
@@ -1044,132 +1049,7 @@ Extract facts now.
         # 3. 如果都没找到，抛出异常
         raise FileNotFoundError(f"File not found in any workspace: {filename}")
 
-    # ==========================================
-    # Session Context 管理
-    # ==========================================
-
-    def get_session_context(self):
-        """
-        获取当前session的context
-
-        Returns:
-            SessionContext: session context 对象（可持久化）
-        """
-        return self._session_context
-
-    async def set_session_context(self, context: dict):
-        """
-        设置当前session的context（完全替换）
-
-        Args:
-            context: 要设置的context字典
-        """
-        # 清空并更新
-        self._session_context.clear()
-        await self._session_context.update(**context)
-
-    async def update_session_context(self, **kwargs):
-        """
-        更新当前session的context（部分更新/合并）
-
-        注意：此方法会自动保存context到磁盘（通过 SessionContext 自动持久化）
-
-        Args:
-            **kwargs: 要更新的context字段
-
-        Example:
-            await self.update_session_context(
-                research_title="AI Safety",
-                current_step="planning"
-            )
-        """
-        # 委托给 SessionContext.update()（会自动持久化）
-        await self._session_context.update(**kwargs)
-        self.logger.debug(f"💾 Updated session context: {list(kwargs.keys())}")
-
-    async def clear_session_context(self):
-        """清除当前session的context"""
-        # 清空并持久化
-        self._session_context.clear()
-        await self._session_context.update()  # 触发持久化
-        self.logger.debug(f"💾 Cleared session context")
-
-    def get_session_folder(self) -> Optional[str]:
-        """
-        获取当前session的文件夹路径
-
-        Returns:
-            str: session 文件夹的绝对路径，如果不存在返回 None
-        """
-        return getattr(self, 'current_session_folder', None)
-
-    # ==========================================
-    # Transient Context（非持久化内存数据）
-    # ==========================================
-
-    def get_transient(self, key: str, default=None):
-        """
-        从transient context获取值（非持久化）
-
-        Transient context存储在session中，但不会保存到磁盘。
-        适合存储复杂对象、临时数据等不需要持久化的内容。
-
-        Args:
-            key: 键名
-            default: 默认值（如果键不存在）
-
-        Returns:
-            存储的值，或默认值
-
-        Example:
-            # 获取复杂对象
-            notebook = self.get_transient("notebook")
-            if not notebook:
-                notebook = Notebook()
-                self.set_transient("notebook", notebook)
-        """
-        if not self.current_session:
-            return default
-
-        transient_ctx = self.current_session.get("transient_context", {})
-        return transient_ctx.get(key, default)
-
-    def set_transient(self, key: str, value: any):
-        """
-        设置transient context中的值（非持久化）
-
-        用途：
-        - 存储复杂对象（class实例）
-        - 临时计算结果
-        - 缓存数据
-        - 任何不需要持久化的数据
-
-        Args:
-            key: 键名
-            value: 值（可以是任意Python对象）
-
-        Example:
-            # 存储复杂对象
-            parser = CustomParser()
-            self.set_transient("parser", parser)
-
-            # 存储缓存
-            self.set_transient("cache", {})
-
-        Note:
-            - 数据不会保存到磁盘
-            - 跟随session自动切换
-            - agent重启后数据丢失
-        """
-        if not self.current_session:
-            self.logger.warning("No active session to set transient data")
-            return
-
-        if "transient_context" not in self.current_session:
-            self.current_session["transient_context"] = {}
-
-        self.current_session["transient_context"][key] = value
-        self.logger.debug(f"💾 Set transient: {key}")
+   
 
     # ==========================================
     # 通用 Actions

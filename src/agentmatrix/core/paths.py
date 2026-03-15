@@ -1,0 +1,237 @@
+"""
+MatrixPaths - Matrix路径管理器
+
+职责：
+1. 统一管理所有路径
+2. 提供清晰的路径访问接口
+3. 隐藏系统目录的复杂性
+"""
+
+from pathlib import Path
+from typing import Optional
+import os
+
+
+class MatrixPaths:
+    """
+    Matrix路径管理器
+
+    统一管理所有路径，提供清晰的访问接口
+    """
+
+    def __init__(self, matrix_root: str):
+        """
+        初始化路径管理器
+
+        Args:
+            matrix_root: Matrix World根目录
+        """
+        self.matrix_root = Path(matrix_root).resolve()
+
+    @property
+    def system_dir(self) -> Path:
+        """系统目录：.matrix"""
+        return self.matrix_root / ".matrix"
+
+    @property
+    def workspace_dir(self) -> Path:
+        """工作区目录：workspace"""
+        return self.matrix_root / "workspace"
+
+    @property
+    def config_dir(self) -> Path:
+        """配置目录：.matrix/configs"""
+        return self.system_dir / "configs"
+
+    @property
+    def agent_config_dir(self) -> Path:
+        """Agent配置目录：.matrix/configs/agents"""
+        return self.config_dir / "agents"
+
+    @property
+    def llm_config_path(self) -> Path:
+        """LLM配置文件：.matrix/configs/agents/llm_config.json"""
+        return self.agent_config_dir / "llm_config.json"
+
+    @property
+    def system_config_path(self) -> Path:
+        """系统配置文件：.matrix/configs/system_config.yml"""
+        return self.config_dir / "system_config.yml"
+
+    @property
+    def matrix_config_path(self) -> Path:
+        """Matrix配置文件：.matrix/configs/matrix_config.yml"""
+        return self.config_dir / "matrix_config.yml"
+
+    @property
+    def database_dir(self) -> Path:
+        """数据库目录：.matrix/database"""
+        return self.system_dir / "database"
+
+    @property
+    def database_path(self) -> Path:
+        """数据库文件：.matrix/database/agentmatrix.db"""
+        return self.database_dir / "agentmatrix.db"
+
+    @property
+    def logs_dir(self) -> Path:
+        """日志目录：.matrix/logs"""
+        return self.system_dir / "logs"
+
+    @property
+    def sessions_dir(self) -> Path:
+        """Session目录：.matrix/sessions"""
+        return self.system_dir / "sessions"
+
+    
+
+    @property
+    def browser_profile_dir(self) -> Path:
+        """Browser profile目录：.matrix/browser_profile"""
+        return self.system_dir / "browser_profile"
+
+    @property
+    def snapshot_path(self) -> Path:
+        """Matrix快照文件：.matrix/matrix_snapshot.json"""
+        return self.system_dir / "matrix_snapshot.json"
+
+    @property
+    def user_sessions_path(self) -> Path:
+        """User sessions文件：.matrix/user_sessions.json"""
+        return self.system_dir / "user_sessions.json"
+
+
+    def get_agent_session_dir(self, agent_name: str, session_id: str) -> Path:
+        """
+        获取Agent的特定session目录
+
+        Args:
+            agent_name: Agent名称
+            session_id: Session ID
+
+        Returns:
+            Path: .matrix/sessions/{agent_name}/{session_id}/
+        """
+        return self.sessions_dir / agent_name / session_id
+
+    def get_agent_session_history_dir(self, agent_name: str, session_id: str) -> Path:
+        """
+        获取Agent的session history目录
+
+        Args:
+            agent_name: Agent名称
+            session_id: Session ID
+
+        Returns:
+            Path: .matrix/sessions/{agent_name}/{session_id}/history.json
+        """
+        return self.sessions_dir / agent_name / session_id / "history.json"
+    def get_agent_work_base_dir(self, agent_name: str) -> Path:
+        """
+        获取Agent的work_files目录
+
+        Args:
+            agent_name: Agent名称
+            task_id: 用户会话ID
+
+        Returns:
+            Path: workspace/agent_files/{agent_name}/work_files/{task_id}/
+        """
+        return self.workspace_dir / "agent_files" / agent_name / "work_files" 
+
+    def get_agent_work_files_dir(self, agent_name: str, task_id: str) -> Path:
+        """
+        获取Agent的work_files目录
+
+        Args:
+            agent_name: Agent名称
+            task_id: 用户会话ID
+
+        Returns:
+            Path: workspace/agent_files/{agent_name}/work_files/{task_id}/
+        """
+        return self.workspace_dir / "agent_files" / agent_name / "work_files" / task_id
+
+    def get_agent_home_dir(self, agent_name: str) -> Path:
+        """
+        获取Agent的home目录
+
+        Args:
+            agent_name: Agent名称
+
+        Returns:
+            Path: workspace/agent_files/{agent_name}/home/
+        """
+        return self.workspace_dir / "agent_files" / agent_name / "home"
+
+    def get_agent_attachments_dir(self, agent_name: str, task_id: str) -> Path:
+        """
+        获取Agent的attachments目录
+
+        Args:
+            agent_name: Agent名称
+            task_id: 用户会话ID
+
+        Returns:
+            Path: workspace/agent_files/{agent_name}/work_files/{task_id}/attachments/
+        """
+        return self.get_agent_work_files_dir(agent_name, task_id) / "attachments"
+
+    
+
+    def get_browser_profile_dir(self, agent_name: str) -> Path:
+        """
+        获取Agent的browser profile目录
+
+        Args:
+            agent_name: Agent名称
+
+        Returns:
+            Path: .matrix/browser_profile/{agent_name}/
+        """
+        return self.browser_profile_dir / agent_name
+
+    def get_skills_dir(self) -> Path:
+        """
+        获取workspace的skills目录
+
+        Returns:
+            Path: workspace/SKILLS/
+        """
+        return self.workspace_dir / "SKILLS"
+
+    def ensure_directories(self) -> None:
+        """
+        确保所有必需的目录存在
+
+        创建以下目录：
+        - .matrix/
+        - .matrix/configs/
+        - .matrix/configs/agents/
+        - .matrix/database/
+        - .matrix/logs/
+        - .matrix/sessions/
+        - .matrix/email_attachments/
+        - .matrix/browser_profile/
+        - workspace/
+        - workspace/agent_files/
+        - workspace/SKILLS/
+        """
+        directories = [
+            self.system_dir,
+            self.config_dir,
+            self.agent_config_dir,
+            self.database_dir,
+            self.logs_dir,
+            self.sessions_dir,
+            self.browser_profile_dir,
+            self.workspace_dir,
+            self.workspace_dir / "agent_files",
+            self.get_skills_dir(),
+        ]
+
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+
+    def __repr__(self) -> str:
+        return f"MatrixPaths(matrix_root='{self.matrix_root}')"
