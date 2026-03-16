@@ -296,17 +296,7 @@ def create_world_config(matrix_world_dir: Path, user_name: str):
     print(f"✅ Created matrix configuration: {config_path}")
 
 
-def save_llm_configs(configs: dict, config_path: Path):
-    """Save LLM configurations to file"""
-    llm_config_data = {}
-    for name, config in configs.items():
-        llm_config_data[name] = {
-            "url": config.url,
-            "API_KEY": config.api_key,
-            "model_name": config.model_name
-        }
 
-    config_path.write_text(json.dumps(llm_config_data, indent=4))
 
 
 # === Graceful Shutdown Handler ===
@@ -653,25 +643,7 @@ async def get_config():
     return response_data
 
 
-@app.post("/api/config/llm")
-async def save_llm_config(configs: LLMConfigsRequest):
-    """Save LLM configurations"""
-    try:
-        config = app.state.config
-        # Convert Pydantic models to dict
-        configs_dict = {
-            "default_llm": configs.default_llm,
-            "default_slm": configs.default_slm
-        }
 
-        save_llm_configs(configs_dict, config['llm_config_path'])
-
-        return {
-            "success": True,
-            "message": "LLM configuration saved successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/config/complete")
@@ -1312,10 +1284,14 @@ async def get_agent_profiles():
 async def get_agent_profile(agent_name: str):
     """Get a specific agent's full profile from YAML"""
     try:
-        profile = load_agent_profile(agent_name)
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        profile = matrix_runtime.config_service.get_agent_profile(agent_name)
         return agent_profile_to_response(profile)
-    except HTTPException:
-        raise
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1510,23 +1486,7 @@ async def reload_agent_profile(agent_name: str):
 
 # === LLM Configuration Management APIs ===
 
-def load_llm_configs() -> dict:
-    """Load LLM configurations from file"""
-    if not llm_config_path.exists():
-        return {}
-    
-    try:
-        with open(llm_config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"Error loading LLM configs: {e}")
-        return {}
 
-
-def save_llm_configs_to_file(configs: dict):
-    """Save LLM configurations to file"""
-    with open(llm_config_path, 'w', encoding='utf-8') as f:
-        json.dump(configs, f, indent=4)
 
 
 @app.get("/api/llm-configs")
@@ -1571,7 +1531,11 @@ def get_llm_config_description(name: str) -> str:
 async def get_llm_config(config_name: str):
     """Get a specific LLM configuration"""
     try:
-        configs = load_llm_configs()
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        configs = matrix_runtime.config_service.list_llm_models()
         
         if config_name not in configs:
             raise HTTPException(status_code=404, detail=f"LLM config '{config_name}' not found")
@@ -1595,24 +1559,22 @@ async def get_llm_config(config_name: str):
 async def create_llm_config(request: LLMConfigCreateRequest):
     """Create a new LLM configuration"""
     try:
-        configs = load_llm_configs()
-        
-        # Check if config already exists
-        if request.name in configs:
-            raise HTTPException(status_code=409, detail=f"LLM config '{request.name}' already exists")
-        
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
         # Validate name (alphanumeric, underscore, hyphen)
         if not re.match(r'^[a-zA-Z0-9_-]+$', request.name):
             raise HTTPException(status_code=400, detail="Config name can only contain letters, numbers, underscores, and hyphens")
         
-        # Create new config
-        configs[request.name] = {
+        # Create new config using ConfigService
+        config = {
             "url": request.url,
             "API_KEY": request.api_key,
             "model_name": request.model_name
         }
         
-        save_llm_configs_to_file(configs)
+        matrix_runtime.config_service.add_llm_model(request.name, config)
         
         return {
             "success": True,
@@ -1628,6 +1590,8 @@ async def create_llm_config(request: LLMConfigCreateRequest):
         }
     except HTTPException:
         raise
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1923,5 +1887,99 @@ def main():
         pass
 
 
+
+
+# === Email Proxy Configuration Endpoints ===
+
+@app.get("/api/email-proxy/config")
+async def get_email_proxy_config():
+    """Get Email Proxy configuration"""
+    try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        config = matrix_runtime.config_service.get_email_proxy_config()
+        return config
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/email-proxy/config")
+async def update_email_proxy_config(request: dict):
+    """Update Email Proxy configuration"""
+    try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        path = matrix_runtime.config_service.update_email_proxy_config(request)
+        return {"success": True, "message": "Email proxy config updated", "path": path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/email-proxy/enable")
+async def enable_email_proxy():
+    """Enable Email Proxy"""
+    try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        matrix_runtime.config_service.enable_email_proxy()
+        return {"success": True, "message": "Email proxy enabled"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/email-proxy/disable")
+async def disable_email_proxy():
+    """Disable Email Proxy"""
+    try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        matrix_runtime.config_service.disable_email_proxy()
+        return {"success": True, "message": "Email proxy disabled"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/email-proxy/user-mailbox")
+async def add_user_mailbox(request: dict):
+    """Add user mailbox"""
+    try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        email = request.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required")
+
+        matrix_runtime.config_service.add_user_mailbox(email)
+        return {"success": True, "message": f"Added user mailbox: {email}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/email-proxy/user-mailbox")
+async def remove_user_mailbox(request: dict):
+    """Remove user mailbox"""
+    try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+        email = request.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required")
+
+        matrix_runtime.config_service.remove_user_mailbox(email)
+        return {"success": True, "message": f"Removed user mailbox: {email}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 if __name__ == "__main__":
     main()
