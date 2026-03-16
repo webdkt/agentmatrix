@@ -76,6 +76,38 @@ active_websockets = []
 matrix_runtime = None
 
 
+# === Broadcast Functions ===
+
+async def broadcast_message_to_clients(message: dict):
+    """
+    广播消息到所有 WebSocket 客户端
+
+    Args:
+        message: 要广播的消息（字典）
+    """
+    if not active_websockets:
+        return
+
+    try:
+        json_message = json.dumps(message)
+
+        # 发送给所有活跃的 WebSocket 连接
+        websockets_to_remove = []
+        for ws in active_websockets:
+            try:
+                await ws.send_text(json_message)
+            except Exception as e:
+                print(f"⚠️ Error sending to WebSocket: {e}")
+                websockets_to_remove.append(ws)
+
+        # 清理失效的连接
+        for ws in websockets_to_remove:
+            active_websockets.remove(ws)
+
+    except Exception as e:
+        print(f"⚠️ Error in broadcast: {e}")
+
+
 # === Configuration Models ===
 
 class LLMConfig(BaseModel):
@@ -294,6 +326,7 @@ async def graceful_shutdown():
             except Exception:
                 pass
         active_websockets.clear()
+        print("✅ WebSocket connections closed")
     
     # 2. Save matrix state with timeout
     if matrix_runtime:
@@ -304,10 +337,20 @@ async def graceful_shutdown():
             print("✅ Matrix state saved successfully")
         except asyncio.TimeoutError:
             print("⚠️  Saving matrix state timed out (10s), forcing shutdown...")
+        except asyncio.CancelledError:
+            # 🔧 任务被取消（正常情况，不打印错误）
+            print("⚠️  Shutdown cancelled by user")
         except Exception as e:
             print(f"⚠️  Error saving Matrix state: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
+            print("🧹 Cleaning up runtime resources...")
+            # 强制清理，防止内存泄漏
             matrix_runtime = None
+            print("✅ Runtime cleaned up")
+
+    print("👋 AgentMatrix Server shutdown complete")
 
 
 # === Lifespan Management ===
@@ -351,10 +394,22 @@ async def lifespan(app: FastAPI):
             async def event_callback(event):
                 """Callback to broadcast runtime events to WebSocket clients"""
                 try:
-                    message = json.dumps({
-                        "type": "runtime_event",
-                        "data": event.to_dict()
-                    })
+                    # 🔍 调试日志
+                    print(f"📡 event_callback called: event_type={event.event_type}")
+                    # 特殊处理 SYSTEM_STATUS 事件：直接发送，不包装在 runtime_event 中
+                    if event.event_type == "SYSTEM_STATUS":
+                        message = json.dumps({
+                            "type": "SYSTEM_STATUS",
+                            "data": event.payload.get("status", {}) if event.payload else {}
+                        })
+                        print(f"📊 Broadcasting SYSTEM_STATUS to {len(active_websockets)} clients")
+                    else:
+                        # 其他事件包装在 runtime_event 中
+                        message = json.dumps({
+                            "type": "runtime_event",
+                            "data": event.to_dict()
+                        })
+
                     # Send to all active WebSocket connections
                     for ws in active_websockets[:]:  # Copy list to avoid modification during iteration
                         try:
@@ -371,6 +426,14 @@ async def lifespan(app: FastAPI):
                 async_event_callback=event_callback,
                 user_agent_name=user_agent_name
             )
+
+            # 🔧 注入广播回调
+            matrix_runtime.set_broadcast_callback(broadcast_message_to_clients)
+
+            # ✅ 注入广播回调给所有 Agent
+            for agent in matrix_runtime.agents.values():
+                agent._broadcast_message_callback = matrix_runtime.get_broadcast_callback()
+            print("✅ 广播回调已注入到所有 Agent")
 
             # Validate User agent exists and has correct name
             if user_agent_name not in matrix_runtime.agents:
@@ -400,7 +463,8 @@ async def lifespan(app: FastAPI):
                             "subject": email.subject,
                             "body": email.body,
                             "in_reply_to": email.in_reply_to,
-                            "task_id": email.task_id
+                            "task_id": email.task_id,
+                            "receiver_session_id": email.receiver_session_id
                         }
 
                         message = json.dumps({
@@ -478,21 +542,50 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time communication"""
+    global matrix_runtime
+
     await websocket.accept()
     active_websockets.append(websocket)
 
     try:
+        # ✅ 新连接时立即发送当前完整状态
+        if matrix_runtime and hasattr(matrix_runtime, 'status_collector'):
+            status = matrix_runtime.status_collector.collect_status()
+            await websocket.send_text(json.dumps({
+                "type": "SYSTEM_STATUS",
+                "data": status
+            }))
+            print(f"📊 Sent initial status to new client")
+
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
 
-            # TODO: Handle different message types
-            # For now, just echo back
-            response = {
-                "type": "echo",
-                "data": message
-            }
-            await websocket.send_text(json.dumps(response))
+            # 🆕 Handle different message types
+            if message.get("type") == "REQUEST_SYSTEM_STATUS":
+                # 发送当前系统状态
+                if matrix_runtime and hasattr(matrix_runtime, 'status_collector'):
+                    status = matrix_runtime.status_collector.collect_status()
+                    response = {
+                        "type": "SYSTEM_STATUS",
+                        "data": status
+                    }
+                    await websocket.send_text(json.dumps(response))
+                    print(f"📊 Sent system status to WebSocket client")
+                else:
+                    # Runtime not initialized
+                    response = {
+                        "type": "error",
+                        "message": "Runtime not initialized"
+                    }
+                    await websocket.send_text(json.dumps(response))
+            else:
+                # Echo back for unknown message types
+                response = {
+                    "type": "echo",
+                    "data": message
+                }
+                await websocket.send_text(json.dumps(response))
 
     except WebSocketDisconnect:
         active_websockets.remove(websocket)
@@ -789,6 +882,7 @@ async def get_session_emails(session_id: str):
                 "body": email.body,
                 "in_reply_to": email.in_reply_to,
                 "task_id": email.task_id,
+                            "receiver_session_id": email.receiver_session_id,
                 "is_from_user": getattr(email, 'is_from_user', False),
                 "attachments": email.attachments
             })
@@ -1814,12 +1908,19 @@ def main():
 
     # Args already parsed at module level
     # Access via module-level 'args' variable
-    uvicorn.run(
-        "server:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload
-    )
+    try:
+        uvicorn.run(
+            "server:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload
+        )
+    except KeyboardInterrupt:
+        # Ctrl-C 正常退出，已在 lifespan shutdown 中打印告别信息
+        pass
+    except asyncio.CancelledError:
+        # 异步任务取消（正常 shutdown 的一部分）
+        pass
 
 
 if __name__ == "__main__":

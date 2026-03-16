@@ -35,6 +35,8 @@ class UserProxyAgent(BaseAgent):
                 receiver_session_id=session["session_id"],
                 receiver_name=self.name
             )
+            # 🔑 关键修复：同步更新内存对象，否则 WebSocket 回调拿到的还是 null
+            email.receiver_session_id = session["session_id"]
 
         # 3. 记录日志（保持原有逻辑）
         print(f"[{self.name}] 收到邮件: {email.subject}")
@@ -69,7 +71,7 @@ class UserProxyAgent(BaseAgent):
             to: 收件人
             subject: 邮件主题
             content: 邮件内容
-            reply_to_id: 回复的邮件ID
+            reply_to_id: 回复的邮件ID（由前端控制）
             attachments: 附件列表 (可选)
         """
         if content is None:
@@ -102,12 +104,15 @@ class UserProxyAgent(BaseAgent):
             subject = subject.split("\n")[-1]
             self.logger.info(f"✅ Generated subject: {subject}")
 
-        # 复制 EmailSkillMixin.send_email 的逻辑
-        # 确定 in_reply_to
-        last_email = self.last_received_email
-        in_reply_to = session["session_id"]
-        if last_email and to == last_email.sender:
-            in_reply_to = last_email.id
+        # 🔑 修复：只使用前端传递的 reply_to_id，不做任何自动判断
+        # 前端说 reply to 谁，就 reply to 谁
+        # 前端没有传 reply_to_id，就是新邮件（in_reply_to = None）
+        in_reply_to = reply_to_id  # 可能是 None，也可能是一个邮件 ID
+
+        if in_reply_to:
+            self.logger.info(f"📧 Reply to email: {in_reply_to}")
+        else:
+            self.logger.info(f"📧 New email (no reply_to_id)")
 
         # 处理附件 metadata
         metadata = {}
@@ -120,7 +125,7 @@ class UserProxyAgent(BaseAgent):
             recipient=to,
             subject=subject,
             body=content,
-            in_reply_to=reply_to_id or in_reply_to,
+            in_reply_to=in_reply_to,  # 🔑 只使用前端传递的值
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 关键：设置发件人的 session
             receiver_session_id=None,  # 收件人的 session（由收件人收到后更新）
@@ -134,5 +139,6 @@ class UserProxyAgent(BaseAgent):
             session_id=session["session_id"],
             task_id=session["task_id"]
         )
+
 
 

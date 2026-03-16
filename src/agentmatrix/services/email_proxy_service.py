@@ -151,8 +151,13 @@ class EmailProxyService(AutoLoggerMixin):
                     # 转换为内部Email
                     internal_email = self.convert_to_internal(raw_email)
 
-                    # 发送到PostOffice
-                    await self.post_office.dispatch(internal_email)
+                    # 检查是否是 ask_user 回复（特殊处理）
+                    if internal_email.metadata.get('ask_user_metadata'):
+                        # ask_user 回复：直接调用 Agent 方法，不通过 PostOffice
+                        await self._handle_ask_user_reply(internal_email)
+                    else:
+                        # 普通邮件：发送到 PostOffice
+                        await self.post_office.dispatch(internal_email)
 
                     self.logger.info(f"✅ 转发邮件: {raw_email['From']} → {internal_email.recipient}")
 
@@ -173,12 +178,14 @@ class EmailProxyService(AutoLoggerMixin):
 
         转换逻辑：
         1. 解析headers
-        2. 从subject提取session_id
-        3. 清理subject（移除标记）
-        4. 解析收件人（@mention或默认）
-        5. 确定sender
-        6. 解析body
-        7. 构造Email
+        2. 检查是否是 ask_user 回复（特殊处理）
+        3. 如果不是 ask_user 回复，继续正常流程
+        4. 从subject提取session_id
+        5. 清理subject（移除标记）
+        6. 解析收件人（@mention或默认）
+        7. 确定sender
+        8. 解析body和attachments
+        9. 构造Email
 
         Args:
             raw_email: 原始邮件对象
@@ -190,32 +197,49 @@ class EmailProxyService(AutoLoggerMixin):
         subject = self._decode_header(raw_email['Subject'])
         from_addr = self._extract_email_address(raw_email['From'])
 
-        # 2. 从subject提取session_id
+        # 2. 检查是否是 ask_user 回复
+        ask_user_metadata = self._parse_ask_user_metadata(subject)
+        if ask_user_metadata:
+            # 这是 ask_user 回复，在 fetch_external_emails 中特殊处理
+            # 这里只标记 metadata，实际处理在 fetch_external_emails
+            pass
+
+        # 3. 从subject提取session_id
         session_id = IDGenerator.extract_session_id(subject)
 
-        # 3. 清理subject（移除标记）
+        # 4. 清理subject（移除标记）
         clean_subject = IDGenerator.remove_session_tag(subject)
 
-        # 4. 解析收件人（@mention或默认）
+        # 5. 解析收件人（@mention或默认）
         recipient = self._parse_recipient(clean_subject, raw_email)
 
-        # 5. 确定sender（user_mailbox映射为User）
+        # 6. 确定sender（user_mailbox映射为User）
         sender = "User"
 
+        # 7. 解析body和attachments
+        task_id = session_id if session_id else IDGenerator.generate_session_id()
+        body, attachments = self._extract_body_and_attachments(raw_email, task_id)
 
-        # 7. 生成内部email_id
+        # 8. 生成内部email_id
         email_id = IDGenerator.generate_email_id()
 
-        # 8. 生成task_id
-        if session_id:
-            # 找到session，用session_id作为task_id
-            task_id = session_id
-        else:
-            # 新session，生成新的session_id和task_id
-            session_id = IDGenerator.generate_session_id()
-            task_id = session_id
+        # 9. 生成task_id（如果尚未生成）
+        if not session_id:
+            session_id = task_id
 
-        # 9. 构造Email
+        # 10. 构造Email
+        metadata = {
+            'original_message_id': raw_email['Message-ID'],
+            'original_sender': from_addr,
+            'original_subject': subject,  # 保存原始subject（带标记）
+            'is_external': True,
+            'attachments': attachments
+        }
+
+        # 如果是 ask_user 回复，添加特殊标记
+        if ask_user_metadata:
+            metadata['ask_user_metadata'] = ask_user_metadata
+
         return Email(
             id=email_id,
             sender=sender,
@@ -226,13 +250,7 @@ class EmailProxyService(AutoLoggerMixin):
             task_id=task_id,
             sender_session_id=session_id,
             receiver_session_id=None,
-            metadata={
-                'original_message_id': raw_email['Message-ID'],
-                'original_sender': from_addr,
-                'original_subject': subject,  # 保存原始subject（带标记）
-                'is_external': True,
-                'attachments': attachments
-            }
+            metadata=metadata
         )
 
     def _parse_recipient(self, subject: str, raw_email) -> str:
@@ -269,6 +287,174 @@ class EmailProxyService(AutoLoggerMixin):
 
         # 3. 默认发给User
         return 'User'
+
+    def _parse_ask_user_metadata(self, subject: str) -> Optional[dict]:
+        """
+        解析 subject 中的 ask_user 标记
+
+        标记格式：#ASK_USER#{agent_name}#{agent_session_id}#
+
+        Args:
+            subject: 邮件 subject（可能包含标记）
+
+        Returns:
+            如果是 ask_user 回复，返回 dict：
+                {
+                    'agent_name': str,
+                    'agent_session_id': str
+                }
+            否则返回 None
+        """
+        import re
+
+        # 正则表达式匹配 #ASK_USER#...#
+        match = re.search(r'#ASK_USER#([^#]+)#([^#]+)#', subject)
+        if match:
+            agent_name = match.group(1)
+            agent_session_id = match.group(2)
+            return {
+                'agent_name': agent_name,
+                'agent_session_id': agent_session_id
+            }
+        return None
+
+    async def _handle_ask_user_reply(self, internal_email: Email):
+        """
+        处理 ask_user 回复邮件
+
+        流程：
+        1. 从 metadata 获取 ask_user_metadata
+        2. 查找对应的 Agent
+        3. 调用 Agent 的 submit_user_input() 方法
+        4. 捕获异常（RuntimeError）并发送反馈邮件
+
+        Args:
+            internal_email: 内部Email对象（metadata 包含 ask_user_metadata）
+        """
+        try:
+            # 1. 获取 ask_user_metadata
+            ask_user_metadata = internal_email.metadata.get('ask_user_metadata')
+            if not ask_user_metadata:
+                self.logger.warning("⚠️ Email 缺少 ask_user_metadata，跳过处理")
+                return
+
+            agent_name = ask_user_metadata.get('agent_name')
+            agent_session_id = ask_user_metadata.get('agent_session_id')
+
+            self.logger.info(f"📬 检测到 ask_user 回复: agent={agent_name}, session={agent_session_id[:8] if agent_session_id else None}...")
+
+            # 2. 查找 Agent
+            agent = self.post_office.directory.get(agent_name)
+            if not agent:
+                # Agent 不存在
+                self.logger.warning(f"⚠️ Agent {agent_name} 不存在")
+                await self._send_ask_user_feedback(
+                    internal_email,
+                    success=False,
+                    message=f"未找到 Agent: {agent_name}，可能 Agent 已停止或名称错误"
+                )
+                return
+
+            # 3. 提取用户回答（邮件正文）
+            answer = internal_email.body.strip()
+            if not answer:
+                self.logger.warning("⚠️ ask_user 回复内容为空")
+                await self._send_ask_user_feedback(
+                    internal_email,
+                    success=False,
+                    message="回复内容为空，请输入你的回答"
+                )
+                return
+
+            # 4. 调用 Agent 的 submit_user_input() 方法
+            try:
+                await agent.submit_user_input(answer)
+                self.logger.info(f"✅ 成功提交 ask_user 回复给 {agent_name}")
+
+                # 发送成功反馈
+                await self._send_ask_user_feedback(
+                    internal_email,
+                    success=True,
+                    message=f"✅ 你的回答已成功提交给 {agent_name}"
+                )
+
+            except RuntimeError as e:
+                # Agent 当前不在等待状态（已经回答或超时）
+                self.logger.warning(f"⚠️ Agent {agent_name} 当前不在等待用户输入状态: {e}")
+                await self._send_ask_user_feedback(
+                    internal_email,
+                    success=False,
+                    message=f"提交失败：{agent_name} 当前不在等待状态，可能已经回答或任务已结束"
+                )
+
+        except Exception as e:
+            self.logger.error(f"❌ 处理 ask_user 回复失败: {e}", exc_info=True)
+            await self._send_ask_user_feedback(
+                internal_email,
+                success=False,
+                message=f"处理失败：{str(e)}"
+            )
+
+    async def _send_ask_user_feedback(self, original_email: Email, success: bool, message: str):
+        """
+        发送 ask_user 反馈邮件
+
+        Args:
+            original_email: 原始的 ask_user 回复邮件
+            success: 是否成功
+            message: 反馈消息
+        """
+        try:
+            # 获取原始发送者邮箱
+            original_sender = original_email.metadata.get('original_sender')
+            if not original_sender:
+                self.logger.warning("⚠️ 无法确定反馈邮件收件人")
+                return
+
+            # 构造 subject
+            status = "✅" if success else "❌"
+            subject = f"{status} ask_user 回复反馈"
+
+            # 构造邮件正文
+            body = f"""你好，
+
+{message}
+
+---
+原始问题：{original_email.subject}
+---
+
+AgentMatrix 自动回复
+"""
+
+            # 创建内部 Email 对象
+            from ..core.id_generator import IDGenerator
+
+            email_id = IDGenerator.generate_email_id()
+            email_session_id = IDGenerator.generate_session_id()
+
+            feedback_email = Email(
+                id=email_id,
+                sender="System",
+                recipient="User",
+                subject=subject,
+                body=body,
+                in_reply_to=None,
+                task_id="ask_user_feedback",
+                sender_session_id=None,
+                receiver_session_id=email_session_id,
+                metadata={
+                    'is_external': True,
+                    'original_sender': original_sender
+                }
+            )
+
+            # 通过 Email Proxy 发送
+            await self.send_to_external(feedback_email)
+            self.logger.info(f"📧 已发送 ask_user 反馈邮件: {message[:50]}...")
+
+        except Exception as e:
+            self.logger.error(f"❌ 发送 ask_user 反馈邮件失败: {e}", exc_info=True)
 
     async def send_to_external(self, internal_email: Email):
         """

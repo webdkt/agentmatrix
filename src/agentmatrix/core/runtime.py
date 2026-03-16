@@ -11,6 +11,7 @@ import os
 
 from ..agents.post_office import PostOffice
 from ..core.log_util import LogFactory, AutoLoggerMixin
+from .system_status_collector import SystemStatusCollector
 
 
 from ..core.message import Email
@@ -47,6 +48,11 @@ class AgentMatrix(AutoLoggerMixin):
         # 确保所有必需的目录存在
         self.paths.ensure_directories()
 
+        # === 全局实例 ===
+        # ⚠️ 重要：必须在创建任何 logger 之前设置日志目录
+        from ..core.log_util import LogFactory
+        LogFactory.set_log_dir(str(self.paths.logs_dir))
+
         # === 初始化配置管理器 ===
         from ..core.config import MatrixConfig
         self.config = MatrixConfig(self.paths)
@@ -54,9 +60,6 @@ class AgentMatrix(AutoLoggerMixin):
         # 从配置获取user_agent_name（如果未提供）
         if user_agent_name is None:
             user_agent_name = self.config.matrix.user_agent_name
-
-        # === 全局实例 ===
-        LogFactory.set_log_dir(str(self.paths.logs_dir))
 
         self.async_event_callback = async_event_callback
         self.matrix_path = matrix_root  # 保留向后兼容
@@ -78,11 +81,19 @@ class AgentMatrix(AutoLoggerMixin):
         # 🆕 系统配置（向后兼容）
         self.system_config = None
         self.email_proxy = None
+        
+        # 🆕 后台服务任务引用（用于关闭时取消）
+        self.scheduler_task = None
+        self.email_proxy_task = None
 
         self.echo(">>> 初始化世界资源...")
         self._prepare_world_resource()
         self.echo(">>> 初始化Agents...")
         self._prepare_agents()
+
+        # 🔧 广播回调接口（由 server 注入）- 必须在 load_matrix 之前初始化
+        self._broadcast_message_callback = None
+
         self.echo(">>> 加载世界状态...")
         self.load_matrix()
         self.echo(">>> 启动 LLM 服务监控...")
@@ -90,9 +101,24 @@ class AgentMatrix(AutoLoggerMixin):
         self.echo(">>> 初始化系统配置...")
         self._init_system_config()
 
+        # 🆕 系统状态收集器
+        self.status_collector = SystemStatusCollector(self)
+        self.echo(">>> 系统状态收集器已初始化")
+        self.echo(">>> 广播回调接口已初始化（事件驱动模式）")
+
     def get_user_agent_name(self) -> str:
         """Get the configured user agent name"""
         return self.user_agent_name
+
+    def set_broadcast_callback(self, callback):
+        """设置广播消息的回调（由 server 注入）"""
+        self._broadcast_message_callback = callback
+        self.logger.info("✅ 广播回调已设置")
+
+    def get_broadcast_callback(self):
+        """获取广播回调（给 BaseAgent 使用）"""
+        return self._broadcast_message_callback
+
     def json_serializer(self,obj):
         """JSON serializer for objects not serializable by default json code"""
         try:
@@ -164,6 +190,10 @@ class AgentMatrix(AutoLoggerMixin):
         self.monitor_task = asyncio.create_task(self.llm_monitor.start())
 
         self.echo(f">>> LLM Service Monitor started (interval: 60s)")
+
+    # ❌ 移除定时广播循环（改为事件驱动）
+    # 每个 Agent 的 update_status() 会触发增量推送
+    # 新连接时会发送全量状态
 
     async def load_and_register_agent(self, agent_name: str):
         """
@@ -278,13 +308,32 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 🆕 停止调度器
 
-        # 🆕 停止EmailProxy
+        # 🆕 停止后台服务任务
+        if self.scheduler_task and not self.scheduler_task.done():
+            self.scheduler_task.cancel()
+            try:
+                await asyncio.wait_for(self.scheduler_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            self.echo(">>> TaskScheduler task cancelled")
+        
+        if self.email_proxy_task and not self.email_proxy_task.done():
+            self.email_proxy_task.cancel()
+            try:
+                await asyncio.wait_for(self.email_proxy_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            self.echo(">>> EmailProxy task cancelled")
+        
+        # 🆕 停止服务
         if self.email_proxy:
             try:
                 await self.email_proxy.stop()
                 self.echo(">>> EmailProxy stopped")
             except Exception as e:
                 self.echo(f">>> EmailProxy stop error: {e}")
+
+        # 🔧 事件驱动模式：无需停止广播任务
 
         if hasattr(self, 'task_scheduler'):
             await self.task_scheduler.stop()
@@ -353,16 +402,21 @@ class AgentMatrix(AutoLoggerMixin):
         self.echo(f">>> 世界已保存至 {filepath}")
         # 9. 清理资源
         self.running = False
-        
-        # 10. 关闭默认线程池（防止退出时hang住）
+
+        # 10. 取消未完成的任务（避免hang）
         try:
             loop = asyncio.get_event_loop()
-            await asyncio.wait_for(loop.shutdown_default_executor(), timeout=5.0)
-            self.echo(">>> Default executor shut down")
-        except asyncio.TimeoutError:
-            self.echo(">>> Executor shutdown timed out")
+            pending = asyncio.all_tasks(loop)
+
+            # 只保留当前任务，取消所有其他任务
+            current_task = asyncio.current_task(loop)
+            for task in pending:
+                if task is not current_task and not task.done():
+                    task.cancel()
+
+            self.echo(">>> Tasks cancelled")
         except Exception as e:
-            self.echo(f">>> Executor shutdown error: {e}")
+            self.echo(f">>> Cleanup error: {e}")
 
     def load_matrix(self):
 
@@ -421,15 +475,21 @@ class AgentMatrix(AutoLoggerMixin):
         
         
         # 🆕 启动TaskScheduler
-
-        # 🆕 启动TaskScheduler
         if hasattr(self, 'task_scheduler'):
-            asyncio.ensure_future(self.task_scheduler.start())
+            self.scheduler_task = asyncio.ensure_future(self.task_scheduler.start())
 
         # 🆕 启动EmailProxy
         if self.email_proxy:
-            asyncio.ensure_future(self.email_proxy.start())
+            self.email_proxy_task = asyncio.ensure_future(self.email_proxy.start())
             self.echo(">>> EmailProxy service started")
         self.echo(">>> 世界已恢复，系统继续运行！")
         yellow_page = self.post_office.yellow_page()
         self.echo(f">>> 当前世界中的 Agent 有：\n{yellow_page}")
+
+        # 🔧 启动运行时（事件驱动模式，无需定时广播）
+        self.running = True
+
+        # ✅ 注入广播回调给所有 Agent
+        for agent in self.agents.values():
+            agent._broadcast_message_callback = self.get_broadcast_callback()
+        self.logger.info("✅ 广播回调已注入到所有 Agent")

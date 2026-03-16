@@ -61,26 +61,8 @@ function app() {
 
         // New email popup state
         newEmailPopup: null,
-        
-        // ask_user 对话框状态
-        askUserDialog: {
-            show: false,
-            minimized: false,  // 是否最小化到会话底部
-            agent_name: '',
-            question: '',
-            task_id: null,
-            session_id: null,  // 记录会话ID，用于跨会话显示
-            answer: '',
-            submitting: false,
-            error: null,
-            persistent: true  // 持久化标志，不会因为切换会话而消失
-        },
-        
+
         // Agent 状态轮询
-        agentStatusPolling: false,  // 是否正在轮询
-        agentStatusTarget: '',      // 目标 Agent 名称
-        agentStatusHistory: [],     // 状态历史（最近 3 条）
-        agentStatusError: null,     // 错误信息
 
         // Settings state
         settingsView: 'main',  // 'main', 'agents', 'llm'
@@ -251,18 +233,35 @@ function app() {
                     if (typeof wsClient !== 'undefined' && wsClient) {
                         // Listen for new emails
                         wsClient.on('message', (data) => {
+                            console.log('🔍 [app.js] WebSocket message received:', data.type, data);
+                            
                             if (data.type === 'new_email') {
                                 this.handleNewEmail(data.data);
                             } else if (data.type === 'runtime_event') {
                                 this.handleRuntimeEvent(data.data);
+                            } else if (data.type === 'SYSTEM_STATUS') {
+                                // ✅ 完整状态（新连接时）
+                                console.log('✅ Calling handleSystemStatus');
+                                uiStore.handleSystemStatus(data);
+                            } else if (data.type === 'AGENT_STATUS_UPDATE') {
+                                // 🆕 增量更新（Agent 状态变化时）
+                                console.log('✅ Calling handleAgentStatusUpdate');
+                                uiStore.handleAgentStatusUpdate(data);
+                            } else {
+                                console.log('⚠️ Unknown message type:', data.type);
                             }
                         });
                     }
 
                     await this.loadInitialData();
+
+                    // Load UI components
+                    await this.loadComponents();
                 }
             } catch (error) {
                 console.error('Failed to initialize application:', error);
+
+
                 this.runtimeError = `初始化失败: ${error.message}`;
                 this.isLoading = false;
             }
@@ -292,6 +291,105 @@ function app() {
                 console.log('Loaded agents:', this.agents);
             } catch (error) {
                 console.error('Failed to load agents:', error);
+            }
+        },
+
+        // Load UI components
+        async loadComponents() {
+            try {
+                console.log("Loading UI components...");
+
+                // Load AskUserDialog components
+                const askUserDialogResponse = await fetch("/static/components/ask-user-dialog.html");
+                if (askUserDialogResponse.ok) {
+                    const html = await askUserDialogResponse.text();
+                    const tempContainer = document.createElement("div");
+                    tempContainer.innerHTML = html;
+
+                    const inlineTemplate = tempContainer.querySelector("#ask-user-dialog-inline-template");
+                    const inlineTarget = document.querySelector("#ask-user-dialog-inline");
+                    if (inlineTemplate && inlineTarget) {
+                        inlineTarget.appendChild(inlineTemplate.content.cloneNode(true));
+                        console.log("✅ Inline AskUserDialog component mounted");
+                    }
+
+                    const modalTemplate = tempContainer.querySelector("#ask-user-dialog-modal-template");
+                    const modalTarget = document.querySelector("#ask-user-dialog-modal");
+                    if (modalTemplate && modalTarget) {
+                        modalTarget.appendChild(modalTemplate.content.cloneNode(true));
+                        console.log("✅ Modal AskUserDialog component mounted");
+                    }
+                }
+
+                // Load ConversationList component
+                const conversationListResponse = await fetch("/static/components/conversation-list.html");
+                if (conversationListResponse.ok) {
+                    const html = await conversationListResponse.text();
+                    const tempContainer = document.createElement("div");
+                    tempContainer.innerHTML = html;
+
+                    const template = tempContainer.querySelector("#conversation-list-template");
+                    const target = document.querySelector("#conversation-list");
+                    if (template && target) {
+                        target.appendChild(template.content.cloneNode(true));
+                        console.log("✅ ConversationList component mounted");
+                    }
+                }
+
+                // Load MessageList component
+                const messageListResponse = await fetch("/static/components/message-list.html");
+                if (messageListResponse.ok) {
+                    const html = await messageListResponse.text();
+                    const tempContainer = document.createElement("div");
+                    tempContainer.innerHTML = html;
+
+                    const template = tempContainer.querySelector("#message-list-template");
+                    const target = document.querySelector("#message-list");
+                    if (template && target) {
+                        target.appendChild(template.content.cloneNode(true));
+                        console.log("✅ MessageList component mounted");
+                    }
+                }
+
+                // Load NewEmailModal component
+                const newEmailModalResponse = await fetch("/static/components/new-email-modal.html");
+                if (newEmailModalResponse.ok) {
+                    const html = await newEmailModalResponse.text();
+                    const tempContainer = document.createElement("div");
+                    tempContainer.innerHTML = html;
+
+                    const template = tempContainer.querySelector("#new-email-modal-template");
+                    const target = document.querySelector("#new-email-modal");
+                    if (template && target) {
+                        target.appendChild(template.content.cloneNode(true));
+                        console.log("✅ NewEmailModal component mounted");
+                    }
+                }
+
+                // Load SettingsPanel component
+                const settingsPanelResponse = await fetch("/static/components/settings-panel.html");
+                if (settingsPanelResponse.ok) {
+                    const html = await settingsPanelResponse.text();
+                    const tempContainer = document.createElement("div");
+                    tempContainer.innerHTML = html;
+
+                    const template = tempContainer.querySelector("#settings-panel-template");
+                    const target = document.querySelector("#settings-panel");
+                    if (template && target) {
+                        target.appendChild(template.content.cloneNode(true));
+                        console.log("✅ SettingsPanel component mounted");
+                    }
+                }
+
+                // Wait for Alpine.js to process the new DOM
+                if (typeof Alpine !== 'undefined' && Alpine.nextTick) {
+                    await Alpine.nextTick();
+                    console.log("✅ Alpine.js reinitialized components");
+                }
+
+                console.log("UI components loaded successfully");
+            } catch (error) {
+                console.error("Failed to load UI components:", error);
             }
         },
 
@@ -347,108 +445,9 @@ function app() {
                 console.error('Failed to handle runtime event:', error);
             }
         },
-        async handleAskUser(agentName, question, payload) {
-            const { task_id } = payload;
-            
-            // 1. 查找并切换到对应的对话
-            if (task_id) {
-                const session = this.sessions.find(s => s.session_id === task_id);
-                
-                if (session) {
-                    // 如果不在当前对话，切换过去
-                    if (!this.currentSession || this.currentSession.session_id !== task_id) {
-                        this.currentSession = session;
-                        await this.loadSessionEmails(session.session_id);
-                        console.log('✅ 切换到对话:', session.subject);
-                    }
-                } else {
-                    console.warn('⚠️ 未找到对应的对话:', task_id);
-                }
-            }
-            
-            // 2. 显示用户输入对话框
-            this.showAskUserDialog({
-                agent_name: agentName,
-                question: question,
-                task_id: task_id
-            });
-        },
-        
-        /**
-         * 显示用户输入对话框
-         */
-        showAskUserDialog(data) {
-            this.askUserDialog = {
-                show: true,
-                minimized: false,
-                agent_name: data.agent_name,
-                question: data.question,
-                task_id: data.task_id,
-                session_id: data.session_id || this.currentSession?.task_id || null,
-                answer: '',
-                submitting: false,
-                error: null,
-                persistent: true
-            };
-        },
-        
         /**
          * 提交用户回答
          */
-        /**
-         * 提交用户回答
-         */
-        async submitUserAnswer() {
-            // 🔧 如果回答为空，自动填充 "OK"
-            let answer = this.askUserDialog.answer.trim();
-            if (!answer) {
-                answer = "OK";
-            }
-            
-            this.askUserDialog.submitting = true;
-            this.askUserDialog.error = null;
-            
-            try {
-                await API.submitUserInput(this.askUserDialog.agent_name, {
-                    answer: answer
-                });
-                
-                console.log('✅ 用户回答已提交');
-                
-                // 🔧 完全清空状态（回答成功后）
-                this.askUserDialog = {
-                    show: false,
-                    minimized: false,
-                    agent_name: '',
-                    question: '',
-                    task_id: null,
-                    session_id: null,
-                    answer: '',
-                    submitting: false,
-                    error: null,
-                    persistent: true
-                };
-                
-            } catch (error) {
-                console.error('❌ 提交回答失败:', error);
-                this.askUserDialog.error = error.message || '提交失败';
-            } finally {
-                this.askUserDialog.submitting = false;
-            }
-        },
-        
-        /**
-         * 关闭用户输入对话框
-         */
-        /**
-         * 关闭用户输入对话框（最小化到会话底部）
-         */
-        closeAskUserDialog() {
-            // 🔧 不清空状态，而是最小化
-            this.askUserDialog.show = false;
-            this.askUserDialog.minimized = true;
-        },
-        
         // Handle new email received via WebSocket
         async handleNewEmail(emailData) {
             console.log('📧 New email received:', emailData);
@@ -493,8 +492,6 @@ function app() {
                 const response = await API.getSessionEmails(sessionId);
                 this.currentSessionEmails = response.emails || [];
                 
-                // ✅ 检查最后一封邮件，判断是否需要轮询 Agent 状态
-                this.checkAndStartStatusPolling();
                 
                 // 等待 DOM 更新后滚动到底部
                 this.$nextTick(() => {
@@ -519,136 +516,20 @@ function app() {
         /**
          * 检查最后一封邮件，判断是否需要开始轮询 Agent 状态
          */
-        checkAndStartStatusPolling() {
-            // 停止之前的轮询
-            this.stopAgentStatusPolling();
+        checkAndStartAgentStatus(targetAgent) {
+            console.log('📊 显示当前会话的 Agent 状态:', targetAgent);
             
-            // 检查是否有邮件
-            if (!this.currentSessionEmails || this.currentSessionEmails.length === 0) {
-                return;
-            }
-            
-            // 获取最后一封邮件
-            const lastEmail = this.currentSessionEmails[this.currentSessionEmails.length - 1];
-            
-            // 判断是否是用户发出的邮件
-            if (lastEmail.is_from_user) {
-                // 获取收件人（目标 Agent）
-                const targetAgent = lastEmail.recipient || this.currentSession?.name;
-                
-                console.log('📊 最后一封邮件是用户发出的，开始轮询 Agent 状态:', targetAgent);
-                
-                // 开始轮询
-                this.startAgentStatusPolling(targetAgent);
-            } else {
-                console.log('📊 最后一封邮件是 Agent 回复的，不需要轮询状态');
-            }
+            // 使用 uiStore 的方法（WebSocket 会自动更新状态）
+            this.startShowingAgentStatus(targetAgent);
         },
         
         /**
-         * 开始轮询 Agent 状态
-         * @param {string} agentName - Agent 名称
+         * 格式化相对时间
          */
-        startAgentStatusPolling(agentName) {
-            if (this.agentStatusPolling) {
-                console.warn('⚠️ Status polling already active');
-                return;
-            }
-            
-            this.agentStatusPolling = true;
-            this.agentStatusTarget = agentName;
-            this.agentStatusError = null;
-            
-            // 立即获取一次状态
-            this.fetchAgentStatus();
-            
-            // 每 2 秒轮询一次
-            this.pollingInterval = setInterval(() => {
-                this.fetchAgentStatus();
-            }, 2000);
-        },
-        
-        /**
-         * 停止轮询 Agent 状态
-         */
-        stopAgentStatusPolling() {
-            if (this.pollingInterval) {
-                clearInterval(this.pollingInterval);
-                this.pollingInterval = null;
-            }
-            
-            this.agentStatusPolling = false;
-            this.agentStatusTarget = '';
-            this.agentStatusHistory = [];
-            this.agentStatusError = null;
-        },
-        
-        /**
-         * 获取 Agent 状态
-         */
-        async fetchAgentStatus() {
-            if (!this.agentStatusTarget) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/agents/${this.agentStatusTarget}/status/history`);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-                
-                // 更新状态历史
-                this.agentStatusHistory = data || [];
-                this.agentStatusError = null;
-                
-                console.log('📊 Agent 状态更新:', this.agentStatusHistory);
-                
-                // 检查最后一封邮件是否还是用户发出的
-                // 如果不是（收到新回复），停止轮询
-                this.checkLastEmailChanged();
-                
-            } catch (error) {
-                console.error('❌ 获取 Agent 状态失败:', error);
-                this.agentStatusError = error.message;
-            }
-        },
-        
-        /**
-         * 检查最后一封邮件是否变化（收到 Agent 回复）
-         */
-        checkLastEmailChanged() {
-            if (!this.currentSessionEmails || this.currentSessionEmails.length === 0) {
-                // 没有邮件了，停止轮询
-                this.stopAgentStatusPolling();
-                return;
-            }
-            
-            const lastEmail = this.currentSessionEmails[this.currentSessionEmails.length - 1];
-            
-            // 如果最后一封邮件不是用户发出的，说明收到回复了
-            if (!lastEmail.is_from_user) {
-                console.log('✅ 收到 Agent 回复，停止状态轮询');
-                this.stopAgentStatusPolling();
-            }
-        },
-        
-        /**
-         * 格式化状态时间戳
-         */
-        formatStatusTime(timestamp) {
-            if (!timestamp) return '';
-            
+        formatRelativeTime(timestamp) {
             const date = new Date(timestamp);
             const now = new Date();
             const diff = now - date;
-            
-            // 小于 1 分钟
-            if (diff < 60000) {
-                return '刚刚';
-            }
             
             // 小于 1 小时
             if (diff < 3600000) {

@@ -18,6 +18,9 @@ class WebSocketClient {
                 console.log('WebSocket connected');
                 this.reconnectAttempts = 0;
                 this.trigger('open');
+
+                // 🆕 重连后立即请求系统状态
+                this.requestSystemStatus();
             };
 
             this.ws.onmessage = (event) => {
@@ -81,6 +84,16 @@ class WebSocketClient {
     trigger(event, data) {
         if (this.eventHandlers[event]) {
             this.eventHandlers[event].forEach(handler => handler(data));
+        }
+    }
+
+    requestSystemStatus() {
+        // 🆕 请求当前系统状态
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.send({
+                type: 'REQUEST_SYSTEM_STATUS'
+            });
+            console.log('📊 Requested system status');
         }
     }
 

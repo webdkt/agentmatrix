@@ -15,6 +15,17 @@ import logging
 from pathlib import Path
 from .micro_agent import MicroAgent
 
+
+# Agent 状态常量
+class AgentStatus:
+    IDLE = "IDLE"
+    THINKING = "THINKING"
+    WORKING = "WORKING"
+    WAITING_FOR_USER = "WAITING_FOR_USER"
+    PAUSED = "PAUSED"
+    ERROR = "ERROR"
+
+
 class BaseAgent(AutoLoggerMixin):
     _log_from_attr = "name" # 日志名字来自 self.name 属性
 
@@ -43,12 +54,14 @@ class BaseAgent(AutoLoggerMixin):
         self.cerebellum = None
         self.vision_brain = None  # 🆕 视觉大模型（支持图片理解的LLM）
 
-        self.status = "IDLE"
-        
-        # 📊 状态历史（最近 3 条，用于前端查询）
+        self._status = "IDLE"  # 🔧 私有变量，只能通过 update_status 修改
+        from datetime import datetime
+        self._status_since = datetime.now()  # 状态变化的时间
+
+        # 📊 状态历史（最近 10 条，用于前端查询）
         self.status_history = []
-        self._max_status_history = 3
-        
+        self._max_status_history = 10  # 🔧 扩展到 10 条
+
         self.last_received_email = None #最后收到的信
         self.post_office = None
         self.last_email_processed = True
@@ -70,6 +83,10 @@ class BaseAgent(AutoLoggerMixin):
         self.actions_meta = {}  # name -> metadata (给小脑看)
         self.current_session = None
         self.current_task_id = None
+        self.current_user_session_id = None  # 🆕 当前用户会话ID（如果邮件来自User）
+
+        # 🔧 广播消息的回调（由 runtime 注入）
+        self._broadcast_message_callback = None
 
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
@@ -236,7 +253,11 @@ class BaseAgent(AutoLoggerMixin):
             if self.docker_manager is None:
                 self._init_docker_manager()
 
-    
+    @property
+    def status(self):
+        """只读属性：必须通过 update_status() 方法来修改"""
+        return self._status
+
 
     # ========== 暂停/恢复机制 ==========
 
@@ -296,18 +317,22 @@ class BaseAgent(AutoLoggerMixin):
             answer = await self.root_agent.ask_user("请确认预算范围")
             # 返回: "5万-10万"
         """
-        # ✅ 1. 发送事件（通知前端）
-        task_id = self.current_task_id or self.current_session.get("task_id") if self.current_session else None
-        await self.emit("ASK_USER", question, {
-            "agent_name": self.name,
-            "task_id": task_id,
-            "session_id": self.current_session.get("session_id") if self.current_session else None
-        })
-        
-        # 2. 记录问题（给 API 查询）
-        self._pending_user_question = question
+        from datetime import datetime
 
-        # 3. 创建 Future 并挂起
+        # 🔧 记录旧状态并设置新状态
+        old_status = self._status  # 保存旧状态
+        # 3. 记录问题（给 API 查询）
+        self._pending_user_question = question
+        # 🔧 更新状态会触发 AGENT_STATUS_UPDATE 增量推送（包含 pending_question）
+        self.update_status(new_status=AgentStatus.WAITING_FOR_USER)
+
+        # ✅ 发送邮件通知（如果 runtime 可用）
+        task_id = self.current_task_id or self.current_session.get("task_id") if self.current_session else None
+        await self._send_ask_user_email(question, task_id)
+
+        
+
+        # 4. 创建 Future 并挂起
         self._user_input_future = asyncio.Future()
 
         self.logger.info(f"💬 向用户提问: {question[:50]}{'...' if len(question) > 50 else ''}")
@@ -319,17 +344,104 @@ class BaseAgent(AutoLoggerMixin):
             # 🔧 修复：直接 await Future，不使用 wait_for（避免 Future 被取消）
             # 无限期挂起，直到前端调用 submit_user_input(answer) 触发 set_result(answer)
             answer = await self._user_input_future
-            
+
             # 拿到答案后，再次检查是否在等待期间系统被暂停了
             await self._checkpoint()
 
             self.logger.info(f"✅ 收到用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}")
             return answer
-            
+
         finally:
-            # 🔧 修复：状态清理（避免内存泄漏）
-            self._user_input_future = None
+            # 🔧 恢复状态
+            self.update_status(new_status=old_status)
             self._pending_user_question = None
+            self._user_input_future = None
+            # 🔧 移除：状态清理（避免内存泄漏）
+            # 注：不再需要显式清理，因为 finally 已经处理
+
+    async def _send_ask_user_email(self, question: str, task_id: str):
+        """
+        发送 ask_user 邮件通知
+
+        当 Agent 调用 ask_user 时，发送一封特殊邮件给用户，
+        用户可以直接回复邮件来回答问题。
+
+        Subject 格式：{agent_name}问：{question} #ASK_USER#{agent_name}#{agent_session_id}#
+
+        Args:
+            question: 问题内容
+            task_id: 任务ID
+        """
+        if not self.runtime:
+            self.logger.warning("⚠️ runtime 未注入，跳过 ask_user 邮件发送")
+            return
+
+        try:
+            # 获取 Email Proxy Service
+            email_proxy = self.runtime.email_proxy
+            if not email_proxy:
+                self.logger.warning("⚠️ Email Proxy Service 未找到，跳过 ask_user 邮件发送")
+                return
+
+            # 获取用户邮箱
+            user_mailbox = email_proxy.user_mailbox
+
+            
+            # 构造 subject：{agent_name}问：{question} #ASK_USER#{agent_name}#{agent_session_id}#
+            # 截断过长的问题（避免 subject 过长）
+            question_preview = question[:100] + "..." if len(question) > 100 else question
+            subject = f"{self.name}问：{question_preview} #ASK_USER#{self.name}#{self.current_session_id}#"
+
+            # 构造邮件正文
+            body = f"""你好，
+
+{self.name} 有一个问题需要你回答：
+
+问题：{question}
+
+---
+请直接回复此邮件来回答问题。
+回复内容将直接提交给 {self.name}。
+
+Subject 中的标记（#ASK_USER#...）会被自动识别，请勿删除。
+---
+"""
+
+            # 创建内部 Email 对象
+            from ..core.message import Email
+            from ..core.id_generator import IDGenerator
+
+            email_id = IDGenerator.generate_email_id()
+            email_session_id = IDGenerator.generate_session_id()
+
+            # 构造特殊邮件
+            ask_user_email = Email(
+                id=email_id,
+                sender=self.name,
+                recipient="User",
+                subject=subject,
+                body=body,
+                in_reply_to=None,
+                task_id=task_id or "default",
+                sender_session_id=agent_session_id,  # 使用 agent_session_id
+                receiver_session_id=email_session_id,
+                metadata={
+                    'is_external': True,
+                    'original_sender': user_mailbox,  # 发送给用户
+                    'ask_user_metadata': {
+                        'agent_name': self.name,
+                        'agent_session_id': agent_session_id,
+                        'question': question
+                    }
+                }
+            )
+
+            # 通过 Email Proxy 发送
+            await email_proxy.send_to_external(ask_user_email)
+            self.logger.info(f"✅ 已发送 ask_user 邮件通知: {question[:50]}...")
+
+        except Exception as e:
+            self.logger.error(f"❌ 发送 ask_user 邮件失败: {e}", exc_info=True)
 
     async def submit_user_input(self, answer: str):
         """
@@ -533,6 +645,17 @@ class BaseAgent(AutoLoggerMixin):
         self.current_session = session
         self.current_task_id = session["task_id"]
 
+        # 🆕 设置 current_user_session_id（如果邮件来自User）
+        # 检查邮件发送者是否是用户
+        if self.runtime and email.sender == self.runtime.get_user_agent_name():
+            # 邮件来自User，设置 current_user_session_id
+            self.current_user_session_id = email.sender_session_id
+            self.logger.debug(f"📧 邮件来自用户 User，设置 current_user_session_id = {email.sender_session_id[:8] if email.sender_session_id else None}...")
+        else:
+            # 邮件来自其他Agent，清空 current_user_session_id
+            self.current_user_session_id = None
+            self.logger.debug(f"📧 邮件来自 {email.sender}，清空 current_user_session_id")
+
         # 2. 更新 receiver_session_id（如果尚未设置）
         if email.receiver_session_id is None:
             await self.post_office.update_email_receiver_session(
@@ -641,31 +764,88 @@ class BaseAgent(AutoLoggerMixin):
             self.docker_manager.hibernate()
 
     # ==================== 📊 状态管理 ====================
-    
-    def update_status(self, message: str):
+
+    def get_status_snapshot(self) -> dict:
         """
-        更新状态（保存最近 3 条到历史记录）
-        
-        这个方法会被 MicroAgent 调用，将状态消息
-        保存到 BaseAgent 的状态历史中。
-        
-        Args:
-            message: 状态消息（简单文本）
+        获取当前 Agent 的完整状态快照
+
+        返回的结构与 system_status_collector 收集的完全一致，
+        用于全量推送和增量推送。
+
+        Returns:
+            dict: Agent 完整状态，包含：
+                - status: Agent 状态
+                - pending_question: 等待中的用户问题
+                - current_session_id: 当前会话 ID
+                - current_task_id: 当前任务 ID
+                - current_user_session_id: 当前用户会话 ID
+                - status_history: 状态历史（最近 10 条）
         """
-        from datetime import datetime
-        
-        status = {
-            "message": message,
-            "timestamp": datetime.now().isoformat()
+        return {
+            "status": self._status,
+            "pending_question": self._pending_user_question if hasattr(self, '_pending_user_question') else None,
+            "current_session_id": self.current_session.get("session_id") if self.current_session else None,
+            "current_task_id": self.current_task_id,
+            "current_user_session_id": self.current_user_session_id,
+            "status_history": self.status_history.copy()
         }
-        
-        # 保存最近 3 条
-        self.status_history.append(status)
-        if len(self.status_history) > self._max_status_history:
-            self.status_history.pop(0)
-        
-        self.logger.debug(f"📊 Status: {message}")
-    
+
+    def update_status(self, new_status=None, new_message=None):
+        """
+        统一的状态更新接口（唯一修改 Agent 状态的方式）
+
+        Args:
+            new_status (str, optional): 新的 Agent 状态
+                例如: "WORKING", "WAITING_FOR_USER", "IDLE" 等
+            new_message (str, optional): 添加到状态历史的消息
+                例如: "Thinking...", "开始执行: xxx"
+
+        两种参数都是可选的，可以：
+        - 只更新状态: update_status(new_status="WORKING")
+        - 只更新历史: update_status(new_message="执行中...")
+        - 同时更新: update_status(new_status="WORKING", new_message="开始工作")
+
+        注意：此方法会触发增量状态推送
+        """
+        # 🔧 1. 更新状态字段
+        if new_status is not None:
+            self._status = new_status
+            from datetime import datetime
+            self._status_since = datetime.now()
+            self.logger.debug(f"📊 Status: {new_status}")
+
+        # 🔧 2. 更新状态历史
+        if new_message is not None:
+            from datetime import datetime
+            entry = {
+                "message": new_message,
+                "timestamp": datetime.now().isoformat(),
+                "user_session_id": self.current_user_session_id
+            }
+            self.status_history.append(entry)
+            if len(self.status_history) > self._max_status_history:
+                self.status_history.pop(0)
+            self.logger.debug(f"📊 Status history: {new_message[:50]}")
+
+        # 🔧 3. 立即收集状态快照（同步），然后异步发送
+        # 这样确保发送的是调用 update_status 时的状态，而不是稍后任务执行时的状态
+        if self._broadcast_message_callback:
+            agent_info = self.get_status_snapshot()
+            message = {
+                "type": "AGENT_STATUS_UPDATE",
+                "agent_name": self.name,
+                "data": agent_info
+            }
+            # 异步发送，但数据已经在上面收集好了
+            asyncio.create_task(self._send_message(message))
+
+    async def _send_message(self, message):
+        """异步发送消息（数据已经在调用方准备好）"""
+        try:
+            await self._broadcast_message_callback(message)
+        except Exception as e:
+            self.logger.warning(f"Failed to send status update: {e}")
+
     def get_current_status(self) -> dict:
         """
         获取当前状态（最新一条）
@@ -679,10 +859,10 @@ class BaseAgent(AutoLoggerMixin):
     
     def get_status_history(self) -> list:
         """
-        获取状态历史（最近 3 条）
-        
+        获取状态历史（最近 10 条）
+
         Returns:
-            list: [{"message": str, "timestamp": str}, ...]
+            list: [{"message": str, "timestamp": str, "user_session_id": str}, ...]
         """
         return self.status_history.copy()
     
