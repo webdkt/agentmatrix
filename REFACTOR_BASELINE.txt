@@ -1,0 +1,10 @@
+Baseline: 2026-03-16
+Git commit: 142b88e
+Refactoring: ConfigService design and configuration file cleanup
+
+This file marks the starting point before implementing:
+1. Configuration file deduplication (matrix_config.yml + system_config.yml)
+2. Rename system_config.yml → email_proxy_config.yml
+3. Create unified ConfigService
+4. Remove duplicate APIs in server.py
+5. Complete cleanup with no backward compatibility
