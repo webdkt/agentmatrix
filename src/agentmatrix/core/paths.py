@@ -95,12 +95,6 @@ class MatrixPaths:
         """Matrix快照文件：.matrix/matrix_snapshot.json"""
         return self.system_dir / "matrix_snapshot.json"
 
-    @property
-    def user_sessions_path(self) -> Path:
-        """User sessions文件：.matrix/user_sessions.json"""
-        return self.system_dir / "user_sessions.json"
-
-
     def get_agent_session_dir(self, agent_name: str, session_id: str) -> Path:
         """
         获取Agent的特定session目录

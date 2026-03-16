@@ -24,7 +24,6 @@ def test_template_structure():
         ".matrix/database",
         ".matrix/logs",
         ".matrix/sessions",
-        ".matrix/user_sessions.json",
         "workspace/agent_files",
         "workspace/SKILLS",
         "README.md"

@@ -193,6 +193,13 @@ Thumbs.db
 **/workspace/browser_*/
 **/workspace/chroma_db/
 
+# Desktop app (Vue 3 + Vite)
+agentmatrix-desktop/node_modules/
+agentmatrix-desktop/dist/
+agentmatrix-desktop/dist-ssr/
+agentmatrix-desktop/*.local
+agentmatrix-desktop/.vite/
+
 # Example worlds (user-specific data)
 MyWorld/
 examples/MyWorld/workspace/

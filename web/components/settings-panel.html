@@ -1,0 +1,165 @@
+<!-- SettingsPanel Component - 设置面板 -->
+<template id="settings-panel-template">
+            <!-- SETTINGS TAB CONTENT -->
+            <template x-if="currentTab === 'settings'">
+            <template x-if="currentTab === 'settings'">
+                <main class="flex-1 flex flex-col h-full bg-gradient-to-br from-surface-50/50 to-white overflow-hidden">
+                    <!-- Settings Header -->
+                    <header class="glass border-b border-surface-200/60 px-8 py-5 flex-shrink-0">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-surface-100 to-surface-50 flex items-center justify-center shadow-card">
+                                <i class="ti ti-settings text-2xl text-surface-600"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-xl font-bold text-surface-900 tracking-tight">Settings</h1>
+                                <p class="text-sm text-surface-500">Manage your AgentMatrix configuration</p>
+                            </div>
+                        </div>
+                    </header>
+
+                    <!-- Settings Content -->
+                    <div class="flex-1 overflow-y-auto p-8">
+                        <!-- Settings Categories Grid -->
+                        <div x-show="settingsView === 'main'" class="max-w-4xl mx-auto">
+                            <h2 class="text-lg font-semibold text-surface-900 mb-6">Configuration Categories</h2>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <!-- Agent Settings Card -->
+                                <div @click="switchSettingsView('agents')" 
+                                     class="settings-card group cursor-pointer">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-100 to-primary-50 flex items-center justify-center flex-shrink-0 group-hover:shadow-glow-sm transition-all duration-300">
+                                            <i class="ti ti-robot text-2xl text-primary-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1 group-hover:text-primary-600 transition-colors">Agent Settings</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Manage AI agents, configure their behaviors, skills, and backend models</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <i class="ti ti-users"></i>
+                                                <span x-text="agentProfiles.length + ' agents configured'"></span>
+                                            </div>
+                                        </div>
+                                        <i class="ti ti-chevron-right text-surface-300 group-hover:text-primary-500 group-hover:translate-x-1 transition-all"></i>
+                                    </div>
+                                </div>
+
+                                <!-- LLM Backend Settings Card -->
+                                <div @click="switchSettingsView('llm')" 
+                                     class="settings-card group cursor-pointer">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent-100 to-accent-50 flex items-center justify-center flex-shrink-0 group-hover:shadow-glow-sm transition-all duration-300">
+                                            <i class="ti ti-brain text-2xl text-accent-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1 group-hover:text-accent-600 transition-colors">LLM Backend</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Configure language model providers, API keys, and model settings</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <i class="ti ti-plug"></i>
+                                                <span>2 providers configured</span>
+                                            </div>
+                                        </div>
+                                        <i class="ti ti-chevron-right text-surface-300 group-hover:text-accent-500 group-hover:translate-x-1 transition-all"></i>
+                                    </div>
+                                </div>
+
+                                <!-- World Settings Card (Placeholder) -->
+                                <div class="settings-card opacity-60 cursor-not-allowed">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-100 to-amber-50 flex items-center justify-center flex-shrink-0">
+                                            <i class="ti ti-world text-2xl text-amber-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1">World Settings</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Global world configuration, workspace paths, and environment variables</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <span class="px-2 py-0.5 bg-surface-200 rounded-full">Coming soon</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- System Settings Card (Placeholder) -->
+                                <div class="settings-card opacity-60 cursor-not-allowed">
+                                    <div class="flex items-start gap-5">
+                                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-100 to-rose-50 flex items-center justify-center flex-shrink-0">
+                                            <i class="ti ti-server text-2xl text-rose-600"></i>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-lg font-semibold text-surface-900 mb-1">System Settings</h3>
+                                            <p class="text-sm text-surface-500 leading-relaxed">Server configuration, logging, and advanced system options</p>
+                                            <div class="mt-3 flex items-center gap-2 text-xs text-surface-400">
+                                                <span class="px-2 py-0.5 bg-surface-200 rounded-full">Coming soon</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Agent Settings View -->
+                        <div x-show="settingsView === 'agents'" class="max-w-5xl mx-auto" x-cloak>
+                            <!-- Back Button & Title -->
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-4">
+                                    <button @click="switchSettingsView('main')" 
+                                            class="w-10 h-10 rounded-xl bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-all duration-200 btn-press">
+                                        <i class="ti ti-arrow-left text-surface-600"></i>
+                                    </button>
+                                    <div>
+                                        <h2 class="text-lg font-semibold text-surface-900">Agent Settings</h2>
+                                        <p class="text-sm text-surface-500">Manage your AI agents and their configurations</p>
+                                    </div>
+                                </div>
+                                <button @click="openAgentModal()" 
+                                        class="px-4 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-all duration-200 btn-press shadow-glow-sm flex items-center gap-2">
+                                    <i class="ti ti-plus"></i>
+                                    <span>New Agent</span>
+                                </button>
+                            </div>
+
+                            <!-- Agent Cards Grid -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                <template x-for="agent in agentProfiles" :key="agent.name">
+                                    <div class="agent-card group">
+                                        <!-- Card Header -->
+                                        <div class="flex items-start justify-between mb-4">
+                                            <div :class="{
+                                                'from-primary-400 to-primary-600': agent.backend_model === 'default_llm',
+                                                'from-accent-400 to-accent-600': agent.backend_model === 'default_slm',
+                                                'from-violet-400 to-violet-600': !['default_llm', 'default_slm'].includes(agent.backend_model)
+                                            }" class="w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center text-white shadow-card">
+                                                <i class="ti ti-robot text-xl"></i>
+                                            </div>
+                                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button @click="openAgentModal(agent)" 
+                                                        class="w-8 h-8 rounded-lg hover:bg-surface-100 flex items-center justify-center text-surface-400 hover:text-primary-600 transition-all"
+                                                        title="Edit">
+                                                    <i class="ti ti-pencil text-sm"></i>
+                                                </button>
+                                                <button @click="confirmDeleteAgent(agent)" 
+                                                        class="w-8 h-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-surface-400 hover:text-rose-600 transition-all"
+                                                        title="Delete">
+                                                    <i class="ti ti-trash text-sm"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Card Content -->
+                                        <h3 class="font-semibold text-surface-900 mb-1 truncate" x-text="agent.name"></h3>
+                                        <p class="text-sm text-surface-500 mb-3 line-clamp-2" x-text="agent.description || 'No description'"></p>
+                                        
+                                        <!-- Tags -->
+                                        <div class="flex flex-wrap gap-2">
+                                            <span class="px-2 py-1 bg-surface-100 rounded-lg text-xs text-surface-600 flex items-center gap-1">
+                                                <i class="ti ti-brain"></i>
+                                                <span x-text="agent.backend_model"></span>
+                                            </span>
+                                            <span x-show="agent.skills && agent.skills.length > 0" 
+                                                  class="px-2 py-1 bg-primary-50 rounded-lg text-xs text-primary-600 flex items-center gap-1">
+                                                <i class="ti ti-tools"></i>
+                                                <span x-text="agent.skills.length + ' skills'"></span>
+                                            </span>
+                                        </div>
+                                    </div>
+            </template>
+</template>

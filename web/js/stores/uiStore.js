@@ -1,4 +1,4 @@
-// UI Store - UI 状态管理
+// UI Store - UI 状态管理（优化版）
 
 /**
  * UI Store: 管理 UI 交互状态
@@ -24,16 +24,55 @@ function useUiStore() {
         startLeftWidth: 0,
         startRightWidth: 0,
 
-        // ask_user 对话框状态
-        askUserDialog: {
-            show: false,
-            agent_name: '',
-            question: '',
-            task_id: null,
-            session_id: null,
-            answer: '',
-            submitting: false,
-            error: null
+        // ask_user 对话框状态（🆕 改为 Map，每个 session 一个）
+        askUserDialogs: {},  // { session_id: { show, agent_name, question, answer, submitting, error } }
+
+        // ========== askUserDialog 辅助方法 ==========
+        
+        /**
+         * 获取当前会话的 ask_user 对话框状态
+         * @returns {Object|null} 对话框状态
+         */
+        getCurrentAskUserDialog() {
+            if (!this.currentSession) return null;
+            return this.askUserDialogs[this.currentSession.session_id] || null;
+        },
+        
+        /**
+         * 获取当前会话的答案（用于 x-model）
+         * @returns {string}
+         */
+        getAskUserAnswer() {
+            const dialog = this.getCurrentAskUserDialog();
+            return dialog ? dialog.answer : '';
+        },
+        
+        /**
+         * 设置当前会话的答案（用于 x-model）
+         * @param {string} value
+         */
+        setAskUserAnswer(value) {
+            if (!this.currentSession) return;
+            const sessionId = this.currentSession.session_id;
+            if (!this.askUserDialogs[sessionId]) {
+                this.askUserDialogs[sessionId] = {};
+            }
+            this.askUserDialogs[sessionId].answer = value;
+        },
+        
+        /**
+         * 检查当前会话是否有 ask_user 对话框显示
+         * @returns {boolean}
+         */
+        hasAskUserDialog() {
+            const dialog = this.getCurrentAskUserDialog();
+            return dialog && dialog.show;
+        },
+
+        // 🆕 系统状态缓存（从 WebSocket 广播接收）
+        systemStatus: {
+            timestamp: null,
+            agents: {}  // 每个 agent 包含: {status, pending_question, current_session_id, current_task_id, current_user_session_id, status_history}
         },
 
         // ========== 方法 ==========
@@ -139,11 +178,11 @@ function useUiStore() {
                     }
                 }
 
-                console.log('Runtime event received:', { eventType, source, content, payload });
-
                 // 处理不同类型的事件
                 if (eventType === 'ASK_USER') {
                     this.handleAskUser(source, content, payload);
+                } else if (eventType === 'SYSTEM_STATUS') {
+                    this.handleSystemStatus(payload);
                 }
             } catch (error) {
                 console.error('Failed to handle runtime event:', error);
@@ -151,7 +190,7 @@ function useUiStore() {
         },
 
         /**
-         * 处理 ask_user 事件
+         * 处理 ask_user 事件（🆕 改为在对应 session 显示）
          * @param {string} agentName - Agent 名称
          * @param {string} question - 问题
          * @param {Object} payload - 事件载荷
@@ -159,147 +198,241 @@ function useUiStore() {
         async handleAskUser(agentName, question, payload) {
             console.log('ASK_USER event:', { agentName, question, payload });
 
-            // 如果有 task_id，切换到对应的会话
-            if (payload.task_id) {
-                // 查找对应的 session
-                const targetSession = this.sessions.find(s => s.task_id === payload.task_id);
-                if (targetSession && this.currentSession?.task_id !== payload.task_id) {
-                    await this.selectSession(targetSession);
-                }
+            // 🆕 获取 target session_id
+            const targetSessionId = payload.session_id;
+            if (!targetSessionId) {
+                console.warn('ASK_USER event missing session_id');
+                return;
             }
 
-            // 显示 ask_user 对话框
-            this.askUserDialog = {
+            // 🆕 在对应的 session 显示对话框
+            this.askUserDialogs[targetSessionId] = {
                 show: true,
                 agent_name: agentName,
                 question: question,
                 task_id: payload.task_id || null,
-                session_id: payload.session_id || null,
+                session_id: targetSessionId,
                 answer: '',
                 submitting: false,
                 error: null
             };
+
+            console.log(`💬 在 session ${targetSessionId.slice(0, 8)} 显示 ask_user 对话框`);
         },
 
         /**
-         * 提交用户回答
+         * 提交用户回答（🆕 指定 session_id）
          */
-        async submitUserAnswer() {
-            if (!this.askUserDialog.answer.trim()) {
-                this.askUserDialog.error = 'Please enter your answer';
+        async submitUserAnswer(sessionId) {
+            const dialog = this.askUserDialogs[sessionId];
+            if (!dialog || !dialog.answer.trim()) {
+                if (dialog) {
+                    dialog.error = 'Please enter your answer';
+                }
                 return;
             }
 
-            this.askUserDialog.submitting = true;
-            this.askUserDialog.error = null;
+            dialog.submitting = true;
+            dialog.error = null;
 
             try {
-                await API.submitUserInput(this.askUserDialog.agent_name, {
-                    question: this.askUserDialog.question,
-                    answer: this.askUserDialog.answer
+                await API.submitUserInput(dialog.agent_name, {
+                    question: dialog.question,
+                    answer: dialog.answer
                 });
 
                 // 关闭对话框
-                this.closeAskUserDialog();
+                this.closeAskUserDialog(sessionId);
             } catch (error) {
                 console.error('Failed to submit user answer:', error);
-                this.askUserDialog.error = error.message;
+                dialog.error = error.message;
             } finally {
-                this.askUserDialog.submitting = false;
+                dialog.submitting = false;
             }
         },
 
         /**
-         * 关闭 ask_user 对话框
+         * 关闭 ask_user 对话框（🆕 指定 session_id）
          */
-        closeAskUserDialog() {
-            this.askUserDialog = {
-                show: false,
-                agent_name: '',
-                question: '',
-                task_id: null,
-                session_id: null,
-                answer: '',
-                submitting: false,
-                error: null
+        closeAskUserDialog(sessionId) {
+            if (this.askUserDialogs[sessionId]) {
+                this.askUserDialogs[sessionId].show = false;
+                this.askUserDialogs[sessionId].answer = '';
+                this.askUserDialogs[sessionId].error = null;
+            }
+        },
+
+        /**
+         * 🆕 处理 SYSTEM_STATUS 事件（状态广播）
+         * @param {Object} payload - 事件载荷
+         */
+        handleSystemStatus(payload) {
+            if (!payload || !payload.status) {
+                console.warn('Invalid SYSTEM_STATUS payload:', payload);
+                return;
+            }
+
+            const status = payload.status;
+
+            // 更新系统状态缓存
+            this.systemStatus = {
+                timestamp: status.timestamp,
+                agents: status.agents || {}
+            };
+
+            console.log('📊 System status updated:', this.systemStatus);
+
+            // 🆕 检查是否有 Agent 在等待用户输入（会在对应 session 显示）
+            this.checkForWaitingUser();
+        },
+
+        /**
+         * 🆕 检查是否有 Agent 在等待用户输入
+         */
+        checkForWaitingUser() {
+            console.log('🔍 checkForWaitingUser called');
+            console.log('📊 systemStatus.agents:', this.systemStatus.agents);
+            console.log('📊 askUserDialogs before check:', this.askUserDialogs);
+            
+            for (const [agentName, agentInfo] of Object.entries(this.systemStatus.agents)) {
+                console.log(`🔍 Checking agent ${agentName}:`, {
+                    has_pending: !!agentInfo.pending_question,
+                    has_user_session: !!agentInfo.current_user_session_id,
+                    pending_question: agentInfo.pending_question,
+                    user_session_id: agentInfo.current_user_session_id
+                });
+                
+                if (agentInfo.pending_question && agentInfo.current_user_session_id) {
+                    const sessionId = agentInfo.current_user_session_id;
+                    console.log(`🔔 Agent ${agentName} 在 session ${sessionId.slice(0, 8)} 等待用户输入`);
+                    console.log(`📊 Current dialog state for ${sessionId.slice(0, 8)}:`, this.askUserDialogs[sessionId]);
+
+                    // 如果对话框未显示，显示对话框
+                    if (!this.askUserDialogs[sessionId] || !this.askUserDialogs[sessionId].show) {
+                        console.log(`✅ 显示对话框 for session ${sessionId.slice(0, 8)}`);
+                        const payload = {
+                            agent_name: agentName,
+                            task_id: agentInfo.current_task_id,
+                            session_id: sessionId
+                        };
+                        this.handleAskUser(agentName, agentInfo.pending_question, payload);
+                    } else {
+                        console.log(`⚠️ 对话框已存在 for session ${sessionId.slice(0, 8)}`);
+                    }
+                }
+            }
+            
+            console.log('📊 askUserDialogs after check:', this.askUserDialogs);
+        },
+
+        /**
+         * 🆕 处理 Agent 状态增量更新
+         * @param {Object} payload - 事件载荷
+         */
+        handleAgentStatusUpdate(payload) {
+            console.log('🔍 handleAgentStatusUpdate called:', payload);
+            const { agent_name, data } = payload;
+
+            if (!agent_name || !data) {
+                console.warn('Invalid AGENT_STATUS_UPDATE payload:', payload);
+                return;
+            }
+
+            console.log(`📊 Processing update for ${agent_name}:`, {
+                status: data.status,
+                pending_question: data.pending_question,
+                current_user_session_id: data.current_user_session_id,
+                current_session_id: data.current_session_id
+            });
+
+            // 🔧 确保该 Agent 存在
+            if (!this.systemStatus.agents[agent_name]) {
+                this.systemStatus.agents[agent_name] = {};
+            }
+
+            // 🔧 合并更新（data 的结构和 systemStatus.agents[agent_name] 完全一样）
+            Object.assign(this.systemStatus.agents[agent_name], data);
+
+            console.log(`✅ Agent ${agent_name} status updated in systemStatus`);
+            console.log('📊 Current systemStatus.agents:', this.systemStatus.agents);
+
+            // 🔧 同样的逻辑：检查是否等待用户输入
+            this.checkForWaitingUser();
+        },
+
+        /**
+         * 🆕 获取 Agent 的状态显示文案
+         * @param {string} agentName - Agent 名称
+         * @param {string} sessionId - 会话 ID
+         * @returns {Object} { text, status }
+         */
+        getAgentStatusDisplay(agentName, sessionId) {
+            if (!this.systemStatus.agents || !this.systemStatus.agents[agentName]) {
+                return {
+                    text: 'Agent 未知',
+                    status: 'unknown'
+                };
+            }
+
+            const agentInfo = this.systemStatus.agents[agentName];
+
+            // Agent 空闲
+            if (agentInfo.status === 'IDLE') {
+                return {
+                    text: '空闲',
+                    status: 'idle'
+                };
+            }
+
+            // Agent 正在为当前会话工作
+            if (agentInfo.current_user_session_id === sessionId) {
+                const statusMap = {
+                    'THINKING': '正在思考...',
+                    'WORKING': '正在工作...',
+                    'WAITING_FOR_USER': '等待你的回答'
+                };
+                return {
+                    text: statusMap[agentInfo.status] || agentInfo.status,
+                    status: agentInfo.status.toLowerCase()
+                };
+            }
+
+            // Agent 正在为其他会话工作
+            const statusMap = {
+                'THINKING': '正在为其他会话思考',
+                'WORKING': '正在为其他会话工作',
+                'WAITING_FOR_USER': '正在为其他会话等待用户回答'
+            };
+            return {
+                text: statusMap[agentInfo.status] || `${agentInfo.status} (其他会话)`,
+                status: 'busy-on-other'
             };
         },
 
         /**
-         * 检查并开始状态轮询
-         */
-        checkAndStartStatusPolling() {
-            // 停止之前的轮询
-            this.stopAgentStatusPolling();
-
-            if (!this.currentSession || !this.currentSessionEmails.length) {
-                return;
-            }
-
-            const lastEmail = this.currentSessionEmails[this.currentSessionEmails.length - 1];
-
-            // 只有最后一封邮件是用户发出的，才需要轮询
-            if (lastEmail.sender === 'User') {
-                const targetAgent = lastEmail.recipient || this.currentSession.name;
-                this.startAgentStatusPolling(targetAgent);
-            }
-        },
-
-        /**
-         * 开始 Agent 状态轮询
+         * 🆕 获取 Agent 的状态历史
          * @param {string} agentName - Agent 名称
+         * @returns {Array} 状态历史
          */
-        startAgentStatusPolling(agentName) {
-            this.agentStatusPolling = true;
-            this.agentStatusTarget = agentName;
-
-            // 立即获取一次状态
-            this.fetchAgentStatus();
-
-            // 设置轮询
-            this.pollingInterval = setInterval(() => {
-                this.fetchAgentStatus();
-            }, 2000);  // 每 2 秒轮询一次
-        },
-
-        /**
-         * 停止 Agent 状态轮询
-         */
-        stopAgentStatusPolling() {
-            this.agentStatusPolling = false;
-            this.agentStatusTarget = '';
-            this.agentStatusHistory = [];
-            this.agentStatusError = null;
-
-            if (this.pollingInterval) {
-                clearInterval(this.pollingInterval);
-                this.pollingInterval = null;
+        getAgentStatusHistory(agentName) {
+            if (!this.systemStatus.agents || !this.systemStatus.agents[agentName]) {
+                return [];
             }
+            return this.systemStatus.agents[agentName].status_history || [];
         },
 
         /**
-         * 获取 Agent 状态
+         * 🆕 格式化状态时间戳
+         * @param {string} timestamp - ISO 时间戳
+         * @returns {string} 格式化的时间
          */
-        async fetchAgentStatus() {
-            if (!this.agentStatusTarget) return;
-
+        formatStatusTime(timestamp) {
+            if (!timestamp) return '';
             try {
-                const response = await fetch(`/api/agents/${this.agentStatusTarget}/status`);
-                const data = await response.json();
-
-                if (data.success) {
-                    // 更新状态历史
-                    this.agentStatusHistory = [
-                        {
-                            message: data.message,
-                            timestamp: data.timestamp
-                        }
-                    ];
-                    this.agentStatusError = null;
-                }
-            } catch (error) {
-                console.error('Failed to fetch agent status:', error);
-                this.agentStatusError = error.message;
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString('zh-CN', { hour12: false });
+            } catch (e) {
+                return '';
             }
         },
 

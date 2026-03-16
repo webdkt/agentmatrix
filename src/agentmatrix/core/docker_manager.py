@@ -458,7 +458,8 @@ class DockerContainerManager:
 
     async def exec_command(
         self,
-        command: str
+        command: str,
+        timeout: int = 30
     ) -> Tuple[int, str, str]:
         """
         在容器内执行命令（async 版本）
@@ -467,12 +468,13 @@ class DockerContainerManager:
 
         Args:
             command: 要执行的命令
+            timeout: 超时时间（秒，默认30秒）
 
         Returns:
             Tuple[int, str, str]: (退出码, stdout, stderr)
 
         Raises:
-            RuntimeError: 命令执行失败
+            RuntimeError: 命令执行失败或超时
         """
         try:
             self._ensure_container()
@@ -489,13 +491,21 @@ class DockerContainerManager:
             # 在命令内部 cd，避免 Docker workdir 参数的符号链接问题
             full_command = f"cd /work_files && {command}"
 
-            exit_code, output = await loop.run_in_executor(
-                None,
-                lambda: self.container.exec_run(
-                    ["sh", "-c", full_command],  # 列表形式
-                    demux=True
+            # 🔧 添加超时机制
+            try:
+                exit_code, output = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: self.container.exec_run(
+                            ["sh", "-c", full_command],  # 列表形式
+                            demux=True
+                        )
+                    ),
+                    timeout=timeout
                 )
-            )
+            except asyncio.TimeoutError:
+                self.logger.error(f"⏱️ 命令执行超时（{timeout}秒）: {command[:100]}")
+                raise RuntimeError(f"命令执行超时（{timeout}秒）: {command[:100]}")
 
             # 解码输出
             if isinstance(output, tuple):
@@ -512,6 +522,8 @@ class DockerContainerManager:
 
         except APIError as e:
             raise RuntimeError(f"命令执行失败: {e}") from e
+        except asyncio.TimeoutError:
+            raise
 
     def get_status(self) -> Dict:
         """
