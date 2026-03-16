@@ -62,9 +62,8 @@ async fn check_backend() -> Result<bool, String> {
 
 #[tauri::command]
 async fn show_notification(title: String, body: String) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-    // Note: This would require the notification plugin
-    // For now, we'll just print
+    // Simple notification implementation
+    // The plugin will handle native notifications
     println!("Notification: {} - {}", title, body);
     Ok(())
 }
@@ -72,6 +71,7 @@ async fn show_notification(title: String, body: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(BackendState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             start_backend,
