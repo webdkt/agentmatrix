@@ -3,6 +3,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
+import { useBackendStore } from '@/stores/backend'
+import { useNotifications } from '@/composables/useNotifications'
 import ConversationList from '@/components/conversation/ConversationList.vue'
 import MessageList from '@/components/message/MessageList.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
@@ -11,11 +13,46 @@ import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 const currentView = ref('conversations') // 'conversations' or 'settings'
 const sessionStore = useSessionStore()
 const websocketStore = useWebSocketStore()
+const backendStore = useBackendStore()
 const { isConnected, connect, onMessage } = useWebSocket()
+const { requestPermission } = useNotifications()
+
+// Backend management
+const showBackendPrompt = ref(false)
+const backendCheckDone = ref(false)
 
 // 计算属性
 const currentSession = computed(() => sessionStore.currentSession)
 const user_agent_name = computed(() => 'DKT') // 可以从配置中读取
+const backendStatus = computed(() => backendStore.status)
+
+// Backend startup check
+const checkBackend = async () => {
+  if (backendCheckDone.value) return
+
+  const isRunning = await backendStore.checkBackend()
+  console.log('Backend status check:', isRunning ? 'running' : 'not running')
+
+  if (!isRunning) {
+    // Show prompt to start backend
+    showBackendPrompt.value = true
+  }
+
+  backendCheckDone.value = true
+}
+
+// Handle backend startup
+const startBackend = async () => {
+  try {
+    await backendStore.startBackend()
+    showBackendPrompt.value = false
+
+    // After backend starts, initialize WebSocket
+    connect()
+  } catch (error) {
+    console.error('Failed to start backend:', error)
+  }
+}
 
 // 对话框显示状态
 const showAskUserDialog = ref(false)
@@ -40,8 +77,16 @@ const handleDialogSubmitted = () => {
 
 // 生命周期
 onMounted(async () => {
-  // 初始化 WebSocket 连接
-  connect()
+  // Request notification permission
+  await requestPermission()
+
+  // Check backend status
+  await checkBackend()
+
+  // If backend is already running, connect WebSocket
+  if (backendStore.isRunning) {
+    connect()
+  }
 
   // 监听 WebSocket 消息
   onMessage((data) => {
@@ -85,6 +130,40 @@ onMounted(async () => {
 
 <template>
   <div class="h-screen bg-surface-50 flex flex-col overflow-hidden">
+    <!-- Backend Startup Prompt -->
+    <div
+      v-if="showBackendPrompt"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+    >
+      <div class="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
+        <div class="text-center">
+          <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-primary-100 flex items-center justify-center">
+            <i class="ti ti-server text-3xl text-primary-600"></i>
+          </div>
+          <h2 class="text-2xl font-bold text-surface-900 mb-2">Backend Not Running</h2>
+          <p class="text-surface-600 mb-6">
+            The AgentMatrix backend server is not running. Would you like to start it?
+          </p>
+          <div class="flex gap-3">
+            <button
+              @click="startBackend"
+              :disabled="backendStore.isStarting"
+              class="flex-1 px-4 py-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <span v-if="backendStore.isStarting">Starting...</span>
+              <span v-else>Start Backend</span>
+            </button>
+            <button
+              @click="showBackendPrompt = false"
+              class="flex-1 px-4 py-3 bg-surface-200 text-surface-700 rounded-xl font-medium hover:bg-surface-300 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Top Navigation Bar -->
     <header class="bg-white border-b border-surface-200 px-4 py-3 flex-shrink-0">
       <div class="flex items-center justify-between">
@@ -94,7 +173,7 @@ onMounted(async () => {
           </div>
           <div>
             <h1 class="text-lg font-bold text-surface-900">AgentMatrix</h1>
-            <p class="text-xs text-surface-500">Vue 3 + Vite Migration</p>
+            <p class="text-xs text-surface-500">Desktop Application</p>
           </div>
         </div>
 
@@ -120,6 +199,27 @@ onMounted(async () => {
 
         <!-- Connection Status -->
         <div class="flex items-center gap-2">
+          <!-- Backend Status -->
+          <span
+            :class="{
+              'bg-green-50 text-green-600': backendStatus === 'running',
+              'bg-rose-50 text-rose-600': backendStatus === 'stopped',
+              'bg-yellow-50 text-yellow-600': backendStatus === 'starting' || backendStatus === 'stopping'
+            }"
+            class="px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1"
+          >
+            <span
+              :class="{
+                'bg-green-500': backendStatus === 'running',
+                'bg-rose-500': backendStatus === 'stopped',
+                'bg-yellow-500': backendStatus === 'starting' || backendStatus === 'stopping'
+              }"
+              class="w-1.5 h-1.5 rounded-full"
+            ></span>
+            <span>{{ backendStatus.charAt(0).toUpperCase() + backendStatus.slice(1) }}</span>
+          </span>
+
+          <!-- WebSocket Status -->
           <span
             :class="isConnected ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'"
             class="px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1"
