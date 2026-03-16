@@ -42,7 +42,7 @@ class MatrixConfig(AutoLoggerMixin):
     def _load_configs(self):
         """加载所有配置"""
         self._load_llm_config()
-        self._load_system_config()
+        self._load_email_proxy_config()
         self._load_matrix_config()
 
     def _load_llm_config(self):
@@ -62,20 +62,20 @@ class MatrixConfig(AutoLoggerMixin):
         if "default_slm" not in self._llm_config:
             raise ValueError("llm_config.json 中必须包含 'default_slm' 配置")
 
-    def _load_system_config(self):
-        """加载系统配置"""
-        system_config_path = self.paths.system_config_path
+    def _load_email_proxy_config(self):
+        """加载Email Proxy配置"""
+        email_proxy_config_path = self.paths.email_proxy_config_path
 
-        if system_config_path.exists():
-            self.logger.info(f"📄 加载系统配置: {system_config_path}")
-            with open(system_config_path, 'r', encoding='utf-8') as f:
-                self._system_config = yaml.safe_load(f) or {}
+        if email_proxy_config_path.exists():
+            self.logger.info(f"📄 加载Email Proxy配置: {email_proxy_config_path}")
+            with open(email_proxy_config_path, 'r', encoding='utf-8') as f:
+                self._email_proxy_config = yaml.safe_load(f) or {}
             # 解析环境变量
-            self._system_config = self._resolve_env_vars(self._system_config)
+            self._email_proxy_config = self._resolve_env_vars(self._email_proxy_config)
         else:
-            self.logger.info(f"📄 创建默认系统配置: {system_config_path}")
-            self._system_config = self._get_default_system_config()
-            self._save_system_config()
+            self.logger.info(f"📄 创建默认Email Proxy配置: {email_proxy_config_path}")
+            self._email_proxy_config = self._get_default_email_proxy_config()
+            self._save_email_proxy_config()
 
     def _load_matrix_config(self):
         """加载Matrix配置"""
@@ -105,8 +105,8 @@ class MatrixConfig(AutoLoggerMixin):
             }
         }
 
-    def _get_default_system_config(self) -> Dict[str, Any]:
-        """获取默认系统配置"""
+    def _get_default_email_proxy_config(self) -> Dict[str, Any]:
+        """获取默认Email Proxy配置"""
         return {
             'email_proxy': {
                 'enabled': False,
@@ -175,11 +175,11 @@ class MatrixConfig(AutoLoggerMixin):
         with open(self.paths.llm_config_path, 'w', encoding='utf-8') as f:
             json.dump(self._llm_config, f, ensure_ascii=False, indent=2)
 
-    def _save_system_config(self):
-        """保存系统配置到文件"""
-        self.paths.system_config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.paths.system_config_path, 'w', encoding='utf-8') as f:
-            yaml.dump(self._system_config, f, allow_unicode=True, default_flow_style=False)
+    def _save_email_proxy_config(self):
+        """保存Email Proxy配置到文件"""
+        self.paths.email_proxy_config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.paths.email_proxy_config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(self._email_proxy_config, f, allow_unicode=True, default_flow_style=False)
 
     def _save_matrix_config(self):
         """保存Matrix配置到文件"""
@@ -286,54 +286,3 @@ class MatrixConfig(AutoLoggerMixin):
 
     def __repr__(self) -> str:
         return f"MatrixConfig(paths='{self.paths}')"
-
-
-# 已废弃：保留SystemConfig类仅用于向后兼容，请使用MatrixConfig
-import warnings
-
-
-class SystemConfig(MatrixConfig):
-    """
-    ⚠️ 已废弃（Deprecated）
-
-    请使用 MatrixConfig 替代：
-        from agentmatrix.core.config import MatrixConfig
-        config = MatrixConfig(paths)
-
-    保留此类仅用于向后兼容，将在未来版本中移除。
-    """
-
-    def __init__(self, matrix_path: str):
-        """
-        初始化系统配置管理器（已废弃，请使用 MatrixConfig）
-
-        Args:
-            matrix_path: Matrix路径
-        """
-        warnings.warn(
-            "SystemConfig is deprecated. Use MatrixConfig(paths) instead.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        self.matrix_path = matrix_path
-        # 使用新的MatrixPaths和MatrixConfig
-        paths = MatrixPaths(matrix_path)
-        super().__init__(paths)
-
-    def is_email_proxy_enabled(self) -> bool:
-        """
-        检查Email Proxy是否启用
-
-        Returns:
-            True如果Email Proxy已启用且配置完整，否则False
-        """
-        return self.email_proxy.is_configured()
-
-    def get_email_proxy_config(self) -> Optional[Dict[str, Any]]:
-        """
-        获取Email Proxy配置
-
-        Returns:
-            Email Proxy配置字典，如果未启用返回None
-        """
-        return self.email_proxy.get_full_config()
