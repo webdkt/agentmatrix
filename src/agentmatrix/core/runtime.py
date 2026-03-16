@@ -57,6 +57,10 @@ class AgentMatrix(AutoLoggerMixin):
         from ..core.config import MatrixConfig
         self.config = MatrixConfig(self.paths)
 
+        # === 初始化配置服务 ===
+        from ..services.config_service import ConfigService
+        self._config_service = ConfigService(self.paths)
+
         # 从配置获取user_agent_name（如果未提供）
         if user_agent_name is None:
             user_agent_name = self.config.matrix.user_agent_name
@@ -110,6 +114,11 @@ class AgentMatrix(AutoLoggerMixin):
         """Get the configured user agent name"""
         return self.user_agent_name
 
+
+    @property
+    def config_service(self) -> 'ConfigService':
+        """获取配置服务"""
+        return self._config_service
     def set_broadcast_callback(self, callback):
         """设置广播消息的回调（由 server 注入）"""
         self._broadcast_message_callback = callback
@@ -246,11 +255,8 @@ class AgentMatrix(AutoLoggerMixin):
 
     def _init_system_config(self):
         """初始化系统配置"""
-        from ..core.config import MatrixConfig
-        self.system_config = MatrixConfig(self.paths)
-
         # 检查是否启用EmailProxy
-        if self.system_config.is_email_proxy_enabled():
+        if self.config.email_proxy.is_configured():
             self._init_email_proxy()
         else:
             self.echo(">>> EmailProxy未启用")
@@ -259,7 +265,7 @@ class AgentMatrix(AutoLoggerMixin):
         """初始化EmailProxy服务"""
         from ..services.email_proxy_service import EmailProxyService
 
-        email_config = self.system_config.get_email_proxy_config()
+        email_config = self.config.get_email_proxy_config()
         if not email_config:
             self.echo(">>> EmailProxy配置不完整，跳过初始化")
             return
