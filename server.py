@@ -520,11 +520,10 @@ app.state.config = {
     "reload": args.reload
 }
 # === Static Files ===
+# NOTE: Legacy web application removed. Use agentmatrix-desktop instead.
+# Static file mounting removed - web/ directory is deprecated.
 
-# Mount the web directory for static files
 BASE_DIR = Path(__file__).resolve().parent
-WEB_DIR = BASE_DIR / "web"
-app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
 
 # === WebSocket Endpoint ===
@@ -587,20 +586,30 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # === API Endpoints ===
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def root():
-    """Serve the main application or wizard based on configuration status"""
-    config = app.state.config
-    is_cold = check_cold_start(config['llm_config_path'])
-
-    if is_cold:
-        # Cold start - show configuration wizard
-        wizard_path = WEB_DIR / "wizard.html"
-        return HTMLResponse(wizard_path.read_text())
-    else:
-        # Warm start - show main application
-        index_path = WEB_DIR / "index.html"
-        return HTMLResponse(index_path.read_text())
+    """Root endpoint - API information"""
+    return {
+        "message": "AgentMatrix API Server",
+        "version": "2.0.0",
+        "status": "running",
+        "desktop_app": {
+            "location": "agentmatrix-desktop/",
+            "dev_command": "cd agentmatrix-desktop && npm run dev",
+            "tauri_command": "cd agentmatrix-desktop && npm run tauri:dev"
+        },
+        "api_docs": "/docs",
+        "endpoints": {
+            "websocket": "ws://localhost:8000/ws",
+            "api_base": "/api",
+            "health": "/api/system/status"
+        },
+        "web_ui": {
+            "status": "deprecated",
+            "message": "Legacy web UI removed. Use agentmatrix-desktop instead.",
+            "desktop_app": "See 'desktop_app' section above"
+        }
+    }
 
 
 @app.get("/api/config/status")

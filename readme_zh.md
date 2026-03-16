@@ -25,12 +25,14 @@ AgentMatrix 的核心 - 用于构建智能 Agent 的 Python 库。
 - **用途**: 作为库在你自己的项目中使用
 - **包含**: Agent 运行时、技能系统、LLM 集成、消息路由
 
-### 2. Web 应用 (`web/` + `server.py`)
-AgentMatrix 的官方可视化管理界面。
-- **启动**: `python server.py`
-- **提供**: 可视化 Agent 交互界面、邮件式消息系统、会话管理
-- **技术**: FastAPI 后端 + 现代化前端（Alpine.js + Tailwind CSS）
-- **文档**: 参见 [web/README.md](web/README.md)
+### 2. 桌面应用 (`agentmatrix-desktop/`)
+AgentMatrix 的官方桌面应用，具有原生功能。
+- **安装**: `cd agentmatrix-desktop && npm install`
+- **启动**: `cd agentmatrix-desktop && npm run tauri:dev`
+- **构建**: `cd agentmatrix-desktop && npm run tauri:build`
+- **特性**: 可视化 Agent 交互界面、邮件式消息系统、会话管理、系统托盘、原生通知
+- **技术**: Vue 3 + Vite + Tauri (Rust 后端)
+- **文档**: 参见 [agentmatrix-desktop/README.md](agentmatrix-desktop/README.md)
 
 ### 3. 示例 (`examples/`)
 帮助您快速上手的示例配置和教程。

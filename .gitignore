@@ -223,3 +223,4 @@ agents.db
 *.tmp
 *.cache
 .pytest_cache/
+web/
