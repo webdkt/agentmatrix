@@ -54,9 +54,9 @@ class MatrixPaths:
         return self.agent_config_dir / "llm_config.json"
 
     @property
-    def system_config_path(self) -> Path:
-        """系统配置文件：.matrix/configs/system_config.yml"""
-        return self.config_dir / "system_config.yml"
+    def email_proxy_config_path(self) -> Path:
+        """Email Proxy配置文件：.matrix/configs/email_proxy_config.yml"""
+        return self.config_dir / "email_proxy_config.yml"
 
     @property
     def matrix_config_path(self) -> Path:
