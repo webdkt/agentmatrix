@@ -362,19 +362,10 @@ async def lifespan(app: FastAPI):
             async def event_callback(event):
                 """Callback to broadcast runtime events to WebSocket clients"""
                 try:
-                    # 特殊处理 SYSTEM_STATUS 事件：直接发送，不包装在 runtime_event 中
-                    if event.type == "SYSTEM_STATUS":
-                        message = json.dumps({
-                            "type": "SYSTEM_STATUS",
-                            "data": event.payload.get("status", {}) if event.payload else {}
-                        })
-                    else:
-                        # 其他事件包装在 runtime_event 中
-                        message = json.dumps({
-                            "type": "runtime_event",
-                            "data": event.to_dict()
-                        })
-
+                    message = json.dumps({
+                        "type": "runtime_event",
+                        "data": event.to_dict()
+                    })
                     # Send to all active WebSocket connections
                     for ws in active_websockets[:]:  # Copy list to avoid modification during iteration
                         try:
@@ -420,8 +411,7 @@ async def lifespan(app: FastAPI):
                             "subject": email.subject,
                             "body": email.body,
                             "in_reply_to": email.in_reply_to,
-                            "task_id": email.task_id,
-                            "receiver_session_id": email.receiver_session_id
+                            "task_id": email.task_id
                         }
 
                         message = json.dumps({
@@ -829,7 +819,6 @@ async def get_session_emails(session_id: str):
                 "body": email.body,
                 "in_reply_to": email.in_reply_to,
                 "task_id": email.task_id,
-                            "receiver_session_id": email.receiver_session_id,
                 "is_from_user": getattr(email, 'is_from_user', False),
                 "attachments": email.attachments
             })
