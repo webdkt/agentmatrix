@@ -1,0 +1,12 @@
+{
+    "default_llm": {
+        "url": "https://api.xiaomimimo.com/v1/chat/completions",
+        "API_KEY": "sk-crrlh1fy2v0fpbqwx1nod3z02yash76hdmg8qm27yaouvgvw",
+        "model_name": "mimo-v2-flash"
+    },
+    "default_slm": {
+        "url": "https://api.xiaomimimo.com/v1/chat/completions",
+        "API_KEY": "sk-crrlh1fy2v0fpbqwx1nod3z02yash76hdmg8qm27yaouvgvw",
+        "model_name": "mimo-v2-flash"
+    }
+}

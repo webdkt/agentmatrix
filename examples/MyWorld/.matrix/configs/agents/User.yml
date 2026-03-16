@@ -1,0 +1,14 @@
+#You should always have one USER agent
+name: DKT
+description: Master of world
+class_name: agentmatrix.agents.user_proxy.UserProxyAgent
+
+# 动态 Mixin 组合
+mixins:
+  - skills.filesystem.FileSkillMixin
+
+# 属性初始化
+attribute_initializations:
+  on_mail_received: null
+
+backend_model: default_llm

@@ -1,0 +1,22 @@
+# AgentMatrix System Configuration
+# 系统配置文件
+
+# Email Proxy Configuration
+email_proxy:
+  enabled: false
+  matrix_mailbox: ""
+  user_mailbox: ""
+
+  # IMAP Configuration (for receiving emails)
+  imap:
+    host: "imap.gmail.com"
+    port: 993
+    user: ""
+    password: ""
+
+  # SMTP Configuration (for sending emails)
+  smtp:
+    host: "smtp.gmail.com"
+    port: 587
+    user: ""
+    password: ""
