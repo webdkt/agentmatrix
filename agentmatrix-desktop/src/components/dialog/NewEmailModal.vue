@@ -124,7 +124,7 @@ const sendEmail = async () => {
     // 新建会话时不应该有 in_reply_to 字段
     const emailData = {
       recipient: selectedAgent.value.name,
-      subject: messageBody.value.substring(0, 50) + (messageBody.value.length > 50 ? '...' : ''),
+      subject: '',
       body: messageBody.value
     }
 
