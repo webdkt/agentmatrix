@@ -215,7 +215,7 @@ class MatrixConfig(AutoLoggerMixin):
             >>> config.email_proxy.is_configured()
             True
         """
-        email_proxy_config = self._system_config.get('email_proxy', {})
+        email_proxy_config = self._email_proxy_config.get('email_proxy', {})
         return EmailProxyConfigSection(email_proxy_config)
 
     @property
