@@ -10,8 +10,7 @@ export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     isConnected: false,
     lastEvent: null,
-    newEmailCallbacks: [], // 新邮件回调函数列表
-    agentStatuses: {}, // 存储每个Agent的状态
+    newEmailCallbacks: [],  // 新邮件回调函数列表
   }),
 
   getters: {
@@ -48,14 +47,14 @@ export const useWebSocketStore = defineStore('websocket', {
       else if (data.type === 'SYSTEM_STATUS') {
         this.handleSystemStatus(data.data)
       }
-      // 处理 Agent 状态增量更新（Agent 状态变化时推送）
+      // 🆕 处理 Agent 状态增量更新（Agent 状态变化时推送）
       else if (data.type === 'AGENT_STATUS_UPDATE') {
         this.handleAgentStatusUpdate(data)
       }
     },
 
     /**
-     * 处理 Agent 状态增量更新
+     * 🆕 处理 Agent 状态增量更新
      */
     handleAgentStatusUpdate(message) {
       console.log('📊 AGENT_STATUS_UPDATE received:', message)
@@ -65,15 +64,6 @@ export const useWebSocketStore = defineStore('websocket', {
         console.warn('Invalid AGENT_STATUS_UPDATE message:', message)
         return
       }
-
-      // 更新 Agent 状态存储
-      this.agentStatuses[agent_name] = {
-        ...this.agentStatuses[agent_name],
-        ...data,
-        lastUpdated: new Date().toISOString()
-      }
-
-      console.log(`📊 Updated agent status for ${agent_name}:`, this.agentStatuses[agent_name])
 
       const sessionStore = useSessionStore()
 
@@ -150,22 +140,19 @@ export const useWebSocketStore = defineStore('websocket', {
 
     /**
      * 处理 SYSTEM_STATUS 事件（统一处理函数）
+     * 现在主动请求和定期广播都用同一种格式了！
+     *
+     * @param {Object} statusData - 系统状态数据，格式：{ timestamp, agents: {...} }
      */
     handleSystemStatus(statusData) {
       console.log('📊 SYSTEM_STATUS received:', statusData)
 
       const sessionStore = useSessionStore()
 
-      // 更新所有 Agent 的状态
+      // 遍历所有 agent 的状态
       if (statusData.agents) {
         Object.entries(statusData.agents).forEach(([agentName, agentInfo]) => {
           console.log(`  - Agent ${agentName}:`, agentInfo)
-
-          // 存储到 agentStatuses
-          this.agentStatuses[agentName] = {
-            ...agentInfo,
-            lastUpdated: new Date().toISOString()
-          }
 
           // 如果 agent 有 pending_question
           if (agentInfo.pending_question && agentInfo.current_user_session_id) {
@@ -177,7 +164,7 @@ export const useWebSocketStore = defineStore('websocket', {
               timestamp: new Date().toISOString()
             })
           }
-          // 如果 agent 的 pending_question 被清空
+          // 如果 agent 的 pending_question 被清空（有 session_id 但没有问题）
           else if (agentInfo.current_user_session_id) {
             console.log(`    ❌ No pending question for session ${agentInfo.current_user_session_id}`)
             sessionStore.clearPendingQuestion(agentInfo.current_user_session_id)

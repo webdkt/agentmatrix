@@ -1,11 +1,9 @@
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useSessionStore } from '@/stores/session'
-import { useWebSocketStore } from '@/stores/websocket'
 import { sessionAPI } from '@/api/session'
 import MessageItem from './MessageItem.vue'
 import MessageReply from './MessageReply.vue'
-import AgentStatusIndicator from '../agent/AgentStatusIndicator.vue'
 
 const props = defineProps({
   user_agent_name: {
@@ -15,7 +13,6 @@ const props = defineProps({
 })
 
 const sessionStore = useSessionStore()
-const websocketStore = useWebSocketStore()
 
 // 状态
 const emails = ref([])
@@ -31,36 +28,18 @@ const hideInlineForm = ref(false)
 const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
 
-// 获取当前会话中的Agent
-const agentsInConversation = computed(() => {
-  if (!currentSession.value || !emails.value.length) {
-    return []
-  }
-
-  const agents = new Set()
-
-  // 遍历所有邮件，识别参与的Agent
-  emails.value.forEach(email => {
-    // sender不是user，则认为是Agent
-    if (email.sender && email.sender !== props.user_agent_name) {
-      agents.add(email.sender)
-    }
-    // receiver不是user，也认为是Agent
-    if (email.receiver && email.receiver !== props.user_agent_name) {
-      agents.add(email.receiver)
-    }
-  })
-
-  return Array.from(agents)
-})
-
 // 待处理问题
 const pendingQuestion = computed(() => {
   if (!currentSession.value) {
+    console.log('🔍 [MessageList] No current session')
     return null
   }
   const sessionId = currentSession.value.session_id
-  return sessionStore.getPendingQuestion(sessionId)
+  const question = sessionStore.getPendingQuestion(sessionId)
+  console.log('🔍 [MessageList] Checking pending question for session:', sessionId)
+  console.log('🔍 [MessageList] Pending question:', question)
+  console.log('🔍 [MessageList] Store pendingQuestions:', sessionStore.pendingQuestions)
+  return question
 })
 
 // 监听 pendingQuestion 变化
@@ -69,31 +48,17 @@ watch(pendingQuestion, (newQuestion) => {
 }, { immediate: true })
 
 // 监听当前会话变化，加载邮件
-watch(currentSession, async (newSession, oldSession) => {
+watch(currentSession, async (newSession) => {
   console.log('🔍 [MessageList] currentSession changed:', newSession?.session_id)
-  
-  // 滚动到底部
-  if (newSession && newSession.session_id !== oldSession?.session_id) {
-    await nextTick()
-    scrollToBottom()
-  }
-  
   if (newSession) {
     await loadEmails(newSession.session_id)
   } else {
     emails.value = []
   }
-  
   // 重置内联表单状态
   answer.value = ''
   hideInlineForm.value = false
 }, { immediate: true })
-
-// 监听邮件列表变化，自动滚动到底部
-watch(emails, async () => {
-  await nextTick()
-  scrollToBottom()
-}, { deep: true })
 
 // 加载邮件列表
 const loadEmails = async (sessionId) => {
@@ -106,7 +71,7 @@ const loadEmails = async (sessionId) => {
     const result = await sessionAPI.getEmails(sessionId)
     emails.value = result.emails || result.conversations || []
 
-    // 确保滚动到底部
+    // 滚动到底部
     await nextTick()
     scrollToBottom()
   } catch (err) {
@@ -133,6 +98,7 @@ const refreshEmails = async () => {
 
 // 处理回复发送成功
 const handleReplySent = async () => {
+  // 刷新邮件列表
   await refreshEmails()
 }
 
@@ -152,16 +118,6 @@ const submitAnswer = async () => {
 // 暂不回答（隐藏表单）
 const hideInlineFormHandler = () => {
   hideInlineForm.value = true
-}
-
-// 切换到Agent工作的会话
-const switchToAgentSession = (agentName) => {
-  const agentData = websocketStore.agentStatuses[agentName]
-  if (agentData?.current_user_session_id) {
-    console.log('Switching to session:', agentData.current_user_session_id)
-    // TODO: 切换会话逻辑
-    // sessionStore.selectSession(agentData.current_user_session_id)
-  }
 }
 
 // 暴露方法给父组件
@@ -260,22 +216,6 @@ defineExpose({
           </div>
         </div>
       </template>
-    </div>
-
-    <!-- Agent Status Bar -->
-    <div v-if="currentSession && agentsInConversation.length > 0" class="border-t border-surface-200 bg-white px-6 py-3">
-      <div class="flex items-center gap-2 mb-2">
-        <i class="ti ti-robot text-surface-400"></i>
-        <span class="text-sm font-medium text-surface-600">Agent状态</span>
-      </div>
-      <div class="space-y-2">
-        <AgentStatusIndicator
-          v-for="agentName in agentsInConversation"
-          :key="agentName"
-          :agent-name="agentName"
-          :current-session-id="currentSession.session_id"
-        />
-      </div>
     </div>
 
     <!-- Ask User 内联表单 -->
