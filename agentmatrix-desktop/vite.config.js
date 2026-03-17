@@ -12,6 +12,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    strictPort: true, // Tauri requires a fixed port
     proxy: {
       // 🔑 关键：代理后端 API
       '/api': {
@@ -24,5 +25,13 @@ export default defineConfig({
         ws: true,
       },
     },
+  },
+  // Tauri expects a fixed directory structure
+  build: {
+    target: process.env.TAURI_PLATFORM == 'windows' ? 'chrome105' : 'safari13',
+    // Don't minify for debug builds
+    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
+    // Produce sourcemaps for debug builds
+    sourcemap: !!process.env.TAURI_DEBUG,
   },
 })

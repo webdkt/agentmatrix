@@ -1,8 +1,10 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
+import { useBackendStore } from '@/stores/backend'
+import { useNotifications } from '@/composables/useNotifications'
 import ConversationList from '@/components/conversation/ConversationList.vue'
 import MessageList from '@/components/message/MessageList.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
@@ -11,11 +13,14 @@ import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 const currentView = ref('conversations') // 'conversations' or 'settings'
 const sessionStore = useSessionStore()
 const websocketStore = useWebSocketStore()
+const backendStore = useBackendStore()
 const { isConnected, connect, onMessage } = useWebSocket()
+const { requestPermission } = useNotifications()
 
 // 计算属性
 const currentSession = computed(() => sessionStore.currentSession)
 const user_agent_name = computed(() => 'DKT') // 可以从配置中读取
+const backendStatus = computed(() => backendStore.status)
 
 // 对话框显示状态
 const showAskUserDialog = ref(false)
@@ -40,8 +45,19 @@ const handleDialogSubmitted = () => {
 
 // 生命周期
 onMounted(async () => {
-  // 初始化 WebSocket 连接
-  connect()
+  console.log('🚀 AgentMatrix Desktop App mounted')
+
+  // Request notification permission
+  await requestPermission()
+
+  // Initialize backend (auto-start if enabled)
+  await backendStore.initializeBackend()
+
+  // If backend is running, connect WebSocket
+  if (backendStore.isRunning) {
+    console.log('Connecting WebSocket...')
+    connect()
+  }
 
   // 监听 WebSocket 消息
   onMessage((data) => {
@@ -81,6 +97,11 @@ onMounted(async () => {
     }
   })
 })
+
+onUnmounted(() => {
+  // Cleanup
+  backendStore.stopHealthMonitoring()
+})
 </script>
 
 <template>
@@ -94,7 +115,7 @@ onMounted(async () => {
           </div>
           <div>
             <h1 class="text-lg font-bold text-surface-900">AgentMatrix</h1>
-            <p class="text-xs text-surface-500">Vue 3 + Vite Migration</p>
+            <p class="text-xs text-surface-500">Desktop Application</p>
           </div>
         </div>
 
@@ -120,6 +141,27 @@ onMounted(async () => {
 
         <!-- Connection Status -->
         <div class="flex items-center gap-2">
+          <!-- Backend Status -->
+          <span
+            :class="{
+              'bg-green-50 text-green-600': backendStatus === 'running',
+              'bg-rose-50 text-rose-600': backendStatus === 'stopped',
+              'bg-yellow-50 text-yellow-600': backendStatus === 'starting' || backendStatus === 'stopping'
+            }"
+            class="px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1"
+          >
+            <span
+              :class="{
+                'bg-green-500': backendStatus === 'running',
+                'bg-rose-500': backendStatus === 'stopped',
+                'bg-yellow-500': backendStatus === 'starting' || backendStatus === 'stopping'
+              }"
+              class="w-1.5 h-1.5 rounded-full"
+            ></span>
+            <span>{{ backendStatus.charAt(0).toUpperCase() + backendStatus.slice(1) }}</span>
+          </span>
+
+          <!-- WebSocket Status -->
           <span
             :class="isConnected ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'"
             class="px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1"

@@ -27,12 +27,14 @@ The heart of AgentMatrix - a Python library for building intelligent agents.
 - **Use as**: Library in your own projects
 - **Contains**: Agent runtime, skill system, LLM integration, message routing
 
-### 2. Web Application (`web/` + `server.py`)
-Official web-based management interface for AgentMatrix.
-- **Start**: `python server.py`
-- **Provides**: Visual UI for agent interaction, email-style messaging, session management
-- **Tech**: FastAPI backend + modern frontend (Alpine.js + Tailwind CSS)
-- **Documentation**: See [web/README.md](web/README.md)
+### 2. Desktop Application (`agentmatrix-desktop/`)
+Official desktop application for AgentMatrix with native features.
+- **Install**: `cd agentmatrix-desktop && npm install`
+- **Start**: `cd agentmatrix-desktop && npm run tauri:dev`
+- **Build**: `cd agentmatrix-desktop && npm run tauri:build`
+- **Features**: Visual UI for agent interaction, email-style messaging, session management, system tray, native notifications
+- **Tech**: Vue 3 + Vite + Tauri (Rust backend)
+- **Documentation**: See [agentmatrix-desktop/README.md](agentmatrix-desktop/README.md)
 
 ### 3. Examples (`examples/`)
 Sample configurations and tutorials to help you get started.
@@ -40,7 +42,7 @@ Sample configurations and tutorials to help you get started.
 - **Documentation**: See [examples/README.md](examples/README.md)
 
 **Quick Start Paths**:
-- 🖥️ **Want a visual interface?** → Start Web app: `python server.py`
+- 🖥️ **Want a visual interface?** → Use Desktop app: `cd agentmatrix-desktop && npm run tauri:dev`
 - 🐍 **Want to build programmatically?** → Use as library: `pip install matrix-for-agents`
 - 📚 **Want to learn by example?** → Explore `examples/MyWorld`
 

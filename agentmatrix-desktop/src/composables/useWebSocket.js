@@ -16,10 +16,11 @@ class WebSocketClient {
 
   connect() {
     try {
+      console.log('🔌 Connecting to WebSocket:', this.url)
       this.ws = new WebSocket(this.url)
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected')
+        console.log('✅ WebSocket connected')
         this.reconnectAttempts = 0
         this.trigger('open')
 
@@ -30,6 +31,7 @@ class WebSocketClient {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          console.log('📨 WebSocket message received:', data)
           this.trigger('message', data)
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error)
@@ -37,13 +39,13 @@ class WebSocketClient {
       }
 
       this.ws.onclose = () => {
-        console.log('WebSocket disconnected')
+        console.log('❌ WebSocket disconnected')
         this.trigger('close')
         this.attemptReconnect()
       }
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
+        console.error('⚠️ WebSocket error:', error)
         this.trigger('error', error)
       }
     } catch (error) {
@@ -67,6 +69,7 @@ class WebSocketClient {
   send(data) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data))
+      console.log('📤 WebSocket message sent:', data)
     } else {
       console.error('WebSocket is not connected')
     }
@@ -118,8 +121,9 @@ export function useWebSocket() {
 
   // 初始化 WebSocket 连接
   const connect = () => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws`
+    // 连接到后端 WebSocket (端口 8000)
+    // 在开发环境中，我们需要连接到 Python 后端而不是 Vite 开发服务器
+    const wsUrl = 'ws://localhost:8000/ws'
 
     console.log('🔌 Connecting to WebSocket:', wsUrl)
 
