@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "AgentMatrix",
+    "tagline": "Desktop Application"
+  },
+  "views": {
+    "dashboard": {
+      "title": "Dashboard",
+      "icon": "ti-layout-dashboard"
+    },
+    "email": {
+      "title": "Email",
+      "icon": "ti-mail"
+    },
+    "matrix": {
+      "title": "Matrix",
+      "icon": "ti-grid"
+    },
+    "magic": {
+      "title": "Magic",
+      "icon": "ti-wand"
+    },
+    "settings": {
+      "title": "Settings",
+      "icon": "ti-settings"
+    }
+  },
+  "sessions": {
+    "title": "Sessions",
+    "newEmail": "New Email",
+    "search": "Search sessions...",
+    "loadMore": "Load More Sessions",
+    "loading": "Loading...",
+    "noSessions": "No sessions yet",
+    "startNew": "Start a new session to begin"
+  },
+  "emails": {
+    "subject": "Subject",
+    "from": "From",
+    "to": "To",
+    "date": "Date",
+    "reply": "Reply",
+    "replyTo": "Reply to %{name}",
+    "forward": "Forward",
+    "delete": "Delete",
+    "refresh": "Refresh",
+    "send": "Send",
+    "sending": "Sending...",
+    "sendMessage": "Send a message...",
+    "enterToSend": "Press Enter to send",
+    "sendError": "Failed to send",
+    "searchAgent": "Search for an agent...",
+    "message": "Message",
+    "messagePlaceholder": "Type your message...",
+    "attachFile": "Attach a file",
+    "noEmails": "No messages yet",
+    "startConversation": "Start the session",
+    "selectSession": "Select a session to view messages",
+    "agentStatus": "Agent • Online",
+    "hasQuestion": "has a question for you",
+    "questionPlaceholder": "Enter your answer..."
+  },
+  "status": {
+    "running": "Running",
+    "stopped": "Stopped",
+    "starting": "Starting",
+    "stopping": "Stopping",
+    "connected": "Connected",
+    "connecting": "Connecting...",
+    "disconnected": "Disconnected"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "appearance": "Appearance",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "backend": "Backend",
+    "llm": "LLM Configuration"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success"
+  }
+}

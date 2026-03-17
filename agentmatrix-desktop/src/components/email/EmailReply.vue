@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { sessionAPI } from '@/api/session'
 
 const props = defineProps({
@@ -10,10 +11,19 @@ const props = defineProps({
   emails: {
     type: Array,
     default: () => []
+  },
+  inlineEmail: {
+    type: Object,
+    default: null
+  },
+  showInline: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['sent'])
+const { t } = useI18n()
+const emit = defineEmits(['sent', 'cancelInline'])
 
 // 状态
 const replyBody = ref('')
@@ -30,13 +40,20 @@ const lastEmail = computed(() => {
 })
 
 const placeholder = computed(() => {
+  if (props.showInline && props.inlineEmail) {
+    const sender = props.inlineEmail.is_from_user
+      ? (props.inlineEmail.recipient || props.currentSession.name)
+      : props.inlineEmail.sender
+    return t('emails.replyTo', { name: sender })
+  }
+
   if (props.emails.length === 0) {
-    return '发送消息...'
+    return t('emails.sendMessage')
   }
   const sender = lastEmail.value?.is_from_user
-    ? (lastEmail.value.recipient || props.currentSession?.name)
+    ? (lastEmail.value.recipient || props.currentSession.name)
     : lastEmail.value?.sender
-  return `回复给 ${sender}...`
+  return t('emails.replyTo', { name: sender })
 })
 
 // 发送回复
@@ -45,65 +62,55 @@ const sendReply = async () => {
 
   isSending.value = true
   try {
-    // 如果没有邮件，发送给会话的 agent
-    if (props.emails.length === 0) {
-      const emailData = {
+    let emailData
+    let targetEmail = props.showInline ? props.inlineEmail : lastEmail.value
+
+    if (!targetEmail) {
+      // 没有邮件，发送给会话的 agent
+      emailData = {
         recipient: props.currentSession.name,
         subject: '',
         body: replyBody.value
       }
-
-      const response = await sessionAPI.sendEmail(
-        props.currentSession.session_id,
-        emailData
-      )
-
-      console.log('Message sent:', response)
-
-      // 清空输入
-      replyBody.value = ''
-      emit('sent', response)
     } else {
-      // 回复最后一封邮件
-      const last = lastEmail.value
-
-      // 确定回复对象
+      // 回复邮件
       let recipient
-      if (last.is_from_user) {
-        // 最后一封是用户发的，回复给收件人
-        recipient = last.recipient || props.currentSession.name
+      if (targetEmail.is_from_user) {
+        recipient = targetEmail.recipient || props.currentSession.name
       } else {
-        // 最后一封是 AI 发的，回复给发送者
-        recipient = last.sender
+        recipient = targetEmail.sender
       }
 
-      // 使用邮件 ID 作为 in_reply_to
-      const inReplyTo = last.id
-
-      const emailData = {
+      emailData = {
         recipient: recipient,
         subject: '',
         body: replyBody.value,
-        in_reply_to: inReplyTo
+        in_reply_to: targetEmail.id
       }
-
-      const response = await sessionAPI.sendEmail(
-        props.currentSession.session_id,
-        emailData
-      )
-
-      console.log('Reply sent:', response)
-
-      // 清空输入
-      replyBody.value = ''
-      emit('sent', response)
     }
+
+    const response = await sessionAPI.sendEmail(
+      props.currentSession.session_id,
+      emailData
+    )
+
+    console.log('Reply sent:', response)
+
+    // 清空输入
+    replyBody.value = ''
+    emit('sent', response)
   } catch (error) {
     console.error('Failed to send reply:', error)
-    alert(`发送失败: ${error.message}`)
+    alert(`${t('emails.sendError')}: ${error.message}`)
   } finally {
     isSending.value = false
   }
+}
+
+// 取消内联回复
+const cancelInline = () => {
+  replyBody.value = ''
+  emit('cancelInline')
 }
 
 // 处理 Enter 键发送
@@ -123,13 +130,14 @@ const adjustHeight = (event) => {
 </script>
 
 <template>
-  <div v-if="currentSession" class="px-6 pb-6 pt-2 flex-shrink-0">
-    <!-- Reply Info -->
-    <div v-if="emails.length > 0" class="flex items-center gap-2 mb-2 px-1">
-      <span class="text-xs text-surface-500">
+  <!-- Floating Reply (bottom or inline) -->
+  <div :class="['email-reply', { 'email-reply--inline': showInline }]">
+    <!-- Reply Info (only for bottom reply) -->
+    <div v-if="!showInline && emails.length > 0" class="email-reply__info">
+      <span class="email-reply__info-text">
         <i class="ti ti-arrow-back-up"></i>
-        回复给
-        <span class="font-medium text-surface-700">
+        {{ t('emails.replyTo') }}
+        <span class="email-reply__info-name">
           {{ lastEmail?.is_from_user
             ? (lastEmail?.recipient || currentSession.name)
             : lastEmail?.sender }}
@@ -137,56 +145,209 @@ const adjustHeight = (event) => {
       </span>
     </div>
 
-    <!-- Reply Input -->
-    <div class="glass rounded-2xl border border-surface-200/60 shadow-elevated p-2">
-      <div class="flex items-end gap-2">
-        <textarea
-          v-model="replyBody"
-          @keydown="handleKeyDown"
-          @input="adjustHeight"
-          :placeholder="placeholder"
-          rows="1"
-          class="flex-1 py-2.5 px-2 bg-transparent border-0 text-surface-700 placeholder-surface-400 resize-none focus:outline-none focus:ring-0 text-[15px] max-h-32"
-          style="min-height: 44px;"
-        ></textarea>
-        <button
-          @click="sendReply"
-          :disabled="!canSend"
-          class="w-10 h-10 rounded-xl bg-primary-600 text-white hover:bg-primary-700 flex items-center justify-center transition-all duration-200 btn-press shadow-glow-sm flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <i v-if="!isSending" class="ti ti-send text-lg"></i>
-          <i v-else class="ti ti-loader animate-spin text-lg"></i>
-        </button>
-      </div>
-      <div class="flex items-center justify-end px-3 pb-1 pt-1">
-        <span class="text-xs text-surface-400">按 Enter 发送</span>
-      </div>
+    <!-- Reply Container -->
+    <div class="email-reply__container">
+      <!-- Cancel button (inline only) -->
+      <button
+        v-if="showInline"
+        @click="cancelInline"
+        class="email-reply__cancel"
+        :title="t('common.cancel')"
+      >
+        <i class="ti ti-x"></i>
+      </button>
+
+      <!-- Textarea -->
+      <textarea
+        v-model="replyBody"
+        @keydown="handleKeyDown"
+        @input="adjustHeight"
+        :placeholder="placeholder"
+        rows="1"
+        class="email-reply__textarea"
+      ></textarea>
+
+      <!-- Send button -->
+      <button
+        @click="sendReply"
+        :disabled="!canSend"
+        class="email-reply__send"
+        :title="t('emails.send')"
+      >
+        <i v-if="!isSending" class="ti ti-send"></i>
+        <i v-else class="ti ti-loader animate-spin"></i>
+      </button>
+    </div>
+
+    <!-- Hint -->
+    <div class="email-reply__hint">
+      <span class="email-reply__hint-text">{{ t('emails.enterToSend') }}</span>
     </div>
   </div>
 </template>
 
 <style scoped>
-.glass {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
+.email-reply {
+  position: absolute;
+  left: var(--spacing-md);
+  right: var(--spacing-md);
+  bottom: var(--spacing-xl); /* 56px from bottom */
+  z-index: var(--z-above);
+  animation: replySlideUp 200ms var(--ease-out);
 }
 
-.shadow-elevated {
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+.email-reply--inline {
+  position: relative;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: var(--spacing-md) 0;
+  animation: replyFadeIn 150ms var(--ease-out);
 }
 
-.shadow-glow-sm {
-  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+@keyframes replySlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.btn-press {
-  transition: all 0.2s;
+@keyframes replyFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
-.btn-press:active {
+/* Info (bottom reply only) */
+.email-reply__info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-xs);
+  padding-left: var(--spacing-xs);
+}
+
+.email-reply__info-text {
+  font-size: var(--font-xs);
+  color: var(--neutral-500);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.email-reply__info-name {
+  font-weight: var(--font-medium);
+  color: var(--neutral-700);
+}
+
+/* Container */
+.email-reply__container {
+  background: white;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--spacing-xs);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+}
+
+/* Cancel button (inline only) */
+.email-reply__cancel {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--neutral-400);
+  font-size: var(--icon-md);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.email-reply__cancel:hover {
+  color: var(--neutral-600);
+  background: var(--neutral-100);
+  border-radius: var(--radius-sm);
+}
+
+/* Textarea */
+.email-reply__textarea {
+  flex: 1;
+  min-height: 32px;
+  max-height: 128px;
+  padding: var(--spacing-sm);
+  background: transparent;
+  border: none;
+  color: var(--neutral-700);
+  font-size: var(--font-sm);
+  line-height: var(--leading-normal);
+  resize: none;
+  font-family: inherit;
+}
+
+.email-reply__textarea::placeholder {
+  color: var(--neutral-400);
+}
+
+.email-reply__textarea:focus {
+  outline: none;
+}
+
+/* Send button */
+.email-reply__send {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--primary-500);
+  color: white;
+  font-size: var(--icon-md);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.email-reply__send:hover:not(:disabled) {
+  background: var(--primary-600);
+}
+
+.email-reply__send:active:not(:disabled) {
   transform: scale(0.95);
 }
 
+.email-reply__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Hint */
+.email-reply__hint {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: var(--spacing-xs);
+  margin-top: 2px;
+}
+
+.email-reply__hint-text {
+  font-size: 10px;
+  color: var(--neutral-300);
+  line-height: 1;
+}
+
+/* Animations */
 @keyframes spin {
   from {
     transform: rotate(0deg);

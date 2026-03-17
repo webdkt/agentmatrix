@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 import LLMConfigForm from './LLMConfigForm.vue'
+const emit = defineEmits(['view-change'])
 
 const settingsStore = useSettingsStore()
 const uiStore = useUIStore()
@@ -96,10 +97,17 @@ const handleDeleteConfig = async (configName) => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col h-full bg-gradient-to-br from-surface-50/50 to-white overflow-hidden">
+    <div class="flex-1 flex flex-col h-full bg-gradient-to-br from-surface-50/50 to-white overflow-hidden">
     <!-- Settings Header -->
     <header class="glass border-b border-surface-200/60 px-8 py-5 flex-shrink-0">
       <div class="flex items-center gap-4">
+        <button
+          @click="emit('view-change', 'email')"
+          class="w-10 h-10 rounded-xl bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-all duration-200 btn-press"
+          title="Back to Email"
+        >
+          <i class="ti ti-arrow-left text-surface-600"></i>
+        </button>
         <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-surface-100 to-surface-50 flex items-center justify-center shadow-card">
           <i class="ti ti-settings text-2xl text-surface-600"></i>
         </div>

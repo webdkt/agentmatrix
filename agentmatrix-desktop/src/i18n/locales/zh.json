@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "AgentMatrix",
+    "tagline": "桌面应用"
+  },
+  "views": {
+    "dashboard": {
+      "title": "仪表盘",
+      "icon": "ti-layout-dashboard"
+    },
+    "email": {
+      "title": "邮件",
+      "icon": "ti-mail"
+    },
+    "matrix": {
+      "title": "矩阵",
+      "icon": "ti-grid"
+    },
+    "magic": {
+      "title": "魔法",
+      "icon": "ti-wand"
+    },
+    "settings": {
+      "title": "设置",
+      "icon": "ti-settings"
+    }
+  },
+  "sessions": {
+    "title": "会话",
+    "newEmail": "新邮件",
+    "search": "搜索会话...",
+    "loadMore": "加载更多",
+    "loading": "加载中...",
+    "noSessions": "暂无会话",
+    "startNew": "创建新会话开始使用"
+  },
+  "emails": {
+    "subject": "主题",
+    "from": "发件人",
+    "to": "收件人",
+    "date": "日期",
+    "reply": "回复",
+    "replyTo": "回复给 %{name}",
+    "forward": "转发",
+    "delete": "删除",
+    "refresh": "刷新",
+    "send": "发送",
+    "sending": "发送中...",
+    "sendMessage": "发送消息...",
+    "enterToSend": "按 Enter 发送",
+    "sendError": "发送失败",
+    "searchAgent": "搜索智能体...",
+    "message": "消息",
+    "messagePlaceholder": "输入你的消息...",
+    "attachFile": "添加附件",
+    "noEmails": "暂无消息",
+    "startConversation": "开始会话",
+    "selectSession": "选择一个会话查看消息",
+    "agentStatus": "智能体 • 在线",
+    "hasQuestion": "有一个问题需要你回答",
+    "questionPlaceholder": "输入你的回答..."
+  },
+  "status": {
+    "running": "运行中",
+    "stopped": "已停止",
+    "starting": "启动中",
+    "stopping": "停止中",
+    "connected": "已连接",
+    "connecting": "连接中...",
+    "disconnected": "未连接"
+  },
+  "settings": {
+    "title": "设置",
+    "language": "语言",
+    "appearance": "外观",
+    "theme": "主题",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统",
+    "backend": "后端",
+    "llm": "大模型配置"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "close": "关闭",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功"
+  }
+}

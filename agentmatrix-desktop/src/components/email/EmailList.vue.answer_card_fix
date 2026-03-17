@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useAgentStore } from '@/stores/agent'
@@ -31,13 +31,14 @@ const showInlineReply = ref(false)
 const showMenu = ref(false)
 
 // Ask User 相关状态
+// 计算属性
 const answer = ref('')
 const hideInlineForm = ref(false)
-const submittedAnswer = ref(null)
+const submittedAnswer = ref(null)  // 存储刚刚提交的答案
 const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
 
-// 识别对话中的所有 Agent（排除 User）
+// 🆕 识别对话中的所有 Agent（排除 User）
 const sessionAgents = computed(() => {
   if (!emails.value || emails.value.length === 0) {
     return []
@@ -46,6 +47,8 @@ const sessionAgents = computed(() => {
   const agentSet = new Set()
 
   emails.value.forEach(email => {
+    // 从邮件的 sender 和 receiver 中提取 Agent 名称
+    // 排除 User 自己
     if (email.sender && email.sender !== props.user_agent_name) {
       agentSet.add(email.sender)
     }
@@ -79,6 +82,7 @@ watch(currentSession, async (newSession) => {
   } else {
     emails.value = []
   }
+  // 重置内联表单状态
   answer.value = ''
   hideInlineForm.value = false
 }, { immediate: true })
@@ -94,6 +98,7 @@ const loadEmails = async (sessionId) => {
     const result = await sessionAPI.getEmails(sessionId)
     emails.value = result.emails || result.sessions || []
 
+    // 滚动到底部
     await nextTick()
     scrollToBottom()
   } catch (err) {
@@ -120,6 +125,7 @@ const refreshEmails = async () => {
 
 // 处理回复发送成功
 const handleReplySent = async () => {
+  // 刷新邮件列表
   await refreshEmails()
 }
 
@@ -130,10 +136,6 @@ const handleMenuAction = async (action) => {
   if (action === 'refresh') {
     await refreshEmails()
   } else if (action === 'delete') {
-    console.log('Delete session - to be implemented')
-  }
-}
-
 // Handle inline reply
 const handleInlineReply = (email) => {
   inlineReplyEmail.value = email
@@ -151,38 +153,47 @@ const handleInlineReplySent = async () => {
   showInlineReply.value = false
 }
 
-// Handle Agent question submission
-const handleAgentQuestionSubmit = async () => {
-  if (!answer.value.trim() || !currentSession.value) return
-
-  const sessionId = currentSession.value.session_id
-  const question = sessionStore.getPendingQuestion(sessionId)
-
-  try {
-    await sessionStore.submitAskUserAnswer(sessionId, answer.value)
-
-    submittedAnswer.value = {
-      question: question?.question || '',
-      answer: answer.value,
-      agentName: question?.agent_name || 'Agent',
-      timestamp: new Date()
+    // Placeholder for delete functionality
+    console.log('Delete session - to be implemented')
+  
+  // Handle Agent question submission
+  const handleAgentQuestionSubmit = async () => {
+    if (!answer.value.trim() || !currentSession.value) return
+    
+    const sessionId = currentSession.value.session_id
+    const question = sessionStore.getPendingQuestion(sessionId)
+    
+    try {
+      // 调用 store 方法提交答案
+      await sessionStore.submitAskUserAnswer(sessionId, answer.value)
+      
+      // 保存提交的答案用于显示
+      submittedAnswer.value = {
+        question: question?.question || '',
+        answer: answer.value,
+        agentName: question?.agent_name || 'Agent',
+        timestamp: new Date()
+      }
+      
+      // 清空输入
+      answer.value = ''
+      hideInlineForm.value = false
+      
+      console.log('✅ Agent question answered, temporary display added')
+    } catch (error) {
+      console.error('❌ Failed to submit answer:', error)
+      alert('Failed to submit answer: ' + error.message)
     }
-
-    answer.value = ''
-    hideInlineForm.value = false
-
-    console.log('✅ Agent question answered, temporary display added')
-  } catch (error) {
-    console.error('❌ Failed to submit answer:', error)
-    alert('Failed to submit answer: ' + error.message)
+  }
   }
 }
 </script>
 
 <template>
   <main class="email-list">
-    <!-- Toolbar -->
+    <!-- Toolbar (48px height) -->
     <header v-if="currentSession" class="email-list__toolbar">
+      <!-- Left: Agent Status Info Area -->
       <div class="email-list__toolbar-left">
         <AgentStatusIndicator
           v-for="agentName in sessionAgents"
@@ -193,6 +204,7 @@ const handleAgentQuestionSubmit = async () => {
         />
       </div>
 
+      <!-- Right: Actions -->
       <div class="email-list__toolbar-right">
         <button
           @click="refreshEmails"
@@ -210,6 +222,7 @@ const handleAgentQuestionSubmit = async () => {
           <i class="ti ti-dots-vertical"></i>
         </button>
 
+        <!-- Dropdown Menu -->
         <div v-if="showMenu" class="email-list__menu">
           <button
             @click="handleMenuAction('delete')"
@@ -234,6 +247,7 @@ const handleAgentQuestionSubmit = async () => {
       ref="messagesContainer"
       class="email-list__messages"
     >
+      <!-- No Session Selected -->
       <div v-if="!currentSession" class="email-list__empty">
         <div class="email-list__empty-icon">
           <i class="ti ti-message-circle"></i>
@@ -241,6 +255,7 @@ const handleAgentQuestionSubmit = async () => {
         <p class="email-list__empty-text">{{ t('emails.selectSession') }}</p>
       </div>
 
+      <!-- Loading State -->
       <div v-else-if="isLoading" class="email-list__empty">
         <div class="email-list__empty-icon email-list__empty-icon--loading">
           <i class="ti ti-loader animate-spin"></i>
@@ -248,6 +263,7 @@ const handleAgentQuestionSubmit = async () => {
         <p class="email-list__empty-text">{{ t('sessions.loading') }}</p>
       </div>
 
+      <!-- Error State -->
       <div v-else-if="error" class="email-list__empty">
         <div class="email-list__empty-icon email-list__empty-icon--error">
           <i class="ti ti-alert-circle"></i>
@@ -262,6 +278,7 @@ const handleAgentQuestionSubmit = async () => {
         </button>
       </div>
 
+      <!-- Messages -->
       <template v-else>
         <EmailItem
           @reply="handleInlineReply"
@@ -273,6 +290,7 @@ const handleAgentQuestionSubmit = async () => {
 
         <!-- Q&A Temporary Display -->
         <div v-if="pendingQuestion" class="qa-temp-display">
+          <!-- Question Card -->
           <div class="email-item">
             <div class="email-card email-card--question">
               <div class="email-card__header">
@@ -291,6 +309,7 @@ const handleAgentQuestionSubmit = async () => {
             </div>
           </div>
 
+          <!-- Answer Card (shown after submission) -->
           <div v-if="submittedAnswer" class="email-item">
             <div class="email-card email-card--answer">
               <div class="email-card__header">
@@ -303,13 +322,13 @@ const handleAgentQuestionSubmit = async () => {
               </div>
               <div class="email-card__content">
                 <div class="email-card__body">
-                  {{ submittedAnswer.answer }}
+                  {{ answer }}
                 </div>
               </div>
             </div>
           </div>
         </div>
-
+        <!-- Empty State (No Messages) -->
         <div v-if="!hasEmails" class="email-list__empty">
           <div class="email-list__empty-icon">
             <i class="ti ti-mail-off"></i>
@@ -320,7 +339,7 @@ const handleAgentQuestionSubmit = async () => {
       </template>
     </div>
 
-    <!-- Ask User 内联回答表单 -->
+    <!-- Ask User 内联表单 -->
     <div
       v-if="pendingQuestion && !hideInlineForm"
       class="email-list__question-form"
@@ -340,18 +359,23 @@ const handleAgentQuestionSubmit = async () => {
       />
       <div class="email-list__question-actions">
         <button
+          @click="hideInlineForm = true"
+          class="email-list__question-btn email-list__question-btn--secondary"
+        >
+          {{ t('common.cancel') }}
+        </button>
+        <button
           @click="handleAgentQuestionSubmit"
           :disabled="!answer.trim()"
           class="email-list__question-btn email-list__question-btn--primary"
         >
-          Submit
+          {{ t('common.save') }} Submit
         </button>
       </div>
     </div>
 
     <!-- Message Reply -->
     <EmailReply
-      v-if="!pendingQuestion || hideInlineForm"
       :current-session="currentSession"
       :emails="emails"
       :inline-email="inlineReplyEmail"
@@ -373,6 +397,7 @@ const handleAgentQuestionSubmit = async () => {
   overflow: hidden;
 }
 
+/* Toolbar */
 .email-list__toolbar {
   height: 48px;
   background: white;
@@ -425,6 +450,7 @@ const handleAgentQuestionSubmit = async () => {
   margin: 0 var(--spacing-xs);
 }
 
+/* Dropdown Menu */
 .email-list__menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -457,15 +483,17 @@ const handleAgentQuestionSubmit = async () => {
   background: var(--neutral-50);
 }
 
+/* Messages Container */
 .email-list__messages {
   flex: 1;
   overflow-y: auto;
   padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-md); /* 12px compact gap */
 }
 
+/* Empty States */
 .email-list__empty {
   display: flex;
   flex-direction: column;
@@ -527,8 +555,8 @@ const handleAgentQuestionSubmit = async () => {
   background: var(--primary-600);
 }
 
+/* Question Form */
 .email-list__question-form {
-  flex-shrink: 0;
   padding: var(--spacing-md);
   background: var(--warning-50);
   border-top: 1px solid var(--warning-200);
@@ -555,7 +583,7 @@ const handleAgentQuestionSubmit = async () => {
 .email-list__question-text {
   font-size: var(--font-sm);
   color: var(--warning-800);
-  background: var(--warning-100);
+  background: var(--warning-100/50);
   border-radius: var(--radius-md);
   padding: var(--spacing-sm) var(--spacing-md);
   margin: 0 0 var(--spacing-md) 0;
@@ -596,6 +624,15 @@ const handleAgentQuestionSubmit = async () => {
   transition: all var(--duration-base) var(--ease-out);
 }
 
+.email-list__question-btn--secondary {
+  background: transparent;
+  color: var(--warning-700);
+}
+
+.email-list__question-btn--secondary:hover {
+  background: var(--warning-100);
+}
+
 .email-list__question-btn--primary {
   background: var(--primary-500);
   color: white;
@@ -610,6 +647,7 @@ const handleAgentQuestionSubmit = async () => {
   cursor: not-allowed;
 }
 
+/* Animations */
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -623,6 +661,7 @@ const handleAgentQuestionSubmit = async () => {
   animation: spin 1s linear infinite;
 }
 
+/* Q&A Temporary Display */
 .qa-temp-display {
   display: flex;
   flex-direction: column;
@@ -641,6 +680,7 @@ const handleAgentQuestionSubmit = async () => {
   }
 }
 
+/* Question Card Styling */
 .email-card--question {
   background: linear-gradient(to bottom right, var(--warning-50), white);
   border-color: var(--warning-200);
@@ -666,4 +706,5 @@ const handleAgentQuestionSubmit = async () => {
   color: var(--neutral-400);
   margin-right: 4px;
 }
+
 </style>

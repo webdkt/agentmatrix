@@ -65,62 +65,65 @@ const close = () => {
 
 <template>
   <Transition name="modal">
-    <div v-if="show && currentQuestion" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div v-if="show && currentQuestion" class="ask-user-dialog-overlay">
       <!-- Overlay -->
-      <div class="absolute inset-0 bg-surface-900/40 backdrop-blur-sm" @click="close"></div>
+      <div class="ask-user-dialog-backdrop" @click="close"></div>
 
       <!-- Modal Content -->
-      <div class="relative bg-white rounded-2xl shadow-elevated w-full max-w-lg mx-4 overflow-hidden animate-scale-in">
+      <div class="ask-user-dialog-content">
         <!-- Header -->
-        <div class="px-6 py-4 border-b border-surface-100 flex items-center justify-between bg-amber-50/50">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
-              <i class="ti ti-message-circle text-amber-600 text-xl"></i>
+        <div class="ask-user-dialog-header">
+          <div class="ask-user-dialog-header-left">
+            <div class="ask-user-dialog-icon">
+              <i class="ti ti-message-circle"></i>
             </div>
-            <div>
-              <h2 class="text-lg font-semibold text-surface-900">{{ currentQuestion.agent_name }} 需要你的回答</h2>
-              <p class="text-xs text-surface-500">请回答以下问题继续</p>
+            <div class="ask-user-dialog-header-text">
+              <h2 class="ask-user-dialog-title">{{ currentQuestion.agent_name }} 需要你的回答</h2>
+              <p class="ask-user-dialog-subtitle">请回答以下问题继续</p>
             </div>
           </div>
           <button
             @click="close"
-            class="w-8 h-8 rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 flex items-center justify-center transition-all duration-200"
+            class="ask-user-dialog-close"
+            type="button"
           >
-            <i class="ti ti-x text-xl"></i>
+            <i class="ti ti-x"></i>
           </button>
         </div>
 
         <!-- Body -->
-        <div class="p-6">
+        <div class="ask-user-dialog-body">
           <!-- 问题显示 -->
-          <div class="mb-4 p-4 bg-amber-50 rounded-xl border border-amber-200">
-            <p class="text-surface-900">{{ currentQuestion.question }}</p>
+          <div class="ask-user-dialog-question">
+            <p>{{ currentQuestion.question }}</p>
           </div>
 
           <!-- 回答输入 -->
-          <div>
-            <label class="block text-sm font-medium text-surface-700 mb-2">你的回答</label>
+          <div class="ask-user-dialog-input-group">
+            <label class="ask-user-dialog-label">你的回答</label>
             <textarea
               v-model="answer"
               rows="5"
               placeholder="输入你的回答..."
-              class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200 resize-none"
+              class="ask-user-dialog-input"
             ></textarea>
           </div>
         </div>
 
         <!-- Footer -->
-        <div class="px-6 py-4 border-t border-surface-100 flex justify-end gap-3 bg-surface-50/50">
+        <div class="ask-user-dialog-footer">
           <button
             @click="close"
-            class="px-6 py-2.5 border border-surface-200 rounded-xl text-surface-700 font-medium hover:bg-surface-100 transition-all duration-200"
+            class="ask-user-dialog-btn ask-user-dialog-btn--secondary"
+            type="button"
           >
             稍后回答
           </button>
           <button
             @click="submit"
             :disabled="!answer.trim() || isSubmitting"
-            class="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-all duration-200 shadow-glow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            class="ask-user-dialog-btn ask-user-dialog-btn--primary"
+            type="button"
           >
             <span v-if="!isSubmitting">提交回答</span>
             <span v-else>提交中...</span>
@@ -133,27 +136,37 @@ const close = () => {
 </template>
 
 <style scoped>
-.shadow-elevated {
+/* Overlay */
+.ask-user-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+}
+
+.ask-user-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+}
+
+/* Modal Content */
+.ask-user-dialog-content {
+  position: relative;
+  background: white;
+  border-radius: var(--radius-lg);
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  max-width: 540px;
+  overflow: hidden;
+  animation: dialogScaleIn 200ms ease-out;
 }
 
-.shadow-glow-sm {
-  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
-}
-
-/* Modal transitions */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-
-/* Scale in animation */
-@keyframes scaleIn {
+@keyframes dialogScaleIn {
   from {
     opacity: 0;
     transform: scale(0.95);
@@ -164,10 +177,186 @@ const close = () => {
   }
 }
 
-.animate-scale-in {
-  animation: scaleIn 0.2s ease-out;
+/* Header */
+.ask-user-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: 1px solid var(--neutral-200);
+  background: var(--warning-50);
 }
 
+.ask-user-dialog-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.ask-user-dialog-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--warning-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--warning-600);
+  font-size: 20px;
+}
+
+.ask-user-dialog-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ask-user-dialog-title {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--neutral-900);
+  margin: 0;
+}
+
+.ask-user-dialog-subtitle {
+  font-size: var(--font-xs);
+  color: var(--neutral-500);
+  margin: 0;
+}
+
+.ask-user-dialog-close {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--neutral-400);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.ask-user-dialog-close:hover {
+  color: var(--neutral-600);
+  background: var(--neutral-100);
+}
+
+/* Body */
+.ask-user-dialog-body {
+  padding: var(--spacing-xl);
+}
+
+.ask-user-dialog-question {
+  padding: var(--spacing-md);
+  background: var(--warning-50);
+  border: 1px solid var(--warning-200);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.ask-user-dialog-question p {
+  font-size: var(--font-base);
+  color: var(--neutral-900);
+  margin: 0;
+}
+
+.ask-user-dialog-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.ask-user-dialog-label {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--neutral-700);
+}
+
+.ask-user-dialog-input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  font-size: var(--font-base);
+  color: var(--neutral-700);
+  resize: none;
+  font-family: inherit;
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.ask-user-dialog-input:focus {
+  outline: none;
+  border-color: var(--primary-300);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.ask-user-dialog-input::placeholder {
+  color: var(--neutral-400);
+}
+
+/* Footer */
+.ask-user-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-top: 1px solid var(--neutral-200);
+  background: var(--neutral-50);
+}
+
+.ask-user-dialog-btn {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.ask-user-dialog-btn--secondary {
+  background: transparent;
+  border: 1px solid var(--neutral-200);
+  color: var(--neutral-700);
+}
+
+.ask-user-dialog-btn--secondary:hover {
+  background: var(--neutral-100);
+}
+
+.ask-user-dialog-btn--primary {
+  background: var(--primary-600);
+  color: white;
+}
+
+.ask-user-dialog-btn--primary:hover:not(:disabled) {
+  background: var(--primary-700);
+}
+
+.ask-user-dialog-btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Modal transitions */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 200ms ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+/* Spin animation */
 @keyframes spin {
   from {
     transform: rotate(0deg);

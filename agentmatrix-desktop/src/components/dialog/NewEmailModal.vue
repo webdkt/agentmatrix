@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { agentAPI } from '@/api/agent'
 import { sessionAPI } from '@/api/session'
 
@@ -10,6 +11,7 @@ const props = defineProps({
   }
 })
 
+const { t } = useI18n()
 const emit = defineEmits(['close', 'sent'])
 
 // 状态
@@ -21,6 +23,7 @@ const messageBody = ref('')
 const attachments = ref([])
 const isSending = ref(false)
 const isLoadingAgents = ref(false)
+const isDragging = ref(false)
 
 // 计算属性
 const filteredAgents = computed(() => {
@@ -84,9 +87,24 @@ const handleFileSelect = (event) => {
   attachments.value.push(...files)
 }
 
-// 处理文件拖放
+// 拖拽处理
+const handleDragEnter = (event) => {
+  event.preventDefault()
+  isDragging.value = true
+}
+
+const handleDragLeave = (event) => {
+  event.preventDefault()
+  isDragging.value = false
+}
+
+const handleDragOver = (event) => {
+  event.preventDefault()
+}
+
 const handleFileDrop = (event) => {
   event.preventDefault()
+  isDragging.value = false
   const files = Array.from(event.dataTransfer.files)
   attachments.value.push(...files)
 }
@@ -120,26 +138,21 @@ const sendEmail = async () => {
 
   isSending.value = true
   try {
-    // 🔑 关键修复：明确设置不传递 in_reply_to
-    // 新建会话时不应该有 in_reply_to 字段
     const emailData = {
       recipient: selectedAgent.value.name,
       subject: '',
       body: messageBody.value
     }
 
-    // 明确设置为 undefined（虽然不设置也可以，但为了保险）
     emailData.in_reply_to = undefined
     emailData.task_id = undefined
 
     console.log('📤 Sending new email with data:', emailData)
 
-    // 直接调用 sendEmail API，sessionId 传 'new'
     const result = await sessionAPI.sendEmail('new', emailData, attachments.value)
 
     console.log('✅ Email sent successfully:', result)
 
-    // 成功
     emit('sent', result)
     emit('close')
   } catch (error) {
@@ -158,42 +171,47 @@ const close = () => {
 
 <template>
   <Transition name="modal">
-    <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div v-if="show" class="new-email-modal">
       <!-- Overlay -->
-      <div class="absolute inset-0 bg-surface-900/40 backdrop-blur-sm" @click="close"></div>
+      <div class="new-email-modal__overlay" @click="close"></div>
 
-      <!-- Modal Content -->
-      <div class="relative bg-white rounded-2xl shadow-elevated w-full max-w-2xl mx-4 overflow-hidden animate-scale-in">
+      <!-- Modal Content (Larger) -->
+      <div
+        :class="['new-email-modal__content', { 'new-email-modal__content--dragging': isDragging }]"
+        @dragenter="handleDragEnter"
+        @dragleave="handleDragLeave"
+        @dragover="handleDragOver"
+        @drop="handleFileDrop"
+      >
         <!-- Header -->
-        <div class="px-6 py-4 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
-          <h2 class="text-lg font-semibold text-surface-900 tracking-tight">New Session</h2>
+        <div class="new-email-modal__header">
+          <h2 class="new-email-modal__title">{{ t('sessions.newEmail') }}</h2>
           <button
             @click="close"
-            class="w-8 h-8 rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 flex items-center justify-center transition-all duration-200 btn-press"
+            class="new-email-modal__close"
           >
-            <i class="ti ti-x text-xl"></i>
+            <i class="ti ti-x"></i>
           </button>
         </div>
 
         <!-- Form -->
-        <div class="p-6 space-y-4">
+        <div class="new-email-modal__form">
           <!-- Recipient -->
-          <div class="relative">
-            <label class="block text-sm font-medium text-surface-700 mb-2">To</label>
-            <div class="relative">
-              <i class="ti ti-at absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"></i>
+          <div class="new-email-modal__field">
+            <label class="new-email-modal__label">{{ t('emails.to') }}</label>
+            <div class="new-email-modal__input-wrapper">
+              <i class="ti ti-at new-email-modal__input-icon"></i>
               <input
                 v-model="agentSearchQuery"
                 @focus="showAgentDropdown = true"
-                placeholder="Search for an agent..."
-                class="w-full pl-10 pr-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200"
+                :placeholder="t('emails.searchAgent')"
+                class="new-email-modal__input"
               />
 
-              <!-- Clear button -->
               <button
                 v-if="selectedAgent"
                 @click="clearAgent"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600"
+                class="new-email-modal__clear"
               >
                 <i class="ti ti-x"></i>
               </button>
@@ -202,112 +220,109 @@ const close = () => {
             <!-- Dropdown -->
             <div
               v-show="showAgentDropdown && (filteredAgents.length > 0 || agentSearchQuery)"
-              class="absolute z-10 w-full mt-1 bg-white border border-surface-200 rounded-xl shadow-elevated max-h-48 overflow-y-auto"
+              class="new-email-modal__dropdown"
             >
               <div
                 v-for="agent in filteredAgents"
                 :key="agent.name"
                 @click="selectAgent(agent)"
-                class="px-4 py-3 hover:bg-surface-50 cursor-pointer text-sm text-surface-700 transition-all duration-150"
+                class="new-email-modal__dropdown-item"
               >
-                <div class="font-medium">{{ agent.name }}</div>
-                <div class="text-xs text-surface-400 truncate">{{ agent.description || 'No description' }}</div>
+                <div class="new-email-modal__agent-name">{{ agent.name }}</div>
+                <div class="new-email-modal__agent-desc">{{ agent.description || 'No description' }}</div>
               </div>
 
               <div
                 v-if="filteredAgents.length === 0"
-                class="px-4 py-3 text-surface-400 text-sm"
+                class="new-email-modal__dropdown-empty"
               >
                 No agents found
               </div>
             </div>
           </div>
 
-          <!-- Message -->
-          <div>
-            <label class="block text-sm font-medium text-surface-700 mb-2">Message</label>
-            <textarea
-              v-model="messageBody"
-              rows="8"
-              placeholder="Type your message..."
-              class="w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200 resize-none"
-            ></textarea>
+          <!-- Message (Large editing area) -->
+          <div class="new-email-modal__message">
+            <label class="new-email-modal__label">{{ t('emails.message') }}</label>
+            <div class="new-email-modal__textarea-wrapper">
+              <textarea
+                v-model="messageBody"
+                rows="12"
+                :placeholder="t('emails.messagePlaceholder')"
+                class="new-email-modal__textarea"
+              ></textarea>
+
+              <!-- Drag overlay hint -->
+              <div v-if="isDragging" class="new-email-modal__drag-hint">
+                <i class="ti ti-upload"></i>
+                <span>Drop files to attach</span>
+              </div>
+            </div>
           </div>
 
-          <!-- Attachments -->
-          <div>
-            <label class="block text-sm font-medium text-surface-700 mb-2">Attachments</label>
-
-            <!-- Drop Zone -->
-            <div
-              @dragenter.prevent
-              @dragover.prevent
-              @drop="handleFileDrop"
-              @click="$refs.fileInput.click()"
-              class="border-2 border-dashed border-surface-200 rounded-xl p-6 text-center hover:border-primary-300 hover:bg-primary-50/30 transition-all duration-200 cursor-pointer"
-            >
-              <input
-                ref="fileInput"
-                type="file"
-                @change="handleFileSelect"
-                multiple
-                class="hidden"
-                accept="*/*"
-              >
-              <i class="ti ti-upload text-3xl text-surface-400 mb-2"></i>
-              <p class="text-sm text-surface-600 mb-1">
-                <span class="font-medium text-primary-600">Click to upload</span> or drag and drop
-              </p>
-              <p class="text-xs text-surface-400">Any file type supported</p>
+          <!-- Attachments (Compact) -->
+          <div v-if="attachments.length > 0" class="new-email-modal__attachments">
+            <div class="new-email-modal__attachments-header">
+              <span>{{ attachments.length }} {{ attachments.length === 1 ? 'file' : 'files' }}</span>
             </div>
-
-            <!-- Attachment List -->
-            <div v-if="attachments.length > 0" class="mt-3 space-y-2">
+            <div class="new-email-modal__attachments-list">
               <div
                 v-for="(file, index) in attachments"
                 :key="index"
-                class="flex items-center justify-between p-3 bg-surface-50 rounded-lg border border-surface-200 hover:border-surface-300 transition-all duration-150"
+                class="new-email-modal__attachment"
               >
-                <div class="flex items-center gap-3 flex-1 min-w-0">
-                  <div class="w-10 h-10 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
-                    <i class="ti ti-file text-primary-600"></i>
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-surface-700 truncate">{{ file.name }}</p>
-                    <p class="text-xs text-surface-400">{{ formatFileSize(file.size) }}</p>
-                  </div>
+                <div class="new-email-modal__attachment-icon">
+                  <i class="ti ti-file"></i>
+                </div>
+                <div class="new-email-modal__attachment-info">
+                  <span class="new-email-modal__attachment-name">{{ file.name }}</span>
+                  <span class="new-email-modal__attachment-size">{{ formatFileSize(file.size) }}</span>
                 </div>
                 <button
                   @click="removeAttachment(index)"
-                  class="ml-2 w-8 h-8 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all duration-150 flex-shrink-0"
+                  class="new-email-modal__attachment-remove"
                 >
                   <i class="ti ti-x"></i>
                 </button>
               </div>
             </div>
+          </div>
 
-            <!-- Attachment Count -->
-            <div v-if="attachments.length > 0" class="mt-2 text-xs text-surface-400 text-center">
-              {{ attachments.length }} file(s) selected
-            </div>
+          <!-- Attachment upload button -->
+          <div v-else class="new-email-modal__upload">
+            <button
+              @click="$refs.fileInput.click()"
+              class="new-email-modal__upload-btn"
+            >
+              <i class="ti ti-paperclip"></i>
+              <span>{{ t('emails.attachFile') }}</span>
+            </button>
+            <input
+              ref="fileInput"
+              type="file"
+              @change="handleFileSelect"
+              multiple
+              class="hidden"
+              accept="*/*"
+            >
           </div>
         </div>
 
         <!-- Footer -->
-        <div class="px-6 py-4 border-t border-surface-100 flex justify-end gap-3 bg-surface-50/50">
+        <div class="new-email-modal__footer">
           <button
             @click="close"
-            class="px-6 py-2.5 border border-surface-200 rounded-xl text-surface-700 font-medium hover:bg-surface-100 transition-all duration-200 btn-press"
+            class="new-email-modal__btn new-email-modal__btn--secondary"
           >
-            Cancel
+            {{ t('common.cancel') }}
           </button>
           <button
             @click="sendEmail"
             :disabled="!canSend"
-            class="px-6 py-2.5 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-all duration-200 btn-press shadow-glow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            class="new-email-modal__btn new-email-modal__btn--primary"
           >
-            <span v-if="!isSending">Send</span>
-            <span v-else>Sending...</span>
+            <span v-if="!isSending">{{ t('emails.send') }}</span>
+            <span v-else>{{ t('emails.sending') }}</span>
             <i v-if="isSending" class="ti ti-loader animate-spin"></i>
           </button>
         </div>
@@ -317,35 +332,428 @@ const close = () => {
 </template>
 
 <style scoped>
-.shadow-elevated {
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+.new-email-modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.shadow-glow-sm {
-  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+.new-email-modal__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
 }
 
-.btn-press {
-  transition: all 0.2s;
+.new-email-modal__content {
+  position: relative;
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  width: 100%;
+  max-width: 700px; /* Larger than before (was 2xl) */
+  max-height: 90vh;
+  margin: var(--spacing-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: modalEnter 250ms var(--ease-out);
 }
 
-.btn-press:active {
-  transform: scale(0.95);
+.new-email-modal__content--dragging {
+  border: 2px dashed var(--primary-400);
+  background: var(--primary-50/30);
 }
 
-/* Modal transitions */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
+/* Header */
+.new-email-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--neutral-200);
+  background: var(--neutral-50);
 }
 
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
+.new-email-modal__title {
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  color: var(--neutral-900);
+  margin: 0;
 }
 
-/* Scale in animation */
-@keyframes scaleIn {
+.new-email-modal__close {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--neutral-400);
+  font-size: var(--icon-lg);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.new-email-modal__close:hover {
+  color: var(--neutral-600);
+  background: var(--neutral-100);
+}
+
+/* Form */
+.new-email-modal__form {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.new-email-modal__field {
+  position: relative;
+}
+
+.new-email-modal__label {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--neutral-700);
+  margin-bottom: var(--spacing-xs);
+}
+
+.new-email-modal__input-wrapper {
+  position: relative;
+}
+
+.new-email-modal__input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--icon-md);
+  color: var(--neutral-400);
+  pointer-events: none;
+}
+
+.new-email-modal__input {
+  width: 100%;
+  height: var(--input-height-md);
+  padding: 0 var(--spacing-md) 0 40px;
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  color: var(--neutral-700);
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.new-email-modal__input::placeholder {
+  color: var(--neutral-400);
+}
+
+.new-email-modal__input:focus {
+  outline: none;
+  border-color: var(--primary-300);
+  background: white;
+}
+
+.new-email-modal__clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--neutral-400);
+  font-size: var(--icon-sm);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.new-email-modal__clear:hover {
+  color: var(--neutral-600);
+}
+
+/* Dropdown */
+.new-email-modal__dropdown {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  width: 100%;
+  max-height: 200px;
+  background: white;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.new-email-modal__dropdown-item {
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.new-email-modal__dropdown-item:hover {
+  background: var(--neutral-50);
+}
+
+.new-email-modal__agent-name {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--neutral-700);
+}
+
+.new-email-modal__agent-desc {
+  font-size: var(--font-xs);
+  color: var(--neutral-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-email-modal__dropdown-empty {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--neutral-400);
+}
+
+/* Message */
+.new-email-modal__message {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.new-email-modal__textarea-wrapper {
+  position: relative;
+  flex: 1;
+}
+
+.new-email-modal__textarea {
+  width: 100%;
+  min-height: 300px;
+  padding: var(--spacing-md);
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  font-size: var(--font-base);
+  font-family: inherit;
+  line-height: var(--leading-relaxed);
+  color: var(--neutral-700);
+  resize: none;
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.new-email-modal__textarea::placeholder {
+  color: var(--neutral-400);
+}
+
+.new-email-modal__textarea:focus {
+  outline: none;
+  border-color: var(--primary-300);
+  background: white;
+}
+
+.new-email-modal__drag-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  background: rgba(99, 102, 241, 0.9);
+  color: white;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+.new-email-modal__drag-hint i {
+  font-size: 32px;
+}
+
+/* Attachments */
+.new-email-modal__attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.new-email-modal__attachments-header {
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--neutral-500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.new-email-modal__attachments-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.new-email-modal__attachment {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.new-email-modal__attachment:hover {
+  background: var(--neutral-100);
+  border-color: var(--neutral-300);
+}
+
+.new-email-modal__attachment-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--primary-100);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-600);
+  font-size: var(--font-sm);
+  flex-shrink: 0;
+}
+
+.new-email-modal__attachment-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.new-email-modal__attachment-name {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--neutral-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-email-modal__attachment-size {
+  font-size: var(--font-xs);
+  color: var(--neutral-400);
+}
+
+.new-email-modal__attachment-remove {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--neutral-400);
+  font-size: var(--icon-sm);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.new-email-modal__attachment-remove:hover {
+  color: var(--error-500);
+  background: var(--error-50);
+}
+
+/* Upload button */
+.new-email-modal__upload {
+  padding: var(--spacing-sm) 0;
+}
+
+.new-email-modal__upload-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--neutral-100);
+  border: 1px dashed var(--neutral-300);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--neutral-600);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.new-email-modal__upload-btn:hover {
+  background: var(--neutral-200);
+  border-color: var(--neutral-400);
+}
+
+/* Footer */
+.new-email-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  border-top: 1px solid var(--neutral-200);
+  background: var(--neutral-50);
+}
+
+.new-email-modal__btn {
+  height: var(--button-height-md);
+  padding: 0 var(--spacing-lg);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.new-email-modal__btn--secondary {
+  background: transparent;
+  border: 1px solid var(--neutral-200);
+  color: var(--neutral-700);
+}
+
+.new-email-modal__btn--secondary:hover {
+  background: var(--neutral-100);
+}
+
+.new-email-modal__btn--primary {
+  background: var(--primary-500);
+  border: 1px solid var(--primary-500);
+  color: white;
+}
+
+.new-email-modal__btn--primary:hover:not(:disabled) {
+  background: var(--primary-600);
+  border-color: var(--primary-600);
+}
+
+.new-email-modal__btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Animations */
+@keyframes modalEnter {
   from {
     opacity: 0;
     transform: scale(0.95);
@@ -356,8 +764,14 @@ const close = () => {
   }
 }
 
-.animate-scale-in {
-  animation: scaleIn 0.2s ease-out;
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 200ms var(--ease-out);
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
 }
 
 @keyframes spin {

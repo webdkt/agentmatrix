@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import { useEmailStore } from '@/stores/email'
 import { useUIStore } from '@/stores/ui'
@@ -16,6 +17,7 @@ const props = defineProps({
   }
 })
 
+const { t } = useI18n()
 const emit = defineEmits(['reply'])
 
 const emailStore = useEmailStore()
@@ -73,18 +75,6 @@ const displayName = computed(() => {
   }
 })
 
-const avatarClass = computed(() => {
-  return props.email.is_from_user
-    ? 'from-accent-500 to-accent-600'
-    : 'from-blue-400 to-blue-600'
-})
-
-const messageCardClass = computed(() => {
-  return props.email.is_from_user
-    ? 'message-card message-user'
-    : 'message-card message-ai'
-})
-
 // 操作处理函数
 const handleReply = () => {
   console.log('Reply to email:', props.email.id)
@@ -93,7 +83,6 @@ const handleReply = () => {
 
 const handleCopy = async () => {
   try {
-    // 复制邮件正文（纯文本）
     await navigator.clipboard.writeText(props.email.body)
     uiStore.showNotification('Copied to clipboard', 'success')
   } catch (error) {
@@ -108,7 +97,6 @@ const handleDelete = async () => {
   }
 
   try {
-    // 需要从父组件获取 session_id，这里先使用 email.session_id
     await emailStore.deleteEmail(props.email.id, props.email.session_id)
     uiStore.showNotification('Email deleted', 'success')
   } catch (error) {
@@ -133,112 +121,93 @@ const handleAttachmentClick = async (attachment) => {
 </script>
 
 <template>
-  <div class="flex gap-4 message-item">
-    <!-- Avatar -->
-    <div
-      :class="avatarClass"
-      class="w-10 h-10 rounded-full bg-gradient-to-br flex items-center justify-center text-white font-semibold shadow-card flex-shrink-0 mt-1"
-    >
-      <span v-if="email.is_from_user">{{ user_agent_name.charAt(0).toUpperCase() }}</span>
-      <i v-else class="ti ti-brain text-lg"></i>
-    </div>
+  <div class="email-item">
+    <!-- Email Card (Direct card, no avatar + card layout) -->
+    <div :class="['email-card', { 'email-card--user': email.is_from_user }]">
+      <!-- Header -->
+      <div class="email-card__header">
+        <div class="email-card__sender">
+          <span class="email-card__label">{{ email.is_from_user ? 'To' : 'From' }}</span>
+          <span class="email-card__name">
+            <i class="ti ti-robot"></i>
+            {{ displayName }}
+          </span>
+        </div>
+        <span class="email-card__time">{{ formatTime(email.timestamp) }}</span>
+      </div>
 
-    <!-- Message Card -->
-    <div class="flex-1 flex flex-col gap-3">
-      <!-- Main Card -->
-      <div :class="messageCardClass">
-        <!-- Header -->
-        <div class="message-header">
-          <div class="message-header-left">
-            <span class="message-label">{{ email.is_from_user ? 'To' : 'From' }}</span>
-            <div class="flex flex-col">
-              <span :class="email.is_from_user ? 'message-recipient' : 'message-sender'">
-                <i class="ti ti-robot"></i>
-                <span>{{ displayName }}</span>
-              </span>
-            </div>
-          </div>
-          <span class="message-time">{{ formatTime(email.timestamp) }}</span>
+      <!-- Content -->
+      <div class="email-card__content">
+        <!-- Subject (if exists) -->
+        <div v-if="email.subject" class="email-card__subject">
+          {{ email.subject }}
         </div>
 
-        <!-- Content -->
-        <div class="message-content">
-          <!-- Subject (if exists) -->
-          <div v-if="email.subject" class="message-subject">{{ email.subject }}</div>
+        <!-- Body -->
+        <div class="email-card__body markdown-content" v-html="renderedBody"></div>
 
-          <!-- Body -->
-          <div class="message-body markdown-content" v-html="renderedBody"></div>
-
-          <!-- Attachments -->
-          <div v-if="email.attachments && email.attachments.length > 0" class="mt-3 space-y-2">
-            <div class="text-xs font-medium text-surface-500 uppercase tracking-wide">Attachments</div>
+        <!-- Attachments -->
+        <div v-if="email.attachments && email.attachments.length > 0" class="email-card__attachments">
+          <div class="email-card__attachments-label">Attachments</div>
+          <div
+            v-for="(attachment, index) in email.attachments"
+            :key="index"
+            class="email-card__attachment"
+          >
             <div
-              v-for="(attachment, index) in email.attachments"
-              :key="index"
-              class="flex items-center justify-between p-2 rounded-lg bg-surface-50 hover:bg-surface-100 transition-colors group"
+              @click="handleAttachmentClick(attachment)"
+              class="email-card__attachment-main"
             >
-              <!-- 点击附件打开 -->
-              <div
-                @click="handleAttachmentClick(attachment)"
-                class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-              >
-                <div class="w-8 h-8 rounded bg-primary-100 flex items-center justify-center flex-shrink-0">
-                  <i :class="['ti', getAttachmentIcon(attachment.filename), 'text-primary-600 text-sm']"></i>
-                </div>
-                <div class="flex flex-col min-w-0">
-                  <span class="text-sm font-medium text-surface-700 truncate">{{ attachment.filename }}</span>
-                  <span class="text-xs text-surface-400">{{ formatFileSize(attachment.size) }}</span>
-                </div>
+              <div class="email-card__attachment-icon">
+                <i :class="['ti', getAttachmentIcon(attachment.filename)]"></i>
               </div>
-
-              <!-- 下载按钮（暂移除，点击附件即可打开） -->
+              <div class="email-card__attachment-info">
+                <span class="email-card__attachment-name">{{ attachment.filename }}</span>
+                <span class="email-card__attachment-size">{{ formatFileSize(attachment.size) }}</span>
+              </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Action Buttons -->
-        <div class="message-actions">
-          <button
-            @click="handleReply"
-            class="message-action-btn"
-            title="Reply"
-          >
-            <i class="ti ti-arrow-back-up"></i>
-            <span>Reply</span>
-          </button>
-          <button
-            @click="handleCopy"
-            class="message-action-btn"
-            title="Copy"
-          >
-            <i class="ti ti-copy"></i>
-          </button>
-          <button
-            @click="handleDelete"
-            class="message-action-btn"
-            title="Delete"
-          >
-            <i class="ti ti-trash"></i>
-          </button>
-        </div>
+      <!-- Actions -->
+      <div class="email-card__actions">
+        <button
+          @click="handleReply"
+          class="email-card__action"
+          :title="t('emails.reply')"
+        >
+          <i class="ti ti-arrow-back-up"></i>
+          <span>Reply</span>
+        </button>
+        <button
+          @click="handleCopy"
+          class="email-card__action"
+          title="Copy"
+        >
+          <i class="ti ti-copy"></i>
+        </button>
+        <button
+          @click="handleDelete"
+          class="email-card__action"
+          :title="t('common.delete')"
+        >
+          <i class="ti ti-trash"></i>
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.shadow-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+.email-item {
+  animation: emailItemEnter 250ms var(--ease-out);
 }
 
-.message-item {
-  animation: messageEnter 0.3s ease-out;
-}
-
-@keyframes messageEnter {
+@keyframes emailItemEnter {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -246,220 +215,279 @@ const handleAttachmentClick = async (attachment) => {
   }
 }
 
-.message-card {
-  background-color: white;
-  border-radius: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgb(229 228 226 / 0.6);
-  padding: 1.25rem;
-  transition: all 0.2s;
+/* Email Card */
+.email-card {
+  background: white;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md); /* 16px padding */
+  transition: all var(--duration-base) var(--ease-out);
 }
 
-.message-card.message-user {
-  background: linear-gradient(to bottom right, rgb(254 250 240), white);
-  border-color: rgb(254 243 199);
+.email-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--neutral-300);
 }
 
-.message-card.message-ai {
-  background-color: white;
-  border-color: rgb(229 228 226 / 0.6);
+.email-card--user {
+  background: linear-gradient(to bottom right, var(--neutral-50), white);
+  border-color: var(--neutral-300);
 }
 
-.message-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
-}
-
-.message-header-left {
+/* Header */
+.email-card__header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
 }
 
-.message-label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: rgb(168 163 158);
+.email-card__sender {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.email-card__label {
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--neutral-400);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 0.125rem 0.5rem;
-  background-color: rgb(243 244 246);
-  border-radius: 9999px;
+  padding: 2px var(--spacing-sm);
+  background: var(--neutral-100);
+  border-radius: var(--radius-full);
 }
 
-.message-sender {
+.email-card__name {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: rgb(23 23 23);
+  gap: 4px;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--neutral-900);
 }
 
-.message-recipient {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: rgb(107 33 132);
-}
-
-.message-time {
-  font-size: 0.75rem;
-  color: rgb(168 163 158);
+.email-card__time {
+  font-size: var(--font-xs);
+  color: var(--neutral-400);
   flex-shrink: 0;
 }
 
-.message-content {
+/* Content */
+.email-card__content {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--spacing-sm);
 }
 
-.message-subject {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: rgb(23 23 23);
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgb(243 244 246);
+.email-card__subject {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--neutral-900);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--neutral-100);
 }
 
-.message-body {
-  font-size: 0.875rem;
-  color: rgb(87 83 78);
-  line-height: 1.6;
+.email-card__body {
+  font-size: var(--font-sm);
+  color: var(--neutral-600);
+  line-height: var(--leading-relaxed);
 }
 
-/* Markdown 样式 */
+/* Attachments */
+.email-card__attachments {
+  margin-top: var(--spacing-xs);
+}
+
+.email-card__attachments-label {
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--neutral-500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--spacing-xs);
+}
+
+.email-card__attachment {
+  padding: var(--spacing-xs);
+  background: var(--neutral-50);
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.email-card__attachment:hover {
+  background: var(--neutral-100);
+}
+
+.email-card__attachment-main {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+}
+
+.email-card__attachment-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--primary-100);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-600);
+  font-size: var(--font-sm);
+  flex-shrink: 0;
+}
+
+.email-card__attachment-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.email-card__attachment-name {
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--neutral-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-card__attachment-size {
+  font-size: var(--font-xs);
+  color: var(--neutral-400);
+}
+
+/* Actions */
+.email-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--neutral-100);
+  margin-top: var(--spacing-sm);
+}
+
+.email-card__action {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-sm);
+  color: var(--neutral-600);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.email-card__action:hover {
+  color: var(--neutral-900);
+  background: var(--neutral-100);
+}
+
+.email-card__action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Markdown Styles */
 .markdown-content :deep(h1) {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: rgb(23 23 23);
-  margin-bottom: 0.75rem;
-  margin-top: 1rem;
+  font-size: var(--font-xl);
+  font-weight: var(--font-bold);
+  color: var(--neutral-900);
+  margin-bottom: var(--spacing-sm);
+  margin-top: var(--spacing-md);
 }
 
 .markdown-content :deep(h2) {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: rgb(23 23 23);
-  margin-bottom: 0.5rem;
-  margin-top: 0.75rem;
+  font-size: var(--font-lg);
+  font-weight: var(--font-bold);
+  color: var(--neutral-900);
+  margin-bottom: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
 }
 
 .markdown-content :deep(h3) {
-  font-size: 1rem;
-  font-weight: 600;
-  color: rgb(23 23 23);
-  margin-bottom: 0.5rem;
-  margin-top: 0.5rem;
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--neutral-900);
+  margin-bottom: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
 }
 
 .markdown-content :deep(p) {
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--spacing-xs);
 }
 
 .markdown-content :deep(ul),
 .markdown-content :deep(ol) {
-  margin-left: 1rem;
-  margin-bottom: 0.5rem;
+  margin-left: var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
 }
 
 .markdown-content :deep(li) {
-  margin-bottom: 0.25rem;
+  margin-bottom: 2px;
 }
 
 .markdown-content :deep(code) {
-  background-color: rgb(243 244 246);
-  color: rgb(107 33 132);
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  font-size: 0.875rem;
+  background: var(--neutral-100);
+  color: var(--primary-600);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
 }
 
 .markdown-content :deep(pre) {
-  background-color: rgb(38 38 38);
-  color: rgb(249 250 251);
-  padding: 0.75rem;
-  border-radius: 0.5rem;
+  background: var(--neutral-800);
+  color: var(--neutral-50);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--spacing-sm);
 }
 
 .markdown-content :deep(pre code) {
-  background-color: transparent;
-  color: rgb(249 250 251);
+  background: transparent;
+  color: inherit;
   padding: 0;
 }
 
 .markdown-content :deep(blockquote) {
-  border-left: 4px solid rgb(209 213 219);
-  padding-left: 1rem;
+  border-left: 4px solid var(--neutral-300);
+  padding-left: var(--spacing-md);
   font-style: italic;
-  color: rgb(115 115 115);
-  margin-bottom: 0.5rem;
+  color: var(--neutral-500);
+  margin-bottom: var(--spacing-xs);
 }
 
 .markdown-content :deep(a) {
-  color: rgb(5 122 185);
+  color: var(--info-500);
   text-decoration: underline;
 }
 
 .markdown-content :deep(a:hover) {
-  color: rgb(3 105 143);
+  color: var(--info-700);
 }
 
 .markdown-content :deep(table) {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--spacing-sm);
 }
 
 .markdown-content :deep(th),
 .markdown-content :deep(td) {
-  border: 1px solid rgb(209 213 219);
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
+  border: 1px solid var(--neutral-300);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-sm);
 }
 
 .markdown-content :deep(th) {
-  background-color: rgb(243 244 246);
-  font-weight: 600;
-}
-
-.message-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid rgb(243 244 246);
-  margin-top: 0.75rem;
-}
-
-.message-action-btn {
-  padding: 0.375rem 0.75rem;
-  font-size: 0.875rem;
-  color: rgb(87 83 78);
-  border-radius: 0.5rem;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.message-action-btn:hover {
-  color: rgb(23 23 23);
-  background-color: rgb(243 244 246);
-}
-
-.message-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  background: var(--neutral-100);
+  font-weight: var(--font-semibold);
 }
 </style>

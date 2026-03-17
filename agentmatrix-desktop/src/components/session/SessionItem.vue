@@ -89,56 +89,157 @@ const hasPending = computed(() => {
 <template>
   <div
     @click="emit('click')"
-    :class="isActive ? 'bg-primary-50/70 border-primary-200' : 'border-transparent hover:bg-surface-50 hover:border-surface-200'"
-    class="session-item cursor-pointer p-3 rounded-xl border transition-all duration-200"
+    :class="['session-item', { 'session-item--active': isActive }]"
   >
-    <div class="flex items-center gap-3">
-      <!-- Avatar with gradient based on index -->
-      <div class="relative">
-        <div
-          :class="avatarColorClass"
-          class="w-11 h-11 rounded-full bg-gradient-to-br flex items-center justify-center text-white font-semibold shadow-card flex-shrink-0"
-        >
-          <span>{{ subjectInitial }}</span>
-        </div>
-
-        <!-- 待处理图标 -->
-        <div
-          v-if="hasPending"
-          class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full border-2 border-white flex items-center justify-center shadow-sm"
-        >
-          <span class="text-white text-xs font-bold">1</span>
-        </div>
+    <!-- Avatar -->
+    <div class="session-item__avatar-wrapper">
+      <div
+        :class="['session-item__avatar', avatarColorClass]"
+      >
+        <span class="session-item__initial">{{ subjectInitial }}</span>
       </div>
 
-      <div class="flex-1 min-w-0">
-        <!-- Agent Names (top, bold, prominent) -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2 flex-1 min-w-0">
-            <span class="font-bold text-black text-base truncate">
-              {{ displayParticipants }}
-            </span>
-          </div>
-          <span class="text-xs text-surface-400 flex-shrink-0">
-            {{ formatDate(session.last_email_time) }}
-          </span>
-        </div>
-
-        <!-- Subject (bottom, regular, prevents overflow) -->
-        <p class="text-sm text-surface-600 truncate mt-1">
-          {{ session.subject || 'No Subject' }}
-        </p>
+      <!-- Pending indicator -->
+      <div
+        v-if="hasPending"
+        class="session-item__pending"
+      >
+        <span class="session-item__pending-count">1</span>
       </div>
+    </div>
+
+    <!-- Content (Left-aligned) -->
+    <div class="session-item__content">
+      <!-- Header: Agent name + Date -->
+      <div class="session-item__header">
+        <span class="session-item__name">
+          {{ displayParticipants }}
+        </span>
+        <span class="session-item__date">
+          {{ formatDate(session.last_email_time) }}
+        </span>
+      </div>
+
+      <!-- Subject -->
+      <p class="session-item__subject">
+        {{ session.subject || 'No Subject' }}
+      </p>
     </div>
   </div>
 </template>
 
 <style scoped>
 .session-item {
-  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md); /* 12px tight gap */
+  padding: var(--spacing-sm) var(--spacing-md); /* 12px 16px */
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
 }
 
-.shadow-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+.session-item:hover {
+  background: var(--neutral-50);
+  border-color: var(--neutral-200);
+}
+
+.session-item--active {
+  background: var(--primary-50);
+  border-color: var(--primary-200);
+}
+
+/* Avatar */
+.session-item__avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.session-item__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(to bottom right, var(--primary-400), var(--primary-600));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: var(--font-semibold);
+  font-size: var(--font-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.session-item__initial {
+  font-size: 14px;
+}
+
+/* Pending indicator */
+.session-item__pending {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  background: var(--error-500);
+  border-radius: 50%;
+  border: 2px solid white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-xs);
+}
+
+.session-item__pending-count {
+  color: white;
+  font-size: 10px;
+  font-weight: var(--font-bold);
+  line-height: 1;
+}
+
+/* Content */
+.session-item__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px; /* Tight internal spacing */
+}
+
+/* Header: Name + Date */
+.session-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.session-item__name {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--neutral-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.session-item__date {
+  font-size: var(--font-xs);
+  color: var(--neutral-400);
+  flex-shrink: 0;
+}
+
+/* Subject */
+.session-item__subject {
+  font-size: var(--font-sm);
+  font-weight: var(--font-normal);
+  color: var(--neutral-600);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
 }
 </style>

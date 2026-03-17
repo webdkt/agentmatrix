@@ -237,5 +237,14 @@ export const useSessionStore = defineStore('session', {
     resetDialogShown() {
       this.askUserDialogShownFor = null
     },
+
+    /**
+     * 关闭对话框（标记为已显示，防止再次弹出）
+     */
+    closeAskUserDialog(sessionId) {
+      if (sessionId) {
+        this.markDialogShown(sessionId)
+      }
+    },
   },
 })
