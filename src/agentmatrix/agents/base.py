@@ -54,7 +54,7 @@ class BaseAgent(AutoLoggerMixin):
         self.cerebellum = None
         self.vision_brain = None  # 🆕 视觉大模型（支持图片理解的LLM）
 
-        self._status = "IDLE"  # 🔧 私有变量，只能通过 update_status 修改
+        self._status = AgentStatus.IDLE  # 🔧 私有变量，只能通过 update_status 修改
         from datetime import datetime
         self._status_since = datetime.now()  # 状态变化的时间
 
@@ -97,8 +97,7 @@ class BaseAgent(AutoLoggerMixin):
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # 初始状态为已设置（不阻塞）
 
-        # 📊 执行栈追踪（用于状态查询）
-        self._execution_stack = []  # List[FrameInfo]
+        
 
         # 💬 ask_user 机制（等待用户输入）
         self._pending_user_question = None  # 当前等待用户回答的问题
@@ -467,49 +466,7 @@ Subject 中的标记（#ASK_USER#...）会被自动识别，请勿删除。
         # 设置结果，唤醒 Future
         self._user_input_future.set_result(answer)
 
-    # ========== 状态查询 ==========
-
-    @property
-    def current_status(self) -> dict:
-        """
-        获取当前执行状态
-
-        Returns:
-            dict: 包含状态信息的字典
-        """
-        if not self._execution_stack:
-            return {
-                "agent_name": self.name,
-                "status": "idle",
-                "paused": self._paused,
-                "stack_depth": 0,
-                "message": "Agent is idle (no active MicroAgent)"
-            }
-
-        # 获取栈顶帧
-        top_frame = self._execution_stack[-1]
-
-        # 构建执行栈描述
-        stack_desc = []
-        for i, frame in enumerate(self._execution_stack):
-            indent = "  " * i
-            frame_info = {
-                "level": i + 1,
-                "micro_agent_id": frame.get("micro_agent_id", "unknown"),
-                "task": frame.get("task", "unknown"),
-                "action": frame.get("current_action"),
-                "llm_thinking": frame.get("llm_thinking", False)
-            }
-            stack_desc.append(frame_info)
-
-        return {
-            "agent_name": self.name,
-            "status": "paused" if self._paused else "running",
-            "paused": self._paused,
-            "stack_depth": len(self._execution_stack),
-            "current_frame": top_frame,
-            "execution_stack": stack_desc
-        }
+    
 
     def _scan_all_actions(self):
         """
@@ -761,6 +718,7 @@ Subject 中的标记（#ASK_USER#...）会被自动识别，请勿删除。
 
         finally:
             # 🐳 容器模式：休眠容器
+            self.update_status(new_status=AgentStatus.IDLE)
             self.docker_manager.hibernate()
 
     # ==================== 📊 状态管理 ====================

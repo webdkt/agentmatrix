@@ -1,9 +1,11 @@
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useSessionStore } from '@/stores/session'
+import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
 import MessageItem from './MessageItem.vue'
 import MessageReply from './MessageReply.vue'
+import AgentStatusIndicator from '../agent/AgentStatusIndicator.vue'
 
 const props = defineProps({
   user_agent_name: {
@@ -13,6 +15,7 @@ const props = defineProps({
 })
 
 const sessionStore = useSessionStore()
+const agentStore = useAgentStore()
 
 // 状态
 const emails = ref([])
@@ -28,28 +31,45 @@ const hideInlineForm = ref(false)
 const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
 
+// 🆕 识别对话中的所有 Agent（排除 User）
+const conversationAgents = computed(() => {
+  if (!emails.value || emails.value.length === 0) {
+    return []
+  }
+
+  const agentSet = new Set()
+
+  emails.value.forEach(email => {
+    // 从邮件的 sender 和 receiver 中提取 Agent 名称
+    // 排除 User 自己
+    if (email.sender && email.sender !== props.user_agent_name) {
+      agentSet.add(email.sender)
+    }
+    if (email.recipient && email.recipient !== props.user_agent_name) {
+      agentSet.add(email.recipient)
+    }
+  })
+
+  const agents = Array.from(agentSet)
+  return agents
+})
+
 // 待处理问题
 const pendingQuestion = computed(() => {
   if (!currentSession.value) {
-    console.log('🔍 [MessageList] No current session')
     return null
   }
   const sessionId = currentSession.value.session_id
   const question = sessionStore.getPendingQuestion(sessionId)
-  console.log('🔍 [MessageList] Checking pending question for session:', sessionId)
-  console.log('🔍 [MessageList] Pending question:', question)
-  console.log('🔍 [MessageList] Store pendingQuestions:', sessionStore.pendingQuestions)
   return question
 })
 
 // 监听 pendingQuestion 变化
 watch(pendingQuestion, (newQuestion) => {
-  console.log('🔍 [MessageList] pendingQuestion changed:', newQuestion)
 }, { immediate: true })
 
 // 监听当前会话变化，加载邮件
 watch(currentSession, async (newSession) => {
-  console.log('🔍 [MessageList] currentSession changed:', newSession?.session_id)
   if (newSession) {
     await loadEmails(newSession.session_id)
   } else {
@@ -70,6 +90,10 @@ const loadEmails = async (sessionId) => {
   try {
     const result = await sessionAPI.getEmails(sessionId)
     emails.value = result.emails || result.conversations || []
+
+    // 🔍 调试：打印邮件内容和结构
+    if (emails.value.length > 0) {
+    }
 
     // 滚动到底部
     await nextTick()
@@ -102,29 +126,6 @@ const handleReplySent = async () => {
   await refreshEmails()
 }
 
-// 提交 ask_user 回答
-const submitAnswer = async () => {
-  if (!currentSession.value || !answer.value.trim()) return
-
-  try {
-    await sessionStore.submitAskUserAnswer(currentSession.value.session_id, answer.value)
-    answer.value = ''
-    hideInlineForm.value = false
-  } catch (error) {
-    alert('提交失败: ' + error.message)
-  }
-}
-
-// 暂不回答（隐藏表单）
-const hideInlineFormHandler = () => {
-  hideInlineForm.value = true
-}
-
-// 暴露方法给父组件
-defineExpose({
-  refreshEmails,
-  scrollToBottom
-})
 </script>
 
 <template>
@@ -204,6 +205,19 @@ defineExpose({
           :email="email"
           :user_agent_name="user_agent_name"
         />
+
+        <!-- 🆕 Agent 状态显示 - 紧挨着邮件列表底部 -->
+        <div
+          v-if="conversationAgents.length > 0"
+          class="mt-4 space-y-3"
+        >
+          <AgentStatusIndicator
+            v-for="agentName in conversationAgents"
+            :key="agentName"
+            :agent-name="agentName"
+            :current-session-id="currentSession.session_id"
+          />
+        </div>
 
         <!-- Empty State (No Messages) -->
         <div v-if="!hasEmails" class="flex items-center justify-center h-full">

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useSessionStore } from './session'
+import { useAgentStore } from './agent'
 
 /**
  * WebSocket 事件管理 Store
@@ -66,12 +67,16 @@ export const useWebSocketStore = defineStore('websocket', {
       }
 
       const sessionStore = useSessionStore()
+      const agentStore = useAgentStore()
 
       console.log(`📊 Processing update for ${agent_name}:`, {
         status: data.status,
         pending_question: data.pending_question,
         current_user_session_id: data.current_user_session_id
       })
+
+      // 🆕 更新 agent store 中的状态
+      agentStore.updateAgentStatus(agent_name, data)
 
       // 如果 agent 有 pending_question，设置到 session store
       if (data.pending_question && data.current_user_session_id) {
