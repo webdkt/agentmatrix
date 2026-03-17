@@ -68,7 +68,16 @@ class TmuxAutoConfirm:
             print(f"创建tmux会话失败: {stderr}")
             return False
         
+        # 配置tmux以支持滚动和历史记录
+        # 启用鼠标支持（可以用鼠标滚轮滚动）
+        self.run_command(f"tmux set-option -t {self.session_name} mouse on")
+        # 设置历史缓冲区大小（默认2000，设为5000行）
+        self.run_command(f"tmux set-option -t {self.session_name} history-limit 5000")
+        
         print(f"✓ 已创建 tmux 会话: {self.session_name}")
+        print(f"  - 鼠标滚动: 已启用")
+        print(f"  - 历史缓冲区: 5000 行")
+        print(f"  - 提示: 也可用 Ctrl+B [ 进入复制模式，用方向键/PgUp/PgDn 滚动")
         return True
     
     def attach_session(self):
@@ -121,28 +130,22 @@ class TmuxAutoConfirm:
     
     def check_confirmation_prompt(self, content):
         """
-        检查内容底部区域是否包含确认提示：
-        - 在底部10行范围内
+        检查内容是否包含确认提示：
+        - 去掉所有空白行后，在非空行中查找
         - 有 "Do you want to" 开头的行
         - 在其下方不远处有 "❯ 1. Yes" 或类似的选项行
         """
         lines = content.split('\n')
         
-        # 获取底部10行（去除空行后的有效内容）
-        bottom_lines = lines[-self.bottom_lines:] if len(lines) >= self.bottom_lines else lines
+        # 去掉所有空白行，得到非空行列表
+        non_empty = [line.strip() for line in lines if line.strip()]
         
-        # 找到所有非空行及其索引（相对于bottom_lines的索引）
-        non_empty = [(i, line) for i, line in enumerate(bottom_lines) if line.strip()]
-        
-        for i, (idx, line) in enumerate(non_empty):
-            stripped = line.strip()
-            
+        for i, line in enumerate(non_empty):
             # 检查是否是 "Do you want to" 开头
-            if stripped.startswith("Do you want to"):
-                # 检查这行之后的非空行（在bottom_lines范围内）
-                for j in range(i + 1, len(non_empty)):
-                    next_idx, next_line = non_empty[j]
-                    next_stripped = next_line.strip()
+            if line.startswith("Do you want to"):
+                # 检查这行之后的非空行（最多检查后5行）
+                for j in range(i + 1, min(i + 6, len(non_empty))):
+                    next_line = non_empty[j]
                     
                     # 匹配 "❯ 1. Yes" 或类似的选项格式
                     # 支持多种变体: "❯ 1. Yes", "> 1. Yes", "1. Yes" 等
@@ -153,16 +156,14 @@ class TmuxAutoConfirm:
                     ]
                     
                     for pattern in patterns:
-                        if re.match(pattern, next_stripped, re.IGNORECASE):
-                            print(f"\n  检测到确认提示 (在底部{self.bottom_lines}行内):")
-                            print(f"    {stripped}")
-                            print(f"    {next_stripped}")
+                        if re.match(pattern, next_line, re.IGNORECASE):
+                            print(f"\n  检测到确认提示:")
+                            print(f"    {line}")
+                            print(f"    {next_line}")
                             return True
                     
-                    # 如果遇到了另一个问题或空行，停止搜索
-                    # 但如果只是进度条之类的内容，继续搜索
-                    if next_stripped.endswith('?') and not next_stripped.startswith('Do you want to'):
-                        # 遇到了另一个问题，停止
+                    # 如果遇到了另一个问题，停止搜索
+                    if next_line.endswith('?') and not next_line.startswith('Do you want to'):
                         break
         
         return False
@@ -171,10 +172,7 @@ class TmuxAutoConfirm:
         """主监控循环"""
         print(f"\n🔍 开始监控 tmux 会话 '{self.session_name}'")
         print(f"   检查间隔: {self.check_interval} 秒")
-        print(f"   检测范围: 底部{self.bottom_lines}行")
         print(f"   按 Ctrl+C 停止\n")
-        
-        no_change_count = 0
         
         try:
             while True:
@@ -184,24 +182,15 @@ class TmuxAutoConfirm:
                     print("✗ 无法读取tmux内容，会话可能已结束")
                     break
                 
-                # 检查内容是否变化
-                if current_content == self.last_content:
-                    no_change_count += 1
-                    print(f"[{time.strftime('%H:%M:%S')}] 内容无变化 ({no_change_count})")
-                    
-                    # 检查确认提示
-                    if self.check_confirmation_prompt(current_content):
-                        self.send_enter()
-                        # 发送后等待一下，让内容变化
-                        time.sleep(2)
-                        # 重置最后内容，避免重复触发
-                        self.last_content = None
-                        continue
-                else:
-                    no_change_count = 0
-                    print(f"[{time.strftime('%H:%M:%S')}] 内容有更新")
+                print(f"[{time.strftime('%H:%M:%S')}] 检查中...")
                 
-                self.last_content = current_content
+                # 检查确认提示（去掉空白行后判断）
+                if self.check_confirmation_prompt(current_content):
+                    self.send_enter()
+                    # 发送后等待一下，让内容变化
+                    time.sleep(2)
+                    continue
+                
                 time.sleep(self.check_interval)
                 
         except KeyboardInterrupt:
@@ -279,12 +268,7 @@ def main():
         help='检查间隔，单位秒 (默认: 60)'
     )
     
-    parser.add_argument(
-        '-l', '--lines',
-        type=int,
-        default=10,
-        help='检测范围：底部多少行 (默认: 10)'
-    )
+
     
     parser.add_argument(
         '--no-attach',
@@ -297,7 +281,6 @@ def main():
     # 创建实例
     app = TmuxAutoConfirm(session_name=args.session)
     app.check_interval = args.interval
-    app.bottom_lines = args.lines
     
     # 启动
     success = app.start(
