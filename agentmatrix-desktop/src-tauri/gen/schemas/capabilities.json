@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Default permissions for AgentMatrix","local":true,"windows":["main"],"permissions":["core:default","notification:allow-is-permission-granted","notification:default"]}}

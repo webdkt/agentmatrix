@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { marked } from 'marked'
 import { useEmailStore } from '@/stores/email'
 import { useUIStore } from '@/stores/ui'
+import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
 
 const props = defineProps({
   email: {
@@ -115,6 +116,20 @@ const handleDelete = async () => {
     uiStore.showNotification('Failed to delete email', 'error')
   }
 }
+
+// 处理附件点击
+const handleAttachmentClick = async (attachment) => {
+  try {
+    await openAttachment(
+      props.email.recipient,
+      props.email.task_id,
+      attachment.filename
+    )
+  } catch (error) {
+    console.error('Failed to open attachment:', error)
+    uiStore.showNotification('Failed to open attachment', 'error')
+  }
+}
 </script>
 
 <template>
@@ -162,31 +177,21 @@ const handleDelete = async () => {
               :key="index"
               class="flex items-center justify-between p-2 rounded-lg bg-surface-50 hover:bg-surface-100 transition-colors group"
             >
-              <!-- 点击附件预览（新标签页） -->
-              <a
-                :href="`/api/sessions/${email.session_id}/emails/${email.id}/attachments/${attachment.filename}`"
-                target="_blank"
-                rel="noopener noreferrer"
+              <!-- 点击附件打开 -->
+              <div
+                @click="handleAttachmentClick(attachment)"
                 class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
               >
                 <div class="w-8 h-8 rounded bg-primary-100 flex items-center justify-center flex-shrink-0">
-                  <i class="ti ti-file text-primary-600 text-sm"></i>
+                  <i :class="['ti', getAttachmentIcon(attachment.filename), 'text-primary-600 text-sm']"></i>
                 </div>
                 <div class="flex flex-col min-w-0">
                   <span class="text-sm font-medium text-surface-700 truncate">{{ attachment.filename }}</span>
                   <span class="text-xs text-surface-400">{{ formatFileSize(attachment.size) }}</span>
                 </div>
-              </a>
+              </div>
 
-              <!-- 下载按钮 -->
-              <a
-                :href="`/api/sessions/${email.session_id}/emails/${email.id}/attachments/${attachment.filename}`"
-                :download="attachment.filename"
-                class="opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded hover:bg-surface-200 text-surface-600 hover:text-primary-600 flex-shrink-0"
-                title="Download attachment"
-              >
-                <i class="ti ti-download"></i>
-              </a>
+              <!-- 下载按钮（暂移除，点击附件即可打开） -->
             </div>
           </div>
         </div>

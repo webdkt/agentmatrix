@@ -224,3 +224,7 @@ agents.db
 *.cache
 .pytest_cache/
 web/
+
+# Root level node_modules (from npm installs in root)
+node_modules/
+package-lock.json

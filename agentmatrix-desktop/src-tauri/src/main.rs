@@ -111,6 +111,36 @@ async fn show_notification(title: String, body: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn open_attachment_path(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    println!("✅ Opened: {}", path);
+    Ok(())
+}
+
 fn main() {
     // Initialize config on first run
     match AppConfig::load() {
@@ -134,7 +164,8 @@ fn main() {
             check_backend,
             get_config,
             update_config,
-            show_notification
+            show_notification,
+            open_attachment_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
