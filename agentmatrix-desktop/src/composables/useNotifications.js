@@ -1,27 +1,28 @@
-import { invoke } from '@tauri-apps/api/core'
-import { useBackendStore } from '@/stores/backend'
-
 export function useNotifications() {
-  const backendStore = useBackendStore()
+  const isTauri = window.__TAURI__ !== undefined
 
   const showNotification = async (title, body) => {
-    try {
-      // Try to use native notification through Tauri
-      await invoke('show_notification', { title, body })
-    } catch (error) {
-      console.error('Native notification failed:', error)
-
-      // Fallback to browser notification (for development)
-      if (import.meta.env.DEV) {
+    if (isTauri) {
+      // In Tauri environment, use backend notification system
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('show_notification', { title, body })
+      } catch (error) {
+        console.log('📱 Notification (Tauri):', title, '-', body)
+      }
+    } else {
+      // In browser environment, use browser notifications
+      try {
         if (Notification.permission === 'granted') {
           new Notification(title, { body })
         } else if (Notification.permission !== 'denied') {
-          Notification.requestPermission().then((permission) => {
-            if (permission === 'granted') {
-              new Notification(title, { body })
-            }
-          })
+          const permission = await Notification.requestPermission()
+          if (permission === 'granted') {
+            new Notification(title, { body })
+          }
         }
+      } catch (error) {
+        console.log('📱 Notification (console):', title, '-', body)
       }
     }
   }
@@ -42,10 +43,13 @@ export function useNotifications() {
   }
 
   const requestPermission = async () => {
-    if (import.meta.env.DEV) {
-      return Notification.requestPermission()
+    if (isTauri) {
+      // Tauri doesn't need browser notification permission
+      return 'granted'
+    } else {
+      // Request browser notification permission
+      return await Notification.requestPermission()
     }
-    return 'granted' // Tauri has permission by default
   }
 
   return {

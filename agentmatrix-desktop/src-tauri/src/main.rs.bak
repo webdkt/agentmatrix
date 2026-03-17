@@ -33,7 +33,7 @@ async fn start_backend(state: State<'_, BackendState>) -> Result<String, String>
         .arg("server.py")
         .arg("--matrix-world")
         .arg(matrix_world.to_string_lossy().to_string())
-        .current_dir("../..")
+        .current_dir("..")
         .spawn()
         .map_err(|e| {
             eprintln!("Failed to start backend: {}", e);
