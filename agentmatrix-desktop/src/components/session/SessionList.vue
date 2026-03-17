@@ -98,7 +98,7 @@ const handleEmailSent = async (result) => {
         <button
           @click="openNewEmailModal"
           class="w-9 h-9 rounded-xl bg-primary-50 text-primary-600 hover:bg-primary-100 flex items-center justify-center transition-all duration-200 btn-press shadow-soft"
-          title="New conversation"
+          title="New session"
         >
           <i class="ti ti-plus text-lg"></i>
         </button>
@@ -119,7 +119,7 @@ const handleEmailSent = async (result) => {
 
     <!-- Session List -->
     <div class="flex-1 overflow-y-auto p-3 space-y-1">
-      <!-- Conversation Items -->
+      <!-- Session Items -->
       <SessionItem
         v-for="(session, index) in sessions"
         :key="session.session_id"
@@ -147,7 +147,7 @@ const handleEmailSent = async (result) => {
           <i class="ti ti-messages text-3xl text-surface-300"></i>
         </div>
         <p class="text-surface-500 text-sm">No sessions yet</p>
-        <p class="text-surface-400 text-xs mt-1">Start a new conversation to begin</p>
+        <p class="text-surface-400 text-xs mt-1">Start a new session to begin</p>
       </div>
     </div>
 

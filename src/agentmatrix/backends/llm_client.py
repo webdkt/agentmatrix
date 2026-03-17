@@ -69,7 +69,7 @@ class LLMClient(AutoLoggerMixin):
         output is successfully parsed.
 
         Args:
-            initial_messages (list): The starting list of messages for the conversation.
+            initial_messages (list): The starting list of messages for the session.
             parser (callable): A function that takes a raw LLM reply string and
                             returns a dict following the Parser Contract.
             max_retries (int): The maximum number of attempts before failing.

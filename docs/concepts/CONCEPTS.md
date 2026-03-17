@@ -71,7 +71,7 @@ class Email:
 }
 ```
 
-**Session View 的构建**：
+**Session Data View 的构建**：
 ```sql
 -- 任何一个 Agent 的 sessions 是两个 view 的 JOIN：
 SELECT sender_session_id as session_id FROM emails WHERE sender = 'Me'
@@ -101,7 +101,7 @@ SELECT recipient_session_id as session_id FROM emails WHERE recipient = 'Me'
 
 **与 Session 的关系**：
 - **Task（任务）**：客观的工作单元，可能涉及多个 Agent 和多个 Session
-- **Session（会话）**：单个 Agent 的主观视角，每个 Agent 有自己的 Session View
+- **Session（会话）**：单个 Agent 的主观视角，每个 Agent 有自己的 Session Data View
 - 一个 Task 可能包含多个 Session（A 的、B 的、C 的）
 - 所有相关邮件都携带同一个 `task_id`，用于跨 Agent 的任务追踪和文件隔离
 
@@ -278,7 +278,7 @@ agentmatrix-desktop/src/components/
 │  │  └─────────────────────┘    │    │
 │  └─────────────────────────────┘    │
 │                                     │
-│  Session Views (主观视角):           │
+│  Session Data Views (主观视角):           │
 │  - Agent A 看到: A↔B + A↔C          │
 │  - Agent B 看到: A↔B + B↔C          │
 │  - Agent C 看到: B↔C + A↔C          │

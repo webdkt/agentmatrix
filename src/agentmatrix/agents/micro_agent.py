@@ -22,7 +22,7 @@ from ..core.session_context import SessionContext
 from ..core.exceptions import LLMServiceUnavailableError
 from ..core.action import register_action
 from ..core.message import Email
-from ..utils.token_utils import estimate_messages_tokens, format_conversation_messages
+from ..utils.token_utils import estimate_messages_tokens, format_session_messages
 
 if TYPE_CHECKING:
     from .base import BaseAgent
@@ -672,8 +672,8 @@ Note: 场景识别是为你服务的，用于构建白板的结构，其内容�
 {persona_hint}
 ---
 
-# Conversation History
-{format_conversation_messages(messages)}
+# Session History
+{format_session_messages(messages)}
 ---
 {focus_hint_block}
 
@@ -998,8 +998,8 @@ Start generating the Whiteboard now.
                 # 添加新的任务输入（只在恢复已有会话时）
                 self._add_message("user", self._format_task_message())
             elif not self.messages:
-                self._initialize_conversation()
-                # 🔥 Bug fix: 不要重复添加 user message，_initialize_conversation 已经添加了
+                self._initialize_session()
+                # 🔥 Bug fix: 不要重复添加 user message，_initialize_session 已经添加了
         elif initial_history:
             # 恢复记忆：复制历史记录
             self.messages = initial_history.copy()
@@ -1011,12 +1011,12 @@ Start generating the Whiteboard now.
                 # 添加新的任务输入（只在恢复已有会话时）
                 self._add_message("user", self._format_task_message())
             elif not self.messages:
-                self._initialize_conversation()
-                # 🔥 Bug fix: 不要重复添加 user message，_initialize_conversation 已经添加了
+                self._initialize_session()
+                # 🔥 Bug fix: 不要重复添加 user message，_initialize_session 已经添加了
         else:
             # 新对话：初始化
             self.messages = []
-            self._initialize_conversation()
+            self._initialize_session()
         self._log(logging.INFO, f"Start to '{self.run_label}' with {len(self.messages)} initial messages")
         self._log(logging.DEBUG, f"Available actions: {list(self.action_registry.keys())}")
         self._log(logging.DEBUG, f"Messages:\n{self._format_messages_for_debug(self.messages)}")
@@ -1044,7 +1044,7 @@ Start generating the Whiteboard now.
             self._log(logging.ERROR, f"Traceback:\n{traceback.format_exc()}")
             return {"error": str(e)}
 
-    def _initialize_conversation(self):
+    def _initialize_session(self):
         """初始化对话历史"""
         # 1. System Prompt
         system_prompt = self._build_system_prompt()

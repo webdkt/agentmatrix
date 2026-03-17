@@ -694,7 +694,7 @@ async def send_email(
     in_reply_to: Optional[str] = Form(None),
     attachments: List[UploadFile] = File(default=[])
 ):
-    """Send an email with attachments (new conversation or reply)"""
+    """Send an email with attachments (new session or reply)"""
     print(f"📧 Received email request: recipient={recipient}, subject={subject}, body_length={len(body)}, attachments={len(attachments)}")
     global matrix_runtime
 
@@ -714,7 +714,7 @@ async def send_email(
             # Generate new UUID for new sessions
             import uuid
             effective_task_id = str(uuid.uuid4())
-            print(f"📧 New conversation: generated task_id={effective_task_id}")
+            print(f"📧 New session: generated task_id={effective_task_id}")
         else:
             # Use existing session_id for replies (session_id from URL is task_id)
             effective_task_id = session_id
@@ -765,11 +765,11 @@ async def send_email(
     effective_session_id = session_id
 
     if session_id == 'new':
-        # New conversation: need to create a session
+        # New session: need to create a session
         # We'll use the task_id as the session_id for User's outgoing emails
         # This will be stored in the reply_mapping
         effective_session_id = effective_task_id
-        print(f"📧 New conversation: using session_id={effective_session_id}")
+        print(f"📧 New session: using session_id={effective_session_id}")
     else:
         # Reply: use the existing session_id
         effective_session_id = session_id

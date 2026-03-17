@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
-import ConversationList from '@/components/conversation/ConversationList.vue'
+import SessionList from '@/components/session/SessionList.vue'
 import MessageList from '@/components/message/MessageList.vue'
 
 const currentView = ref('sessions') // 'sessions' or 'settings'
@@ -119,8 +119,8 @@ onMounted(async () => {
     <div class="flex-1 flex overflow-hidden">
       <!-- Sessions View -->
       <div v-show="currentView === 'sessions'" class="flex-1 flex">
-        <!-- Conversation List -->
-        <ConversationList />
+        <!-- Session List -->
+        <SessionList />
 
         <!-- Message List -->
         <MessageList :user_agent_name="user_agent_name" />

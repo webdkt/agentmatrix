@@ -57,7 +57,7 @@ def estimate_messages_tokens(messages: List[Dict]) -> int:
     return sum(estimate_tokens(m.get('content', '')) for m in messages)
 
 
-def format_conversation_messages(messages: List[Dict], max_length: int = 500) -> str:
+def format_session_messages(messages: List[Dict], max_length: int = 500) -> str:
     """
     格式化对话历史为可读文本
 
@@ -71,9 +71,9 @@ def format_conversation_messages(messages: List[Dict], max_length: int = 500) ->
         str: 格式化的对话历史
     """
     # 过滤掉 system message，只保留对话历史
-    conversation_msgs = [m for m in messages if m.get('role') != 'system']
+    session_msgs = [m for m in messages if m.get('role') != 'system']
 
     return "\n".join([
         f"{m['role']}: {m['content'][:max_length]}"
-        for m in conversation_msgs
+        for m in session_msgs
     ])

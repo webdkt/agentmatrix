@@ -291,7 +291,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         """
         Create a clean session with empty history but preserve metadata
 
-        This is used for continuing rounds where we want a fresh conversation
+        This is used for continuing rounds where we want a fresh session
         but keep the session structure and metadata.
 
         Args:

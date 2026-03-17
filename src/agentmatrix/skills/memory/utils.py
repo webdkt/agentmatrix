@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Callable
 
 # 从通用工具导入
-from ...utils.token_utils import estimate_tokens, format_conversation_messages
+from ...utils.token_utils import estimate_tokens, format_session_messages
 
 
 # ==================== Profile 格式化 ====================

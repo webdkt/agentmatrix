@@ -273,7 +273,7 @@ JSON 格式示例：
 
     async def _generate_memory_events(self, messages: list) -> List[str]:
         """LLM 总结：生成 memory_events（关键事件增量）"""
-        from .utils import format_conversation_messages
+        from .utils import format_session_messages
 
         prompt = f"""
 分析以下对话历史，提取关键事件（用于长期记忆）。
@@ -284,7 +284,7 @@ JSON 格式示例：
 3. 仅包含有长期价值的信息
 
 对话历史：
-{format_conversation_messages(messages, max_length=200)}
+{format_session_messages(messages, max_length=200)}
 
 输出 JSON 列表：
 ["事件1", "事件2", ...]

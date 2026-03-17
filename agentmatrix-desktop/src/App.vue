@@ -180,7 +180,7 @@ onUnmounted(() => {
     <div class="flex-1 flex overflow-hidden">
       <!-- Sessions View -->
       <div v-show="currentView === 'sessions'" class="flex-1 flex">
-        <!-- Conversation List -->
+        <!-- Session List -->
         <SessionList />
 
         <!-- Message List -->

@@ -960,7 +960,7 @@ Subject 中的标记（#ASK_USER#...）会被自动识别，请勿删除。
         """
         from datetime import datetime
         from ..skills.memory.parser_utils import events_list_parser
-        from ..utils.token_utils import format_conversation_messages
+        from ..utils.token_utils import format_session_messages
 
         prompt = f"""
 # Role
@@ -1009,8 +1009,8 @@ NO EVENTS
 - 数量：由你判断，宁缺毋滥
 
 
-# Conversation History
-{format_conversation_messages(summary_item['messages'])}
+# Session History
+{format_session_messages(summary_item['messages'])}
 
 Extract facts now.
 """

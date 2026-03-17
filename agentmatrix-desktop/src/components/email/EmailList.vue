@@ -32,7 +32,7 @@ const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
 
 // 🆕 识别对话中的所有 Agent（排除 User）
-const conversationAgents = computed(() => {
+const sessionAgents = computed(() => {
   if (!emails.value || emails.value.length === 0) {
     return []
   }
@@ -137,7 +137,7 @@ const handleReplySent = async () => {
           <i class="ti ti-brain text-base"></i>
         </div>
         <div>
-          <h1 class="font-semibold text-surface-900">{{ currentSession.subject || 'New Conversation' }}</h1>
+          <h1 class="font-semibold text-surface-900">{{ currentSession.subject || 'New Session' }}</h1>
           <div class="flex items-center gap-1.5 text-xs text-surface-500">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
             <span>Agent • Online</span>
@@ -166,7 +166,7 @@ const handleReplySent = async () => {
           <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-surface-100 flex items-center justify-center">
             <i class="ti ti-message-circle text-4xl text-surface-300"></i>
           </div>
-          <p class="text-surface-600 font-medium">Select a conversation to view messages</p>
+          <p class="text-surface-600 font-medium">Select a session to view messages</p>
         </div>
       </div>
 
@@ -208,11 +208,11 @@ const handleReplySent = async () => {
 
         <!-- 🆕 Agent 状态显示 - 紧挨着邮件列表底部 -->
         <div
-          v-if="conversationAgents.length > 0"
+          v-if="sessionAgents.length > 0"
           class="mt-4 space-y-3"
         >
           <AgentStatusIndicator
-            v-for="agentName in conversationAgents"
+            v-for="agentName in sessionAgents"
             :key="agentName"
             :agent-name="agentName"
             :current-session-id="currentSession.session_id"
@@ -226,7 +226,7 @@ const handleReplySent = async () => {
               <i class="ti ti-mail-off text-3xl text-surface-300"></i>
             </div>
             <p class="text-surface-600 font-medium">No messages yet</p>
-            <p class="text-surface-500 text-sm">Start the conversation</p>
+            <p class="text-surface-500 text-sm">Start the session</p>
           </div>
         </div>
       </template>

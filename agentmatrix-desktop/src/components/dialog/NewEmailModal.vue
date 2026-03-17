@@ -166,7 +166,7 @@ const close = () => {
       <div class="relative bg-white rounded-2xl shadow-elevated w-full max-w-2xl mx-4 overflow-hidden animate-scale-in">
         <!-- Header -->
         <div class="px-6 py-4 border-b border-surface-100 flex items-center justify-between bg-surface-50/50">
-          <h2 class="text-lg font-semibold text-surface-900 tracking-tight">New Conversation</h2>
+          <h2 class="text-lg font-semibold text-surface-900 tracking-tight">New Session</h2>
           <button
             @click="close"
             class="w-8 h-8 rounded-lg text-surface-400 hover:text-surface-600 hover:bg-surface-100 flex items-center justify-center transition-all duration-200 btn-press"
