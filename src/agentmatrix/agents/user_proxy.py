@@ -28,15 +28,15 @@ class UserProxyAgent(BaseAgent):
         self.current_session = session
         self.current_task_id = session["task_id"]
 
-        # 2. 更新 receiver_session_id（如果尚未设置）
-        if email.receiver_session_id is None:
+        # 2. 更新 recipient_session_id（如果尚未设置）
+        if email.recipient_session_id is None:
             await self.post_office.update_email_receiver_session(
                 email_id=email.id,
-                receiver_session_id=session["session_id"],
+                recipient_session_id=session["session_id"],
                 receiver_name=self.name
             )
             # 🔑 关键修复：同步更新内存对象，否则 WebSocket 回调拿到的还是 null
-            email.receiver_session_id = session["session_id"]
+            email.recipient_session_id = session["session_id"]
 
         # 3. 记录日志（保持原有逻辑）
         print(f"[{self.name}] 收到邮件: {email.subject}")
@@ -47,7 +47,7 @@ class UserProxyAgent(BaseAgent):
             "subject": email.subject,
             "body": email.body,
             "in_reply_to": email.in_reply_to,
-            "receiver_session_id": session["session_id"],  # 关键：前端需要知道放到哪个会话
+            "recipient_session_id": session["session_id"],  # 关键：前端需要知道放到哪个会话
             "task_id": session["task_id"]  # 前端也需要 task_id
         })
 
@@ -128,7 +128,7 @@ class UserProxyAgent(BaseAgent):
             in_reply_to=in_reply_to,  # 🔑 只使用前端传递的值
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 关键：设置发件人的 session
-            receiver_session_id=None,  # 收件人的 session（由收件人收到后更新）
+            recipient_session_id=None,  # 收件人的 session（由收件人收到后更新）
             metadata=metadata
         )
         await self.post_office.dispatch(email)

@@ -135,7 +135,7 @@ class PostOffice(AutoLoggerMixin):
                 in_reply_to=record['in_reply_to'],
                 task_id=record.get('task_id', None),
                 sender_session_id=record.get('sender_session_id'),
-                receiver_session_id=record.get('receiver_session_id'),
+                recipient_session_id=record.get('recipient_session_id'),
                 metadata=metadata
             )
             emails.append(email)
@@ -146,15 +146,15 @@ class PostOffice(AutoLoggerMixin):
     async def update_email_receiver_session(
         self,
         email_id: str,
-        receiver_session_id: str,
+        recipient_session_id: str,
         receiver_name: str
     ):
         """
-        更新邮件的 receiver_session_id（由收件人调用）
+        更新邮件的 recipient_session_id（由收件人调用）
 
         Args:
             email_id: 邮件ID
-            receiver_session_id: 收件人的 session
+            recipient_session_id: 收件人的 session
             receiver_name: 收件人名称
 
         Raises:
@@ -164,7 +164,7 @@ class PostOffice(AutoLoggerMixin):
         await asyncio.to_thread(
             self.email_db.update_receiver_session,
             email_id,
-            receiver_session_id,
+            recipient_session_id,
             receiver_name
         )
 
@@ -208,7 +208,7 @@ class PostOffice(AutoLoggerMixin):
                 in_reply_to=record['in_reply_to'],
                 task_id=record.get('task_id'),
                 sender_session_id=record.get('sender_session_id'),
-                receiver_session_id=record.get('receiver_session_id'),
+                recipient_session_id=record.get('recipient_session_id'),
                 metadata=metadata
             )
             emails.append(email)
@@ -242,7 +242,7 @@ class PostOffice(AutoLoggerMixin):
                 in_reply_to=record['in_reply_to'],
                 task_id=record.get('task_id', None),
                 sender_session_id=record.get('sender_session_id'),
-                receiver_session_id=record.get('receiver_session_id'),
+                recipient_session_id=record.get('recipient_session_id'),
                 metadata=metadata
             )
             # Add is_from_user flag

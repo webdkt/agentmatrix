@@ -5,12 +5,12 @@ import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useBackendStore } from '@/stores/backend'
 import { useNotifications } from '@/composables/useNotifications'
-import ConversationList from '@/components/conversation/ConversationList.vue'
-import MessageList from '@/components/message/MessageList.vue'
+import SessionList from '@/components/session/SessionList.vue'
+import EmailList from '@/components/email/EmailList.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 
-const currentView = ref('conversations') // 'conversations' or 'settings'
+const currentView = ref('sessions') // 'sessions' or 'settings'
 const sessionStore = useSessionStore()
 const websocketStore = useWebSocketStore()
 const backendStore = useBackendStore()
@@ -68,15 +68,15 @@ onMounted(async () => {
   websocketStore.onNewEmail(async (emailData) => {
     console.log('📧 Handling new email from WebSocket:', emailData)
     console.log('📊 Current session:', currentSession.value?.session_id)
-    console.log('📊 Email receiver_session_id:', emailData.receiver_session_id)
+    console.log('📊 Email recipient_session_id:', emailData.recipient_session_id)
 
     // 1. 刷新会话列表（处理新会话）
     await sessionStore.loadSessions()
 
-    // 2. 使用 receiver_session_id 匹配会话
-    if (emailData.receiver_session_id) {
+    // 2. 使用 recipient_session_id 匹配会话
+    if (emailData.recipient_session_id) {
       const targetSession = sessionStore.sessions.find(
-        s => s.session_id === emailData.receiver_session_id
+        s => s.session_id === emailData.recipient_session_id
       )
 
       if (targetSession) {
@@ -93,7 +93,7 @@ onMounted(async () => {
         console.log('⚠️ Session not found in list, might be a new session')
       }
     } else {
-      console.log('⚠️ Email has no receiver_session_id')
+      console.log('⚠️ Email has no recipient_session_id')
     }
   })
 })
@@ -122,12 +122,12 @@ onUnmounted(() => {
         <!-- Navigation Tabs -->
         <div class="flex items-center gap-2">
           <button
-            @click="currentView = 'conversations'"
-            :class="currentView === 'conversations' ? 'bg-primary-50 text-primary-600' : 'text-surface-500 hover:bg-surface-100'"
+            @click="currentView = 'sessions'"
+            :class="currentView === 'sessions' ? 'bg-primary-50 text-primary-600' : 'text-surface-500 hover:bg-surface-100'"
             class="px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center gap-2"
           >
             <i class="ti ti-messages"></i>
-            <span>Conversations</span>
+            <span>Sessions</span>
           </button>
           <button
             @click="currentView = 'settings'"
@@ -178,13 +178,13 @@ onUnmounted(() => {
 
     <!-- Main Content Area -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- Conversations View -->
-      <div v-show="currentView === 'conversations'" class="flex-1 flex">
+      <!-- Sessions View -->
+      <div v-show="currentView === 'sessions'" class="flex-1 flex">
         <!-- Conversation List -->
-        <ConversationList />
+        <SessionList />
 
         <!-- Message List -->
-        <MessageList :user_agent_name="user_agent_name" />
+        <EmailList :user_agent_name="user_agent_name" />
       </div>
 
       <!-- Settings View -->

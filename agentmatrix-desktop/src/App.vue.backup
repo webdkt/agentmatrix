@@ -6,7 +6,7 @@ import { useWebSocket } from '@/composables/useWebSocket'
 import ConversationList from '@/components/conversation/ConversationList.vue'
 import MessageList from '@/components/message/MessageList.vue'
 
-const currentView = ref('conversations') // 'conversations' or 'settings'
+const currentView = ref('sessions') // 'sessions' or 'settings'
 const sessionStore = useSessionStore()
 const websocketStore = useWebSocketStore()
 const { isConnected, connect, onMessage } = useWebSocket()
@@ -82,12 +82,12 @@ onMounted(async () => {
         <!-- Navigation Tabs -->
         <div class="flex items-center gap-2">
           <button
-            @click="currentView = 'conversations'"
-            :class="currentView === 'conversations' ? 'bg-primary-50 text-primary-600' : 'text-surface-500 hover:bg-surface-100'"
+            @click="currentView = 'sessions'"
+            :class="currentView === 'sessions' ? 'bg-primary-50 text-primary-600' : 'text-surface-500 hover:bg-surface-100'"
             class="px-4 py-2 rounded-xl font-medium transition-all duration-200 flex items-center gap-2"
           >
             <i class="ti ti-messages"></i>
-            <span>Conversations</span>
+            <span>Sessions</span>
           </button>
           <button
             @click="currentView = 'settings'"
@@ -117,8 +117,8 @@ onMounted(async () => {
 
     <!-- Main Content Area -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- Conversations View -->
-      <div v-show="currentView === 'conversations'" class="flex-1 flex">
+      <!-- Sessions View -->
+      <div v-show="currentView === 'sessions'" class="flex-1 flex">
         <!-- Conversation List -->
         <ConversationList />
 

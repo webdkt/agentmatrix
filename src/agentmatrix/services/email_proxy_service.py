@@ -249,7 +249,7 @@ class EmailProxyService(AutoLoggerMixin):
             in_reply_to=None,  # 不需要，用subject即可
             task_id=task_id,
             sender_session_id=session_id,
-            receiver_session_id=None,
+            recipient_session_id=None,
             metadata=metadata
         )
 
@@ -442,7 +442,7 @@ AgentMatrix 自动回复
                 in_reply_to=None,
                 task_id="ask_user_feedback",
                 sender_session_id=None,
-                receiver_session_id=email_session_id,
+                recipient_session_id=email_session_id,
                 metadata={
                     'is_external': True,
                     'original_sender': original_sender

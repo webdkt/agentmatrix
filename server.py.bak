@@ -421,7 +421,7 @@ async def lifespan(app: FastAPI):
                             "body": email.body,
                             "in_reply_to": email.in_reply_to,
                             "task_id": email.task_id,
-                            "receiver_session_id": email.receiver_session_id
+                            "recipient_session_id": email.recipient_session_id
                         }
 
                         message = json.dumps({
@@ -652,7 +652,7 @@ async def complete_cold_start(configs: ColdStartConfigRequest):
 @app.get("/api/sessions")
 async def get_sessions(page: int = 1, per_page: int = 20):
     """
-    Get user's email conversations (sessions)
+    Get user's email sessions (sessions)
 
     Args:
         page: Page number (starts from 1, default: 1)
@@ -668,17 +668,17 @@ async def get_sessions(page: int = 1, per_page: int = 20):
 
     user_agent_name = matrix_runtime.get_user_agent_name()
 
-    # Query conversations from database
-    result = matrix_runtime.post_office.email_db.get_user_conversations(
+    # Query sessions from database
+    result = matrix_runtime.post_office.email_db.get_user_sessions(
         user_agent_name=user_agent_name,
         page=page,
         per_page=per_page
     )
 
     # Transform to response format
-    conversations = []
-    for conv in result['conversations']:
-        conversations.append({
+    sessions = []
+    for conv in result['sessions']:
+        sessions.append({
             "session_id": conv['session_id'],
             "subject": conv['subject'],
             "last_email_time": conv['last_email_time'],
@@ -687,7 +687,7 @@ async def get_sessions(page: int = 1, per_page: int = 20):
 
     return {
         "success": True,
-        "conversations": conversations,
+        "sessions": sessions,
         "total": result['total'],
         "page": result['page'],
         "per_page": result['per_page'],
@@ -717,11 +717,11 @@ async def send_email(
         raise HTTPException(status_code=404, detail=f"User agent '{user_agent_name}' not found")
 
     # Use session_id from URL if task_id is None
-    # session_id from URL is the task_id for existing conversations
+    # session_id from URL is the task_id for existing sessions
     effective_task_id = task_id
     if effective_task_id is None:
         if session_id == 'new':
-            # Generate new UUID for new conversations
+            # Generate new UUID for new sessions
             import uuid
             effective_task_id = str(uuid.uuid4())
             print(f"📧 New conversation: generated task_id={effective_task_id}")
@@ -770,7 +770,7 @@ async def send_email(
                 raise HTTPException(status_code=500, detail=f"Failed to save attachment: {str(e)}")
 
     # Determine session_id
-    # For new conversations, we need to create/get a session first
+    # For new sessions, we need to create/get a session first
     # For replies, we use the existing session_id from the email being replied to
     effective_session_id = session_id
 
@@ -829,7 +829,7 @@ async def get_session_emails(session_id: str):
                 "body": email.body,
                 "in_reply_to": email.in_reply_to,
                 "task_id": email.task_id,
-                            "receiver_session_id": email.receiver_session_id,
+                            "recipient_session_id": email.recipient_session_id,
                 "is_from_user": getattr(email, 'is_from_user', False),
                 "attachments": email.attachments
             })

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useSessionStore } from '@/stores/session'
-import ConversationItem from './ConversationItem.vue'
+import SessionItem from './SessionItem.vue'
 import NewEmailModal from '@/components/dialog/NewEmailModal.vue'
 
 const sessionStore = useSessionStore()
@@ -13,7 +13,7 @@ const showNewEmailModal = ref(false)
 // 计算属性
 const sessions = computed(() => sessionStore.sessions)
 const currentSession = computed(() => sessionStore.currentSession)
-const hasMore = computed(() => sessionStore.hasMoreConversations)
+const hasMore = computed(() => sessionStore.hasMoreSessions)
 const isLoading = computed(() => sessionStore.isLoading)
 
 // 生命周期
@@ -94,7 +94,7 @@ const handleEmailSent = async (result) => {
     <!-- Panel Header -->
     <div class="px-5 py-4 border-b border-surface-100">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-surface-900 tracking-tight">Conversations</h2>
+        <h2 class="text-lg font-semibold text-surface-900 tracking-tight">Sessions</h2>
         <button
           @click="openNewEmailModal"
           class="w-9 h-9 rounded-xl bg-primary-50 text-primary-600 hover:bg-primary-100 flex items-center justify-center transition-all duration-200 btn-press shadow-soft"
@@ -109,7 +109,7 @@ const handleEmailSent = async (result) => {
         <i class="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-surface-400"></i>
         <input
           type="text"
-          placeholder="Search conversations..."
+          placeholder="Search sessions..."
           :value="searchQuery"
           @input="handleSearch"
           class="w-full pl-10 pr-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-sm text-surface-700 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-300 transition-all duration-200"
@@ -120,7 +120,7 @@ const handleEmailSent = async (result) => {
     <!-- Session List -->
     <div class="flex-1 overflow-y-auto p-3 space-y-1">
       <!-- Conversation Items -->
-      <ConversationItem
+      <SessionItem
         v-for="(session, index) in sessions"
         :key="session.session_id"
         :session="session"
@@ -137,7 +137,7 @@ const handleEmailSent = async (result) => {
           class="w-full py-2.5 px-4 bg-surface-100 hover:bg-surface-200 text-surface-700 rounded-xl text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <i class="ti" :class="isLoading ? 'ti-loader animate-spin' : 'ti-loader'"></i>
-          {{ isLoading ? 'Loading...' : 'Load More Conversations' }}
+          {{ isLoading ? 'Loading...' : 'Load More Sessions' }}
         </button>
       </div>
 
@@ -146,7 +146,7 @@ const handleEmailSent = async (result) => {
         <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface-100 flex items-center justify-center">
           <i class="ti ti-messages text-3xl text-surface-300"></i>
         </div>
-        <p class="text-surface-500 text-sm">No conversations yet</p>
+        <p class="text-surface-500 text-sm">No sessions yet</p>
         <p class="text-surface-400 text-xs mt-1">Start a new conversation to begin</p>
       </div>
     </div>

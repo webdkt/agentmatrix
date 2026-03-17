@@ -114,7 +114,7 @@ class EmailSkillMixin:
             in_reply_to=in_reply_to,
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 🆕 发件人的 session
-            receiver_session_id=None,  # 收件人的 session（由收件人收到后更新）
+            recipient_session_id=None,  # 收件人的 session（由收件人收到后更新）
             metadata={'attachments': attachment_metadata} if attachment_metadata else {}
         )
 

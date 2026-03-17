@@ -423,7 +423,7 @@ Subject 中的标记（#ASK_USER#...）会被自动识别，请勿删除。
                 in_reply_to=None,
                 task_id=task_id or "default",
                 sender_session_id=agent_session_id,  # 使用 agent_session_id
-                receiver_session_id=email_session_id,
+                recipient_session_id=email_session_id,
                 metadata={
                     'is_external': True,
                     'original_sender': user_mailbox,  # 发送给用户
@@ -613,11 +613,11 @@ Subject 中的标记（#ASK_USER#...）会被自动识别，请勿删除。
             self.current_user_session_id = None
             self.logger.debug(f"📧 邮件来自 {email.sender}，清空 current_user_session_id")
 
-        # 2. 更新 receiver_session_id（如果尚未设置）
-        if email.receiver_session_id is None:
+        # 2. 更新 recipient_session_id（如果尚未设置）
+        if email.recipient_session_id is None:
             await self.post_office.update_email_receiver_session(
                 email_id=email.id,
-                receiver_session_id=session["session_id"],
+                recipient_session_id=session["session_id"],
                 receiver_name=self.name
             )
 

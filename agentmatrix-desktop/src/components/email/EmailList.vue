@@ -3,8 +3,8 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
-import MessageItem from './MessageItem.vue'
-import MessageReply from './MessageReply.vue'
+import EmailItem from './EmailItem.vue'
+import EmailReply from './EmailReply.vue'
 import AgentStatusIndicator from '../agent/AgentStatusIndicator.vue'
 
 const props = defineProps({
@@ -89,7 +89,7 @@ const loadEmails = async (sessionId) => {
 
   try {
     const result = await sessionAPI.getEmails(sessionId)
-    emails.value = result.emails || result.conversations || []
+    emails.value = result.emails || result.sessions || []
 
     // 🔍 调试：打印邮件内容和结构
     if (emails.value.length > 0) {
@@ -199,7 +199,7 @@ const handleReplySent = async () => {
 
       <!-- Messages -->
       <template v-else>
-        <MessageItem
+        <EmailItem
           v-for="email in emails"
           :key="email.id"
           :email="email"
@@ -272,7 +272,7 @@ const handleReplySent = async () => {
     </div>
 
     <!-- Message Reply -->
-    <MessageReply
+    <EmailReply
       :current-session="currentSession"
       :emails="emails"
       @sent="handleReplySent"

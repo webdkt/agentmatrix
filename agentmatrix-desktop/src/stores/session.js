@@ -21,7 +21,7 @@ export const useSessionStore = defineStore('session', {
     /**
      * 是否有更多会话可以加载
      */
-    hasMoreConversations: (state) => {
+    hasMoreSessions: (state) => {
       return state.sessions.length < state.totalSessions
     },
 
@@ -76,8 +76,8 @@ export const useSessionStore = defineStore('session', {
         const page = loadMore ? this.currentPage + 1 : 1
         const result = await sessionAPI.getSessions(page, this.perPage)
 
-        // API 返回格式: { conversations: [...], total, page, ... }
-        const newSessions = result.conversations || []
+        // API 返回格式: { sessions: [...], total, page, ... }
+        const newSessions = result.sessions || []
 
         if (loadMore) {
           // 追加模式：合并数据

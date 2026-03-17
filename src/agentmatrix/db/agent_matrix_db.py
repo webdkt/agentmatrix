@@ -23,7 +23,7 @@ class AgentMatrixDB(AutoLoggerMixin):
                 in_reply_to TEXT,
                 task_id TEXT,
                 sender_session_id TEXT,
-                receiver_session_id TEXT,
+                recipient_session_id TEXT,
                 metadata TEXT -- 存 JSON 格式的附件或其他信息
             )
         ''')
@@ -61,10 +61,10 @@ class AgentMatrixDB(AutoLoggerMixin):
             ON emails(sender_session_id, sender, task_id)
         ''')
 
-        # receiver_session_id 索引（查询收到的邮件）
+        # recipient_session_id 索引（查询收到的邮件）
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_receiver_session
-            ON emails(receiver_session_id, recipient, task_id)
+            ON emails(recipient_session_id, recipient, task_id)
         ''')
 
         # in_reply_to 索引（用于 reply_mapping 查询）
@@ -101,7 +101,7 @@ class AgentMatrixDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT OR IGNORE INTO emails
-            (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, receiver_session_id, metadata)
+            (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             email.id,
@@ -113,7 +113,7 @@ class AgentMatrixDB(AutoLoggerMixin):
             email.in_reply_to,
             email.task_id,
             email.sender_session_id,
-            email.receiver_session_id,
+            email.recipient_session_id,
             json.dumps(email.metadata) if email.metadata else None
         ))
         self.conn.commit()
@@ -165,13 +165,13 @@ class AgentMatrixDB(AutoLoggerMixin):
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def update_receiver_session(self, email_id: str, receiver_session_id: str, receiver_name: str):
+    def update_receiver_session(self, email_id: str, recipient_session_id: str, receiver_name: str):
         """
-        更新邮件的 receiver_session_id
+        更新邮件的 recipient_session_id
 
         Args:
             email_id: 邮件ID
-            receiver_session_id: 收件人的 session
+            recipient_session_id: 收件人的 session
             receiver_name: 收件人名称
 
         Raises:
@@ -180,15 +180,15 @@ class AgentMatrixDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
         cursor.execute('''
             UPDATE emails
-            SET receiver_session_id = ?
+            SET recipient_session_id = ?
             WHERE id = ? AND recipient = ?
-        ''', (receiver_session_id, email_id, receiver_name))
+        ''', (recipient_session_id, email_id, receiver_name))
 
         if cursor.rowcount == 0:
             raise RuntimeError(
-                f"Failed to update receiver_session_id: "
+                f"Failed to update recipient_session_id: "
                 f"email_id={email_id}, receiver={receiver_name}, "
-                f"receiver_session_id={receiver_session_id}. "
+                f"recipient_session_id={recipient_session_id}. "
                 f"Email not found or recipient mismatch."
             )
 
@@ -215,7 +215,7 @@ class AgentMatrixDB(AutoLoggerMixin):
                 (sender_session_id = ? AND sender = ?)
                 OR
                 -- 收到的邮件（View B）
-                (receiver_session_id = ? AND recipient = ?)
+                (recipient_session_id = ? AND recipient = ?)
             )
             ORDER BY timestamp ASC
         ''', (session_id, agent_name, session_id, agent_name))
@@ -356,7 +356,7 @@ class AgentMatrixDB(AutoLoggerMixin):
         return next_time.isoformat()
 
 
-    def get_user_conversations(self, user_agent_name: str, page: int = 1, per_page: int = 20):
+    def get_user_sessions(self, user_agent_name: str, page: int = 1, per_page: int = 20):
         """
         获取用户的所有邮件会话（分页）
 
@@ -367,7 +367,7 @@ class AgentMatrixDB(AutoLoggerMixin):
 
         Returns:
             dict: {
-                'conversations': [...],  # 会话列表
+                'sessions': [...],  # 会话列表
                 'total': 总数,
                 'page': 当前页,
                 'per_page': 每页数量,
@@ -390,9 +390,9 @@ class AgentMatrixDB(AutoLoggerMixin):
                 UNION
 
                 -- View B: 收到的邮件
-                SELECT receiver_session_id as session_id, timestamp
+                SELECT recipient_session_id as session_id, timestamp
                 FROM emails
-                WHERE recipient = ? AND receiver_session_id IS NOT NULL
+                WHERE recipient = ? AND recipient_session_id IS NOT NULL
             )
             GROUP BY session_id
             ORDER BY last_timestamp DESC
@@ -407,7 +407,7 @@ class AgentMatrixDB(AutoLoggerMixin):
         paged_sessions = all_sessions[offset:offset + per_page]
 
         # 第三步：为每个 session 查询详细信息
-        conversations = []
+        sessions = []
         for session_id, last_timestamp in paged_sessions:
             # 查询该 session 的第一封邮件的 subject
             cursor.execute('''
@@ -416,7 +416,7 @@ class AgentMatrixDB(AutoLoggerMixin):
                 WHERE (
                     (sender_session_id = ? AND sender = ?)
                     OR
-                    (receiver_session_id = ? AND recipient = ?)
+                    (recipient_session_id = ? AND recipient = ?)
                 )
                 ORDER BY timestamp ASC
                 LIMIT 1
@@ -430,12 +430,12 @@ class AgentMatrixDB(AutoLoggerMixin):
                 SELECT DISTINCT sender
                 FROM emails
                 WHERE (sender_session_id = ? AND sender = ? AND sender != ?)
-                   OR (receiver_session_id = ? AND recipient = ? AND sender != ?)
+                   OR (recipient_session_id = ? AND recipient = ? AND sender != ?)
                 UNION
                 SELECT DISTINCT recipient
                 FROM emails
                 WHERE (sender_session_id = ? AND sender = ? AND recipient != ?)
-                   OR (receiver_session_id = ? AND recipient = ? AND recipient != ?)
+                   OR (recipient_session_id = ? AND recipient = ? AND recipient != ?)
             ''', (session_id, user_agent_name, user_agent_name,
                   session_id, user_agent_name, user_agent_name,
                   session_id, user_agent_name, user_agent_name,
@@ -443,7 +443,7 @@ class AgentMatrixDB(AutoLoggerMixin):
 
             participants = list(set([row[0] for row in cursor.fetchall() if row[0] and row[0] != user_agent_name]))
 
-            conversations.append({
+            sessions.append({
                 'session_id': session_id,
                 'subject': first_subject,
                 'last_email_time': last_timestamp,
@@ -451,7 +451,7 @@ class AgentMatrixDB(AutoLoggerMixin):
             })
 
         return {
-            'conversations': conversations,
+            'sessions': sessions,
             'total': total,
             'page': page,
             'per_page': per_page,
