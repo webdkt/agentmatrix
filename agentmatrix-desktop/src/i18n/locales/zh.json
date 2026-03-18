@@ -40,7 +40,7 @@
     "to": "收件人",
     "date": "日期",
     "reply": "回复",
-    "replyTo": "回复给 %{name}",
+    "replyTo": "回复给 {name}",
     "forward": "转发",
     "delete": "删除",
     "refresh": "刷新",

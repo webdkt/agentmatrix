@@ -19,25 +19,20 @@ const { t } = useI18n()
 const sessionStore = useSessionStore()
 const agentStore = useAgentStore()
 
-// 状态
 const emails = ref([])
 const isLoading = ref(false)
 const error = ref(null)
 const messagesContainer = ref(null)
-// Inline reply state
 const inlineReplyEmail = ref(null)
 const showInlineReply = ref(false)
-
 const showMenu = ref(false)
 
-// Ask User 相关状态
 const answer = ref('')
 const hideInlineForm = ref(false)
 const submittedAnswer = ref(null)
 const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
 
-// 识别对话中的所有 Agent（排除 User）
 const sessionAgents = computed(() => {
   if (!emails.value || emails.value.length === 0) {
     return []
@@ -58,7 +53,6 @@ const sessionAgents = computed(() => {
   return agents
 })
 
-// 待处理问题
 const pendingQuestion = computed(() => {
   if (!currentSession.value) {
     return null
@@ -68,11 +62,9 @@ const pendingQuestion = computed(() => {
   return question
 })
 
-// 监听 pendingQuestion 变化
 watch(pendingQuestion, (newQuestion) => {
 }, { immediate: true })
 
-// 监听当前会话变化，加载邮件
 watch(currentSession, async (newSession) => {
   if (newSession) {
     await loadEmails(newSession.session_id)
@@ -83,7 +75,6 @@ watch(currentSession, async (newSession) => {
   hideInlineForm.value = false
 }, { immediate: true })
 
-// 加载邮件列表
 const loadEmails = async (sessionId) => {
   if (!sessionId) return
 
@@ -104,26 +95,22 @@ const loadEmails = async (sessionId) => {
   }
 }
 
-// 滚动到底部
 const scrollToBottom = () => {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
   }
 }
 
-// 刷新邮件列表
 const refreshEmails = async () => {
   if (currentSession.value) {
     await loadEmails(currentSession.value.session_id)
   }
 }
 
-// 处理回复发送成功
 const handleReplySent = async () => {
   await refreshEmails()
 }
 
-// 菜单操作
 const handleMenuAction = async (action) => {
   showMenu.value = false
 
@@ -134,7 +121,6 @@ const handleMenuAction = async (action) => {
   }
 }
 
-// Handle inline reply
 const handleInlineReply = (email) => {
   inlineReplyEmail.value = email
   showInlineReply.value = true
@@ -151,7 +137,6 @@ const handleInlineReplySent = async () => {
   showInlineReply.value = false
 }
 
-// Handle Agent question submission
 const handleAgentQuestionSubmit = async () => {
   if (!answer.value.trim() || !currentSession.value) return
 
@@ -181,7 +166,6 @@ const handleAgentQuestionSubmit = async () => {
 
 <template>
   <main class="email-list">
-    <!-- Toolbar -->
     <header v-if="currentSession" class="email-list__toolbar">
       <div class="email-list__toolbar-left">
         <AgentStatusIndicator
@@ -229,7 +213,6 @@ const handleAgentQuestionSubmit = async () => {
       </div>
     </header>
 
-    <!-- Messages Container -->
     <div
       ref="messagesContainer"
       class="email-list__messages"
@@ -271,7 +254,6 @@ const handleAgentQuestionSubmit = async () => {
           :user_agent_name="user_agent_name"
         />
 
-        <!-- Q&A Temporary Display -->
         <div v-if="pendingQuestion" class="qa-temp-display">
           <div class="email-item">
             <div class="email-card email-card--question">
@@ -320,7 +302,6 @@ const handleAgentQuestionSubmit = async () => {
       </template>
     </div>
 
-    <!-- Ask User 内联回答表单 -->
     <div
       v-if="pendingQuestion && !hideInlineForm"
       class="email-list__question-form"
@@ -344,12 +325,11 @@ const handleAgentQuestionSubmit = async () => {
           :disabled="!answer.trim()"
           class="email-list__question-btn email-list__question-btn--primary"
         >
-          Submit
+          {{ t('common.submit') }}
         </button>
       </div>
     </div>
 
-    <!-- Message Reply -->
     <EmailReply
       v-if="!pendingQuestion || hideInlineForm"
       :current-session="currentSession"
@@ -610,18 +590,7 @@ const handleAgentQuestionSubmit = async () => {
   cursor: not-allowed;
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
 
 .qa-temp-display {
   display: flex;

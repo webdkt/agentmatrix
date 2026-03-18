@@ -764,26 +764,7 @@ const close = () => {
   }
 }
 
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 200ms var(--ease-out);
-}
 
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
 </style>

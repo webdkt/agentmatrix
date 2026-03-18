@@ -1,6 +1,11 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import './styles/global.css'
+// 导入全局样式（按顺序）
+import './styles/tokens.css'      // 设计令牌（必须最先导入）
+import './styles/global.css'      // 全局样式
+import './styles/animations.css'  // 全局动画
+import './styles/utilities.css'   // 工具类
+import './styles/components.css'  // 通用组件样式
 import i18n from './i18n'
 import App from './App.vue'
 

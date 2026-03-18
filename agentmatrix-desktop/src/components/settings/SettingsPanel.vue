@@ -309,9 +309,6 @@ const handleDeleteConfig = async (configName) => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.shadow-elevated {
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-}
 
 .shadow-glow-sm {
   box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
