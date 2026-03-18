@@ -113,19 +113,20 @@ const cancelInline = () => {
   emit('cancelInline')
 }
 
-// 处理 Enter 键发送
+// 处理键盘事件：Enter 换行，Ctrl+Enter 发送
 const handleKeyDown = (event) => {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (event.key === 'Enter' && event.ctrlKey) {
     event.preventDefault()
     sendReply()
   }
+  // Enter 键不阻止默认行为，允许换行
 }
 
 // 自动调整文本框高度
 const adjustHeight = (event) => {
   const textarea = event.target
   textarea.style.height = 'auto'
-  textarea.style.height = Math.min(textarea.scrollHeight, 128) + 'px'
+  textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px' // 增加最大高度到200px
 }
 </script>
 
@@ -180,49 +181,20 @@ const adjustHeight = (event) => {
     </div>
 
     <!-- Hint -->
-    <div class="email-reply__hint">
-      <span class="email-reply__hint-text">{{ t('emails.enterToSend') }}</span>
+    <div v-if="!showInline" class="email-reply__hint">
+      <span class="email-reply__hint-text">Ctrl+Enter {{ t('emails.send') }}</span>
     </div>
   </div>
 </template>
 
 <style scoped>
 .email-reply {
-  position: absolute;
-  left: var(--spacing-md);
-  right: var(--spacing-md);
-  bottom: var(--spacing-xl); /* 56px from bottom */
-  z-index: var(--z-above);
-  animation: replySlideUp 200ms var(--ease-out);
+  padding: 0;
+  background: transparent;
 }
 
 .email-reply--inline {
-  position: relative;
-  left: 0;
-  right: 0;
-  bottom: 0;
   margin: var(--spacing-md) 0;
-  animation: replyFadeIn 150ms var(--ease-out);
-}
-
-@keyframes replySlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes replyFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 /* Info (bottom reply only) */

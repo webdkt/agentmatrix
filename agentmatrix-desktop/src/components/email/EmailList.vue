@@ -167,16 +167,6 @@ const handleAgentQuestionSubmit = async () => {
 <template>
   <main class="email-list">
     <header v-if="currentSession" class="email-list__toolbar">
-      <div class="email-list__toolbar-left">
-        <AgentStatusIndicator
-          v-for="agentName in sessionAgents"
-          :key="agentName"
-          :agent-name="agentName"
-          :current-session-id="currentSession.session_id"
-          :compact="true"
-        />
-      </div>
-
       <div class="email-list__toolbar-right">
         <button
           @click="refreshEmails"
@@ -254,6 +244,16 @@ const handleAgentQuestionSubmit = async () => {
           :user_agent_name="user_agent_name"
         />
 
+        <!-- Agent Status - 在滚动容器内 -->
+        <div class="email-list__agent-status">
+          <AgentStatusIndicator
+            v-for="agentName in sessionAgents"
+            :key="agentName"
+            :agent-name="agentName"
+            :current-session-id="currentSession.session_id"
+          />
+        </div>
+
         <div v-if="pendingQuestion" class="qa-temp-display">
           <div class="email-item">
             <div class="email-card email-card--question">
@@ -302,9 +302,10 @@ const handleAgentQuestionSubmit = async () => {
       </template>
     </div>
 
+    <!-- Agent 问题回答表单 - 固定在底部 -->
     <div
       v-if="pendingQuestion && !hideInlineForm"
-      class="email-list__question-form"
+      class="email-list__bottom-area email-list__question-form-wrapper"
     >
       <div class="email-list__question-header">
         <i class="ti ti-message-circle"></i>
@@ -330,15 +331,17 @@ const handleAgentQuestionSubmit = async () => {
       </div>
     </div>
 
-    <EmailReply
-      v-if="!pendingQuestion || hideInlineForm"
-      :current-session="currentSession"
-      :emails="emails"
-      :inline-email="inlineReplyEmail"
-      :show-inline="showInlineReply"
-      @sent="handleInlineReplySent"
-      @cancel-inline="cancelInlineReply"
-    />
+    <!-- EmailReply - 固定在底部 -->
+    <div v-if="!pendingQuestion || hideInlineForm" class="email-list__bottom-area">
+      <EmailReply
+        :current-session="currentSession"
+        :emails="emails"
+        :inline-email="inlineReplyEmail"
+        :show-inline="showInlineReply"
+        @sent="handleInlineReplySent"
+        @cancel-inline="cancelInlineReply"
+      />
+    </div>
   </main>
 </template>
 
@@ -359,16 +362,9 @@ const handleAgentQuestionSubmit = async () => {
   border-bottom: 1px solid var(--neutral-200);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 var(--spacing-md);
   flex-shrink: 0;
-}
-
-.email-list__toolbar-left {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
 }
 
 .email-list__toolbar-right {
@@ -511,7 +507,8 @@ const handleAgentQuestionSubmit = async () => {
   flex-shrink: 0;
   padding: var(--spacing-md);
   background: var(--warning-50);
-  border-top: 1px solid var(--warning-200);
+  border-top: 2px solid var(--warning-300);
+  box-shadow: 0 -2px 10px rgba(245, 158, 11, 0.1);
 }
 
 .email-list__question-header {
@@ -634,5 +631,31 @@ const handleAgentQuestionSubmit = async () => {
 .email-card--answer .email-card__name i {
   color: var(--neutral-400);
   margin-right: 4px;
+}
+
+/* Agent Status 容器 - 在滚动容器内 */
+.email-list__agent-status {
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  min-height: 60px;
+}
+
+/* 确保底部有足够空间给悬浮控件 */
+.email-list__messages {
+  padding-bottom: 140px;
+}
+
+/* 底部控件区域的通用样式 */
+.email-list__bottom-area {
+  flex-shrink: 0;
+  background: white;
+  border-top: 1px solid var(--neutral-100);
+  padding: var(--spacing-md);
+}
+
+/* 问题表单特殊样式 */
+.email-list__question-form-wrapper {
+  background: var(--warning-50);
+  border-top: 1px solid var(--warning-200);
 }
 </style>
