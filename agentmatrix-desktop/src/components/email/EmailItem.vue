@@ -127,9 +127,9 @@ const handleAttachmentClick = async (attachment) => {
       <!-- Header -->
       <div class="email-card__header">
         <div class="email-card__sender">
-          <span class="email-card__label">{{ email.is_from_user ? 'To' : 'From' }}</span>
+          <span class="email-card__label">{{ email.is_from_user ? 'TO' : 'FROM' }}</span>
           <span class="email-card__name">
-            <i class="ti ti-robot"></i>
+            <i :class="['ti', email.is_from_user ? 'ti-send' : 'ti-robot']"></i>
             {{ displayName }}
           </span>
         </div>
@@ -219,19 +219,25 @@ const handleAttachmentClick = async (attachment) => {
 .email-card {
   background: white;
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-md); /* 16px padding */
+  border-radius: 6px;
+  padding: var(--spacing-md);
   transition: all var(--duration-base) var(--ease-out);
+  position: relative;
 }
 
 .email-card:hover {
   box-shadow: var(--shadow-md);
   border-color: var(--neutral-300);
+  border-left: 3px solid var(--primary-500);
 }
 
 .email-card--user {
-  background: linear-gradient(to bottom right, var(--neutral-50), white);
-  border-color: var(--neutral-300);
+  background: linear-gradient(to bottom right, #f0fdf4, white);
+  border-color: var(--success-200);
+}
+
+.email-card--user:hover {
+  border-left-color: var(--success-500);
 }
 
 /* Header */
@@ -249,23 +255,51 @@ const handleAttachmentClick = async (attachment) => {
 }
 
 .email-card__label {
-  font-size: var(--font-xs);
-  font-weight: var(--font-medium);
-  color: var(--neutral-400);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px var(--spacing-sm);
-  background: var(--neutral-100);
-  border-radius: var(--radius-full);
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+
+/* 收到的邮件 - From标签 */
+.email-card:not(.email-card--user) .email-card__label {
+  color: var(--primary-600);
+  background: var(--primary-50);
+  border-color: var(--primary-200);
+}
+
+/* 发出的邮件 - To标签 */
+.email-card--user .email-card__label {
+  color: var(--success-600);
+  background: var(--success-50);
+  border-color: var(--success-200);
 }
 
 .email-card__name {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
   color: var(--neutral-900);
+}
+
+.email-card__name i {
+  font-size: var(--font-base);
+  color: var(--neutral-400);
+}
+
+/* 收到的邮件 - robot图标颜色 */
+.email-card:not(.email-card--user) .email-card__name i {
+  color: var(--primary-500);
+}
+
+/* 发出的邮件 - send图标颜色 */
+.email-card--user .email-card__name i {
+  color: var(--success-500);
 }
 
 .email-card__time {
@@ -312,7 +346,7 @@ const handleAttachmentClick = async (attachment) => {
 .email-card__attachment {
   padding: var(--spacing-xs);
   background: var(--neutral-50);
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   transition: all var(--duration-base) var(--ease-out);
 }
 
@@ -331,7 +365,7 @@ const handleAttachmentClick = async (attachment) => {
   width: 32px;
   height: 32px;
   background: var(--primary-100);
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -375,7 +409,7 @@ const handleAttachmentClick = async (attachment) => {
   font-size: var(--font-sm);
   color: var(--neutral-600);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   background: transparent;
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -437,7 +471,7 @@ const handleAttachmentClick = async (attachment) => {
   background: var(--neutral-100);
   color: var(--primary-600);
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: 3px;
   font-size: var(--font-sm);
 }
 
@@ -445,7 +479,7 @@ const handleAttachmentClick = async (attachment) => {
   background: var(--neutral-800);
   color: var(--neutral-50);
   padding: var(--spacing-sm);
-  border-radius: var(--radius-md);
+  border-radius: 4px;
   overflow-x: auto;
   margin-bottom: var(--spacing-sm);
 }

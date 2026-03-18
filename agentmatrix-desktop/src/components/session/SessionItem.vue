@@ -21,17 +21,45 @@ const props = defineProps({
 
 const emit = defineEmits(['click'])
 
-// 计算头像颜色类
-const avatarColorClass = computed(() => {
-  const colorIndex = props.index % 5
-  const colors = [
-    'from-blue-400 to-blue-600',
-    'from-emerald-400 to-emerald-600',
-    'from-violet-400 to-violet-600',
-    'from-amber-400 to-orange-500',
-    'from-rose-400 to-pink-600',
-  ]
-  return colors[colorIndex]
+// 计算头像颜色 - 智能配色系统
+// 同一agent的不同session使用同色系但有变化，避免单调
+const avatarStyle = computed(() => {
+  const name = props.session.name || props.session.participants?.[0] || 'New'
+  const sessionId = props.session.session_id || ''
+
+  // 第一步：基于agent名称生成基础色相（同一agent = 同一基础色系）
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  const baseHue = Math.abs(hash % 360)
+
+  // 第二步：基于sessionId和名称的组合生成变化因子
+  // 同一agent的不同session会有不同的变化
+  let sessionHash = hash
+  for (let i = 0; i < sessionId.length; i++) {
+    sessionHash = sessionId.charCodeAt(i) + ((sessionHash << 3) - sessionHash)
+  }
+
+  // 色相偏移：-15到+15度（保持在同一色系）
+  const hueOffset = (sessionHash % 31) - 15
+  const hue = baseHue + hueOffset
+
+  // 饱和度：60-75%（保持柔和）
+  const saturation = 60 + (Math.abs(sessionHash >> 8) % 16)
+
+  // 亮度变化：52-62%（创造层次感）
+  const lightness1 = 52 + (Math.abs(sessionHash >> 12) % 8)
+  const lightness2 = lightness1 - 8 + (Math.abs(sessionHash >> 16) % 4)
+
+  // 渐变角度：135°或145°交替
+  const angle = (sessionHash % 2 === 0) ? 135 : 145
+
+  return {
+    background: `linear-gradient(${angle}deg,
+      hsl(${hue}, ${saturation}%, ${lightness1}%) 0%,
+      hsl(${hue}, ${saturation}%, ${lightness2}%) 100%)`
+  }
 })
 
 // 格式化日期
@@ -94,7 +122,8 @@ const hasPending = computed(() => {
     <!-- Avatar -->
     <div class="session-item__avatar-wrapper">
       <div
-        :class="['session-item__avatar', avatarColorClass]"
+        class="session-item__avatar"
+        :style="avatarStyle"
       >
         <span class="session-item__initial">{{ subjectInitial }}</span>
       </div>
@@ -161,7 +190,6 @@ const hasPending = computed(() => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(to bottom right, var(--primary-400), var(--primary-600));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -169,6 +197,7 @@ const hasPending = computed(() => {
   font-weight: var(--font-semibold);
   font-size: var(--font-sm);
   box-shadow: var(--shadow-sm);
+  /* 背景色通过 :style 动态设置 */
 }
 
 .session-item__initial {

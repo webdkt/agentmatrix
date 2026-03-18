@@ -299,6 +299,8 @@ const handleAgentQuestionSubmit = async () => {
           <p class="email-list__empty-text">{{ t('emails.noEmails') }}</p>
           <p class="email-list__empty-hint">{{ t('emails.startConversation') }}</p>
         </div>
+        <!-- Spacer for bottom controls -->
+        <div class="email-list__spacer"></div>
       </template>
     </div>
 
@@ -642,10 +644,15 @@ const handleAgentQuestionSubmit = async () => {
 
 /* 确保底部有足够空间给悬浮控件 */
 .email-list__messages {
-  padding-bottom: 140px;
 }
 
 /* 底部控件区域的通用样式 */
+
+/* Spacer for bottom controls */
+.email-list__spacer {
+  height: 140px;
+  flex-shrink: 0;
+}
 .email-list__bottom-area {
   flex-shrink: 0;
   background: white;
