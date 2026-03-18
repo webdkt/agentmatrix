@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUpdated } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useAgentStore } from '@/stores/agent'
@@ -32,48 +32,6 @@ const hideInlineForm = ref(false)
 const submittedAnswer = ref(null)
 const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
-
-// 判断是否需要底部对齐：内容是否超出容器
-const shouldAlignBottom = ref(false)
-
-const checkAlignment = () => {
-  if (!messagesContainer.value || !hasEmails.value) {
-    shouldAlignBottom.value = false
-    return
-  }
-  
-  const container = messagesContainer.value
-  
-  // 更可靠的方式：检查是否可以滚动
-  // 如果scrollHeight > clientHeight，说明内容溢出
-  const hasScrollbar = container.scrollHeight > container.clientHeight
-  
-  // 或者：检查scrollWidth是否大于clientWidth（横向滚动条也会影响）
-  const actuallyOverflows = container.scrollHeight > container.clientHeight
-  
-  console.log('📏 Overflow check:', {
-    containerHeight: container.clientHeight,
-    scrollHeight: container.scrollHeight,
-    hasScrollbar,
-    actuallyOverflows,
-    emailCount: emails.value.length,
-    // 额外信息
-    scrollBottom: container.scrollHeight - container.clientHeight
-  })
-  
-  shouldAlignBottom.value = actuallyOverflows
-}
-
-// 监听邮件数量变化
-// emails变化时，更新显示对齐方式
-watch(emails, async () => {
-  // 等待DOM完全渲染
-  await nextTick()
-  // 等待一帧，确保子组件（EmailItem）完全渲染
-  requestAnimationFrame(() => {
-    checkAlignment()
-  })
-}, { flush: 'post' })
 
 const sessionAgents = computed(() => {
   if (!emails.value || emails.value.length === 0) {
@@ -127,7 +85,8 @@ const loadEmails = async (sessionId) => {
     const result = await sessionAPI.getEmails(sessionId)
     emails.value = result.emails || result.sessions || []
 
-    await nextTick()
+    // scrollToBottom已经包含了nextTick和额外的等待
+    await scrollToBottom()
   } catch (err) {
     error.value = err.message
     console.error('Failed to load emails:', err)
@@ -136,9 +95,19 @@ const loadEmails = async (sessionId) => {
   }
 }
 
-const scrollToBottom = () => {
+const scrollToBottom = async () => {
+  await nextTick()
+  // 等待多个渲染周期，确保DOM完全更新
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await nextTick()
+
   if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    // 使用requestAnimationFrame确保在下一帧滚动
+    requestAnimationFrame(() => {
+      if (messagesContainer.value) {
+        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+      }
+    })
   }
 }
 
@@ -150,6 +119,8 @@ const refreshEmails = async () => {
 
 const handleReplySent = async () => {
   await refreshEmails()
+  // refreshEmails已经会调用scrollToBottom，但这里确保再次滚动
+  await scrollToBottom()
 }
 
 const handleMenuAction = async (action) => {
@@ -247,10 +218,6 @@ const handleAgentQuestionSubmit = async () => {
     <div
       ref="messagesContainer"
       class="email-list__messages"
-      :class="{
-        'email-list__messages--align-bottom': shouldAlignBottom,
-        'email-list__messages--align-top': !shouldAlignBottom
-      }"
     >
       <div v-if="!currentSession" class="email-list__empty">
         <div class="email-list__empty-icon">
@@ -344,7 +311,8 @@ const handleAgentQuestionSubmit = async () => {
           <p class="email-list__empty-text">{{ t('emails.noEmails') }}</p>
           <p class="email-list__empty-hint">{{ t('emails.startConversation') }}</p>
         </div>
-
+        <!-- Spacer for bottom controls -->
+        <div class="email-list__spacer"></div>
       </template>
     </div>
 
@@ -486,16 +454,6 @@ const handleAgentQuestionSubmit = async () => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-}
-
-/* 邮件多时：底部对齐 */
-.email-list__messages--align-bottom {
-  justify-content: flex-end;
-}
-
-/* 邮件少时：顶部对齐（默认） */
-.email-list__messages--align-top {
-  justify-content: flex-start;
 }
 
 .email-list__empty {
@@ -702,7 +660,11 @@ const handleAgentQuestionSubmit = async () => {
 
 /* 底部控件区域的通用样式 */
 
-
+/* Spacer for bottom controls */
+.email-list__spacer {
+  height: 140px;
+  flex-shrink: 0;
+}
 .email-list__bottom-area {
   flex-shrink: 0;
   background: white;
