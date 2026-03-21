@@ -13,6 +13,9 @@ import time
 import sys
 import re
 import argparse
+import signal
+import os
+import threading
 
 
 class TmuxAutoConfirm:
@@ -21,6 +24,19 @@ class TmuxAutoConfirm:
         self.last_content = None
         self.check_interval = 60  # 60 seconds
         self.bottom_lines = 10  # 检查底部10行
+        self.running = True
+        self._stop_event = threading.Event()  # 用于阻塞等待退出信号
+        
+        # 设置信号处理
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+    
+    def _signal_handler(self, signum, frame):
+        """处理中断信号"""
+        signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
+        print(f"\n\n⏹️  收到 {signal_name} 信号，正在停止...")
+        self.running = False
+        self._stop_event.set()  # 唤醒阻塞的等待
         
     def run_command(self, cmd):
         """执行shell命令并返回输出"""
@@ -54,6 +70,16 @@ class TmuxAutoConfirm:
         stdout, _, rc = self.run_command(f"tmux has-session -t {self.session_name} 2>/dev/null")
         return rc == 0
     
+    def _apply_tmux_config(self):
+        """应用tmux配置（支持滚动、复制等）"""
+        # 启用鼠标支持（可以用鼠标滚轮滚动）
+        self.run_command(f"tmux set-option -t {self.session_name} mouse on")
+        # 设置历史缓冲区大小（默认2000，设为5000行）
+        self.run_command(f"tmux set-option -t {self.session_name} history-limit 5000")
+        # 鼠标拖动选中后自动复制到系统剪贴板（Mac使用pbcopy）
+        self.run_command(f"tmux bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel 'pbcopy'")
+        self.run_command(f"tmux bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel 'pbcopy'")
+    
     def create_session(self, command=None):
         """创建新的tmux会话"""
         if command:
@@ -68,11 +94,8 @@ class TmuxAutoConfirm:
             print(f"创建tmux会话失败: {stderr}")
             return False
         
-        # 配置tmux以支持滚动和历史记录
-        # 启用鼠标支持（可以用鼠标滚轮滚动）
-        self.run_command(f"tmux set-option -t {self.session_name} mouse on")
-        # 设置历史缓冲区大小（默认2000，设为5000行）
-        self.run_command(f"tmux set-option -t {self.session_name} history-limit 5000")
+        # 应用tmux配置
+        self._apply_tmux_config()
         
         print(f"✓ 已创建 tmux 会话: {self.session_name}")
         print(f"  - 鼠标滚动: 已启用")
@@ -175,7 +198,7 @@ class TmuxAutoConfirm:
         print(f"   按 Ctrl+C 停止\n")
         
         try:
-            while True:
+            while self.running:
                 current_content = self.capture_pane()
                 
                 if current_content is None:
@@ -188,13 +211,15 @@ class TmuxAutoConfirm:
                 if self.check_confirmation_prompt(current_content):
                     self.send_enter()
                     # 发送后等待一下，让内容变化
-                    time.sleep(2)
+                    self._stop_event.wait(2)  # 阻塞等待2秒，可被信号唤醒
                     continue
                 
-                time.sleep(self.check_interval)
+                # 阻塞等待检查间隔，可被信号立即唤醒
+                self._stop_event.wait(self.check_interval)
                 
         except KeyboardInterrupt:
             print("\n\n⏹️  监控已停止")
+            self.running = False
     
     def cleanup(self):
         """清理tmux会话"""
@@ -215,6 +240,8 @@ class TmuxAutoConfirm:
             if response != 'y':
                 print("请使用不同的会话名称，或手动关闭现有会话")
                 return False
+            # 复用时也应用配置（确保滚动和复制功能正常）
+            self._apply_tmux_config()
         else:
             # 创建新会话
             if not self.create_session(command):

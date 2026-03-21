@@ -46,6 +46,14 @@ class AgentMatrixDB(AutoLoggerMixin):
             )
         ''')
 
+        # 3. 外部邮件 Message-ID ↔ 内部 Email ID 映射表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS external_email_map (
+                external_message_id TEXT PRIMARY KEY,
+                internal_email_id TEXT NOT NULL
+            )
+        ''')
+
         self.conn.commit()
 
         # 创建索引
@@ -92,6 +100,12 @@ class AgentMatrixDB(AutoLoggerMixin):
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_task_target_agent
             ON scheduled_tasks(target_agent)
+        ''')
+
+        # external_email_map 索引（反向查询：internal_email_id → external_message_id）
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_external_map_internal
+            ON external_email_map(internal_email_id)
         ''')
 
         self.conn.commit()
@@ -238,6 +252,37 @@ class AgentMatrixDB(AutoLoggerMixin):
         columns = [col[0] for col in cursor.description]
         row = cursor.fetchone()
         return dict(zip(columns, row)) if row else None
+
+    # ===== External Email Map 相关方法 =====
+
+    def save_external_email_mapping(self, external_message_id: str, internal_email_id: str):
+        """保存外部 Message-ID 到内部 Email ID 的映射"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            'INSERT OR REPLACE INTO external_email_map (external_message_id, internal_email_id) VALUES (?, ?)',
+            (external_message_id, internal_email_id)
+        )
+        self.conn.commit()
+
+    def get_internal_email_id(self, external_message_id: str) -> Optional[str]:
+        """通过外部 Message-ID 查询内部 Email ID"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            'SELECT internal_email_id FROM external_email_map WHERE external_message_id = ?',
+            (external_message_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def get_external_message_id(self, internal_email_id: str) -> Optional[str]:
+        """通过内部 Email ID 查询外部 Message-ID"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            'SELECT external_message_id FROM external_email_map WHERE internal_email_id = ?',
+            (internal_email_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
     # ===== Scheduled Task相关方法 =====
 
     def create_task(self, task_dict):

@@ -12,6 +12,11 @@ export const useSettingsStore = defineStore('settings', {
     agents: [],
     isLoading: false,
     error: null,
+
+    // Email Proxy 配置
+    emailProxyConfig: null,
+    emailProxyLoading: false,
+    emailProxyError: null,
   }),
 
   getters: {
@@ -27,6 +32,20 @@ export const useSettingsStore = defineStore('settings', {
      */
     needsColdStart: (state) => {
       return !!(state.configStatus?.needs_cold_start)
+    },
+
+    /**
+     * Email Proxy 是否已启用
+     */
+    isEmailProxyEnabled: (state) => {
+      return !!(state.emailProxyConfig?.enabled)
+    },
+
+    /**
+     * Email Proxy 是否已配置
+     */
+    isEmailProxyConfigured: (state) => {
+      return !!(state.emailProxyConfig?.email)
     },
   },
 
@@ -146,6 +165,97 @@ export const useSettingsStore = defineStore('settings', {
         throw error
       } finally {
         this.isLoading = false
+      }
+    },
+
+    /**
+     * 加载 Email Proxy 配置
+     */
+    async loadEmailProxyConfig() {
+      this.emailProxyLoading = true
+      this.emailProxyError = null
+      try {
+        const config = await configAPI.getEmailProxyConfig()
+        this.emailProxyConfig = config
+        return config
+      } catch (error) {
+        this.emailProxyError = error.message
+        throw error
+      } finally {
+        this.emailProxyLoading = false
+      }
+    },
+
+    /**
+     * 更新 Email Proxy 配置
+     * @param {object} config - Email Proxy 配置
+     */
+    async updateEmailProxyConfig(config) {
+      this.emailProxyLoading = true
+      this.emailProxyError = null
+      try {
+        await configAPI.updateEmailProxyConfig(config)
+        await this.loadEmailProxyConfig()
+      } catch (error) {
+        this.emailProxyError = error.message
+        throw error
+      } finally {
+        this.emailProxyLoading = false
+      }
+    },
+
+    /**
+     * 启用 Email Proxy
+     */
+    async enableEmailProxy() {
+      this.emailProxyLoading = true
+      this.emailProxyError = null
+      try {
+        await configAPI.enableEmailProxy()
+        if (this.emailProxyConfig) {
+          this.emailProxyConfig.enabled = true
+        }
+      } catch (error) {
+        this.emailProxyError = error.message
+        throw error
+      } finally {
+        this.emailProxyLoading = false
+      }
+    },
+
+    /**
+     * 禁用 Email Proxy
+     */
+    async disableEmailProxy() {
+      this.emailProxyLoading = true
+      this.emailProxyError = null
+      try {
+        await configAPI.disableEmailProxy()
+        if (this.emailProxyConfig) {
+          this.emailProxyConfig.enabled = false
+        }
+      } catch (error) {
+        this.emailProxyError = error.message
+        throw error
+      } finally {
+        this.emailProxyLoading = false
+      }
+    },
+
+    /**
+     * 测试 Email Proxy 连接
+     */
+    async testEmailProxyConnection() {
+      this.emailProxyLoading = true
+      this.emailProxyError = null
+      try {
+        const result = await configAPI.testEmailProxyConnection()
+        return result
+      } catch (error) {
+        this.emailProxyError = error.message
+        throw error
+      } finally {
+        this.emailProxyLoading = false
       }
     },
   },

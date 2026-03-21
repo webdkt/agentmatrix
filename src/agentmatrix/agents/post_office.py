@@ -9,7 +9,7 @@ from datetime import datetime
 from ..core.message import Email
 from ..core.log_util import AutoLoggerMixin
 class PostOffice(AutoLoggerMixin):
-    def __init__(self, paths: 'MatrixPaths', user_agent_name: str = "User"):
+    def __init__(self, paths, user_agent_name: str = "User"):
         self.paths = paths
 
         self.directory = {}
@@ -20,6 +20,9 @@ class PostOffice(AutoLoggerMixin):
 
         # Store user agent name
         self.user_agent_name = user_agent_name
+
+        # Email sent hook list
+        self.on_email_sent = []
 
 
 
@@ -85,6 +88,13 @@ class PostOffice(AutoLoggerMixin):
         self.logger.debug(f"Sending email from {email.sender} to {email.recipient} ")
         await self.queue.put(email)
         self.logger.debug("Mail delivered")
+
+        # Trigger email sent hooks
+        for callback in self.on_email_sent:
+            try:
+                await callback(email)
+            except Exception as e:
+                self.logger.error(f"Email sent hook error: {e}", exc_info=True)
 
     async def run(self):
         self.logger.info("[PostOffice] Service Started")

@@ -18,3 +18,5 @@ html2text>=2020.1.16
 markdown-it-py>=3.0.0
 browser-use>=0.11.9,<1.0.0
 python-multipart
+imap-tools
+

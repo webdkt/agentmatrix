@@ -85,9 +85,8 @@ class EmailSkillMixin:
         last_email = self.root_agent.last_received_email
 
         # 确定 in_reply_to
-        in_reply_to = session["session_id"]
-        if to == last_email.sender:
-            in_reply_to = last_email.id
+        # 使用 last_email.id 关联回话线程；如果没有上一封邮件则为 None（新会话）
+        in_reply_to = last_email.id if last_email else None
 
         # 自动生成 subject（如果未提供）
         if not subject:

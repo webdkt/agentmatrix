@@ -46,7 +46,7 @@ class BaseSkillMixin:
     #    return "Return from Break"
 
     @register_action(
-            short_desc="向用户提问并等待回答",
+            short_desc="暂停工作向用户提问并等待回答，当必须用户输入或确认时才使用",
         description="向用户提问并等待回答。当你需要用户提供信息时调用此 action。",
         param_infos={
             "question": "要向用户提出的问题（清晰、具体）"

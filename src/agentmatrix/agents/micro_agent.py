@@ -18,7 +18,6 @@ import time
 
 
 from ..core.log_util import AutoLoggerMixin
-from ..core.session_context import SessionContext
 from ..core.exceptions import LLMServiceUnavailableError
 from ..core.action import register_action
 from ..core.message import Email
@@ -49,7 +48,7 @@ class MicroAgent(AutoLoggerMixin):
         parent: Union['BaseAgent', 'MicroAgent'],
         name: Optional[str] = None,
         default_max_steps: int = 50,
-        #independent_session_context: bool = False,
+        # independent_session_context parameter removed
         available_skills: Optional[List[str]] = None,  # 🆕 可用技能列表
     ):
         """
@@ -61,9 +60,6 @@ class MicroAgent(AutoLoggerMixin):
                 - WorkingContext: 使用指定的上下文
             name: Agent 名称（可选，自动生成）
             default_max_steps: 默认最大步数
-            independent_session_context: 是否使用独立的 session context（默认 False）
-                - False: 共享 parent 的 session_context（可持久化）
-                - True:  创建新的 session_context（不可持久化）
             available_skills: 可用技能列表（如 ["file", "browser"]）
         """
         # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
@@ -77,14 +73,6 @@ class MicroAgent(AutoLoggerMixin):
             self.__class__ = self._create_dynamic_class(available_skills)
 
         # ========== session_context ==========
-        # 根据 independent_session_context 决定是共享还是独立
-        #if independent_session_context:
-        #    # 独立模式：创建新的 SessionContext（不可持久化）
-        #    self._session_context = SessionContext(persistent=False)
-        #else:
-        #    # 共享模式：使用 parent 的 SessionContext
-        #    self._session_context = parent._session_context
-
         # ========== 从 parent 自动继承组件 ==========
         self.brain = parent.brain
         self.cerebellum = parent.cerebellum
@@ -551,28 +539,6 @@ class MicroAgent(AutoLoggerMixin):
         """便捷访问：根 Agent 的 session_folder"""
         return self.root_agent.get_session_folder()
 
-    def deprecated_get_session_context(self):
-        """
-        获取 session context
-
-        Returns:
-            SessionContext: session context 对象（可能是共享的或独立的）
-        """
-        return self._session_context
-
-    async def deprecated_update_session_context(self, **kwargs):
-        """
-        更新 session context
-
-        注意：
-        - 如果 _session_context 是共享的（来自 BaseAgent），会自动持久化
-        - 如果 _session_context 是独立的（不可持久化），只更新内存
-
-        Args:
-            **kwargs: 要更新的键值对
-        """
-        await self._session_context.update(**kwargs)
-
     # ==================== 🆕 自动压缩机制 ====================
 
     def _should_compress_messages(self) -> bool:
@@ -931,18 +897,6 @@ Start generating the Whiteboard now.
         if session:
             self.current_session = session
             self.current_task_id = session.get("task_id")
-            #TODO: 下面的应该都不用了
-            # 创建 SessionContext 对象（如果 session_manager 可用）
-            #if session_manager and hasattr(session_manager, 'session_context_class'):
-            #    from ..core.session_context import SessionContext
-            #    self._session_context = SessionContext(
-            #        persistent=True,
-            #        session_manager=session_manager,
-            #        session=session,
-            #        initial_data=session.get("context", {})
-            #    )
-            #else:
-            #    self._session_context = None
 
             # 设置 session 文件夹（如果 root_agent 有 workspace_root）
             '''

@@ -7,7 +7,7 @@ import { useBackendStore } from '@/stores/backend'
 import { useNotifications } from '@/composables/useNotifications'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
-import SettingsPanel from '@/components/settings/SettingsPanel.vue'
+import SettingsView from '@/components/settings/SettingsView.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 
 const props = defineProps({
@@ -124,7 +124,7 @@ const handleViewChange = (viewId) => {
 
     <!-- Settings View -->
     <div v-else-if="currentView === 'settings'" class="view-container__content view-container__content--full">
-      <SettingsPanel @view-change="handleViewChange" />
+      <SettingsView @view-change="handleViewChange" />
     </div>
 
     <!-- Dashboard View (Placeholder) -->

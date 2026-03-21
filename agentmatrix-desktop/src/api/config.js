@@ -58,4 +58,40 @@ export const configAPI = {
   async resetLLMConfig(configName) {
     return API.post(`/api/llm-configs/${configName}/reset`, {})
   },
+
+  /**
+   * 获取 Email Proxy 配置
+   */
+  async getEmailProxyConfig() {
+    return API.get('/api/email-proxy/config')
+  },
+
+  /**
+   * 更新 Email Proxy 配置
+   * @param {object} config - Email Proxy 配置
+   */
+  async updateEmailProxyConfig(config) {
+    return API.put('/api/email-proxy/config', config)
+  },
+
+  /**
+   * 启用 Email Proxy
+   */
+  async enableEmailProxy() {
+    return API.post('/api/email-proxy/enable')
+  },
+
+  /**
+   * 禁用 Email Proxy
+   */
+  async disableEmailProxy() {
+    return API.post('/api/email-proxy/disable')
+  },
+
+  /**
+   * 测试 Email Proxy 连接
+   */
+  async testEmailProxyConnection() {
+    return API.post('/api/email-proxy/test')
+  },
 }

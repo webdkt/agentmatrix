@@ -275,14 +275,14 @@ class MatrixConfig(AutoLoggerMixin):
         """
         return self.email_proxy.is_configured()
 
-    def get_email_proxy_config(self) -> Optional[Dict[str, Any]]:
+    def get_email_proxy_config(self) -> Dict[str, Any]:
         """
         获取Email Proxy配置
 
         Returns:
-            Email Proxy配置字典，如果未启用返回None
+            Email Proxy配置字典（包含 email_proxy 外层）
         """
-        return self.email_proxy.get_full_config()
+        return self._email_proxy_config
 
     def __repr__(self) -> str:
         return f"MatrixConfig(paths='{self.paths}')"

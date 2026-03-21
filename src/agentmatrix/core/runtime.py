@@ -98,12 +98,12 @@ class AgentMatrix(AutoLoggerMixin):
         # 🔧 广播回调接口（由 server 注入）- 必须在 load_matrix 之前初始化
         self._broadcast_message_callback = None
 
+        self.echo(">>> 初始化系统配置...")
+        self._init_system_config()
         self.echo(">>> 加载世界状态...")
         self.load_matrix()
         self.echo(">>> 启动 LLM 服务监控...")
         self._start_llm_monitor()
-        self.echo(">>> 初始化系统配置...")
-        self._init_system_config()
 
         # 🆕 系统状态收集器
         self.status_collector = SystemStatusCollector(self)
@@ -266,13 +266,25 @@ class AgentMatrix(AutoLoggerMixin):
         from ..services.email_proxy_service import EmailProxyService
 
         email_config = self.config.get_email_proxy_config()
+        self.logger.info(f"📧 EmailProxy原始配置: {email_config}")
+
         if not email_config:
-            self.echo(">>> EmailProxy配置不完整，跳过初始化")
+            self.logger.info("⚠️ EmailProxy配置为空")
             return
 
+        email_proxy_inner = email_config.get('email_proxy', {})
+        if not email_proxy_inner:
+            self.logger.info("⚠️ EmailProxy内层配置为空")
+            return
+
+        if not email_proxy_inner.get('enabled', False):
+            self.logger.info(f"⚠️ EmailProxy未启用 (enabled={email_proxy_inner.get('enabled')})")
+            return
+
+        self.logger.info(f"✅ 初始化EmailProxy: {email_proxy_inner.get('matrix_mailbox')} → {email_proxy_inner.get('user_mailbox')}")
         self.email_proxy = EmailProxyService(
             paths=self.paths,
-            config=email_config,
+            config=email_proxy_inner,
             post_office=self.post_office,
             db_path=str(self.paths.database_path),
             parent_logger=self.logger
@@ -486,8 +498,11 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 🆕 启动EmailProxy
         if self.email_proxy:
+            self.echo(f">>> 启动EmailProxy服务...")
             self.email_proxy_task = asyncio.ensure_future(self.email_proxy.start())
             self.echo(">>> EmailProxy service started")
+        else:
+            self.echo(">>> EmailProxy未配置，跳过启动")
         self.echo(">>> 世界已恢复，系统继续运行！")
         yellow_page = self.post_office.yellow_page()
         self.echo(f">>> 当前世界中的 Agent 有：\n{yellow_page}")

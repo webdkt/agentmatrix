@@ -1495,6 +1495,11 @@ async def reload_agent_profile(agent_name: str):
 
 # === LLM Configuration Management APIs ===
 
+
+
+
+@app.get("/api/llm-configs")
+
 def load_llm_configs():
     """Load all LLM configurations from the config service"""
     if matrix_runtime is None:
@@ -1505,12 +1510,6 @@ def load_llm_configs():
         print(f"Error loading LLM configs: {e}")
         return {}
 
-
-
-
-
-
-@app.get("/api/llm-configs")
 async def get_llm_configs():
     """Get all LLM configurations"""
     try:

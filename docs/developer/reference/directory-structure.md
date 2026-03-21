@@ -27,8 +27,8 @@ MatrixWorld/                    # matrix_path (默认 ./MatrixWorld/)
 | 路径 | 用途 |
 |------|------|
 | `workspace/SKILLS/` | 用户自定义 Skills |
-| `workspace/agent_files/{agent}/work_files/{task}/` | Agent 工作文件 |
-| `workspace/agent_files/{agent}/work_files/{task}/attachments/` | 邮件附件 |
+| `workspace/agent_files/{agent}/work_files/{task_id}/` | Agent 工作文件 |
+| `workspace/agent_files/{agent}/work_files/{task_id}/attachments/` | 邮件附件 |
 | `workspace/agent_files/{agent}/home/` | Agent home 目录 |
 
 ## MatrixPaths API

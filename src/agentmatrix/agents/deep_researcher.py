@@ -19,7 +19,6 @@ from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
 from ..core.session_manager import SessionManager
-from ..core.session_context import SessionContext
 import asyncio
 from pathlib import Path
 from .micro_agent import MicroAgent
@@ -47,14 +46,6 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
         self.current_task_id = session["task_id"]
 
 
-
-        # 创建 SessionContext 对象（包装 session["context"]）
-        self._session_context = SessionContext(
-            persistent=True,
-            session_manager=self.session_manager,
-            session=session,
-            initial_data=session.get("context", {})
-        )
 
         # 设置当前 session 目录
         self.current_session_folder = str(

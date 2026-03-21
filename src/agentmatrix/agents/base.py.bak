@@ -382,14 +382,60 @@ class BaseAgent(AutoLoggerMixin):
                 self.logger.warning("⚠️ Email Proxy Service 未找到，跳过 ask_user 邮件发送")
                 return
 
-            # 直接调用 EmailProxyService 的专用方法
-            await email_proxy.send_ask_user_email(
-                agent_name=self.name,
-                agent_session_id=session_id,
-                question=question
+            # 获取用户邮箱
+            user_mailbox = email_proxy.user_mailbox
+
+            
+            # 构造 subject：{agent_name}问：{question} #ASK_USER#{agent_name}#{agent_session_id}#
+            # 截断过长的问题（避免 subject 过长）
+            question_preview = question[:100] + "..." if len(question) > 100 else question
+            subject = f"{self.name}问：{question_preview} #ASK_USER#{self.name}#{self.current_session}#"
+
+            # 构造邮件正文
+            body = f"""你好，
+
+{self.name} 有一个问题需要你回答：
+
+问题：{question}
+
+---
+请直接回复此邮件来回答问题。
+
+---
+"""
+
+            # 创建内部 Email 对象
+            from ..core.message import Email
+            from ..core.id_generator import IDGenerator
+
+            email_id = IDGenerator.generate_email_id()
+            
+
+            # 构造特殊邮件
+            ask_user_email = Email(
+                id=email_id,
+                sender=self.name,
+                recipient="User",  #TODO 这个错了，不能写死“User"
+                subject=subject,
+                body=body,
+                in_reply_to=None,
+                task_id=task_id or "default",
+                sender_session_id=session_id,  # 使用 agent_session_id
+                metadata={ #TODO 这些meta data 毫无用处
+                    'is_external': True,
+                    'original_sender': user_mailbox,  # 发送给用户
+                    'ask_user_metadata': {
+                        'agent_name': self.name,
+                        'agent_session_id': session_id,
+                        'question': question
+                    }
+                }
             )
 
+            # 通过 Email Proxy 发送
+            await email_proxy.send_to_external(ask_user_email)
             self.logger.info(f"✅ 已发送 ask_user 邮件通知: {question[:50]}...")
+
         except Exception as e:
             self.logger.error(f"❌ 发送 ask_user 邮件失败: {e}", exc_info=True)
 
