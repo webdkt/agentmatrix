@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentMatrix — Matrix Entry</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#FDFCF9;--bg2:#F7F5F0;--bg3:#EDE8DF;
+      --ink:#1A1A1A;--ink-dim:#6B6B6B;--ink-ghost:#9A9A9A;
+      --amber:#D4A843;--amber-bright:#E8C060;--amber-dim:rgba(212,168,67,0.15);--amber-glow:rgba(212,168,67,0.3);
+      --vermillion:#C23B22;--vermillion-dim:rgba(194,59,34,0.08);
+      --verdant:#2D6A4F;
+      --mono:"JetBrains Mono","SF Mono","Menlo",monospace;
+    }
+    html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+    body{background:var(--bg);color:var(--ink);font-family:var(--mono);overflow-x:hidden;margin:0}
+    #rain{position:fixed;inset:0;z-index:0;opacity:1;pointer-events:none}
+
+    /* Steps */
+    .step{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 40px}
+    .step-inner{max-width:520px;width:100%;text-align:center;opacity:0;transform:translateY(20px);transition:opacity .6s ease,transform .6s cubic-bezier(.16,1,.3,1)}
+    .step-inner.visible{opacity:1;transform:translateY(0)}
+
+    /* Title */
+    .title{font-family:var(--mono);font-size:52px;font-weight:700;color:var(--ink);line-height:1.2;letter-spacing:-.5px;margin-bottom:32px}
+    .title.welcome{font-size:60px;margin-bottom:0}
+
+    /* Glitch text */
+    .glitch{position:relative;display:inline-block}
+    .glitch::before,.glitch::after{content:attr(data-text);position:absolute;top:0;left:0;width:100%;height:100%;opacity:0}
+    .glitch.done::before{color:var(--vermillion);animation:glitch-1 3s infinite linear alternate-reverse;clip-path:polygon(0 0,100% 0,100% 45%,0 45%);opacity:.4}
+    .glitch.done::after{color:var(--amber);animation:glitch-2 4s infinite linear alternate-reverse;clip-path:polygon(0 60%,100% 60%,100% 100%,0 100%);opacity:.4}
+    @keyframes glitch-1{0%,100%{transform:translate(0)}20%{transform:translate(-1px,1px)}40%{transform:translate(1px,-1px)}60%{transform:translate(-1px,0)}80%{transform:translate(1px,0)}}
+    @keyframes glitch-2{0%,100%{transform:translate(0)}25%{transform:translate(1px,-1px)}50%{transform:translate(-1px,1px)}75%{transform:translate(1px,0)}}
+
+    /* Step labels */
+    .step-label{font-family:var(--mono);font-size:20px;color:var(--amber);letter-spacing:.3em;text-transform:uppercase;margin-bottom:28px;font-weight:600}
+
+    /* Inputs */
+    .inp{display:block;width:100%;max-width:480px;margin:0 auto;background:transparent;border:none;border-bottom:2px solid var(--bg3);color:var(--ink);font-family:var(--mono);font-size:44px;padding:14px 0;outline:none;text-align:center;transition:border-color .3s;caret-color:var(--vermillion);animation:caret-pulse 1s step-end infinite}
+    .inp::placeholder{color:var(--ink-ghost);font-style:normal;font-size:24px}
+    .inp:focus{border-bottom-color:var(--vermillion)}
+    .inp.done{border-bottom-color:var(--verdant)}
+    @keyframes caret-pulse{0%,100%{opacity:1}50%{opacity:.7}}
+
+    /* Select */
+    .sel{display:block;width:100%;max-width:480px;margin:0 auto;background:transparent;border:none;border-bottom:2px solid var(--bg3);color:var(--ink);font-family:var(--mono);font-size:24px;padding:12px 0;outline:none;text-align:center;appearance:none;cursor:pointer;transition:border-color .3s;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239A9A9A' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 0 center}
+    .sel:focus{border-bottom-color:var(--vermillion)}.sel option{background:var(--bg);color:var(--ink)}
+
+    /* Password */
+    .pw{position:relative;max-width:480px;margin:0 auto}
+    .pw .inp{margin:0;width:100%;padding-right:40px}
+    .pw .eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--ink-ghost);cursor:pointer;font-size:20px;padding:4px;transition:color .2s}
+    .pw .eye:hover{color:var(--ink-dim)}
+
+    /* Dir picker */
+    .dir{max-width:480px;margin:0 auto;display:flex;align-items:center;gap:12px;border-bottom:2px solid var(--bg3);padding:12px 0;cursor:pointer;transition:border-color .3s}
+    .dir:hover{border-bottom-color:var(--vermillion)}
+    .dir-path{flex:1;font-family:var(--mono);font-size:20px;color:var(--ink-ghost);text-align:center}
+    .dir-path.has{color:var(--ink)}
+    .dir-browse{font-size:12px;color:var(--amber);letter-spacing:.15em;text-transform:uppercase;flex-shrink:0;transition:color .2s;font-weight:600}
+    .dir:hover .dir-browse{color:var(--vermillion)}
+
+    /* Same checkbox */
+    .same{max-width:480px;margin:16px auto 0;display:flex;align-items:center;justify-content:center;gap:8px}
+    .same input{appearance:none;width:16px;height:16px;border:2px solid var(--bg3);border-radius:2px;cursor:pointer;position:relative;transition:all .15s;flex-shrink:0}
+    .same input:checked{background:var(--vermillion);border-color:var(--vermillion)}
+    .same input:checked::after{content:'';position:absolute;top:1px;left:4px;width:5px;height:8px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}
+    .same label{font-size:16px;color:var(--ink-dim);cursor:pointer}
+
+    /* Help */
+    .help-wrap{position:relative;display:inline-flex}
+    .help-trigger{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--bg3);display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink-ghost);cursor:pointer;background:none;font-family:var(--mono);transition:all .2s;margin-left:8px;vertical-align:middle}
+    .help-trigger:hover{border-color:var(--amber);color:var(--amber)}
+    .help-bubble{position:absolute;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%);background:var(--bg);border:1px solid var(--bg3);border-radius:2px;padding:12px 16px;width:280px;font-family:var(--mono);font-size:12px;color:var(--ink-dim);line-height:1.6;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;transform:translateX(-50%) translateY(4px);z-index:10}
+    .help-trigger:hover+.help-bubble,.help-bubble:hover{opacity:1;pointer-events:all;transform:translateX(-50%) translateY(0)}
+
+    /* Start button */
+    .start-btn{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:var(--bg);border:none;font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;padding:16px 52px;border-radius:2px;cursor:pointer;transition:all .25s;margin-top:40px}
+    .start-btn:hover{background:var(--vermillion)}
+    .start-btn:disabled{opacity:.2;cursor:default}
+
+    /* Summary */
+    .summary{font-family:var(--mono);font-size:13px;color:var(--ink-ghost);margin-top:20px;letter-spacing:.05em}
+
+    /* Overlay */
+    .overlay{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;opacity:0;pointer-events:none;transition:opacity .5s}
+    .overlay.a{opacity:1;pointer-events:all}
+    .overlay-spin{width:32px;height:32px;border:2px solid var(--bg3);border-top-color:var(--vermillion);border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .overlay-text{font-family:var(--mono);font-size:14px;color:var(--ink-dim);letter-spacing:.15em}
+
+    /* Progress */
+    .progress{position:fixed;top:0;left:0;height:2px;background:var(--vermillion);z-index:10;transition:width .5s ease}
+
+    /* Hint */
+    .hint{position:fixed;bottom:28px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:12px;color:var(--ink-ghost);letter-spacing:.15em;z-index:2;opacity:.6}
+
+    /* Field-group */
+    .fg{margin-bottom:20px}
+    .fg-label{font-size:16px;color:var(--amber);letter-spacing:.2em;text-transform:uppercase;margin-bottom:8px;font-weight:600}
+
+    @media(max-width:600px){.title{font-size:40px}.title.welcome{font-size:48px}.inp{font-size:32px}.step-label{font-size:16px}}
+  </style>
+</head>
+<body>
+
+<canvas id="rain"></canvas>
+<div class="progress" id="prog" style="width:0%"></div>
+
+<!-- STEP 0: Welcome -->
+<div class="step" id="s0">
+  <div class="step-inner" id="si0">
+    <div class="title welcome"><span class="glitch" id="glitchText"></span></div>
+  </div>
+</div>
+
+<!-- STEP 1: Name -->
+<div class="step" id="s1">
+  <div class="step-inner" id="si1">
+    <div class="step-label">// identify yourself</div>
+    <div style="position:relative;display:inline-block;width:100%;max-width:480px">
+      <input type="text" class="inp" id="name" placeholder="your name" autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+</div>
+
+<!-- STEP 2: Directory -->
+<div class="step" id="s2">
+  <div class="step-inner" id="si2">
+    <div class="step-label">// workspace</div>
+    <div class="dir" onclick="pickDir()">
+      <span class="dir-path" id="dirpath">select workspace directory</span>
+      <span class="dir-browse">browse</span>
+    </div>
+  </div>
+</div>
+
+<!-- STEP 3: Brain -->
+<div class="step" id="s3">
+  <div class="step-inner" id="si3">
+    <div class="step-label">// brain</div>
+    <div class="fg">
+      <select class="sel" id="bp" onchange="onBP()">
+        <option value="anthropic">anthropic</option>
+        <option value="openai">openai</option>
+      </select>
+    </div>
+    <div class="fg">
+      <select class="sel" id="bm" onchange="st.bm=this.value">
+        <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
+        <option value="claude-haiku-4-20250514">claude-haiku-4</option>
+      </select>
+    </div>
+    <div class="fg">
+      <div class="pw">
+        <input type="password" class="inp" id="bk" placeholder="api key" oninput="onBK()" spellcheck="false">
+        <button class="eye" onclick="togEye(this)">&#x25c9;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STEP 4: Cerebellum -->
+<div class="step" id="s4">
+  <div class="step-inner" id="si4">
+    <div class="step-label">// cerebellum</div>
+    <div class="same">
+      <input type="checkbox" id="cs" checked onchange="togSame(this.checked)">
+      <label for="cs">same as brain</label>
+    </div>
+    <div id="cf" style="margin-top:24px;opacity:.2;pointer-events:none">
+      <div class="fg">
+        <div class="fg-label">cerebellum <span class="help-wrap"><button class="help-trigger">?</button><div class="help-bubble">Fast model for quick tasks: parsing, formatting, parameter extraction. Smaller and cheaper than Brain.</div></span></div>
+        <select class="sel" id="cp" onchange="onCP()">
+          <option value="anthropic">anthropic</option>
+          <option value="openai">openai</option>
+        </select>
+      </div>
+      <div class="fg">
+        <select class="sel" id="cm" onchange="st.cm=this.value">
+          <option value="claude-haiku-4-20250514">claude-haiku-4</option>
+          <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
+        </select>
+      </div>
+      <div class="pw">
+        <input type="password" class="inp" id="ck" placeholder="api key" oninput="st.ck=this.value" spellcheck="false">
+        <button class="eye" onclick="togEye(this)">&#x25c9;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STEP 5: Start -->
+<div class="step" id="s5">
+  <div class="step-inner" id="si5">
+    <button class="start-btn" id="startBtn" onclick="go()" disabled>Initialize Matrix</button>
+    <div class="summary" id="summ"></div>
+  </div>
+</div>
+
+<div class="hint" id="hint">initializing...</div>
+
+<div class="overlay" id="ov"><div class="overlay-spin"></div><div class="overlay-text">initializing matrix...</div></div>
+
+<script>
+// ─── RAIN ──────────────────────────────────────────────
+const cv=document.getElementById('rain'),cx=cv.getContext('2d');
+const CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\u03b1\u03b2\u03b3\u03b4\u03b5\u2202\u2211\u222b\u221a\u221e\u0394\u03a9@#%&'.split('');
+let colCount,drops,speeds;const fontSize=15;
+
+function initRain(){
+  cv.width=innerWidth;cv.height=innerHeight;
+  colCount=Math.floor(cv.width/fontSize);
+  drops=Array.from({length:colCount},()=>Math.random()*-60);
+  speeds=Array.from({length:colCount},()=>.2+Math.random()*.4);
+}
+
+function drawRain(){
+  // Warm fade trail — parchment color
+  cx.fillStyle='rgba(253,252,249,0.06)';
+  cx.fillRect(0,0,cv.width,cv.height);
+  cx.font=fontSize+'px "JetBrains Mono",monospace';
+
+  for(let i=0;i<colCount;i++){
+    const c=CHARS[Math.random()*CHARS.length|0];
+    const x=i*fontSize;
+    const y=drops[i]*fontSize;
+    const isLead=Math.random()>.9;
+
+    if(isLead){
+      // Bright amber leading character
+      cx.fillStyle='rgba(212,168,67,0.7)';
+      cx.shadowColor='rgba(212,168,67,0.3)';
+      cx.shadowBlur=6;
+    }else{
+      // Soft amber tones
+      const r=180+Math.random()*40;
+      const g=140+Math.random()*40;
+      const b=40+Math.random()*20;
+      cx.fillStyle='rgba('+r+','+g+','+b+',0.15)';
+      cx.shadowColor='transparent';
+      cx.shadowBlur=0;
+    }
+
+    cx.fillText(c,x,y);
+
+    // Occasional darker fade
+    if(!isLead&&Math.random()>.98){
+      cx.fillStyle='rgba(253,252,249,0.4)';
+      cx.fillText(c,x,y);
+    }
+
+    drops[i]+=speeds[i];
+    if(drops[i]*fontSize>cv.height&&Math.random()>.96){
+      drops[i]=0;
+      speeds[i]=.2+Math.random()*.4;
+    }
+  }
+  cx.shadowBlur=0;
+}
+
+initRain();
+const rainInterval=setInterval(drawRain,50);
+addEventListener('resize',initRain);
+
+// ─── STATE ─────────────────────────────────────────────
+const st={name:'',dir:'',bp:'anthropic',bk:'',bm:'claude-sonnet-4-20250514',cs:true,cp:'anthropic',ck:'',cm:'claude-haiku-4-20250514'};
+const PM={anthropic:{m:['claude-sonnet-4-20250514','claude-haiku-4-20250514']},openai:{m:['gpt-4o','gpt-4o-mini']}};
+
+// ─── VALIDATION ────────────────────────────────────────
+const valids=[
+  ()=>true,
+  ()=>st.name.trim().length>0,
+  ()=>st.dir.length>0,
+  ()=>st.bk.trim().length>0,
+  ()=>true,
+  ()=>valids[1]()&&valids[2]()&&valids[3]()
+];
+
+// ─── STEPS ─────────────────────────────────────────────
+const steps=[...document.querySelectorAll('.step')];
+const inners=[...document.querySelectorAll('.step-inner')];
+let currentStep=0;
+
+function showStep(i){
+  inners[i].classList.add('visible');
+  currentStep=i;
+  updateHint();
+}
+
+function updateProgress(){
+  const scrollY=window.scrollY;
+  const total=document.body.scrollHeight-innerHeight;
+  const pct=total>0?Math.min(scrollY/total*100,100):0;
+  document.getElementById('prog').style.width=pct+'%';
+
+  steps.forEach((s,i)=>{
+    const rect=s.getBoundingClientRect();
+    const inView=rect.top<innerHeight&&rect.bottom>0;
+    if(inView) inners[i].classList.add('visible');
+  });
+
+  updateSummary();
+}
+
+function updateSummary(){
+  const el=document.getElementById('summ');
+  const btn=document.getElementById('startBtn');
+  const allValid=valids[1]()&&valids[2]()&&valids[3]();
+  btn.disabled=!allValid;
+  if(allValid){
+    const cm=st.cs?st.bm+' (shared)':st.cm;
+    el.textContent=st.name+' // '+st.bm+' / '+cm;
+  }else{
+    el.textContent='';
+  }
+}
+
+function updateHint(){
+  const el=document.getElementById('hint');
+  if(currentStep===0) el.textContent='';
+  else if(currentStep>=steps.length-1) el.textContent='';
+  else el.textContent='press enter to continue';
+}
+
+addEventListener('scroll',updateProgress);
+
+// ─── WELCOME ANIMATION ────────────────────────────────
+// The glitch element starts EMPTY to avoid raw-text-then-overlay bug.
+// We build it entirely from JS spans.
+
+function typewriterReveal(text,targetEl){
+  // Build spans
+  targetEl.textContent='';
+  const chars=text.split('');
+  const spans=[];
+
+  chars.forEach(c=>{
+    const span=document.createElement('span');
+    span.style.opacity='0';
+    span.textContent=c;
+    targetEl.appendChild(span);
+    spans.push(span);
+  });
+
+  // Reveal one by one — each starts as random glyph, resolves to real char
+  let idx=0;
+  const timer=setInterval(()=>{
+    if(idx>=spans.length){
+      clearInterval(timer);
+      // Enable CSS glitch after all chars are real
+      targetEl.setAttribute('data-text',text);
+      targetEl.classList.add('done');
+      return;
+    }
+
+    const pos=idx; // capture index before increment
+    spans[pos].textContent=CHARS[Math.random()*CHARS.length|0];
+    spans[pos].style.opacity='1';
+    spans[pos].style.textShadow='0 0 12px rgba(212,168,67,0.5)';
+
+    // Resolve to real character after brief flash
+    setTimeout(()=>{
+      spans[pos].textContent=chars[pos];
+      spans[pos].style.textShadow='0 0 4px rgba(212,168,67,0.2)';
+    },90);
+
+    idx++;
+  },80);
+}
+
+// Start welcome
+setTimeout(()=>{
+  showStep(0);
+  typewriterReveal('Welcome to the Matrix',document.getElementById('glitchText'));
+
+  // Auto-advance after text forms + pause
+  setTimeout(()=>{
+    steps[1].scrollIntoView({behavior:'smooth'});
+    setTimeout(()=>{
+      showStep(1);
+      document.getElementById('name').focus();
+    },800);
+  },4000);
+},400);
+
+// ─── SCROLL LOCK ───────────────────────────────────────
+function checkScroll(){
+  let firstInvalid=-1;
+  for(let i=0;i<steps.length;i++){
+    if(!valids[i]()){firstInvalid=i;break;}
+  }
+  if(firstInvalid===-1)return;
+  if(window.scrollY>steps[firstInvalid].offsetTop+50){
+    steps[firstInvalid].scrollIntoView({behavior:'smooth'});
+  }
+}
+addEventListener('scroll',checkScroll);
+
+// ─── ENTER KEY ─────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  const a=document.activeElement;
+  if(a&&a.tagName==='SELECT')return;
+
+  if(a&&a.id==='name'&&st.name.trim()){
+    steps[2].scrollIntoView({behavior:'smooth'});
+    setTimeout(()=>showStep(2),600);
+    return;
+  }
+
+  for(let i=0;i<steps.length;i++){
+    const rect=steps[i].getBoundingClientRect();
+    if(Math.abs(rect.top)<innerHeight*.5&&valids[i]()){
+      if(i<steps.length-1){
+        steps[i+1].scrollIntoView({behavior:'smooth'});
+        setTimeout(()=>{
+          showStep(i+1);
+          const inp=steps[i+1].querySelector('input:not([type=checkbox]):not([type=password]),select');
+          if(inp)inp.focus();
+        },600);
+      }
+      break;
+    }
+  }
+});
+
+// ─── ACTIONS ───────────────────────────────────────────
+function pickDir(){
+  st.dir='/Users/user/MatrixWorld';
+  const el=document.getElementById('dirpath');
+  el.textContent=st.dir;el.classList.add('has');
+  showStep(2);
+  setTimeout(()=>steps[3].scrollIntoView({behavior:'smooth'}),300);
+}
+
+function onBP(){
+  st.bp=document.getElementById('bp').value;
+  st.bm=PM[st.bp].m[0]||'';
+  const sel=document.getElementById('bm');
+  sel.innerHTML=PM[st.bp].m.map(m=>'<option value="'+m+'">'+m.split('-').slice(0,2).join('-')+'</option>').join('');
+}
+
+function onBK(){st.bk=document.getElementById('bk').value;updateProgress()}
+
+function onCP(){
+  st.cp=document.getElementById('cp').value;
+  st.cm=PM[st.cp].m[0]||'';
+  const sel=document.getElementById('cm');
+  sel.innerHTML=PM[st.cp].m.map(m=>'<option value="'+m+'">'+m.split('-').slice(0,2).join('-')+'</option>').join('');
+}
+
+function togSame(c){
+  st.cs=c;
+  const f=document.getElementById('cf');
+  f.style.opacity=c?'.2':'1';f.style.pointerEvents=c?'none':'auto';
+  if(c){st.cp=st.bp;st.cm=st.bm;st.ck=st.bk}
+}
+
+function togEye(b){var i=b.previousElementSibling;if(i.type==='password'){i.type='text';b.textContent='\u25ce'}else{i.type='password';b.textContent='\u25c9'}}
+
+// ─── NAME INPUT ────────────────────────────────────────
+document.getElementById('name').addEventListener('input',e=>{
+  st.name=e.target.value;
+  if(st.name.trim()){
+    e.target.classList.add('done');
+    showStep(1);
+  }else{
+    e.target.classList.remove('done');
+  }
+  updateProgress();
+});
+
+document.getElementById('name').addEventListener('blur',()=>{
+  document.getElementById('cursor').style.display=st.name?'none':'inline-block';
+});
+
+// ─── START ─────────────────────────────────────────────
+function go(){
+  const o=document.getElementById('ov');o.classList.add('a');
+  setTimeout(()=>o.querySelector('.overlay-text').textContent='loading agents\u2026',1000);
+  setTimeout(()=>o.querySelector('.overlay-text').textContent='connecting post office\u2026',2000);
+  setTimeout(()=>{
+    o.querySelector('.overlay-text').textContent='matrix ready.';
+    o.querySelector('.overlay-spin').style.borderColor='var(--verdant)';
+    o.querySelector('.overlay-spin').style.borderTopColor='var(--verdant)';
+  },3000);
+}
+
+// ─── INIT ──────────────────────────────────────────────
+updateProgress();
+</script>
+</body>
+</html>
