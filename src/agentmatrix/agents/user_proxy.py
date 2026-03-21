@@ -140,5 +140,4 @@ class UserProxyAgent(BaseAgent):
             task_id=session["task_id"]
         )
 
-
-
+        return email

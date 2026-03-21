@@ -46,11 +46,15 @@ class AgentMatrixDB(AutoLoggerMixin):
             )
         ''')
 
-        # 3. 外部邮件 Message-ID ↔ 内部 Email ID 映射表
+        # 3. 外部邮件 Message-ID ↔ 内部 Email ID 映射表（enriched: 包含 session 全量信息）
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS external_email_map (
                 external_message_id TEXT PRIMARY KEY,
-                internal_email_id TEXT NOT NULL
+                internal_email_id TEXT NOT NULL,
+                agent_name TEXT,
+                task_id TEXT,
+                user_session_id TEXT,
+                agent_session_id TEXT
             )
         ''')
 
@@ -255,12 +259,16 @@ class AgentMatrixDB(AutoLoggerMixin):
 
     # ===== External Email Map 相关方法 =====
 
-    def save_external_email_mapping(self, external_message_id: str, internal_email_id: str):
-        """保存外部 Message-ID 到内部 Email ID 的映射"""
+    def save_external_email_mapping(self, external_message_id: str, internal_email_id: str,
+                                     agent_name: str = None, task_id: str = None,
+                                     user_session_id: str = None, agent_session_id: str = None):
+        """保存外部 Message-ID 到内部 Email ID 的映射（enriched: 包含 session 全量信息）"""
         cursor = self.conn.cursor()
         cursor.execute(
-            'INSERT OR REPLACE INTO external_email_map (external_message_id, internal_email_id) VALUES (?, ?)',
-            (external_message_id, internal_email_id)
+            '''INSERT OR REPLACE INTO external_email_map
+               (external_message_id, internal_email_id, agent_name, task_id, user_session_id, agent_session_id)
+               VALUES (?, ?, ?, ?, ?, ?)''',
+            (external_message_id, internal_email_id, agent_name, task_id, user_session_id, agent_session_id)
         )
         self.conn.commit()
 
@@ -273,6 +281,19 @@ class AgentMatrixDB(AutoLoggerMixin):
         )
         row = cursor.fetchone()
         return row[0] if row else None
+
+    def get_mapping_by_external_id(self, external_message_id: str) -> Optional[dict]:
+        """通过外部 Message-ID 查询完整 mapping（含 session 信息）"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            'SELECT * FROM external_email_map WHERE external_message_id = ?',
+            (external_message_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            columns = [col[0] for col in cursor.description]
+            return dict(zip(columns, row))
+        return None
 
     def get_external_message_id(self, internal_email_id: str) -> Optional[str]:
         """通过内部 Email ID 查询外部 Message-ID"""

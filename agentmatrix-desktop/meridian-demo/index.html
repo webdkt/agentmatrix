@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MERIDIAN — AgentMatrix Design System</title>
+
+  <!-- Google Fonts: Source Serif 4 + Noto Serif SC (CJK) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
+
+  <!-- Tabler Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.6.0/tabler-icons.min.css">
+
+  <!-- MERIDIAN CSS -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/layout.css">
+</head>
+<body>
+
+  <!-- DARK MODE TOGGLE -->
+  <button class="dark-toggle" id="dark-toggle" title="Toggle dark mode">
+    <i class="ti ti-moon"></i>
+  </button>
+
+  <!-- SIDEBAR NAV -->
+  <nav class="sidebar-nav">
+    <div class="sidebar-nav__title">MERIDIAN</div>
+    <div class="sidebar-nav__subtitle">Design System</div>
+    <div class="sidebar-nav__sep"></div>
+    <a href="#colors" class="sidebar-nav__link active">Colors</a>
+    <a href="#typography" class="sidebar-nav__link">Typography</a>
+    <a href="#buttons" class="sidebar-nav__link">Buttons</a>
+    <a href="#inputs" class="sidebar-nav__link">Inputs</a>
+    <a href="#emails" class="sidebar-nav__link">Email Cards</a>
+    <a href="#sessions" class="sidebar-nav__link">Sessions</a>
+    <a href="#labels" class="sidebar-nav__link">Labels &amp; Badges</a>
+    <a href="#agent" class="sidebar-nav__link">Agent Status</a>
+    <a href="#rules" class="sidebar-nav__link">Rules</a>
+    <a href="#layout" class="sidebar-nav__link">Layout Preview</a>
+    <a href="#modal" class="sidebar-nav__link">Modal</a>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- ==========================================
+         HEADER
+         ========================================== -->
+    <header style="margin-bottom: 80px;">
+      <div class="text-display" style="margin-bottom: 8px;">MERIDIAN</div>
+      <div class="section__subtitle">AgentMatrix &middot; Visual Language v1.0</div>
+      <div style="margin-top: 16px; max-width: 560px;">
+        <p class="email-body" style="color: var(--ink-500); font-style: italic;">
+          "An operating theater for artificial thought. Each email is a dispatch.
+          Each MicroAgent is a brief life — assembled, executed, dissolved."
+        </p>
+      </div>
+    </header>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         1. COLORS
+         ========================================== -->
+    <section class="section" id="colors">
+      <div class="section__header">
+        <div class="section__title">Colors</div>
+        <div class="section__subtitle">Parchment · Ink · Accent · Semantic</div>
+      </div>
+
+      <!-- Parchment -->
+      <div class="color-group__title">Parchment — Backgrounds</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #FDFCF9;"></div>
+          <div class="color-swatch__label">--parchment-50<span>#FDFCF9</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #F7F5F0;"></div>
+          <div class="color-swatch__label">--parchment-100<span>#F7F5F0</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #EDE9E1;"></div>
+          <div class="color-swatch__label">--parchment-200<span>#EDE9E1</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #DBD5C9;"></div>
+          <div class="color-swatch__label">--parchment-300<span>#DBD5C9</span></div>
+        </div>
+      </div>
+
+      <!-- Ink -->
+      <div class="color-group__title">Ink — Text</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #1A1A1A;"></div>
+          <div class="color-swatch__label">--ink-900<span>#1A1A1A</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #3D3D3D;"></div>
+          <div class="color-swatch__label">--ink-700<span>#3D3D3D</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #6B6B6B;"></div>
+          <div class="color-swatch__label">--ink-500<span>#6B6B6B</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #8A8A8A;"></div>
+          <div class="color-swatch__label">--ink-400<span>#8A8A8A</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #ABABAB;"></div>
+          <div class="color-swatch__label">--ink-300<span>#ABABAB</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #D4D4D4;"></div>
+          <div class="color-swatch__label">--ink-200<span>#D4D4D4</span></div>
+        </div>
+      </div>
+
+      <!-- Accent -->
+      <div class="color-group__title">Accent — Vermillion</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #C23B22;"></div>
+          <div class="color-swatch__label">--accent<span>#C23B22</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #A33220;"></div>
+          <div class="color-swatch__label">--accent-hover<span>#A33220</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #E8C4B8;"></div>
+          <div class="color-swatch__label">--accent-muted<span>#E8C4B8</span></div>
+        </div>
+      </div>
+
+      <!-- Semantic -->
+      <div class="color-group__title">Semantic</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #2D6A4F;"></div>
+          <div class="color-swatch__label">--verdant<span>#2D6A4F</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #B7E4C7;"></div>
+          <div class="color-swatch__label">--verdant-muted<span>#B7E4C7</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #B45309;"></div>
+          <div class="color-swatch__label">--amber<span>#B45309</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #FDE68A;"></div>
+          <div class="color-swatch__label">--amber-muted<span>#FDE68A</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #9B2C2C;"></div>
+          <div class="color-swatch__label">--fault<span>#9B2C2C</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #FED7D7;"></div>
+          <div class="color-swatch__label">--fault-muted<span>#FED7D7</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #2B6CB0;"></div>
+          <div class="color-swatch__label">--azure<span>#2B6CB0</span></div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch__block" style="background: #BEE3F8;"></div>
+          <div class="color-swatch__label">--azure-muted<span>#BEE3F8</span></div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         2. TYPOGRAPHY
+         ========================================== -->
+    <section class="section" id="typography">
+      <div class="section__header">
+        <div class="section__title">Typography</div>
+        <div class="section__subtitle">Source Serif 4 · Noto Serif SC · System Sans · SF Mono</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-display — Source Serif 4, 48px, 700</div>
+        <div class="text-display">The quick brown fox</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-h1 — Source Serif 4, 32px, 700</div>
+        <div class="text-h1">Dispatches from the Matrix</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-h2 — Source Serif 4, 24px, 600</div>
+        <div class="text-h2">Agent cognition cycle</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-h3 — Source Serif 4, 20px, 600</div>
+        <div class="text-h3">MicroAgent lifecycle</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.email-body — Source Serif 4, 15px, line-height 1.7</div>
+        <div class="email-body">
+          Each MicroAgent is a brief life — assembled from skill mixins at runtime,
+          executing a think-act loop powered by the Brain LLM, negotiating parameters
+          through the Cerebellum, then dissolving. The dual-worker model ensures email
+          processing always takes priority over history summarization.
+        </div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">Body — System sans, 15px, 400</div>
+        <div style="color: var(--ink-700);">
+          The think_with_retry function implements a contract-based parser validation.
+          On failure, the LLM's bad response and error feedback are appended to the
+          conversation history, enabling self-correction.
+        </div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.label-editorial — Small-caps, 11px, 600, tracked</div>
+        <div class="label-editorial">From &nbsp;&middot;&nbsp; To &nbsp;&middot;&nbsp; Date &nbsp;&middot;&nbsp; Status &nbsp;&middot;&nbsp; Session</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-mono — SF Mono, 13px</div>
+        <div class="text-mono" style="color: var(--ink-700);">
+          brain.think_with_retry(messages, parser=self._parse_actions_from_thought)
+        </div>
+      </div>
+
+      <!-- Chinese / CJK -->
+      <div style="margin-top: 32px; padding-top: 24px; border-top: 2px solid var(--accent);">
+        <div class="label-editorial" style="margin-bottom: 20px;">CJK / 中文支持</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-display — 中文标题, Noto Serif SC, 48px</div>
+        <div class="text-display">矩阵智能体</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-h1 — 中文, 32px</div>
+        <div class="text-h1">来自矩阵的调度</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.text-h2 — 中文, 24px</div>
+        <div class="text-h2">智能体认知循环</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">.email-body — 中文正文, Noto Serif SC, 15px, line-height 1.8</div>
+        <div class="email-body" style="line-height: 1.8;">
+          每个 MicroAgent 都是一个短暂的存在——在运行时由技能混入（skill mixin）组装而成，
+          由 Brain 大语言模型驱动的「思考-行动」循环执行任务，通过 Cerebellum 小脑模型
+          协商参数，完成使命后即刻消解。双工模型确保邮件处理始终优先于历史摘要生成。
+        </div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">混合排版 — Mixed English + Chinese, serif</div>
+        <div class="email-body" style="line-height: 1.8;">
+          <span style="font-style: italic; color: var(--ink-500);">AgentMatrix</span>
+          是一个分布式认知调度系统。每个 Agent 通过
+          <span class="text-mono" style="font-size: 13px;">PostOffice</span>
+          进行邮件通信，互不直接调用。当邮件到达时，
+          <span class="text-mono" style="font-size: 13px;">BaseAgent</span>
+          创建一个临时的 <span class="text-mono" style="font-size: 13px;">MicroAgent</span>，
+          执行 <span class="text-mono" style="font-size: 13px;">think_with_retry</span> 循环，
+          自动纠错后返回结果，然后消亡。
+        </div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-sample__label">中文邮件卡片预览</div>
+        <div class="email-card" style="margin-top: 12px;">
+          <div class="email-card__header">
+            <span class="label-editorial">From</span>
+            <span class="email-card__sender" style="font-family: var(--font-serif);">研究员 Alice</span>
+            <span class="email-card__time">14:32</span>
+          </div>
+          <div class="email-card__subject">任务：最新 Transformer 架构调研</div>
+          <div class="email-card__body email-body" style="line-height: 1.8;">
+            请对 2026 年第一季度发布的最新 Transformer 架构进行全面调研。
+            重点关注效率改进、混合专家（MoE）变体，以及任何新颖的注意力机制。
+            完成后将结果以报告形式发送回来。
+          </div>
+          <div class="email-card__actions">
+            <a class="email-card__action"><i class="ti ti-arrow-back-up"></i> 回复</a>
+            <a class="email-card__action"><i class="ti ti-copy"></i> 复制</a>
+            <a class="email-card__action"><i class="ti ti-trash"></i> 删除</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         3. BUTTONS
+         ========================================== -->
+    <section class="section" id="buttons">
+      <div class="section__header">
+        <div class="section__title">Buttons</div>
+        <div class="section__subtitle">Primary · Secondary · Accent · Danger</div>
+      </div>
+
+      <div class="button-row">
+        <div class="button-row__label">Variants</div>
+        <button class="btn btn-primary btn-md">Primary</button>
+        <button class="btn btn-secondary btn-md">Secondary</button>
+        <button class="btn btn-accent btn-md">Accent</button>
+        <button class="btn btn-danger btn-md">Danger</button>
+      </div>
+
+      <div class="button-row">
+        <div class="button-row__label">Sizes</div>
+        <button class="btn btn-primary btn-sm">Small</button>
+        <button class="btn btn-primary btn-md">Medium</button>
+        <button class="btn btn-primary btn-lg">Large</button>
+      </div>
+
+      <div class="button-row">
+        <div class="button-row__label">States</div>
+        <button class="btn btn-primary btn-md" disabled>Disabled</button>
+        <button class="btn btn-icon" title="Refresh"><i class="ti ti-refresh"></i></button>
+        <button class="btn btn-icon" title="Settings"><i class="ti ti-settings"></i></button>
+        <button class="btn btn-icon" title="Search"><i class="ti ti-search"></i></button>
+      </div>
+
+      <div class="button-row" style="margin-top: 20px;">
+        <div class="button-row__label">With icons</div>
+        <button class="btn btn-accent btn-md"><i class="ti ti-send"></i> Send</button>
+        <button class="btn btn-secondary btn-md"><i class="ti ti-arrow-left"></i> Back</button>
+        <button class="btn btn-primary btn-md"><i class="ti ti-check"></i> Confirm</button>
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         4. INPUTS
+         ========================================== -->
+    <section class="section" id="inputs">
+      <div class="section__header">
+        <div class="section__title">Inputs</div>
+        <div class="section__subtitle">Underline · Box · Textarea · Select</div>
+      </div>
+
+      <div class="form-row">
+        <div>
+          <div class="form-group">
+            <label class="form-group__label label-editorial">Underline Input</label>
+            <input type="text" class="input-underline" placeholder="智能体名称...">
+          </div>
+
+          <div class="form-group">
+            <label class="form-group__label label-editorial">Search</label>
+            <div class="search-wrapper">
+              <i class="ti ti-search search-icon"></i>
+              <input type="text" class="input-underline" placeholder="Search sessions...">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-group__label label-editorial">Select</label>
+            <select class="select">
+              <option>Default LLM</option>
+              <option>Claude 3.5 Sonnet</option>
+              <option>GPT-4o</option>
+              <option>Gemini Pro</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <div class="form-group">
+            <label class="form-group__label label-editorial">Box Input</label>
+            <input type="text" class="input-box" placeholder="API endpoint...">
+          </div>
+
+          <div class="form-group">
+            <label class="form-group__label label-editorial">Textarea</label>
+            <textarea class="textarea" placeholder="系统提示词..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-group__label label-editorial">Checkboxes &amp; Radios</label>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <label class="checkbox-wrapper">
+                <input type="checkbox" checked>
+                <span>Enable vision brain</span>
+              </label>
+              <label class="checkbox-wrapper">
+                <input type="checkbox">
+                <span>Auto-hibernate Docker</span>
+              </label>
+              <label class="radio-wrapper">
+                <input type="radio" name="model" checked>
+                <span>Streaming mode</span>
+              </label>
+              <label class="radio-wrapper">
+                <input type="radio" name="model">
+                <span>Batch mode</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         5. EMAIL CARDS
+         ========================================== -->
+    <section class="section" id="emails">
+      <div class="section__header">
+        <div class="section__title">Email Cards</div>
+        <div class="section__subtitle">Received · Sent · With hover accent</div>
+      </div>
+
+      <!-- Received email -->
+      <div class="email-card" style="margin-bottom: 16px;">
+        <div class="email-card__header">
+          <span class="label-editorial">From</span>
+          <span class="email-card__sender">Alice</span>
+          <span class="email-card__time">14:32</span>
+        </div>
+        <div class="email-card__subject">Research task: latest transformer architectures</div>
+        <div class="email-card__body email-body">
+          Please conduct a comprehensive survey of the latest transformer architectures
+          published in Q1 2026. Focus on efficiency improvements, mixture-of-experts
+          variants, and any novel attention mechanisms. Summarize findings in a report
+          and send the results back when complete.
+        </div>
+        <div class="email-card__attachment">
+          <i class="ti ti-paperclip"></i>
+          <span class="text-mono">research_scope.pdf</span>
+        </div>
+        <div class="email-card__actions">
+          <a class="email-card__action"><i class="ti ti-arrow-back-up"></i> Reply</a>
+          <a class="email-card__action"><i class="ti ti-copy"></i> Copy</a>
+          <a class="email-card__action"><i class="ti ti-trash"></i> Delete</a>
+        </div>
+      </div>
+
+      <!-- Sent email (with hover showing accent border) -->
+      <div class="email-card email-card--sent">
+        <div class="email-card__header">
+          <span class="label-editorial">To</span>
+          <span class="email-card__sender">Alice</span>
+          <span class="email-card__time">14:47</span>
+        </div>
+        <div class="email-card__subject">Re: Research task: latest transformer architectures</div>
+        <div class="email-card__body email-body">
+          Survey complete. Key findings: (1) DeepSeek-V3 introduces auxiliary-loss-free
+          load balancing for MoE, reducing training instability. (2) Mamba-2 hybrid
+          achieves linear attention complexity with competitive perplexity. (3) A new
+          grouped-query attention variant reduces KV cache by 8x with minimal quality loss.
+          Full report attached.
+        </div>
+        <div class="email-card__attachment">
+          <i class="ti ti-paperclip"></i>
+          <span class="text-mono">transformer_survey_q1_2026.md</span>
+        </div>
+        <div class="email-card__actions">
+          <a class="email-card__action"><i class="ti ti-arrow-back-up"></i> Reply</a>
+          <a class="email-card__action"><i class="ti ti-copy"></i> Copy</a>
+          <a class="email-card__action"><i class="ti ti-trash"></i> Delete</a>
+        </div>
+      </div>
+
+      <p class="caption" style="margin-top: 12px;">↑ Hover over cards to see the vermillion accent border.</p>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         6. SESSION ITEMS
+         ========================================== -->
+    <section class="section" id="sessions">
+      <div class="section__header">
+        <div class="section__title">Session Items</div>
+        <div class="section__subtitle">Active · Unread · Read</div>
+      </div>
+
+      <div class="session-list" style="border: 1px solid var(--parchment-300); border-radius: var(--radius); height: auto;">
+        <div style="padding: 12px 16px; border-bottom: 1px solid var(--parchment-300);">
+          <button class="btn btn-accent btn-sm" style="width: 100%;"><i class="ti ti-plus"></i> New Compose</button>
+        </div>
+
+        <!-- Active -->
+        <div class="session-item session-item--active">
+          <div class="session-item__avatar" style="background: var(--accent-muted); color: var(--accent);">A</div>
+          <div class="session-item__info">
+            <div class="session-item__name">Alice</div>
+            <div class="session-item__preview">Survey complete. Key findings...</div>
+          </div>
+          <div class="session-item__meta">
+            <span class="session-item__time">14:47</span>
+          </div>
+        </div>
+
+        <!-- Unread -->
+        <div class="session-item session-item--unread">
+          <div class="session-item__avatar">B</div>
+          <div class="session-item__info">
+            <div class="session-item__name">Bob — 代码审查员</div>
+            <div class="session-item__preview">在 PR 中发现了 3 个问题...</div>
+          </div>
+          <div class="session-item__meta">
+            <span class="session-item__time">13:22</span>
+            <span class="session-item__count">2</span>
+          </div>
+        </div>
+
+        <!-- Read -->
+        <div class="session-item session-item--read">
+          <div class="session-item__avatar">林</div>
+          <div class="session-item__info">
+            <div class="session-item__name">林晓 — 研究员</div>
+            <div class="session-item__preview">论文审阅已完成。</div>
+          </div>
+          <div class="session-item__meta">
+            <span class="session-item__time">Yesterday</span>
+          </div>
+        </div>
+
+        <!-- Read -->
+        <div class="session-item session-item--read">
+          <div class="session-item__avatar">王</div>
+          <div class="session-item__info">
+            <div class="session-item__name">王磊 — 运维</div>
+            <div class="session-item__preview">Docker 容器已重启。</div>
+          </div>
+          <div class="session-item__meta">
+            <span class="session-item__time">Mar 19</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         7. LABELS & BADGES
+         ========================================== -->
+    <section class="section" id="labels">
+      <div class="section__header">
+        <div class="section__title">Labels &amp; Badges</div>
+        <div class="section__subtitle">Editorial small-caps · Status badges</div>
+      </div>
+
+      <div style="display: flex; gap: 24px; align-items: center; margin-bottom: 24px;">
+        <span class="label-editorial">From</span>
+        <span class="label-editorial">To</span>
+        <span class="label-editorial">Date</span>
+        <span class="label-editorial">Status</span>
+        <span class="label-editorial">Session</span>
+        <span class="label-editorial">Dispatch</span>
+      </div>
+
+      <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 24px;">
+        <span class="status-badge status-badge--active">
+          <span class="status-dot status-dot--running"></span> Active
+        </span>
+        <span class="status-badge status-badge--pending">
+          <span class="status-dot status-dot--starting"></span> Pending
+        </span>
+        <span class="status-badge status-badge--error">
+          <span class="status-dot status-dot--stopped"></span> Error
+        </span>
+      </div>
+
+      <div style="display: flex; gap: 16px; align-items: center;">
+        <span style="display: flex; align-items: center; gap: 6px;">
+          <span class="status-dot status-dot--running"></span>
+          <span style="font-size: 13px; color: var(--ink-500);">Alice — running</span>
+        </span>
+        <span style="display: flex; align-items: center; gap: 6px;">
+          <span class="status-dot status-dot--starting"></span>
+          <span style="font-size: 13px; color: var(--ink-500);">Bob — starting</span>
+        </span>
+        <span style="display: flex; align-items: center; gap: 6px;">
+          <span class="status-dot status-dot--stopped"></span>
+          <span style="font-size: 13px; color: var(--ink-500);">Carol — stopped</span>
+        </span>
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         8. AGENT STATUS
+         ========================================== -->
+    <section class="section" id="agent">
+      <div class="section__header">
+        <div class="section__title">Agent Status</div>
+        <div class="section__subtitle">Thinking · Action readouts</div>
+      </div>
+
+      <div style="margin-bottom: 32px;">
+        <div class="label-editorial" style="margin-bottom: 12px;">Thinking...</div>
+        <div class="thinking-bar">
+          <div class="thinking-bar__fill"></div>
+        </div>
+        <p class="caption" style="margin-top: 8px;">Progress bar animation — replaces the spinning loader.</p>
+      </div>
+
+      <div>
+        <div class="label-editorial" style="margin-bottom: 12px;">Action Readouts</div>
+
+        <div class="action-readout">
+          <span class="action-readout__arrow">→</span>
+          <span class="action-readout__name">send_email</span>
+          <span class="action-readout__params">(to: Alice, body: "...")</span>
+          <span class="action-readout__check">✓</span>
+          <span class="action-readout__time">1.2s</span>
+        </div>
+
+        <div class="action-readout">
+          <span class="action-readout__arrow">→</span>
+          <span class="action-readout__name">web_search</span>
+          <span class="action-readout__params">(query: "transformer MoE 2026")</span>
+          <span class="action-readout__check">✓</span>
+          <span class="action-readout__time">3.4s</span>
+        </div>
+
+        <div class="action-readout">
+          <span class="action-readout__arrow">→</span>
+          <span class="action-readout__name">read_file</span>
+          <span class="action-readout__params">(path: /workspace/report.md)</span>
+          <span class="action-readout__check">✓</span>
+          <span class="action-readout__time">0.1s</span>
+        </div>
+
+        <div class="action-readout">
+          <span class="action-readout__arrow">→</span>
+          <span class="action-readout__name">write_file</span>
+          <span class="action-readout__params">(path: /workspace/survey.md, content: 2847 chars)</span>
+          <span class="action-readout__check">✓</span>
+          <span class="action-readout__time">0.2s</span>
+        </div>
+
+        <div class="action-readout">
+          <span class="action-readout__arrow">→</span>
+          <span class="action-readout__name">all_finished</span>
+          <span class="action-readout__params">(result: "Survey complete")</span>
+          <span class="action-readout__check">✓</span>
+          <span class="action-readout__time">—</span>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         9. RULES
+         ========================================== -->
+    <section class="section" id="rules">
+      <div class="section__header">
+        <div class="section__title">Rules &amp; Separators</div>
+        <div class="section__subtitle">Ruled lines · Dispatch headers</div>
+      </div>
+
+      <div style="margin-bottom: 24px;">
+        <div class="label-editorial" style="margin-bottom: 8px;">Thin rule</div>
+        <hr class="rule">
+      </div>
+
+      <div style="margin-bottom: 24px;">
+        <div class="label-editorial" style="margin-bottom: 8px;">Thick rule</div>
+        <hr class="rule--thick" style="border: none; border-top: 2px solid var(--parchment-300);">
+      </div>
+
+      <div style="margin-bottom: 24px;">
+        <div class="label-editorial" style="margin-bottom: 8px;">Accent rule</div>
+        <hr class="rule--accent" style="border: none; border-top: 2px solid var(--accent);">
+      </div>
+
+      <div style="margin-bottom: 24px;">
+        <div class="label-editorial" style="margin-bottom: 8px;">Dispatch header</div>
+        <div class="dispatch-header">
+          <span class="dispatch-header__line"></span>
+          <span>Thursday, March 21, 2026 &middot; 3 dispatches</span>
+          <span class="dispatch-header__line"></span>
+        </div>
+      </div>
+
+      <div>
+        <div class="label-editorial" style="margin-bottom: 8px;">Dispatch header (left-aligned)</div>
+        <div class="dispatch-header" style="justify-content: flex-start;">
+          <span>March 21, 2026 &middot; Session with Alice</span>
+        </div>
+        <hr class="rule">
+      </div>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         10. LAYOUT PREVIEW
+         ========================================== -->
+    <section class="section" id="layout">
+      <div class="section__header">
+        <div class="section__title">Layout Preview</div>
+        <div class="section__subtitle">Three-panel application mockup</div>
+      </div>
+
+      <div class="mini-layout">
+        <!-- Rail -->
+        <div class="mini-layout__rail">
+          <div class="mini-layout__rail-logo"><i class="ti ti-robot"></i></div>
+          <div class="mini-layout__rail-icon active"><i class="ti ti-layout-dashboard"></i></div>
+          <div class="mini-layout__rail-icon"><i class="ti ti-mail"></i></div>
+          <div class="mini-layout__rail-icon"><i class="ti ti-hexagon"></i></div>
+          <div class="mini-layout__rail-icon"><i class="ti ti-wand"></i></div>
+          <div style="flex: 1;"></div>
+          <div class="mini-layout__rail-icon"><i class="ti ti-settings"></i></div>
+          <div style="display: flex; gap: 4px; padding: 8px 0;">
+            <span class="status-dot status-dot--running"></span>
+            <span class="status-dot status-dot--starting"></span>
+          </div>
+        </div>
+
+        <!-- Sessions -->
+        <div class="mini-layout__sessions">
+          <div class="mini-layout__sessions-header">
+            <button class="btn btn-accent btn-sm" style="width: 100%;"><i class="ti ti-plus"></i> Compose</button>
+          </div>
+          <div class="session-item session-item--active" style="padding: 10px 12px;">
+            <div class="session-item__avatar" style="width: 28px; height: 28px; font-size: 12px; background: var(--accent-muted); color: var(--accent);">A</div>
+            <div class="session-item__info">
+              <div class="session-item__name" style="font-size: 13px;">Alice</div>
+              <div class="session-item__preview" style="font-size: 11px;">Survey complete...</div>
+            </div>
+          </div>
+          <div class="session-item session-item--unread" style="padding: 10px 12px;">
+            <div class="session-item__avatar" style="width: 28px; height: 28px; font-size: 12px;">B</div>
+            <div class="session-item__info">
+              <div class="session-item__name" style="font-size: 13px;">Bob</div>
+              <div class="session-item__preview" style="font-size: 11px;">Found 3 issues...</div>
+            </div>
+            <span class="session-item__count" style="font-size: 10px;">2</span>
+          </div>
+          <div class="session-item session-item--read" style="padding: 10px 12px;">
+            <div class="session-item__avatar" style="width: 28px; height: 28px; font-size: 12px;">C</div>
+            <div class="session-item__info">
+              <div class="session-item__name" style="font-size: 13px;">Carol</div>
+              <div class="session-item__preview" style="font-size: 11px;">Paper review done.</div>
+            </div>
+          </div>
+          <div class="session-item session-item--read" style="padding: 10px 12px;">
+            <div class="session-item__avatar" style="width: 28px; height: 28px; font-size: 12px;">D</div>
+            <div class="session-item__info">
+              <div class="session-item__name" style="font-size: 13px;">Dave</div>
+              <div class="session-item__preview" style="font-size: 11px;">Docker restarted.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Content -->
+        <div class="mini-layout__content">
+          <div class="mini-layout__toolbar">
+            <span class="mini-layout__toolbar-text" style="font-weight: 500; color: var(--ink-700);">Alice</span>
+            <span class="mini-layout__toolbar-text">— Research Survey</span>
+            <span style="flex: 1;"></span>
+            <i class="ti ti-refresh" style="color: var(--ink-300); font-size: 16px; cursor: pointer;"></i>
+          </div>
+
+          <div class="dispatch-header" style="padding: 8px 16px;">
+            <span>March 21, 2026</span>
+          </div>
+
+          <div class="mini-layout__messages">
+            <!-- Email 1 -->
+            <div class="email-card" style="padding: 12px;">
+              <div class="email-card__header" style="margin-bottom: 8px;">
+                <span class="label-editorial" style="font-size: 9px;">From</span>
+                <span class="email-card__sender" style="font-size: 14px;">Alice</span>
+                <span class="email-card__time">14:32</span>
+              </div>
+              <div class="email-card__body email-body" style="font-size: 13px; line-height: 1.6;">
+                Please survey the latest transformer architectures published in Q1 2026.
+                Focus on efficiency improvements and MoE variants.
+              </div>
+            </div>
+
+            <!-- Email 2 -->
+            <div class="email-card email-card--sent" style="padding: 12px;">
+              <div class="email-card__header" style="margin-bottom: 8px;">
+                <span class="label-editorial" style="font-size: 9px;">To</span>
+                <span class="email-card__sender" style="font-size: 14px;">Alice</span>
+                <span class="email-card__time">14:47</span>
+              </div>
+              <div class="email-card__body email-body" style="font-size: 13px; line-height: 1.6;">
+                Survey complete. Three key findings on MoE, Mamba-2, and grouped-query attention. Report attached.
+              </div>
+            </div>
+
+            <!-- Agent thinking -->
+            <div style="padding: 8px 0;">
+              <div class="label-editorial" style="font-size: 9px; margin-bottom: 6px;">Agent Activity</div>
+              <div class="action-readout" style="font-size: 11px; padding: 4px 0;">
+                <span class="action-readout__arrow">→</span>
+                <span class="action-readout__name">web_search</span>
+                <span class="action-readout__params">(query: "...")</span>
+                <span class="action-readout__check">✓</span>
+                <span class="action-readout__time">3.4s</span>
+              </div>
+              <div class="action-readout" style="font-size: 11px; padding: 4px 0;">
+                <span class="action-readout__arrow">→</span>
+                <span class="action-readout__name">send_email</span>
+                <span class="action-readout__params">(to: Alice)</span>
+                <span class="action-readout__check">✓</span>
+                <span class="action-readout__time">1.2s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Reply area -->
+          <div style="border-top: 1px solid var(--parchment-300); padding: 12px 16px; display: flex; gap: 8px; align-items: center;">
+            <input type="text" class="input-box" style="font-size: 12px; padding: 6px 10px;" placeholder="Reply to Alice...">
+            <button class="btn btn-accent btn-sm"><i class="ti ti-send"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <p class="caption" style="margin-top: 12px;">
+        This is a 1:1 scale mockup of the three-panel layout in MERIDIAN style.
+        The actual app preserves all logic — only the visual treatment changes.
+      </p>
+    </section>
+
+    <hr class="rule" style="margin-bottom: 64px;">
+
+    <!-- ==========================================
+         11. MODAL
+         ========================================== -->
+    <section class="section" id="modal">
+      <div class="section__header">
+        <div class="section__title">Modal</div>
+        <div class="section__subtitle">No blur · Minimal shadow · Serif heading</div>
+      </div>
+
+      <div class="modal-overlay" style="position: relative; display: flex; justify-content: center;">
+        <div class="modal">
+          <div class="modal__header">
+            <div class="text-h3" style="margin-bottom: 2px;">Agent Question</div>
+            <div class="label-editorial">Needs your input</div>
+          </div>
+          <div class="modal__body">
+            <div style="background: var(--parchment-100); border: 1px solid var(--parchment-300); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 20px;">
+              <p class="email-body" style="font-size: 14px;">
+                I found two candidate papers for the survey. Should I include both
+                or prioritize the one with experimental results?
+              </p>
+            </div>
+            <div class="form-group">
+              <label class="form-group__label label-editorial">Your Answer</label>
+              <textarea class="textarea" style="min-height: 60px;" placeholder="Type your response..."></textarea>
+            </div>
+          </div>
+          <div class="modal__footer">
+            <button class="btn btn-secondary btn-md">Later</button>
+            <button class="btn btn-accent btn-md">Submit</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer style="margin-top: 80px; padding: 32px 0; border-top: 1px solid var(--parchment-300);">
+      <div class="dispatch-header">
+        <span class="dispatch-header__line"></span>
+        <span>MERIDIAN v1.0 &middot; AgentMatrix Design System</span>
+        <span class="dispatch-header__line"></span>
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- JS -->
+  <script src="js/demo.js"></script>
+</body>
+</html>

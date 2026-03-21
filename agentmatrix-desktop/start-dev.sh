@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # AgentMatrix Desktop Development Startup Script
+# Usage:
+#   ./start-dev.sh                # Normal startup
+#   ./start-dev.sh --force-wizard # Force cold start wizard every time
 
 set -e
 
@@ -8,6 +11,19 @@ PROJECT_DIR="/Users/dkt/myprojects/agentmatrix"
 cd "$PROJECT_DIR/agentmatrix-desktop"
 
 echo "🚀 Starting AgentMatrix Desktop Development Environment..."
+
+# Parse arguments
+FORCE_WIZARD=false
+for arg in "$@"; do
+    case $arg in
+        --force-wizard)
+            FORCE_WIZARD=true
+            export AGENTMATRIX_FORCE_WIZARD=1
+            echo "🧪 Force wizard mode enabled (AGENTMATRIX_FORCE_WIZARD=1)"
+            ;;
+    esac
+done
+
 echo ""
 
 # 设置 PYTHONPATH
@@ -36,6 +52,9 @@ fi
 echo ""
 echo "🪟 Starting Tauri desktop application..."
 echo "   (This will automatically start the Python backend)"
+if [ "$FORCE_WIZARD" = true ]; then
+    echo "   🧪 Wizard will show every time (force mode)"
+fi
 echo ""
 
 cd src-tauri

@@ -1,0 +1,20 @@
+{
+  "anthropic": {
+    "label": "Anthropic",
+    "url": "https://api.anthropic.com/v1/messages",
+    "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250514"],
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  "openai": {
+    "label": "OpenAI",
+    "url": "https://api.openai.com/v1/chat/completions",
+    "models": ["gpt-4o", "gpt-4o-mini"],
+    "api_key_env": "OPENAI_API_KEY"
+  },
+  "custom": {
+    "label": "Custom",
+    "url": "",
+    "models": [],
+    "api_key_env": ""
+  }
+}

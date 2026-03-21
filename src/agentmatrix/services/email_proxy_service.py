@@ -8,9 +8,9 @@ Email Proxy Service - 邮件代理服务
 4. 通过subject标记管理session_id和task_id的映射
 
 Subject格式：
-- Agent → User: 原始主题 #{agent_name}#{task_id}#{user_session_id}#{agent_session_id}#
+- Agent → User: 原始主题 #{agent_name}
 - User → Agent (新会话): @{agent_name} 主题内容
-- User → Agent (回复): 原始主题 #{agent_name}#{task_id}#{user_session_id}#{agent_session_id}#
+- Session 元数据通过 mapping 表 + body footer (AMX:...) 双路径传递
 """
 
 import smtplib
@@ -532,33 +532,15 @@ AgentMatrix 自动回复
 
         Returns:
             {
-                'type': 'reply' | 'new_session' | None,
+                'type': 'new_session' | None,
                 'agent_name': str,
-                'task_id': str,
-                'user_session_id': str,
-                'agent_session_id': str,
                 'clean_subject': str
             }
         """
         if not subject:
             return None
 
-        # 1. 优先匹配复杂标记 #{agent_name}#{task_id}#{user_session_id}#{agent_session_id}#
-        match = re.search(r'#([^#]+)#([^#]+)#([^#]*)#([^#]*)#', subject)
-        if match:
-            agent_name, task_id, user_session_id, agent_session_id = match.groups()
-            clean_subject = re.sub(r'#([^#]+)#([^#]+)#([^#]*)#([^#]*)#', '', subject).strip()
-
-            return {
-                'type': 'reply',
-                'agent_name': agent_name,
-                'task_id': task_id,
-                'user_session_id': user_session_id or None,
-                'agent_session_id': agent_session_id or None,
-                'clean_subject': clean_subject
-            }
-
-        # 2. 匹配新会话 @{agent_name}
+        # 匹配新会话 @{agent_name}
         match = re.search(r'@(\w+)', subject)
         if match:
             agent_name = match.group(1)
@@ -566,13 +548,33 @@ AgentMatrix 自动回复
             return {
                 'type': 'new_session',
                 'agent_name': agent_name,
-                'task_id': None,
-                'user_session_id': None,
-                'agent_session_id': None,
                 'clean_subject': re.sub(r'@\w+\s*', '', subject).strip()
             }
 
         return None
+
+    _BODY_FOOTER_RE = re.compile(r'\n---\nAMX:([^:]+):([^:]+):([^:]*):([^:]*)$')
+
+    def _parse_body_footer(self, body: str) -> tuple:
+        """
+        从 body 末尾解析 AMX metadata footer
+
+        格式：\\n---\\nAMX:{agent_name}:{task_id}:{user_session_id}:{agent_session_id}
+
+        Returns:
+            (parsed_dict, cleaned_body) 或 (None, original_body)
+        """
+        match = self._BODY_FOOTER_RE.search(body)
+        if match:
+            agent_name, task_id, user_session_id, agent_session_id = match.groups()
+            cleaned_body = body[:match.start()].rstrip()
+            return {
+                'agent_name': agent_name,
+                'task_id': task_id,
+                'user_session_id': user_session_id or None,
+                'agent_session_id': agent_session_id or None
+            }, cleaned_body
+        return None, body
 
     def find_user_session_id(self, agent_name: str, task_id: str, agent_session_id: str) -> Optional[str]:
         """
@@ -634,14 +636,13 @@ AgentMatrix 自动回复
 
         # 2. 解码subject
         subject = self._decode_header(raw_email['Subject'])
-        
+
         # 3. 优先检查是否是 ask_user 回复
         ask_user_metadata = self._parse_ask_user_metadata(subject)
         if ask_user_metadata:
             self.logger.info("📬 检测到 ask_user 回复邮件")
-            # 构造内部 Email 对象用于处理
             body, attachments = self._extract_body_and_attachments(raw_email, 'ask_user')
-            
+
             ask_user_email = Email(
                 id=IDGenerator.generate_email_id(),
                 sender="User",
@@ -657,55 +658,121 @@ AgentMatrix 自动回复
                     'original_sender': from_addr
                 }
             )
-            
+
             await self._handle_ask_user_reply(ask_user_email)
             return
 
-        # 4. 解析普通邮件的subject
-        parsed = self.parse_subject(subject)
-        if not parsed:
-            self.logger.warning(f"⚠️ 无法识别的subject格式: {subject}")
-            return
+        # 4. 尝试 mapping 回溯（主路径）
+        mapping_data = None
+        reply_to_id = None
 
-        self.logger.info(f"📬 处理邮件: {parsed['type']} → {parsed['agent_name']}")
+        # 4a. 从 X-AgentMatrix-Email-Id 或 In-Reply-To 解析出内部 email ID
+        reply_to_id = self._resolve_reply_to_id(raw_email)
 
-        # 5. 查询user_session_id（如果为空）
-        if parsed['type'] == 'reply' and not parsed['user_session_id']:
-            parsed['user_session_id'] = self.find_user_session_id(
-                parsed['agent_name'],
-                parsed['task_id'],
-                parsed['agent_session_id']
-            )
+        # 4b. 用 In-Reply-To 的 external_message_id 查完整 mapping
+        in_reply_to_header = raw_email.get('In-Reply-To')
+        if in_reply_to_header:
+            mapping_data = self.db.get_mapping_by_external_id(in_reply_to_header.strip())
 
-        # 6. 处理新会话
-        if parsed['type'] == 'new_session':
-            parsed['user_session_id'] = IDGenerator.generate_session_id()
-            parsed['task_id'] = parsed['user_session_id']  # 新会话 task_id = user_session_id
+        if mapping_data and mapping_data.get('agent_name'):
+            # 主路径：mapping 一次查询拿到全部 session 信息
+            self.logger.info(f"📬 通过 mapping 回溯: agent={mapping_data['agent_name']}, task={mapping_data.get('task_id', '')[:8]}...")
 
-        # 7. 提取正文和附件
-        body, attachments = self._extract_body_and_attachments(raw_email, parsed['task_id'])
+            agent_name = mapping_data['agent_name']
+            task_id = mapping_data['task_id']
+            agent_session_id = mapping_data['agent_session_id']
+            user_session_id = mapping_data['user_session_id']
 
-        # 8. 获取UserProxyAgent
+            # user_session_id 可能为空，尝试从 DB 补查
+            if not user_session_id and agent_session_id:
+                user_session_id = self.find_user_session_id(agent_name, task_id, agent_session_id)
+
+            # 提取正文（清理 body footer）和附件
+            raw_body, attachments = self._extract_body_and_attachments(raw_email, task_id)
+            footer_meta, body = self._parse_body_footer(raw_body)
+        else:
+            # Fallback 路径：尝试从 body footer 解析
+            raw_body, attachments = self._extract_body_and_attachments(raw_email, 'unknown')
+            footer_meta, body = self._parse_body_footer(raw_body)
+
+            if footer_meta:
+                self.logger.info("📬 通过 body footer fallback 解析 metadata")
+                agent_name = footer_meta['agent_name']
+                task_id = footer_meta['task_id']
+                agent_session_id = footer_meta['agent_session_id']
+                user_session_id = footer_meta['user_session_id']
+
+                if not user_session_id and agent_session_id:
+                    user_session_id = self.find_user_session_id(agent_name, task_id, agent_session_id)
+            else:
+                # 兜底：尝试从 subject 解析新会话
+                parsed = self.parse_subject(subject)
+                if parsed and parsed['type'] == 'new_session':
+                    agent_name = parsed['agent_name']
+                    task_id = IDGenerator.generate_session_id()
+                    user_session_id = task_id
+                    agent_session_id = None
+                    subject = parsed['clean_subject']
+                else:
+                    self.logger.warning(f"⚠️ 无法识别邮件: mapping 失败, body footer 无内容, subject 无法解析")
+                    await self._send_unrecognized_email(from_addr, subject)
+                    return
+
+        # 5. 获取UserProxyAgent
         user_agent = self.post_office.directory.get(self.user_agent_name)
         if not user_agent:
             self.logger.error(f"❌ UserProxyAgent {self.user_agent_name} 不存在")
             return
 
-        # 9. 查找 reply_to_id（从外部邮件的 In-Reply-To 或 X-AgentMatrix-Email-Id 映射回内部 email ID）
-        reply_to_id = self._resolve_reply_to_id(raw_email)
+        # 6. 清理 subject 中的 agent_name tag（如果有）
+        clean_subject = re.sub(r'\s*#\w+\s*$', '', subject).strip() if subject else ''
 
-        # 10. 调用speak()
-        await user_agent.speak(
-            session_id=parsed['user_session_id'],
-            task_id=parsed['task_id'],
-            to=parsed['agent_name'],
-            subject=parsed['clean_subject'],
+        # 7. 调用 speak()
+        internal_email = await user_agent.speak(
+            session_id=user_session_id,
+            task_id=task_id,
+            to=agent_name,
+            subject=clean_subject,
             content=body,
             reply_to_id=reply_to_id,
             attachments=attachments
         )
 
+        # 8. 记录外部原始邮件 Message-ID ↔ 内部 Email ID 的映射
+        external_msg_id = raw_email.get('Message-ID')
+        if external_msg_id and internal_email:
+            self.db.save_external_email_mapping(
+                external_msg_id.strip(), internal_email.id,
+                agent_name, task_id, user_session_id, agent_session_id
+            )
+            self.logger.info(f"📋 记录外部邮件映射: {external_msg_id[:30]}... → {internal_email.id[:8]}...")
+
         self.logger.info(f"✅ 已转发邮件到UserProxyAgent.speak()")
+
+    async def _send_unrecognized_email(self, to_addr: str, original_subject: str):
+        """发送无法识别邮件的提示"""
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = self.matrix_mailbox
+            msg['To'] = to_addr
+            msg['Subject'] = "Re: " + original_subject if original_subject else "邮件无法识别"
+
+            domain = self.matrix_mailbox.split('@')[1]
+            msg['Message-ID'] = IDGenerator.generate_message_id(domain)
+
+            body = ("你好，\n\n"
+                    "无法识别此邮件的会话信息。可能原因：原始邮件的会话上下文已丢失。\n\n"
+                    "请使用新会话格式（Subject 中包含 @AgentName）重新发送。\n\n"
+                    "AgentMatrix 自动回复")
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+            with smtplib.SMTP_SSL(self.smtp_config['host'], int(self.smtp_config['port'])) as server:
+                server.login(self.smtp_config['user'], self.smtp_config['password'])
+                server.send_message(msg)
+
+            self.logger.info(f"📧 已发送无法识别邮件提示: {to_addr}")
+        except Exception as e:
+            self.logger.error(f"❌ 发送提示邮件失败: {e}", exc_info=True)
 
     async def _on_email_sent_handler(self, email: Email):
         """PostOffice hook：处理内部邮件发送"""
@@ -781,8 +848,9 @@ AgentMatrix 自动回复
                 )
                 server.send_message(msg)
 
-            # 保存映射（ask_user 邮件没有内部 email ID，用 email_id 占位）
-            self.db.save_external_email_mapping(external_message_id, email_id)
+            # 保存映射（ask_user 邮件没有内部 email ID，用 agent_session_id 占位）
+            self.db.save_external_email_mapping(external_message_id, agent_session_id,
+                                                agent_name=agent_name, agent_session_id=agent_session_id)
 
             self.logger.info(f"📧 发送 ask_user 邮件: {agent_name} → {self.user_mailbox}")
 
@@ -796,7 +864,13 @@ AgentMatrix 自动回复
             # 1. 生成外部subject
             external_subject = await self._generate_external_subject(email)
 
-            # 2. 构造邮件
+            # 2. 查询 user_session_id（用于 body footer 和 mapping）
+            agent_name = email.sender
+            task_id = email.task_id
+            agent_session_id = email.sender_session_id
+            user_session_id = await self._find_user_session_id_for_outbound(task_id, agent_session_id)
+
+            # 3. 构造邮件
             msg = MIMEMultipart()
             msg['From'] = self.matrix_mailbox
             msg['To'] = self.user_mailbox
@@ -806,23 +880,24 @@ AgentMatrix 自动回复
             external_message_id = IDGenerator.generate_message_id(domain)
             msg['Message-ID'] = external_message_id
 
-            # 2b. 设置 In-Reply-To（让外部邮箱正确线程化）
+            # 3b. 设置 In-Reply-To（让外部邮箱正确线程化）
             if email.in_reply_to:
                 parent_external_id = self.db.get_external_message_id(email.in_reply_to)
                 if parent_external_id:
                     msg['In-Reply-To'] = parent_external_id
 
-            # 2c. 设置自定义 header（冗余保障）
+            # 3c. 设置自定义 header（冗余保障）
             msg['X-AgentMatrix-Email-Id'] = email.id
 
-            # 3. 添加正文
-            msg.attach(MIMEText(email.body, 'plain', 'utf-8'))
+            # 4. 添加正文（含 metadata footer）
+            body_with_footer = f"{email.body}\n\n---\nAMX:{agent_name}:{task_id}:{user_session_id or ''}:{agent_session_id}"
+            msg.attach(MIMEText(body_with_footer, 'plain', 'utf-8'))
 
-            # 4. 添加附件
+            # 5. 添加附件
             for att in email.metadata.get('attachments', []):
                 self._add_attachment(msg, att, email.sender, email.task_id)
 
-            # 5. 发送
+            # 6. 发送
             with smtplib.SMTP_SSL(
                 self.smtp_config['host'],
                 int(self.smtp_config['port'])
@@ -833,8 +908,11 @@ AgentMatrix 自动回复
                 )
                 server.send_message(msg)
 
-            # 6. 保存映射
-            self.db.save_external_email_mapping(external_message_id, email.id)
+            # 7. 保存映射（enriched: 包含全量 session 信息）
+            self.db.save_external_email_mapping(
+                external_message_id, email.id,
+                agent_name, task_id, user_session_id, agent_session_id
+            )
 
             self.logger.info(f"📧 发送外部邮件: {email.sender} → {self.user_mailbox}")
 
@@ -846,28 +924,20 @@ AgentMatrix 自动回复
         生成外部邮件的subject
 
         格式：
-        - 普通邮件: 原始主题 #{agent_name}#{task_id}#{user_session_id}#{agent_session_id}#
+        - 普通邮件: 原始主题 #{agent_name}
         - ask_user: 原始主题 #ASK_USER#{agent_name}#{agent_session_id}#
         """
         agent_name = email.sender
-        task_id = email.task_id
-        agent_session_id = email.sender_session_id
 
         # 检查是否是 ask_user 邮件
         ask_user_metadata = email.metadata.get('ask_user_metadata')
         if ask_user_metadata:
-            # ask_user 使用特殊格式
+            agent_session_id = email.sender_session_id
             tag = f"#ASK_USER#{agent_name}#{agent_session_id}#"
             return f"{email.subject} {tag}".strip()
 
-        # 普通邮件使用新格式
-        # 查询user_session_id
-        user_session_id = await self._find_user_session_id_for_outbound(task_id, agent_session_id)
-
-        # 构造标记
-        tag = f"#{agent_name}#{task_id}#{user_session_id or ''}#{agent_session_id}#"
-
-        return f"{email.subject} {tag}".strip()
+        # 普通邮件：只保留 agent_name 标签
+        return f"{email.subject} #{agent_name}".strip()
 
     async def _find_user_session_id_for_outbound(self, task_id: str, agent_session_id: str) -> Optional[str]:
         """

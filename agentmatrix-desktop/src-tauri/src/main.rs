@@ -86,7 +86,7 @@ async fn get_config() -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Option<bool>, enable_notifications: Option<bool>) -> Result<AppConfig, String> {
+async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Option<bool>, enable_notifications: Option<bool>, is_configured: Option<bool>) -> Result<AppConfig, String> {
     let mut config = AppConfig::load()?;
     
     if let Some(path) = matrix_world_path {
@@ -98,15 +98,52 @@ async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Op
     if let Some(notifications) = enable_notifications {
         config.enable_notifications = notifications;
     }
+    if let Some(configured) = is_configured {
+        config.is_configured = configured;
+    }
     
     config.save()?;
     Ok(config)
 }
 
 #[tauri::command]
+async fn is_first_run() -> Result<bool, String> {
+    let config = AppConfig::load()?;
+    Ok(config.is_first_run())
+}
+
+#[tauri::command]
+async fn mark_configured(matrix_world_path: String) -> Result<(), String> {
+    let mut config = AppConfig::load()?;
+    config.matrix_world_path = matrix_world_path;
+    config.is_configured = true;
+    config.save()?;
+    println!("✅ App marked as configured");
+    Ok(())
+}
+
+#[tauri::command]
+async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog()
+        .file()
+        .set_title("Select MatrixWorld Directory")
+        .pick_folder(move |path| {
+            let _ = tx.send(path.map(|p| p.to_string()));
+        });
+
+    match rx.recv() {
+        Ok(Some(path)) => Ok(Some(path)),
+        Ok(None) => Ok(None),
+        Err(_) => Err("Dialog closed".to_string()),
+    }
+}
+
+#[tauri::command]
 async fn show_notification(title: String, body: String) -> Result<(), String> {
-    // Simple notification implementation
-    // The plugin will handle native notifications
     println!("Notification: {} - {}", title, body);
     Ok(())
 }
@@ -142,7 +179,7 @@ async fn open_attachment_path(path: String) -> Result<(), String> {
 }
 
 fn main() {
-    // Initialize config on first run
+    // Initialize config on first run (don't save, just check)
     match AppConfig::load() {
         Ok(config) => {
             println!("✅ Config loaded successfully");
@@ -157,6 +194,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(BackendState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             start_backend,
@@ -164,6 +202,9 @@ fn main() {
             check_backend,
             get_config,
             update_config,
+            is_first_run,
+            mark_configured,
+            select_directory,
             show_notification,
             open_attachment_path
         ])

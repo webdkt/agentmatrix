@@ -5,10 +5,32 @@ import { API } from './client'
  */
 export const configAPI = {
   /**
-   * 获取配置状态
+   * 获取配置状态（含冷启动信息）
    */
   async getConfigStatus() {
+    return API.get('/api/config/status')
+  },
+
+  /**
+   * 获取完整配置（含 user_agent_name）
+   */
+  async getFullConfig() {
     return API.get('/api/config')
+  },
+
+  /**
+   * 获取 LLM 预设 provider 列表
+   */
+  async getLLMPresets() {
+    return API.get('/api/config/llm-presets')
+  },
+
+  /**
+   * 完成冷启动配置（生成目录 + 写配置 + 初始化 Runtime）
+   * @param {object} data - { user_name, matrix_world_path, default_llm, default_slm, email_proxy? }
+   */
+  async completeColdStart(data) {
+    return API.post('/api/config/complete', data)
   },
 
   /**

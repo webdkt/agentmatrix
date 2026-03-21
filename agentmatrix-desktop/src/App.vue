@@ -53,7 +53,6 @@ onUnmounted(() => {
     <!-- View Container (Main Content) -->
     <ViewContainer
       :current-view="currentView"
-      :user_agent_name="'DKT'"
       @view-change="handleViewChange"
     />
   </div>

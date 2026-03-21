@@ -1,7 +1,7 @@
 # 消息系统详解
 
 **版本**: v1.0
-**最后更新**: 2026-03-19
+**最后更新**: 2026-03-21
 
 ---
 
@@ -269,6 +269,21 @@ emails = db.get_task_emails(task_id)
 # 获取邮件回复链
 thread = db.get_email_thread(email_id)
 ```
+
+### 外部邮件映射表
+
+当系统启用 Email Proxy Service 时，内部邮件需要与外部邮件系统（IMAP/SMTP）建立关联。`AgentMatrixDB` 维护了一张 `external_email_map` 映射表，记录外部 SMTP `Message-ID` 与内部 Email ID 的双向映射。
+
+| 字段 | 说明 |
+|------|------|
+| `external_message_id` | 外部邮件的 RFC 5322 Message-ID（主键） |
+| `internal_email_id` | 内部 Email 的 UUID |
+
+**映射写入时机**：在 `send_to_external` 流程中，系统为外发邮件生成新的外部 `Message-ID` 后，立即将其与内部 Email ID 的对应关系存入映射表（`save_external_email_mapping`）。
+
+**映射读取时机**：在收信流程中，当收到用户的回复邮件时，`_resolve_reply_to_id` 方法通过两种途径解析出对应的内部 Email ID——优先使用邮件中携带的自定义 `X-AgentMatrix-Email-Id` header（直接包含内部 ID），其次通过标准 `In-Reply-To` header 查映射表。详见 [Email Proxy Service](./email-proxy-service.md#email-id-内外映射)。
+
+**反向查询**：在发送外部邮件时，如果当前邮件是回复某封内部邮件，需要找到那封内部邮件对应的外部 `Message-ID` 来设置 `In-Reply-To` header，以保持外部邮箱客户端的邮件线程化。这通过 `get_external_message_id` 方法完成。
 
 ---
 

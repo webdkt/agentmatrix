@@ -2,6 +2,7 @@
 """
 AgentMatrix Server
 """
+
 import os
 import sys
 import json
@@ -13,20 +14,30 @@ from urllib.parse import quote, unquote
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile, Request
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
+    HTTPException,
+    Form,
+    File,
+    UploadFile,
+    Request,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 # Import AgentMatrix
 from agentmatrix import AgentMatrix
 
 
 # === Parse Command-Line Arguments at Module Level ===
+
 
 def parse_args():
     """Parse command-line arguments"""
@@ -35,24 +46,19 @@ def parse_args():
         "--matrix-world",
         type=str,
         default="./MatrixWorld",
-        help="Path to the Matrix World directory (default: ./MatrixWorld)"
+        help="Path to the Matrix World directory (default: ./MatrixWorld)",
     )
     parser.add_argument(
         "--host",
         type=str,
         default="127.0.0.1",
-        help="Host to bind to (default: 127.0.0.1)"
+        help="Host to bind to (default: 127.0.0.1)",
     )
     parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port to bind to (default: 8000)"
+        "--port", type=int, default=8000, help="Port to bind to (default: 8000)"
     )
     parser.add_argument(
-        "--reload",
-        action="store_true",
-        help="Enable auto-reload for development"
+        "--reload", action="store_true", help="Enable auto-reload for development"
     )
     return parser.parse_args()
 
@@ -77,6 +83,7 @@ matrix_runtime = None
 
 
 # === Broadcast Functions ===
+
 
 async def broadcast_message_to_clients(message: dict):
     """
@@ -110,8 +117,10 @@ async def broadcast_message_to_clients(message: dict):
 
 # === Configuration Models ===
 
+
 class LLMConfig(BaseModel):
     """LLM configuration model"""
+
     url: str
     api_key: str
     model_name: str
@@ -119,19 +128,34 @@ class LLMConfig(BaseModel):
 
 class LLMConfigsRequest(BaseModel):
     """LLM configurations request model"""
+
     default_llm: LLMConfig
     default_slm: LLMConfig
+
+
+class EmailProxyRequest(BaseModel):
+    """Email proxy configuration model"""
+
+    enabled: bool = False
+    matrix_mailbox: str = ""
+    user_mailbox: str = ""
+    imap: Optional[dict] = None
+    smtp: Optional[dict] = None
 
 
 class ColdStartConfigRequest(BaseModel):
     """Complete cold start configuration request model"""
+
     user_name: str
+    matrix_world_path: str
     default_llm: LLMConfig
     default_slm: LLMConfig
+    email_proxy: Optional[EmailProxyRequest] = None
 
 
 class SendEmailRequest(BaseModel):
     """Send email request model"""
+
     task_id: Optional[str] = None  # None = new session, str = existing session
     recipient: str
     subject: str
@@ -141,6 +165,7 @@ class SendEmailRequest(BaseModel):
 
 class AgentConfigRequest(BaseModel):
     """Agent configuration request model - 灵活的Agent配置"""
+
     name: str
     description: str
     class_name: str = "agentmatrix.agents.base.BaseAgent"  # 新格式：完整类路径
@@ -158,6 +183,7 @@ class AgentConfigRequest(BaseModel):
 
 class AgentUpdateRequest(BaseModel):
     """Agent update request model - 灵活的Agent更新"""
+
     description: Optional[str] = None
     class_name: Optional[str] = None  # 新格式：完整类路径
     backend_model: Optional[str] = None
@@ -173,6 +199,7 @@ class AgentUpdateRequest(BaseModel):
 
 class LLMEndpointConfig(BaseModel):
     """Single LLM endpoint configuration"""
+
     url: str
     api_key: str
     model_name: str
@@ -180,6 +207,7 @@ class LLMEndpointConfig(BaseModel):
 
 class LLMConfigUpdateRequest(BaseModel):
     """LLM configuration update request"""
+
     url: str
     api_key: str
     model_name: str
@@ -187,6 +215,7 @@ class LLMConfigUpdateRequest(BaseModel):
 
 class LLMConfigCreateRequest(BaseModel):
     """LLM configuration create request"""
+
     name: str
     url: str
     api_key: str
@@ -198,7 +227,6 @@ REQUIRED_LLM_CONFIGS = ["default_llm", "default_slm", "browser-use-llm"]
 
 
 # === Helper Functions ===
-
 
 
 def check_cold_start(config_path: Path) -> bool:
@@ -218,18 +246,20 @@ def load_user_agent_name(matrix_world_dir: Path) -> str:
         # 向后兼容：尝试从旧的位置读取
         old_config_path = matrix_world_dir / "matrix_world.yml"
         if old_config_path.exists():
-            print("⚠️  Warning: Using old matrix_world.yml, please migrate to new structure")
-            with open(old_config_path, 'r', encoding='utf-8') as f:
+            print(
+                "⚠️  Warning: Using old matrix_world.yml, please migrate to new structure"
+            )
+            with open(old_config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
-                return config.get('user_agent_name', 'User')
+                return config.get("user_agent_name", "User")
         else:
             print("⚠️  Warning: matrix_config.yml not found, using default 'User'")
             return "User"
 
     try:
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-            user_name = config.get('user_agent_name', 'User')
+            user_name = config.get("user_agent_name", "User")
             return user_name
     except Exception as e:
         print(f"⚠️  Error loading matrix_config.yml: {e}, using default 'User'")
@@ -259,20 +289,18 @@ def create_directory_structure(matrix_world_dir: Path, user_name: str):
     # 新架构：User.yml 在 .matrix/configs/agents/User.yml
     user_yml_path = matrix_world_dir / ".matrix" / "configs" / "agents" / "User.yml"
     if user_yml_path.exists():
-        with open(user_yml_path, 'r', encoding='utf-8') as f:
+        with open(user_yml_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         # 替换模板变量
-        content = content.replace('{{USER_NAME}}', user_name)
+        content = content.replace("{{USER_NAME}}", user_name)
 
-        with open(user_yml_path, 'w', encoding='utf-8') as f:
+        with open(user_yml_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         print(f"✅ User agent configured with name: {user_name}")
     else:
         print(f"⚠️  Warning: {user_yml_path} not found")
-
-
 
 
 def create_world_config(matrix_world_dir: Path, user_name: str):
@@ -283,30 +311,87 @@ def create_world_config(matrix_world_dir: Path, user_name: str):
         "user_agent_name": user_name,
         "matrix_version": "1.0.0",
         "description": "AgentMatrix World",
-        "timezone": "UTC"
+        "timezone": "UTC",
     }
 
     # 新架构：保存到 .matrix/configs/matrix_config.yml
     config_path = matrix_world_dir / ".matrix" / "configs" / "matrix_config.yml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(config_path, 'w', encoding='utf-8') as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 
     print(f"✅ Created matrix configuration: {config_path}")
 
 
+def save_llm_configs(configs: dict, config_path: Path):
+    """Save LLM configurations to file"""
+    llm_config_data = {}
+    for name, config in configs.items():
+        if hasattr(config, "url"):
+            # Pydantic model
+            llm_config_data[name] = {
+                "url": config.url,
+                "API_KEY": config.api_key,
+                "model_name": config.model_name,
+            }
+        elif isinstance(config, dict):
+            # dict
+            llm_config_data[name] = {
+                "url": config.get("url", ""),
+                "API_KEY": config.get("api_key", config.get("API_KEY", "")),
+                "model_name": config.get("model_name", ""),
+            }
+        else:
+            llm_config_data[name] = config
 
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(llm_config_data, indent=4))
+    print(f"✅ Saved LLM configs to {config_path}")
+
+
+def save_email_proxy_config(email_proxy: dict, config_path: Path):
+    """Save email proxy configuration to system_config.yml"""
+    import yaml
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if config_path.exists():
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    else:
+        config = {}
+
+    config["email_proxy"] = {
+        "enabled": email_proxy.get("enabled", False),
+        "matrix_mailbox": email_proxy.get("matrix_mailbox", ""),
+        "user_mailbox": email_proxy.get("user_mailbox", ""),
+        "imap": email_proxy.get("imap", {}),
+        "smtp": email_proxy.get("smtp", {}),
+    }
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+    print(f"✅ Saved email proxy config to {config_path}")
+
+
+def save_llm_configs_to_file(configs: dict):
+    """Save LLM configurations dict to the global llm_config_path"""
+    llm_config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(llm_config_path, "w", encoding="utf-8") as f:
+        json.dump(configs, f, indent=4)
 
 
 # === Graceful Shutdown Handler ===
 
+
 async def graceful_shutdown():
     """Gracefully shutdown the AgentMatrix runtime"""
     global matrix_runtime, active_websockets
-    
+
     print("\n👋 Shutting down AgentMatrix Server...")
-    
+
     # 1. Close all WebSocket connections
     if active_websockets:
         print(f"📡 Closing {len(active_websockets)} WebSocket connections...")
@@ -317,7 +402,7 @@ async def graceful_shutdown():
                 pass
         active_websockets.clear()
         print("✅ WebSocket connections closed")
-    
+
     # 2. Save matrix state with timeout
     if matrix_runtime:
         try:
@@ -333,6 +418,7 @@ async def graceful_shutdown():
         except Exception as e:
             print(f"⚠️  Error saving Matrix state: {e}")
             import traceback
+
             traceback.print_exc()
         finally:
             print("🧹 Cleaning up runtime resources...")
@@ -343,149 +429,148 @@ async def graceful_shutdown():
     print("👋 AgentMatrix Server shutdown complete")
 
 
+# === Runtime Initialization ===
+
+
+def init_runtime(matrix_world_dir: Path):
+    """
+    Initialize AgentMatrix runtime. Can be called from lifespan (warm start)
+    or from /api/config/complete (cold start in-process hot reload).
+    """
+    global matrix_runtime, active_websockets
+
+    user_agent_name = load_user_agent_name(matrix_world_dir)
+    print(f"✅ Loaded user agent name: {user_agent_name}")
+
+    print("🔧 Initializing AgentMatrix runtime...")
+
+    # Create event callback for WebSocket broadcasting
+    async def event_callback(event):
+        """Callback to broadcast runtime events to WebSocket clients"""
+        try:
+            print(f"📡 event_callback called: event_type={event.event_type}")
+            if event.event_type == "SYSTEM_STATUS":
+                message = json.dumps(
+                    {
+                        "type": "SYSTEM_STATUS",
+                        "data": event.payload.get("status", {})
+                        if event.payload
+                        else {},
+                    }
+                )
+                print(
+                    f"📊 Broadcasting SYSTEM_STATUS to {len(active_websockets)} clients"
+                )
+            else:
+                message = json.dumps({"type": "runtime_event", "data": event.to_dict()})
+
+            for ws in active_websockets[:]:
+                try:
+                    await ws.send_text(message)
+                except Exception as e:
+                    print(f"⚠️  Error sending to WebSocket: {e}")
+                    active_websockets.remove(ws)
+        except Exception as e:
+            print(f"⚠️  Error in event callback: {e}")
+
+    # Initialize AgentMatrix
+    runtime = AgentMatrix(
+        matrix_root=str(matrix_world_dir),
+        async_event_callback=event_callback,
+        user_agent_name=user_agent_name,
+    )
+
+    # Inject broadcast callback
+    runtime.set_broadcast_callback(broadcast_message_to_clients)
+    for agent in runtime.agents.values():
+        agent._broadcast_message_callback = runtime.get_broadcast_callback()
+    print("✅ 广播回调已注入到所有 Agent")
+
+    # Validate User agent
+    if user_agent_name not in runtime.agents:
+        raise Exception(
+            f"User agent '{user_agent_name}' not found in loaded agents. Available agents: {list(runtime.agents.keys())}"
+        )
+    user_agent = runtime.agents[user_agent_name]
+    if not hasattr(user_agent, "set_mail_handler"):
+        raise Exception(
+            f"Agent '{user_agent_name}' is not a UserProxyAgent (missing set_mail_handler method)"
+        )
+    print(f"✅ User agent validation passed: '{user_agent_name}'")
+
+    # Set up User agent's mail callback to push emails via WebSocket
+    actual_user_name = runtime.get_user_agent_name()
+    if actual_user_name in runtime.agents:
+
+        async def user_mail_callback(email):
+            """Callback to push User agent's received emails to WebSocket clients"""
+            try:
+                email_data = {
+                    "id": email.id,
+                    "timestamp": email.timestamp.isoformat(),
+                    "sender": email.sender,
+                    "recipient": email.recipient,
+                    "subject": email.subject,
+                    "body": email.body,
+                    "in_reply_to": email.in_reply_to,
+                    "task_id": email.task_id,
+                    "recipient_session_id": email.recipient_session_id,
+                }
+                message = json.dumps({"type": "new_email", "data": email_data})
+                for ws in active_websockets[:]:
+                    try:
+                        await ws.send_text(message)
+                    except Exception as e:
+                        print(f"⚠️  Error sending email to WebSocket: {e}")
+                        active_websockets.remove(ws)
+                print(f"📧 User received email from {email.sender}: {email.subject}")
+            except Exception as e:
+                print(f"⚠️  Error in user mail callback: {e}")
+
+        runtime.agents[actual_user_name].set_mail_handler(user_mail_callback)
+        print(f"✅ User agent mail callback configured for '{actual_user_name}'")
+    else:
+        print(f"⚠️  Warning: User agent '{actual_user_name}' not found in runtime")
+
+    print(f"✅ AgentMatrix runtime initialized successfully")
+    print(f"🤖 Loaded agents: {list(runtime.agents.keys())}")
+
+    # Set global runtime
+    matrix_runtime = runtime
+    return runtime
+
+
 # === Lifespan Management ===
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     global matrix_runtime
 
-    # Get config from app.state
     config = app.state.config
 
-    # Startup
     print(f"🚀 Starting AgentMatrix Server...")
     print(f"📁 Matrix World Directory: {config['matrix_world_dir']}")
 
     # Check if this is cold start
-    is_cold_start = check_cold_start(config['llm_config_path'])
+    is_cold_start = check_cold_start(config["llm_config_path"])
     if is_cold_start:
         print("❄️  Cold start detected - Waiting for user configuration via wizard")
-        # Don't create directory structure here - wait for wizard to complete
-        # Runtime will be initialized after wizard completes configuration
         try:
             yield
         finally:
-            # Even cold start needs cleanup
             await graceful_shutdown()
         return
     else:
         print("✅ Configuration found - warm start")
-
-        # Load world configuration to get user_agent_name
-        user_agent_name = load_user_agent_name(config['matrix_world_dir'])
-        print(f"✅ Loaded user agent name: {user_agent_name}")
-
-        # Initialize AgentMatrix runtime
         try:
-            print("🔧 Initializing AgentMatrix runtime...")
-
-            # Create event callback for WebSocket broadcasting
-            async def event_callback(event):
-                """Callback to broadcast runtime events to WebSocket clients"""
-                try:
-                    # 🔍 调试日志
-                    print(f"📡 event_callback called: event_type={event.event_type}")
-                    # 特殊处理 SYSTEM_STATUS 事件：直接发送，不包装在 runtime_event 中
-                    if event.event_type == "SYSTEM_STATUS":
-                        message = json.dumps({
-                            "type": "SYSTEM_STATUS",
-                            "data": event.payload.get("status", {}) if event.payload else {}
-                        })
-                        print(f"📊 Broadcasting SYSTEM_STATUS to {len(active_websockets)} clients")
-                    else:
-                        # 其他事件包装在 runtime_event 中
-                        message = json.dumps({
-                            "type": "runtime_event",
-                            "data": event.to_dict()
-                        })
-
-                    # Send to all active WebSocket connections
-                    for ws in active_websockets[:]:  # Copy list to avoid modification during iteration
-                        try:
-                            await ws.send_text(message)
-                        except Exception as e:
-                            print(f"⚠️  Error sending to WebSocket: {e}")
-                            active_websockets.remove(ws)
-                except Exception as e:
-                    print(f"⚠️  Error in event callback: {e}")
-
-            # Initialize AgentMatrix
-            matrix_runtime = AgentMatrix(
-                matrix_root=str(config['matrix_world_dir']),
-                async_event_callback=event_callback,
-                user_agent_name=user_agent_name
-            )
-
-            # 🔧 注入广播回调
-            matrix_runtime.set_broadcast_callback(broadcast_message_to_clients)
-
-            # ✅ 注入广播回调给所有 Agent
-            for agent in matrix_runtime.agents.values():
-                agent._broadcast_message_callback = matrix_runtime.get_broadcast_callback()
-            print("✅ 广播回调已注入到所有 Agent")
-
-            # Validate User agent exists and has correct name
-            if user_agent_name not in matrix_runtime.agents:
-                raise Exception(f"User agent '{user_agent_name}' not found in loaded agents. Available agents: {list(matrix_runtime.agents.keys())}")
-
-            user_agent = matrix_runtime.agents[user_agent_name]
-            if not hasattr(user_agent, 'set_mail_handler'):
-                raise Exception(f"Agent '{user_agent_name}' is not a UserProxyAgent (missing set_mail_handler method)")
-
-            print(f"✅ User agent validation passed: '{user_agent_name}'")
-
-            # Store runtime in app.state for API access
-            app.state.matrix = matrix_runtime
-
-            # Set up User agent's mail callback to push emails via WebSocket
-            user_agent_name = matrix_runtime.get_user_agent_name()
-            if user_agent_name in matrix_runtime.agents:
-                async def user_mail_callback(email):
-                    """Callback to push User agent's received emails to WebSocket clients"""
-                    try:
-                        # Convert email to dict for JSON serialization
-                        email_data = {
-                            "id": email.id,
-                            "timestamp": email.timestamp.isoformat(),
-                            "sender": email.sender,
-                            "recipient": email.recipient,
-                            "subject": email.subject,
-                            "body": email.body,
-                            "in_reply_to": email.in_reply_to,
-                            "task_id": email.task_id,
-                            "recipient_session_id": email.recipient_session_id
-                        }
-
-                        message = json.dumps({
-                            "type": "new_email",
-                            "data": email_data
-                        })
-
-                        # Send to all active WebSocket connections
-                        for ws in active_websockets[:]:
-                            try:
-                                await ws.send_text(message)
-                            except Exception as e:
-                                print(f"⚠️  Error sending email to WebSocket: {e}")
-                                active_websockets.remove(ws)
-
-                        print(f"📧 User received email from {email.sender}: {email.subject}")
-                    except Exception as e:
-                        print(f"⚠️  Error in user mail callback: {e}")
-
-                # Set the mail handler for User agent
-                matrix_runtime.agents[user_agent_name].set_mail_handler(user_mail_callback)
-                print(f"✅ User agent mail callback configured for '{user_agent_name}'")
-            else:
-                print(f"⚠️  Warning: User agent '{user_agent_name}' not found in runtime")
-
-            print(f"✅ AgentMatrix runtime initialized successfully")
-            print(f"🤖 Loaded agents: {list(matrix_runtime.agents.keys())}")
-
+            runtime = init_runtime(config["matrix_world_dir"])
+            app.state.matrix = runtime
         except Exception as e:
             print(f"❌ Failed to initialize AgentMatrix runtime: {e}")
             import traceback
+
             traceback.print_exc()
             matrix_runtime = None
             app.state.matrix = None
@@ -502,7 +587,7 @@ app = FastAPI(
     title="AgentMatrix",
     description="An intelligent agent framework with pluggable skills and LLM integrations",
     version="0.1.5",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Store configuration in app.state
@@ -517,7 +602,7 @@ app.state.config = {
     "matrix_config_path": matrix_config_path,
     "host": args.host,
     "port": args.port,
-    "reload": args.reload
+    "reload": args.reload,
 }
 # === Static Files ===
 # NOTE: Legacy web application removed. Use agentmatrix-desktop instead.
@@ -527,6 +612,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 # === WebSocket Endpoint ===
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -538,12 +624,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         # ✅ 新连接时立即发送当前完整状态
-        if matrix_runtime and hasattr(matrix_runtime, 'status_collector'):
+        if matrix_runtime and hasattr(matrix_runtime, "status_collector"):
             status = matrix_runtime.status_collector.collect_status()
-            await websocket.send_text(json.dumps({
-                "type": "SYSTEM_STATUS",
-                "data": status
-            }))
+            await websocket.send_text(
+                json.dumps({"type": "SYSTEM_STATUS", "data": status})
+            )
             print(f"📊 Sent initial status to new client")
 
         while True:
@@ -553,27 +638,18 @@ async def websocket_endpoint(websocket: WebSocket):
             # 🆕 Handle different message types
             if message.get("type") == "REQUEST_SYSTEM_STATUS":
                 # 发送当前系统状态
-                if matrix_runtime and hasattr(matrix_runtime, 'status_collector'):
+                if matrix_runtime and hasattr(matrix_runtime, "status_collector"):
                     status = matrix_runtime.status_collector.collect_status()
-                    response = {
-                        "type": "SYSTEM_STATUS",
-                        "data": status
-                    }
+                    response = {"type": "SYSTEM_STATUS", "data": status}
                     await websocket.send_text(json.dumps(response))
                     print(f"📊 Sent system status to WebSocket client")
                 else:
                     # Runtime not initialized
-                    response = {
-                        "type": "error",
-                        "message": "Runtime not initialized"
-                    }
+                    response = {"type": "error", "message": "Runtime not initialized"}
                     await websocket.send_text(json.dumps(response))
             else:
                 # Echo back for unknown message types
-                response = {
-                    "type": "echo",
-                    "data": message
-                }
+                response = {"type": "echo", "data": message}
                 await websocket.send_text(json.dumps(response))
 
     except WebSocketDisconnect:
@@ -586,6 +662,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # === API Endpoints ===
 
+
 @app.get("/")
 async def root():
     """Root endpoint - API information"""
@@ -596,19 +673,19 @@ async def root():
         "desktop_app": {
             "location": "agentmatrix-desktop/",
             "dev_command": "cd agentmatrix-desktop && npm run dev",
-            "tauri_command": "cd agentmatrix-desktop && npm run tauri:dev"
+            "tauri_command": "cd agentmatrix-desktop && npm run tauri:dev",
         },
         "api_docs": "/docs",
         "endpoints": {
             "websocket": "ws://localhost:8000/ws",
             "api_base": "/api",
-            "health": "/api/system/status"
+            "health": "/api/system/status",
         },
         "web_ui": {
             "status": "deprecated",
             "message": "Legacy web UI removed. Use agentmatrix-desktop instead.",
-            "desktop_app": "See 'desktop_app' section above"
-        }
+            "desktop_app": "See 'desktop_app' section above",
+        },
     }
 
 
@@ -616,14 +693,46 @@ async def root():
 async def get_config_status():
     """Check if the system is configured (cold/warm start)"""
     config = app.state.config
-    is_cold = check_cold_start(config['llm_config_path'])
+    is_cold = check_cold_start(config["llm_config_path"])
 
     return {
         "configured": not is_cold,
-        "matrix_world_dir": str(config['matrix_world_dir']),
-        "agents_dir": str(config['agents_dir']),
-        "workspace_dir": str(config['workspace_dir'])
+        "matrix_world_dir": str(config["matrix_world_dir"]),
+        "agents_dir": str(config["agents_dir"]),
+        "workspace_dir": str(config["workspace_dir"]),
+        "user_agent_name": matrix_runtime.get_user_agent_name()
+        if matrix_runtime
+        else None,
     }
+
+
+# LLM provider presets for cold start wizard
+LLM_PRESETS = {
+    "anthropic": {
+        "label": "Anthropic",
+        "url": "https://api.anthropic.com/v1/messages",
+        "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250514"],
+        "api_key_env": "ANTHROPIC_API_KEY",
+    },
+    "openai": {
+        "label": "OpenAI",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "models": ["gpt-4o", "gpt-4o-mini"],
+        "api_key_env": "OPENAI_API_KEY",
+    },
+    "custom": {
+        "label": "Custom",
+        "url": "",
+        "models": [],
+        "api_key_env": "",
+    },
+}
+
+
+@app.get("/api/config/llm-presets")
+async def get_llm_presets():
+    """Return available LLM provider presets for the configuration wizard"""
+    return {"presets": LLM_PRESETS}
 
 
 @app.get("/api/config")
@@ -632,13 +741,13 @@ async def get_config():
     global matrix_runtime
 
     config = app.state.config
-    is_cold = check_cold_start(config['llm_config_path'])
+    is_cold = check_cold_start(config["llm_config_path"])
 
     response_data = {
         "configured": not is_cold,
-        "matrix_world_dir": str(config['matrix_world_dir']),
-        "agents_dir": str(config['agents_dir']),
-        "workspace_dir": str(config['workspace_dir'])
+        "matrix_world_dir": str(config["matrix_world_dir"]),
+        "agents_dir": str(config["agents_dir"]),
+        "workspace_dir": str(config["workspace_dir"]),
     }
 
     # Only include user_agent_name if runtime is initialized
@@ -646,41 +755,76 @@ async def get_config():
         response_data["user_agent_name"] = matrix_runtime.get_user_agent_name()
     else:
         # Try to load from config file even if runtime is not initialized
-        user_agent_name = load_user_agent_name(config['matrix_world_dir'])
+        user_agent_name = load_user_agent_name(config["matrix_world_dir"])
         response_data["user_agent_name"] = user_agent_name
 
     return response_data
 
 
-
-
-
 @app.post("/api/config/complete")
 async def complete_cold_start(configs: ColdStartConfigRequest):
-    """Complete cold start configuration with user name and LLM configs"""
+    """
+    Complete cold start configuration: generate directories, save configs,
+    and initialize the runtime in-process (hot reload, no restart needed).
+    """
+    global matrix_runtime
+
     try:
         config = app.state.config
+        matrix_world_dir = Path(configs.matrix_world_path).resolve()
 
         # 1. Create directory structure and replace template variables
-        create_directory_structure(config['matrix_world_dir'], configs.user_name)
+        create_directory_structure(matrix_world_dir, configs.user_name)
 
         # 2. Create world configuration file
-        create_world_config(config['matrix_world_dir'], configs.user_name)
+        create_world_config(matrix_world_dir, configs.user_name)
 
         # 3. Save LLM configurations
+        llm_config_path = (
+            matrix_world_dir / ".matrix" / "configs" / "agents" / "llm_config.json"
+        )
         configs_dict = {
             "default_llm": configs.default_llm,
-            "default_slm": configs.default_slm
+            "default_slm": configs.default_slm,
         }
-        save_llm_configs(configs_dict, config['llm_config_path'])
+        save_llm_configs(configs_dict, llm_config_path)
+
+        # 4. Save email proxy config if provided
+        if configs.email_proxy:
+            system_config_path = (
+                matrix_world_dir / ".matrix" / "configs" / "system_config.yml"
+            )
+            save_email_proxy_config(
+                configs.email_proxy.model_dump(), system_config_path
+            )
+
+        # 5. Update app.state.config with the actual path
+        config["matrix_world_dir"] = matrix_world_dir
+        config["llm_config_path"] = llm_config_path
+        config["system_config_path"] = (
+            matrix_world_dir / ".matrix" / "configs" / "system_config.yml"
+        )
+        config["matrix_config_path"] = (
+            matrix_world_dir / ".matrix" / "configs" / "matrix_config.yml"
+        )
+        config["agents_dir"] = matrix_world_dir / ".matrix" / "configs" / "agents"
+
+        # 6. In-process runtime initialization (hot reload)
+        runtime = init_runtime(matrix_world_dir)
+        app.state.matrix = runtime
 
         return {
             "success": True,
-            "message": "Cold start configuration completed successfully",
-            "user_name": configs.user_name
+            "message": "Configuration complete, runtime initialized",
+            "user_name": runtime.get_user_agent_name(),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+
+        traceback.print_exc()
+        matrix_runtime = None
+        app.state.matrix = None
+        return {"success": False, "message": str(e)}
 
 
 @app.get("/api/sessions")
@@ -704,42 +848,45 @@ async def get_sessions(page: int = 1, per_page: int = 20):
 
     # Query sessions from database
     result = matrix_runtime.post_office.email_db.get_user_sessions(
-        user_agent_name=user_agent_name,
-        page=page,
-        per_page=per_page
+        user_agent_name=user_agent_name, page=page, per_page=per_page
     )
 
     # Transform to response format
     sessions = []
-    for conv in result['sessions']:
-        sessions.append({
-            "session_id": conv['session_id'],
-            "subject": conv['subject'],
-            "last_email_time": conv['last_email_time'],
-            "participants": conv['participants']
-        })
+    for conv in result["sessions"]:
+        sessions.append(
+            {
+                "session_id": conv["session_id"],
+                "subject": conv["subject"],
+                "last_email_time": conv["last_email_time"],
+                "participants": conv["participants"],
+            }
+        )
 
     return {
         "success": True,
         "sessions": sessions,
-        "total": result['total'],
-        "page": result['page'],
-        "per_page": result['per_page'],
-        "total_pages": result['total_pages']
+        "total": result["total"],
+        "page": result["page"],
+        "per_page": result["per_page"],
+        "total_pages": result["total_pages"],
     }
+
 
 @app.post("/api/sessions/{session_id}/emails")
 async def send_email(
     session_id: str,
     task_id: Optional[str] = Form(None),
     recipient: str = Form(...),
-    subject: Optional[str] = Form(''),
+    subject: Optional[str] = Form(""),
     body: str = Form(...),
     in_reply_to: Optional[str] = Form(None),
-    attachments: List[UploadFile] = File(default=[])
+    attachments: List[UploadFile] = File(default=[]),
 ):
     """Send an email with attachments (new session or reply)"""
-    print(f"📧 Received email request: recipient={recipient}, subject={subject}, body_length={len(body)}, attachments={len(attachments)}")
+    print(
+        f"📧 Received email request: recipient={recipient}, subject={subject}, body_length={len(body)}, attachments={len(attachments)}"
+    )
     global matrix_runtime
 
     if not matrix_runtime:
@@ -748,67 +895,79 @@ async def send_email(
     user_agent_name = matrix_runtime.get_user_agent_name()
     user_agent = matrix_runtime.agents.get(user_agent_name)
     if not user_agent:
-        raise HTTPException(status_code=404, detail=f"User agent '{user_agent_name}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"User agent '{user_agent_name}' not found"
+        )
 
     # Use session_id from URL if task_id is None
     # session_id from URL is the task_id for existing sessions
     effective_task_id = task_id
     if effective_task_id is None:
-        if session_id == 'new':
+        if session_id == "new":
             # Generate new UUID for new sessions
             import uuid
+
             effective_task_id = str(uuid.uuid4())
             print(f"📧 New session: generated task_id={effective_task_id}")
         else:
             # Use existing session_id for replies (session_id from URL is task_id)
             effective_task_id = session_id
-            print(f"📧 Reply: using task_id={effective_task_id}, in_reply_to={in_reply_to}")
+            print(
+                f"📧 Reply: using task_id={effective_task_id}, in_reply_to={in_reply_to}"
+            )
     else:
         print(f"📧 Using provided task_id={effective_task_id}")
 
     # Validate task_id
-    if not effective_task_id or effective_task_id in ('null', 'undefined', 'None'):
-        raise HTTPException(status_code=400, detail=f"Invalid task_id: {effective_task_id}")
+    if not effective_task_id or effective_task_id in ("null", "undefined", "None"):
+        raise HTTPException(
+            status_code=400, detail=f"Invalid task_id: {effective_task_id}"
+        )
 
     # 处理附件
     attachment_metadata = []
     if attachments:
         # 获取附件保存目录（通过 runtime.paths）
         attachments_dir = user_agent.runtime.paths.get_agent_attachments_dir(
-            user_agent.name, 
-            effective_task_id
+            user_agent.name, effective_task_id
         )
-        
+
         attachments_dir.mkdir(parents=True, exist_ok=True)
-        
+
         for attachment in attachments:
             try:
                 # 读取文件内容
                 content = await attachment.read()
                 filename = attachment.filename or "unnamed"
                 file_path = attachments_dir / filename
-                
+
                 # 保存文件（同名文件直接覆盖）
-                with open(file_path, 'wb') as f:
+                with open(file_path, "wb") as f:
                     f.write(content)
-                
+
                 # 添加到附件 metadata
-                attachment_metadata.append({
-                    'filename': filename,
-                    'size': len(content),
-                    'container_path': f'/work_files/attachments/{filename}'
-                })
-                print(f"✅ Attachment saved: {filename} ({len(content)} bytes) -> {file_path}")
+                attachment_metadata.append(
+                    {
+                        "filename": filename,
+                        "size": len(content),
+                        "container_path": f"/work_files/attachments/{filename}",
+                    }
+                )
+                print(
+                    f"✅ Attachment saved: {filename} ({len(content)} bytes) -> {file_path}"
+                )
             except Exception as e:
                 print(f"❌ Failed to save attachment {attachment.filename}: {e}")
-                raise HTTPException(status_code=500, detail=f"Failed to save attachment: {str(e)}")
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to save attachment: {str(e)}"
+                )
 
     # Determine session_id
     # For new sessions, we need to create/get a session first
     # For replies, we use the existing session_id from the email being replied to
     effective_session_id = session_id
 
-    if session_id == 'new':
+    if session_id == "new":
         # New session: need to create a session
         # We'll use the task_id as the session_id for User's outgoing emails
         # This will be stored in the reply_mapping
@@ -828,14 +987,14 @@ async def send_email(
         subject=subject,
         content=body,
         reply_to_id=in_reply_to,
-        attachments=attachment_metadata if attachment_metadata else None
+        attachments=attachment_metadata if attachment_metadata else None,
     )
 
     return {
         "success": True,
         "task_id": effective_task_id,
         "message": "Email sent successfully",
-        "attachments_count": len(attachment_metadata)
+        "attachments_count": len(attachment_metadata),
     }
 
 
@@ -854,25 +1013,25 @@ async def get_session_emails(session_id: str):
         # Convert to dict format for JSON response
         emails_data = []
         for email in emails:
-            emails_data.append({
-                "id": email.id,
-                "timestamp": email.timestamp.isoformat() if hasattr(email.timestamp, 'isoformat') else str(email.timestamp),
-                "sender": email.sender,
-                "recipient": email.recipient,
-                "subject": email.subject,
-                "body": email.body,
-                "in_reply_to": email.in_reply_to,
-                "task_id": email.task_id,
-                            "recipient_session_id": email.recipient_session_id,
-                "is_from_user": getattr(email, 'is_from_user', False),
-                "attachments": email.attachments
-            })
+            emails_data.append(
+                {
+                    "id": email.id,
+                    "timestamp": email.timestamp.isoformat()
+                    if hasattr(email.timestamp, "isoformat")
+                    else str(email.timestamp),
+                    "sender": email.sender,
+                    "recipient": email.recipient,
+                    "subject": email.subject,
+                    "body": email.body,
+                    "in_reply_to": email.in_reply_to,
+                    "task_id": email.task_id,
+                    "recipient_session_id": email.recipient_session_id,
+                    "is_from_user": getattr(email, "is_from_user", False),
+                    "attachments": email.attachments,
+                }
+            )
 
-        return {
-            "success": True,
-            "emails": emails_data,
-            "total_count": len(emails_data)
-        }
+        return {"success": True, "emails": emails_data, "total_count": len(emails_data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -904,69 +1063,75 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
         # Get recipient agent
         recipient_agent = matrix_runtime.agents.get(recipient_name)
         if not recipient_agent:
-            raise HTTPException(status_code=404, detail=f"Agent not found: {recipient_name}")
+            raise HTTPException(
+                status_code=404, detail=f"Agent not found: {recipient_name}"
+            )
 
         # Build the attachment path (via runtime.paths)
-        attachment_path = recipient_agent.runtime.paths.get_agent_attachments_dir(
-            recipient_name, 
-            task_id
-        ) / filename
+        attachment_path = (
+            recipient_agent.runtime.paths.get_agent_attachments_dir(
+                recipient_name, task_id
+            )
+            / filename
+        )
 
         # Check if file exists
         if not attachment_path.exists():
-            raise HTTPException(status_code=404, detail=f"Attachment not found: {filename}")
+            raise HTTPException(
+                status_code=404, detail=f"Attachment not found: {filename}"
+            )
 
         # Determine media type and disposition based on file extension
         file_ext = Path(filename).suffix.lower()
-        
+
         # Files that can be previewed in browser
         previewable_extensions = {
-            '.txt': 'text/plain',
-            '.md': 'text/markdown',
-            '.json': 'application/json',
-            '.xml': 'application/xml',
-            '.html': 'text/html',
-            '.css': 'text/css',
-            '.js': 'application/javascript',
-            '.pdf': 'application/pdf',
-            '.svg': 'image/svg+xml',
+            ".txt": "text/plain",
+            ".md": "text/markdown",
+            ".json": "application/json",
+            ".xml": "application/xml",
+            ".html": "text/html",
+            ".css": "text/css",
+            ".js": "application/javascript",
+            ".pdf": "application/pdf",
+            ".svg": "image/svg+xml",
         }
-        
+
         # Images that can be previewed
         image_extensions = {
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.webp': 'image/webp',
-            '.bmp': 'image/bmp',
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
         }
-        
+
         # Merge all previewable types
         all_previewable = {**previewable_extensions, **image_extensions}
-        
+
         if file_ext in all_previewable:
             # File can be previewed in browser
             media_type = all_previewable[file_ext]
             # Use inline to display in browser instead of downloading
-            with open(attachment_path, 'rb') as f:
+            with open(attachment_path, "rb") as f:
                 file_content = f.read()
             # Encode filename for HTTP header (support Chinese and other non-ASCII characters)
-            encoded_filename = quote(filename, safe='')
-            
+            encoded_filename = quote(filename, safe="")
+
             return Response(
                 content=file_content,
                 media_type=media_type,
                 headers={
-                    'Content-Disposition': f"inline; filename*=UTF-8''{encoded_filename}"
-                }
+                    "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
+                },
             )
         else:
             # Download the file
             return FileResponse(
                 path=str(attachment_path),
                 filename=filename,
-                media_type='application/octet-stream'
+                media_type="application/octet-stream",
             )
 
     except HTTPException:
@@ -979,33 +1144,32 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
 async def get_session(session_id: str):
     """Get a specific session"""
     # TODO: Implement session details retrieval
-    return {
-        "session_id": session_id,
-        "messages": []
-    }
+    return {"session_id": session_id, "messages": []}
 
 
 @app.get("/api/agents")
 async def get_agents():
     """Get all agents with their details"""
     global matrix_runtime
-    
+
     if not matrix_runtime:
         return {"agents": []}
-    
+
     try:
         agents_list = []
         for name, agent in matrix_runtime.agents.items():
             # Skip User agent (don't show user as an agent)
             if name == matrix_runtime.get_user_agent_name():
                 continue
-            
-            agents_list.append({
-                "name": name,
-                "description": getattr(agent, 'description', 'No description'),
-                "backend_model": getattr(agent, 'backend_model', 'default_llm')
-            })
-        
+
+            agents_list.append(
+                {
+                    "name": name,
+                    "description": getattr(agent, "description", "No description"),
+                    "backend_model": getattr(agent, "backend_model", "default_llm"),
+                }
+            )
+
         return {"agents": agents_list}
     except Exception as e:
         print(f"Error getting agents: {e}")
@@ -1016,20 +1180,19 @@ async def get_agents():
 async def get_agent(agent_name: str):
     """Get a specific agent's details"""
     global matrix_runtime
-    
+
     if not matrix_runtime:
         raise HTTPException(status_code=503, detail="Runtime not initialized")
-    
+
     if agent_name not in matrix_runtime.agents:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-    
+
     agent = matrix_runtime.agents[agent_name]
-    
+
     return {
         "name": agent_name,
-        "description": getattr(agent, 'description', 'No description'),
-        "backend_model": getattr(agent, 'backend_model', 'default_llm'),
-
+        "description": getattr(agent, "description", "No description"),
+        "backend_model": getattr(agent, "backend_model", "default_llm"),
     }
 
 
@@ -1037,17 +1200,17 @@ async def get_agent(agent_name: str):
 async def get_agent_status_history(agent_name: str):
     """获取 Agent 状态历史（最近 3 条）"""
     global matrix_runtime
-    
+
     if not matrix_runtime:
         raise HTTPException(status_code=503, detail="Runtime not initialized")
-    
+
     if agent_name not in matrix_runtime.agents:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-    
+
     agent = matrix_runtime.agents[agent_name]
-    
+
     # 检查是否有状态管理方法
-    if hasattr(agent, 'get_status_history'):
+    if hasattr(agent, "get_status_history"):
         return agent.get_status_history()
     else:
         return []
@@ -1057,18 +1220,13 @@ async def get_agent_status_history(agent_name: str):
 async def get_files(path: str = ""):
     """Get files in workspace"""
     # TODO: Implement file listing
-    return {
-        "files": []
-    }
+    return {"files": []}
 
 
 @app.get("/api/system/status")
 async def get_system_status():
     """Get system status"""
-    return {
-        "status": "running",
-        "active_websockets": len(active_websockets)
-    }
+    return {"status": "running", "active_websockets": len(active_websockets)}
 
 
 @app.get("/api/runtime/status")
@@ -1077,88 +1235,92 @@ async def get_runtime_status():
     global matrix_runtime
 
     if matrix_runtime is None:
-        return {
-            "initialized": False,
-            "running": False,
-            "agents": []
-        }
+        return {"initialized": False, "running": False, "agents": []}
 
     try:
         # Get list of agent names
-        agent_names = list(matrix_runtime.agents.keys()) if matrix_runtime.agents else []
+        agent_names = (
+            list(matrix_runtime.agents.keys()) if matrix_runtime.agents else []
+        )
 
-        return {
-            "initialized": True,
-            "running": True,
-            "agents": agent_names
-        }
+        return {"initialized": True, "running": True, "agents": agent_names}
     except Exception as e:
-        return {
-            "initialized": True,
-            "running": False,
-            "agents": [],
-            "error": str(e)
-        }
+        return {"initialized": True, "running": False, "agents": [], "error": str(e)}
 
 
 # === Skills APIs ===
+
 
 def scan_available_skills() -> list:
     """扫描所有可用的 skills（从文件系统）"""
     import importlib
     from pathlib import Path
-    
+
     skills_info = []
-    
+
     # 1. 扫描内置 skills 目录
     try:
-        skills_module = importlib.import_module('agentmatrix.skills')
+        skills_module = importlib.import_module("agentmatrix.skills")
         skills_dir = Path(skills_module.__file__).parent
-        
+
         # 扫描目录结构: agentmatrix/skills/{name}/skill.py
         for item in skills_dir.iterdir():
-            if item.is_dir() and not item.name.startswith('__') and not item.name.startswith('.'):
+            if (
+                item.is_dir()
+                and not item.name.startswith("__")
+                and not item.name.startswith(".")
+            ):
                 skill_file = item / "skill.py"
                 if skill_file.exists():
                     skill_name = item.name
                     # 尝试读取文件获取描述
                     description = get_skill_description(skill_file, skill_name)
-                    skills_info.append({
-                        "name": skill_name,
-                        "description": description,
-                        "source": "built-in"
-                    })
+                    skills_info.append(
+                        {
+                            "name": skill_name,
+                            "description": description,
+                            "source": "built-in",
+                        }
+                    )
             # 扫描扁平文件: agentmatrix/skills/{name}_skill.py
-            elif item.is_file() and item.name.endswith('_skill.py') and not item.name.startswith('__'):
+            elif (
+                item.is_file()
+                and item.name.endswith("_skill.py")
+                and not item.name.startswith("__")
+            ):
                 skill_name = item.name[:-9]  # 移除 _skill.py
                 description = get_skill_description(item, skill_name)
-                skills_info.append({
-                    "name": skill_name,
-                    "description": description,
-                    "source": "built-in"
-                })
+                skills_info.append(
+                    {
+                        "name": skill_name,
+                        "description": description,
+                        "source": "built-in",
+                    }
+                )
     except Exception as e:
         print(f"Error scanning built-in skills: {e}")
-    
+
     # 2. 扫描 workspace skills 目录
     try:
         if matrix_world_dir:
             workspace_skills_dir = Path(matrix_world_dir) / "skills"
             if workspace_skills_dir.exists():
                 for item in workspace_skills_dir.iterdir():
-                    if item.is_dir() and not item.name.startswith('.'):
+                    if item.is_dir() and not item.name.startswith("."):
                         skill_file = item / "skill.py"
                         if skill_file.exists():
                             skill_name = item.name
                             description = get_skill_description(skill_file, skill_name)
-                            skills_info.append({
-                                "name": skill_name,
-                                "description": description,
-                                "source": "workspace"
-                            })
+                            skills_info.append(
+                                {
+                                    "name": skill_name,
+                                    "description": description,
+                                    "source": "workspace",
+                                }
+                            )
     except Exception as e:
         print(f"Error scanning workspace skills: {e}")
-    
+
     # 去重（按名称）
     seen = set()
     unique_skills = []
@@ -1166,17 +1328,17 @@ def scan_available_skills() -> list:
         if skill["name"] not in seen:
             seen.add(skill["name"])
             unique_skills.append(skill)
-    
+
     # 按名称排序
     unique_skills.sort(key=lambda x: x["name"])
-    
+
     return unique_skills
 
 
 def get_skill_description(skill_file: Path, skill_name: str) -> str:
     """从 skill 文件中提取描述"""
     try:
-        content = skill_file.read_text(encoding='utf-8')
+        content = skill_file.read_text(encoding="utf-8")
         # 查找文件开头的 docstring
         if '"""' in content:
             start = content.find('"""') + 3
@@ -1184,9 +1346,9 @@ def get_skill_description(skill_file: Path, skill_name: str) -> str:
             if end > start:
                 docstring = content[start:end].strip()
                 # 取第一行非空行作为描述
-                for line in docstring.split('\n'):
+                for line in docstring.split("\n"):
                     line = line.strip()
-                    if line and not line.startswith('#') and not line.startswith('=='):
+                    if line and not line.startswith("#") and not line.startswith("=="):
                         return line[:100]  # 限制长度
     except Exception:
         pass
@@ -1205,6 +1367,7 @@ async def get_available_skills():
 
 # === Agent Profile Management APIs ===
 
+
 def get_agent_yml_path(agent_name: str) -> Path:
     """Get the YAML file path for an agent"""
     return agents_dir / f"{agent_name}.yml"
@@ -1213,19 +1376,21 @@ def get_agent_yml_path(agent_name: str) -> Path:
 def load_agent_profile(agent_name: str) -> dict:
     """Load agent profile from YAML file"""
     import yaml
+
     yml_path = get_agent_yml_path(agent_name)
     if not yml_path.exists():
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-    
-    with open(yml_path, 'r', encoding='utf-8') as f:
+
+    with open(yml_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def save_agent_profile(agent_name: str, profile: dict):
     """Save agent profile to YAML file"""
     import yaml
+
     yml_path = get_agent_yml_path(agent_name)
-    with open(yml_path, 'w', encoding='utf-8') as f:
+    with open(yml_path, "w", encoding="utf-8") as f:
         yaml.dump(profile, f, default_flow_style=False, allow_unicode=True)
 
 
@@ -1237,8 +1402,12 @@ def agent_profile_to_response(profile: dict) -> dict:
         # Convert mixins to skills format for display
         mixins = profile["mixins"]
         if isinstance(mixins, list):
-            skills = [m.split(".")[-1].replace("SkillMixin", "").lower() for m in mixins if isinstance(m, str)]
-    
+            skills = [
+                m.split(".")[-1].replace("SkillMixin", "").lower()
+                for m in mixins
+                if isinstance(m, str)
+            ]
+
     # 构建响应，包含所有标准字段
     response = {
         "name": profile.get("name", ""),
@@ -1254,9 +1423,9 @@ def agent_profile_to_response(profile: dict) -> dict:
         "prompts": profile.get("prompts", {}),
         "logging": profile.get("logging"),
         # 保留原始 profile 的引用，方便前端获取完整信息
-        "_raw_profile": profile
+        "_raw_profile": profile,
     }
-    
+
     return response
 
 
@@ -1265,25 +1434,26 @@ async def get_agent_profiles():
     """Get all agent profiles from YAML files (including full details)"""
     try:
         import yaml
+
         profiles = []
-        
+
         if not agents_dir.exists():
             return {"agents": []}
-        
+
         for yml_file in agents_dir.glob("*.yml"):
             # Skip User.yml - it's special
             if yml_file.stem == "User":
                 continue
-                
+
             try:
-                with open(yml_file, 'r', encoding='utf-8') as f:
+                with open(yml_file, "r", encoding="utf-8") as f:
                     profile = yaml.safe_load(f)
                     if profile and isinstance(profile, dict):
                         profiles.append(agent_profile_to_response(profile))
             except Exception as e:
                 print(f"Error loading agent profile {yml_file}: {e}")
                 continue
-        
+
         return {"agents": profiles}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1310,23 +1480,29 @@ async def create_agent_profile(request: AgentConfigRequest):
     """Create a new agent profile - 支持灵活的配置结构"""
     try:
         import yaml
+
         yml_path = get_agent_yml_path(request.name)
-        
+
         # Check if agent already exists
         if yml_path.exists():
-            raise HTTPException(status_code=409, detail=f"Agent '{request.name}' already exists")
-        
+            raise HTTPException(
+                status_code=409, detail=f"Agent '{request.name}' already exists"
+            )
+
         # Validate name (alphanumeric, underscore, hyphen)
-        if not re.match(r'^[a-zA-Z0-9_-]+$', request.name):
-            raise HTTPException(status_code=400, detail="Agent name can only contain letters, numbers, underscores, and hyphens")
-        
+        if not re.match(r"^[a-zA-Z0-9_-]+$", request.name):
+            raise HTTPException(
+                status_code=400,
+                detail="Agent name can only contain letters, numbers, underscores, and hyphens",
+            )
+
         # Build profile - 只包含非空值，保持配置文件简洁
         profile = {
             "name": request.name,
             "description": request.description,
             "class_name": request.class_name,  # 新格式：完整类路径
         }
-        
+
         # 可选字段 - 只在有值时添加
         if request.backend_model and request.backend_model != "default_llm":
             profile["backend_model"] = request.backend_model
@@ -1342,13 +1518,13 @@ async def create_agent_profile(request: AgentConfigRequest):
             profile["prompts"] = request.prompts
         if request.logging:
             profile["logging"] = request.logging
-        
+
         # 处理额外字段（保留灵活性）
         if request.extra_fields:
             for key, value in request.extra_fields.items():
                 if key not in profile:  # 不覆盖已处理的字段
                     profile[key] = value
-        
+
         save_agent_profile(request.name, profile)
 
         # 🆕 动态加载并注册新Agent到运行时
@@ -1369,7 +1545,7 @@ async def create_agent_profile(request: AgentConfigRequest):
             "success": True,
             "message": f"Agent '{request.name}' created successfully",
             "agent": agent_profile_to_response(profile),
-            "runtime_loaded": runtime_loaded  # 返回是否已加载到运行时
+            "runtime_loaded": runtime_loaded,  # 返回是否已加载到运行时
         }
     except HTTPException:
         raise
@@ -1382,7 +1558,7 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
     """Update an existing agent profile - 支持灵活的配置结构"""
     try:
         profile = load_agent_profile(agent_name)
-        
+
         # 更新基本字段
         if request.description is not None:
             profile["description"] = request.description
@@ -1400,7 +1576,7 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
                 profile.pop("persona", None)
         if request.class_name is not None:
             profile["class_name"] = request.class_name
-        
+
         # 更新新字段
         if request.cerebellum is not None:
             if request.cerebellum:
@@ -1422,7 +1598,7 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
                 profile["logging"] = request.logging
             else:
                 profile.pop("logging", None)
-        
+
         # 处理额外字段（保留灵活性）
         if request.extra_fields:
             for key, value in request.extra_fields.items():
@@ -1430,13 +1606,13 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
                     profile[key] = value
                 else:
                     profile.pop(key, None)  # 允许通过 None 删除字段
-        
+
         save_agent_profile(agent_name, profile)
-        
+
         return {
             "success": True,
             "message": f"Agent '{agent_name}' updated successfully",
-            "agent": agent_profile_to_response(profile)
+            "agent": agent_profile_to_response(profile),
         }
     except HTTPException:
         raise
@@ -1451,17 +1627,19 @@ async def delete_agent_profile(agent_name: str):
         # Prevent deleting User agent
         if agent_name == "User":
             raise HTTPException(status_code=403, detail="Cannot delete User agent")
-        
+
         yml_path = get_agent_yml_path(agent_name)
-        
+
         if not yml_path.exists():
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_name}' not found"
+            )
+
         yml_path.unlink()
-        
+
         return {
             "success": True,
-            "message": f"Agent '{agent_name}' deleted successfully"
+            "message": f"Agent '{agent_name}' deleted successfully",
         }
     except HTTPException:
         raise
@@ -1473,19 +1651,19 @@ async def delete_agent_profile(agent_name: str):
 async def reload_agent_profile(agent_name: str):
     """Reload an agent profile into runtime (requires runtime restart to take full effect)"""
     global matrix_runtime
-    
+
     if not matrix_runtime:
         raise HTTPException(status_code=503, detail="Runtime not initialized")
-    
+
     try:
         profile = load_agent_profile(agent_name)
-        
+
         # Note: Full reload requires restarting the runtime
         # For now, we just verify the profile is valid
         return {
             "success": True,
             "message": f"Agent profile '{agent_name}' is valid. Restart server to apply changes.",
-            "agent": agent_profile_to_response(profile)
+            "agent": agent_profile_to_response(profile),
         }
     except HTTPException:
         raise
@@ -1494,6 +1672,7 @@ async def reload_agent_profile(agent_name: str):
 
 
 # === LLM Configuration Management APIs ===
+
 
 def load_llm_configs():
     """Load all LLM configurations from the config service"""
@@ -1506,32 +1685,30 @@ def load_llm_configs():
         return {}
 
 
-
-
-
-
 @app.get("/api/llm-configs")
 async def get_llm_configs():
     """Get all LLM configurations"""
     try:
         configs = load_llm_configs()
-        
+
         # Format response with metadata
         result = []
         for name, config in configs.items():
             is_required = name in REQUIRED_LLM_CONFIGS
-            result.append({
-                "name": name,
-                "url": config.get("url", ""),
-                "api_key": config.get("API_KEY", ""),
-                "model_name": config.get("model_name", ""),
-                "is_required": is_required,
-                "description": get_llm_config_description(name)
-            })
-        
+            result.append(
+                {
+                    "name": name,
+                    "url": config.get("url", ""),
+                    "api_key": config.get("API_KEY", ""),
+                    "model_name": config.get("model_name", ""),
+                    "is_required": is_required,
+                    "description": get_llm_config_description(name),
+                }
+            )
+
         # Sort: required configs first, then by name
         result.sort(key=lambda x: (not x["is_required"], x["name"]))
-        
+
         return {"configs": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1543,7 +1720,7 @@ def get_llm_config_description(name: str) -> str:
         "default_llm": "Primary large language model for main agent reasoning",
         "default_slm": "Smaller/faster model for simple tasks and cerebellum",
         "browser-use-llm": "Model for browser automation tasks",
-        "default_vision": "Vision model for image understanding tasks"
+        "default_vision": "Vision model for image understanding tasks",
     }
     return descriptions.get(name, "Custom LLM configuration")
 
@@ -1557,10 +1734,12 @@ async def get_llm_config(config_name: str):
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
         configs = matrix_runtime.config_service.list_llm_models()
-        
+
         if config_name not in configs:
-            raise HTTPException(status_code=404, detail=f"LLM config '{config_name}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"LLM config '{config_name}' not found"
+            )
+
         config = configs[config_name]
         return {
             "name": config_name,
@@ -1568,7 +1747,7 @@ async def get_llm_config(config_name: str):
             "api_key": config.get("API_KEY", ""),
             "model_name": config.get("model_name", ""),
             "is_required": config_name in REQUIRED_LLM_CONFIGS,
-            "description": get_llm_config_description(config_name)
+            "description": get_llm_config_description(config_name),
         }
     except HTTPException:
         raise
@@ -1585,18 +1764,21 @@ async def create_llm_config(request: LLMConfigCreateRequest):
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
         # Validate name (alphanumeric, underscore, hyphen)
-        if not re.match(r'^[a-zA-Z0-9_-]+$', request.name):
-            raise HTTPException(status_code=400, detail="Config name can only contain letters, numbers, underscores, and hyphens")
-        
+        if not re.match(r"^[a-zA-Z0-9_-]+$", request.name):
+            raise HTTPException(
+                status_code=400,
+                detail="Config name can only contain letters, numbers, underscores, and hyphens",
+            )
+
         # Create new config using ConfigService
         config = {
             "url": request.url,
             "API_KEY": request.api_key,
-            "model_name": request.model_name
+            "model_name": request.model_name,
         }
-        
+
         matrix_runtime.config_service.add_llm_model(request.name, config)
-        
+
         return {
             "success": True,
             "message": f"LLM config '{request.name}' created successfully",
@@ -1606,8 +1788,8 @@ async def create_llm_config(request: LLMConfigCreateRequest):
                 "api_key": request.api_key,
                 "model_name": request.model_name,
                 "is_required": False,
-                "description": get_llm_config_description(request.name)
-            }
+                "description": get_llm_config_description(request.name),
+            },
         }
     except HTTPException:
         raise
@@ -1622,19 +1804,21 @@ async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
     """Update an existing LLM configuration"""
     try:
         configs = load_llm_configs()
-        
+
         if config_name not in configs:
-            raise HTTPException(status_code=404, detail=f"LLM config '{config_name}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"LLM config '{config_name}' not found"
+            )
+
         # Update config
         configs[config_name] = {
             "url": request.url,
             "API_KEY": request.api_key,
-            "model_name": request.model_name
+            "model_name": request.model_name,
         }
-        
+
         save_llm_configs_to_file(configs)
-        
+
         return {
             "success": True,
             "message": f"LLM config '{config_name}' updated successfully",
@@ -1644,8 +1828,8 @@ async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
                 "api_key": request.api_key,
                 "model_name": request.model_name,
                 "is_required": config_name in REQUIRED_LLM_CONFIGS,
-                "description": get_llm_config_description(config_name)
-            }
+                "description": get_llm_config_description(config_name),
+            },
         }
     except HTTPException:
         raise
@@ -1659,21 +1843,25 @@ async def delete_llm_config(config_name: str):
     try:
         # Check if this is a required config
         if config_name in REQUIRED_LLM_CONFIGS:
-            raise HTTPException(status_code=403, detail=f"Cannot delete required config '{config_name}'")
-        
+            raise HTTPException(
+                status_code=403, detail=f"Cannot delete required config '{config_name}'"
+            )
+
         configs = load_llm_configs()
-        
+
         if config_name not in configs:
-            raise HTTPException(status_code=404, detail=f"LLM config '{config_name}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"LLM config '{config_name}' not found"
+            )
+
         # Remove config
         del configs[config_name]
-        
+
         save_llm_configs_to_file(configs)
-        
+
         return {
             "success": True,
-            "message": f"LLM config '{config_name}' deleted successfully"
+            "message": f"LLM config '{config_name}' deleted successfully",
         }
     except HTTPException:
         raise
@@ -1686,32 +1874,34 @@ async def reset_llm_config(config_name: str):
     """Reset a required LLM config to default values"""
     try:
         if config_name not in REQUIRED_LLM_CONFIGS:
-            raise HTTPException(status_code=400, detail=f"Can only reset required configs")
-        
+            raise HTTPException(
+                status_code=400, detail=f"Can only reset required configs"
+            )
+
         configs = load_llm_configs()
-        
+
         # Set default values based on config name
         defaults = {
             "default_llm": {
                 "url": "https://api.openai.com/v1/chat/completions",
                 "API_KEY": "your-api-key",
-                "model_name": "gpt-4"
+                "model_name": "gpt-4",
             },
             "default_slm": {
                 "url": "https://api.openai.com/v1/chat/completions",
                 "API_KEY": "your-api-key",
-                "model_name": "gpt-3.5-turbo"
+                "model_name": "gpt-3.5-turbo",
             },
             "browser-use-llm": {
                 "url": "https://api.openai.com/v1/chat/completions",
                 "API_KEY": "your-api-key",
-                "model_name": "gpt-4"
-            }
+                "model_name": "gpt-4",
+            },
         }
-        
+
         configs[config_name] = defaults.get(config_name, defaults["default_llm"])
         save_llm_configs_to_file(configs)
-        
+
         return {
             "success": True,
             "message": f"LLM config '{config_name}' reset to defaults",
@@ -1719,8 +1909,8 @@ async def reset_llm_config(config_name: str):
                 "name": config_name,
                 **configs[config_name],
                 "is_required": True,
-                "description": get_llm_config_description(config_name)
-            }
+                "description": get_llm_config_description(config_name),
+            },
         }
     except HTTPException:
         raise
@@ -1729,6 +1919,7 @@ async def reset_llm_config(config_name: str):
 
 
 # === Agent Control APIs (暂停/恢复/状态查询) ===
+
 
 @app.post("/api/agents/{agent_name}/pause")
 async def pause_agent(agent_name: str):
@@ -1749,7 +1940,7 @@ async def pause_agent(agent_name: str):
             "success": True,
             "message": f"Agent '{agent_name}' paused successfully",
             "agent_name": agent_name,
-            "paused": True
+            "paused": True,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1774,7 +1965,7 @@ async def resume_agent(agent_name: str):
             "success": True,
             "message": f"Agent '{agent_name}' resumed successfully",
             "agent_name": agent_name,
-            "paused": False
+            "paused": False,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1793,21 +1984,21 @@ async def get_agent_status(agent_name: str):
 
     try:
         agent = matrix_runtime.agents[agent_name]
-        
+
         # 使用新的状态管理方法
-        if hasattr(agent, 'get_current_status'):
+        if hasattr(agent, "get_current_status"):
             return {
                 "success": True,
                 "agent_name": agent_name,
-                **agent.get_current_status()  # 展开返回 message 和 timestamp
+                **agent.get_current_status(),  # 展开返回 message 和 timestamp
             }
         else:
             # 向后兼容：使用旧方法
             return {
                 "success": True,
                 "agent_name": agent_name,
-                "message": str(getattr(agent, 'status', 'unknown')),
-                "timestamp": None
+                "message": str(getattr(agent, "status", "unknown")),
+                "timestamp": None,
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1829,18 +2020,14 @@ async def get_pending_user_input(agent_name: str):
 
         # 检查是否在等待用户输入
         if not agent._user_input_future or agent._user_input_future.done():
-            return {
-                "success": True,
-                "agent_name": agent_name,
-                "waiting": False
-            }
+            return {"success": True, "agent_name": agent_name, "waiting": False}
 
         # 返回等待中的问题
         return {
             "success": True,
             "agent_name": agent_name,
             "waiting": True,
-            "question": agent._pending_user_question
+            "question": agent._pending_user_question,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1870,7 +2057,7 @@ async def submit_user_input(agent_name: str, request: Request):
         return {
             "success": True,
             "message": f"User input submitted to agent '{agent_name}'",
-            "agent_name": agent_name
+            "agent_name": agent_name,
         }
     except RuntimeError as e:
         # Agent 没有在等待用户输入
@@ -1880,6 +2067,7 @@ async def submit_user_input(agent_name: str, request: Request):
 
 
 # === Main Entry Point ===
+
 
 def main():
     """Main entry point"""
@@ -1894,12 +2082,7 @@ def main():
     # Args already parsed at module level
     # Access via module-level 'args' variable
     try:
-        uvicorn.run(
-            "server:app",
-            host=args.host,
-            port=args.port,
-            reload=args.reload
-        )
+        uvicorn.run("server:app", host=args.host, port=args.port, reload=args.reload)
     except KeyboardInterrupt:
         # Ctrl-C 正常退出，已在 lifespan shutdown 中打印告别信息
         pass
@@ -1908,9 +2091,8 @@ def main():
         pass
 
 
-
-
 # === Email Proxy Configuration Endpoints ===
+
 
 @app.get("/api/email-proxy/config")
 async def get_email_proxy_config():
@@ -2002,5 +2184,7 @@ async def remove_user_mailbox(request: dict):
         return {"success": True, "message": f"Removed user mailbox: {email}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     main()
