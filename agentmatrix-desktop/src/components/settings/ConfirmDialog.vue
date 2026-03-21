@@ -121,8 +121,7 @@ const iconColor = computed(() => {
 .confirm-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 26, 26, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -132,9 +131,9 @@ const iconColor = computed(() => {
 
 .confirm-dialog {
   background: white;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   padding: var(--spacing-xl);
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--shadow-sm);
   max-width: 400px;
   width: 100%;
   display: flex;
@@ -179,7 +178,7 @@ const iconColor = computed(() => {
 .btn-confirm {
   flex: 1;
   padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: none;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
@@ -197,12 +196,12 @@ const iconColor = computed(() => {
 }
 
 .btn-confirm {
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
 }
 
 .btn-confirm:hover {
-  background: var(--primary-700);
+  opacity: 0.9;
 }
 
 .btn-danger {

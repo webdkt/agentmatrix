@@ -180,10 +180,10 @@ const handleEmailSent = async (result) => {
   width: 100%;
   height: var(--button-height-md);
   padding: 0 var(--spacing-md);
-  background: var(--primary-500);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   display: flex;
@@ -192,12 +192,10 @@ const handleEmailSent = async (result) => {
   gap: var(--spacing-sm);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
-  box-shadow: var(--shadow-sm);
 }
 
 .session-list__new-email-btn:hover {
-  background: var(--primary-600);
-  box-shadow: var(--shadow-md);
+  opacity: 0.9;
 }
 
 .session-list__new-email-btn:active {
@@ -230,9 +228,10 @@ const handleEmailSent = async (result) => {
   width: 100%;
   height: 36px;
   padding: 0 var(--spacing-sm) 0 36px;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--neutral-200);
+  border-radius: 0;
   font-size: var(--font-sm);
   color: var(--neutral-700);
   transition: all var(--duration-base) var(--ease-out);
@@ -244,8 +243,8 @@ const handleEmailSent = async (result) => {
 
 .session-list__search-input:focus {
   outline: none;
-  border-color: var(--primary-300);
-  background: white;
+  border-bottom-color: var(--accent);
+  background: transparent;
 }
 
 /* Session Items Container */
@@ -270,7 +269,7 @@ const handleEmailSent = async (result) => {
   background: var(--neutral-100);
   color: var(--neutral-700);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   display: flex;
@@ -304,7 +303,7 @@ const handleEmailSent = async (result) => {
   width: 64px;
   height: 64px;
   background: var(--neutral-100);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;

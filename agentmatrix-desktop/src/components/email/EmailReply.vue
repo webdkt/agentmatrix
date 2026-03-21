@@ -223,8 +223,8 @@ const adjustHeight = (event) => {
 .email-reply__container {
   background: white;
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   padding: var(--spacing-xs);
   display: flex;
   align-items: flex-end;
@@ -280,7 +280,7 @@ const adjustHeight = (event) => {
   width: 32px;
   height: 32px;
   border: none;
-  background: var(--primary-500);
+  background: var(--accent);
   color: white;
   font-size: var(--icon-md);
   cursor: pointer;
@@ -293,7 +293,7 @@ const adjustHeight = (event) => {
 }
 
 .email-reply__send:hover:not(:disabled) {
-  background: var(--primary-600);
+  opacity: 0.9;
 }
 
 .email-reply__send:active:not(:disabled) {

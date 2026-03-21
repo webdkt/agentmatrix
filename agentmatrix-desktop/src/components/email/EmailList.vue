@@ -453,8 +453,8 @@ const handleAgentQuestionSubmit = async () => {
   right: 0;
   background: white;
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   min-width: 160px;
   z-index: var(--z-dropdown);
   overflow: hidden;
@@ -511,7 +511,7 @@ const handleAgentQuestionSubmit = async () => {
   width: 64px;
   height: 64px;
   background: var(--neutral-100);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -521,8 +521,8 @@ const handleAgentQuestionSubmit = async () => {
 }
 
 .email-list__empty-icon--loading {
-  background: var(--primary-50);
-  color: var(--primary-500);
+  background: var(--parchment-50);
+  color: var(--accent);
 }
 
 .email-list__empty-icon--error {
@@ -545,10 +545,10 @@ const handleAgentQuestionSubmit = async () => {
 
 .email-list__retry-btn {
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--primary-500);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -556,7 +556,7 @@ const handleAgentQuestionSubmit = async () => {
 }
 
 .email-list__retry-btn:hover {
-  background: var(--primary-600);
+  opacity: 0.9;
 }
 
 .email-list__question-form {
@@ -564,7 +564,6 @@ const handleAgentQuestionSubmit = async () => {
   padding: var(--spacing-md);
   background: var(--warning-50);
   border-top: 2px solid var(--warning-300);
-  box-shadow: 0 -2px 10px rgba(245, 158, 11, 0.1);
 }
 
 .email-list__question-header {
@@ -589,7 +588,7 @@ const handleAgentQuestionSubmit = async () => {
   font-size: var(--font-sm);
   color: var(--warning-800);
   background: var(--warning-100);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   padding: var(--spacing-sm) var(--spacing-md);
   margin: 0 0 var(--spacing-md) 0;
 }
@@ -597,9 +596,10 @@ const handleAgentQuestionSubmit = async () => {
 .email-list__question-input {
   width: 100%;
   padding: var(--spacing-sm);
-  background: white;
-  border: 1px solid var(--warning-300);
-  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--warning-300);
+  border-radius: 0;
   font-size: var(--font-sm);
   color: var(--neutral-700);
   resize: none;
@@ -609,8 +609,7 @@ const handleAgentQuestionSubmit = async () => {
 
 .email-list__question-input:focus {
   outline: none;
-  border-color: var(--warning-400);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+  border-bottom-color: var(--accent);
 }
 
 .email-list__question-actions {
@@ -622,7 +621,7 @@ const handleAgentQuestionSubmit = async () => {
 .email-list__question-btn {
   padding: var(--spacing-xs) var(--spacing-md);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -630,12 +629,12 @@ const handleAgentQuestionSubmit = async () => {
 }
 
 .email-list__question-btn--primary {
-  background: var(--primary-500);
+  background: var(--accent);
   color: white;
 }
 
 .email-list__question-btn--primary:hover:not(:disabled) {
-  background: var(--primary-600);
+  opacity: 0.9;
 }
 
 .email-list__question-btn--primary:disabled {
@@ -664,12 +663,12 @@ const handleAgentQuestionSubmit = async () => {
 }
 
 .email-card--question {
-  background: linear-gradient(to bottom right, var(--warning-50), white);
+  background: var(--warning-50);
   border-color: var(--warning-200);
 }
 
 .email-card--answer {
-  background: linear-gradient(to bottom right, var(--success-50), white);
+  background: var(--success-50);
   border-color: var(--success-200);
 }
 

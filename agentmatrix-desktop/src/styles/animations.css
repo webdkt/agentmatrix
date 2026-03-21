@@ -177,3 +177,10 @@
 .animate-bounce {
   animation: bounce 0.5s ease-in-out;
 }
+
+/* Thinking progress bar */
+@keyframes thinking {
+  0% { width: 0%; margin-left: 0; }
+  50% { width: 60%; margin-left: 20%; }
+  100% { width: 0%; margin-left: 100%; }
+}

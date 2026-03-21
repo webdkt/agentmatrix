@@ -103,8 +103,75 @@ const currentStatusConfig = computed(() => {
 
 <style scoped>
 .agent-status-natural {
-  @apply w-full;
+  width: 100%;
 }
 
+:deep(.text-slate-400) {
+  color: var(--ink-400);
+}
 
+:deep(.text-slate-500) {
+  color: var(--ink-300);
+}
+
+:deep(.text-blue-400) {
+  color: var(--accent);
+}
+
+:deep(.text-emerald-400) {
+  color: var(--verdant);
+}
+
+:deep(.text-amber-400) {
+  color: var(--amber);
+}
+
+:deep(.text-sm) {
+  font-size: var(--font-sm);
+}
+
+:deep(.text-xs) {
+  font-size: var(--font-xs);
+}
+
+:deep(.text-base) {
+  font-size: var(--font-base);
+}
+
+:deep(.leading-relaxed) {
+  line-height: var(--leading-relaxed);
+}
+
+:deep(.flex) {
+  display: flex;
+}
+
+:deep(.items-center) {
+  align-items: center;
+}
+
+:deep(.gap-2) {
+  gap: var(--spacing-2);
+}
+
+:deep(.space-y-1\.5) > * + * {
+  margin-top: var(--spacing-1);
+}
+
+:deep(.space-y-1) > * + * {
+  margin-top: 4px;
+}
+
+:deep(.ml-4) {
+  margin-left: var(--spacing-md);
+}
+
+:deep(.animate-spin) {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 </style>

@@ -110,15 +110,23 @@ impl AppConfig {
     }
 
     pub fn is_first_run(&self) -> bool {
-        // Support force-wizard mode for development/testing
         if std::env::var("AGENTMATRIX_FORCE_WIZARD").is_ok() {
             return true;
         }
-
-        if !self.is_configured {
-            return true;
+        if self.is_configured {
+            return false;
         }
-        let path = self.get_matrix_world_path();
-        !path.exists()
+        // Legacy: if settings.json exists with valid matrix_world_path dir, not first run
+        let config_path = match Self::get_config_path() {
+            Ok(p) => p,
+            Err(_) => return true,
+        };
+        if config_path.exists() {
+            let path = self.get_matrix_world_path();
+            if path.exists() {
+                return false;
+            }
+        }
+        true
     }
 }

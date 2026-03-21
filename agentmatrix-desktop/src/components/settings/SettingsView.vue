@@ -119,7 +119,7 @@ const handleBackClick = () => {
 .back-button {
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--neutral-100);
   border: none;
   color: var(--neutral-600);
@@ -148,14 +148,13 @@ const handleBackClick = () => {
 .header-icon {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--neutral-100);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--icon-xl);
   color: var(--neutral-600);
-  box-shadow: var(--shadow-sm);
 }
 
 .header-title {

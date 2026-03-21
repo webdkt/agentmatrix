@@ -70,7 +70,7 @@ onUnmounted(() => {
 .status-indicator {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -80,7 +80,7 @@ onUnmounted(() => {
 }
 
 .status-indicator:hover {
-  background: var(--neutral-200);
+  background: var(--parchment-300);
 }
 
 .status-indicator__dot {
@@ -92,20 +92,17 @@ onUnmounted(() => {
 
 .status-indicator__dot--running,
 .status-indicator__dot--connected {
-  background: var(--success-500);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+  background: var(--verdant);
 }
 
 .status-indicator__dot--stopped,
 .status-indicator__dot--disconnected {
-  background: var(--error-500);
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  background: var(--fault);
 }
 
 .status-indicator__dot--starting,
 .status-indicator__dot--stopping {
-  background: var(--warning-500);
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+  background: var(--amber);
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 

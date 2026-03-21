@@ -289,8 +289,7 @@ const selectModel = (model) => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 26, 26, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -300,8 +299,8 @@ const selectModel = (model) => {
 
 .modal-container {
   background: white;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   max-width: 600px;
   width: 100%;
   max-height: 90vh;
@@ -342,11 +341,14 @@ const selectModel = (model) => {
   align-items: center;
   gap: var(--spacing-1);
   padding: var(--spacing-1) var(--spacing-3);
-  background: var(--primary-100);
-  color: var(--primary-700);
-  border-radius: var(--radius-full);
-  font-size: var(--font-xs);
+  background: transparent;
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
   font-weight: var(--font-semibold);
+  font-variant: small-caps;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .required-badge-inline i {
@@ -414,7 +416,7 @@ const selectModel = (model) => {
 }
 
 .section-title i {
-  color: var(--primary-500);
+  color: var(--accent);
 }
 
 .model-grid {
@@ -434,8 +436,8 @@ const selectModel = (model) => {
 }
 
 .model-card:hover {
-  background: var(--primary-50);
-  border-color: var(--primary-300);
+  background: var(--neutral-50);
+  border-color: var(--neutral-400);
 }
 
 .model-name {
@@ -476,7 +478,7 @@ const selectModel = (model) => {
   padding: var(--spacing-3);
   background: white;
   border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   color: var(--neutral-900);
   transition: all var(--duration-base) var(--ease-out);
@@ -485,8 +487,7 @@ const selectModel = (model) => {
 .form-input:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: var(--primary-500);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--accent);
 }
 
 .form-input:disabled {
@@ -545,7 +546,7 @@ const selectModel = (model) => {
   background: transparent;
   color: var(--neutral-700);
   border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -561,10 +562,10 @@ const selectModel = (model) => {
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3) var(--spacing-4);
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -572,7 +573,7 @@ const selectModel = (model) => {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--primary-700);
+  background: var(--accent-hover);
 }
 
 .btn-primary:disabled {

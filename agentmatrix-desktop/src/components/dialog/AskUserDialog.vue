@@ -150,16 +150,15 @@ const close = () => {
 .ask-user-dialog-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 26, 26, 0.3);
 }
 
 /* Modal Content */
 .ask-user-dialog-content {
   position: relative;
   background: white;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   width: 100%;
   max-width: 540px;
   overflow: hidden;
@@ -196,7 +195,7 @@ const close = () => {
 .ask-user-dialog-icon {
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--warning-100);
   display: flex;
   align-items: center;
@@ -253,7 +252,7 @@ const close = () => {
   padding: var(--spacing-md);
   background: var(--warning-50);
   border: 1px solid var(--warning-200);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   margin-bottom: var(--spacing-lg);
 }
 
@@ -280,7 +279,7 @@ const close = () => {
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--neutral-50);
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-base);
   color: var(--neutral-700);
   resize: none;
@@ -290,8 +289,7 @@ const close = () => {
 
 .ask-user-dialog-input:focus {
   outline: none;
-  border-color: var(--primary-300);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--accent);
 }
 
 .ask-user-dialog-input::placeholder {
@@ -310,7 +308,7 @@ const close = () => {
 
 .ask-user-dialog-btn {
   padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -332,12 +330,12 @@ const close = () => {
 }
 
 .ask-user-dialog-btn--primary {
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
 }
 
 .ask-user-dialog-btn--primary:hover:not(:disabled) {
-  background: var(--primary-700);
+  background: var(--accent-hover);
 }
 
 .ask-user-dialog-btn--primary:disabled {

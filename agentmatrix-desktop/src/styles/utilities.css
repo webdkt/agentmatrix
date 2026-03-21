@@ -1,150 +1,21 @@
 /**
- * 全局工具类
- * Global Utility Classes
+ * AgentMatrix Desktop — MERIDIAN Utilities
  */
-
-/* ==================== 阴影工具类 ==================== */
-.shadow-elevated {
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
-              0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-.shadow-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.shadow-lg {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
-              0 4px 6px -2px rgba(0, 0, 0, 0.05);
-}
-
-.shadow-xl {
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
-              0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-.shadow-glow-sm {
-  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
-}
-
-/* ==================== 文本工具类 ==================== */
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.line-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* ==================== Flexbox 工具类 ==================== */
-.flex-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.flex-center-horizontal {
-  display: flex;
-  justify-content: center;
-}
-
-.flex-center-vertical {
-  display: flex;
-  align-items: center;
-}
-
-.flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* ==================== 间距工具类 ==================== */
-.gap-xs { gap: var(--spacing-xs); }
-.gap-sm { gap: var(--spacing-sm); }
-.gap-md { gap: var(--spacing-md); }
-.gap-lg { gap: var(--spacing-lg); }
-.gap-xl { gap: var(--spacing-xl); }
-
-/* ==================== 尺寸工具类 ==================== */
-.w-full { width: 100%; }
-.h-full { height: 100%; }
-
-/* ==================== 定位工具类 ==================== */
-.relative { position: relative; }
-.absolute { position: absolute; }
-.fixed { position: fixed; }
-
-/* ==================== 溢出工具类 ==================== */
-.overflow-hidden { overflow: hidden; }
-.overflow-auto { overflow: auto; }
-
-/* ==================== 显示工具类 ==================== */
-.hidden { display: none; }
-.block { display: block; }
-.inline-block { display: inline-block; }
-.flex { display: flex; }
-.inline-flex { display: inline-flex; }
-
-/* ==================== 光标工具类 ==================== */
-.cursor-pointer { cursor: pointer; }
-.cursor-not-allowed { cursor: not-allowed; }
-
-/* ==================== 过渡工具类 ==================== */
-.transition-base {
-  transition: all var(--duration-base) var(--ease-out);
-}
-
-.transition-fast {
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-/* ==================== 玻璃态效果 ==================== */
-.glass {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
-}
-
-.glass-dark {
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(10px);
-}
-
-/* ==================== 渐变背景 ==================== */
-.gradient-primary {
-  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
-}
-
-.gradient-neutral {
-  background: linear-gradient(to bottom right, var(--neutral-50), white);
-}
-
-.gradient-warning {
-  background: linear-gradient(to bottom right, var(--warning-50), white);
-}
-
-.gradient-success {
-  background: linear-gradient(to bottom right, var(--success-50), white);
-}
-
-/* ==================== 按钮按压效果 ==================== */
-.btn-press {
-  transition: transform 0.2s;
-}
-
-.btn-press:active {
-  transform: scale(0.95);
-}
+.line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+.flex-center-horizontal { display: flex; justify-content: center; }
+.flex-center-vertical { display: flex; align-items: center; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.gap-xs { gap: var(--spacing-xs); } .gap-sm { gap: var(--spacing-sm); } .gap-md { gap: var(--spacing-md); } .gap-lg { gap: var(--spacing-lg); } .gap-xl { gap: var(--spacing-xl); }
+.w-full { width: 100%; } .h-full { height: 100%; }
+.relative { position: relative; } .absolute { position: absolute; } .fixed { position: fixed; }
+.overflow-hidden { overflow: hidden; } .overflow-auto { overflow: auto; }
+.hidden { display: none; } .block { display: block; } .inline-block { display: inline-block; }
+.flex { display: flex; } .inline-flex { display: inline-flex; }
+.cursor-pointer { cursor: pointer; } .cursor-not-allowed { cursor: not-allowed; }
+.transition-base { transition: all var(--duration-base) var(--ease-out); }
+.transition-fast { transition: all var(--duration-fast) var(--ease-out); }
+.btn-press { transition: transform 0.2s; }
+.btn-press:active { transform: scale(0.97); }

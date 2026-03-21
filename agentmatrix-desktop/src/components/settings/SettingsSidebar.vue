@@ -67,7 +67,7 @@ const isActive = (categoryId) => {
   align-items: center;
   gap: var(--spacing-3);
   padding: var(--spacing-4);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: var(--neutral-600);
@@ -78,23 +78,23 @@ const isActive = (categoryId) => {
 }
 
 .nav-item:hover {
-  background: white;
-  border-color: var(--neutral-200);
+  background: var(--parchment-50);
+  border-color: transparent;
   color: var(--neutral-900);
-  box-shadow: var(--shadow-sm);
 }
 
 .nav-item.active {
-  background: white;
-  border-color: var(--primary-300);
-  color: var(--primary-700);
-  box-shadow: var(--shadow-sm);
+  background: var(--parchment-50);
+  border-left: 2px solid var(--accent);
+  border-color: transparent;
+  border-left-color: var(--accent);
+  color: var(--neutral-900);
 }
 
 .nav-item-icon-wrapper {
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -108,8 +108,8 @@ const isActive = (categoryId) => {
 }
 
 .nav-item.active .nav-item-icon-wrapper {
-  background: var(--primary-100);
-  color: var(--primary-600);
+  background: var(--accent);
+  color: white;
 }
 
 .nav-item-icon {
@@ -142,6 +142,6 @@ const isActive = (categoryId) => {
 }
 
 .nav-item.active .nav-item-description {
-  color: var(--primary-600);
+  color: var(--neutral-600);
 }
 </style>

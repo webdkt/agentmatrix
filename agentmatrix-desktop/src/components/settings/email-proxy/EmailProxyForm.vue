@@ -330,8 +330,7 @@ const copyImapToSmtp = () => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 26, 26, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -341,8 +340,8 @@ const copyImapToSmtp = () => {
 
 .modal-container {
   background: white;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   max-width: 700px;
   width: 100%;
   max-height: 90vh;
@@ -431,7 +430,7 @@ const copyImapToSmtp = () => {
 }
 
 .section-title i {
-  color: var(--primary-500);
+  color: var(--accent);
 }
 
 .btn-copy {
@@ -439,10 +438,10 @@ const copyImapToSmtp = () => {
   align-items: center;
   gap: var(--spacing-1);
   padding: var(--spacing-2) var(--spacing-3);
-  background: var(--primary-50);
-  border: 1px solid var(--primary-200);
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-200);
   border-radius: var(--radius-sm);
-  color: var(--primary-600);
+  color: var(--accent);
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -450,8 +449,8 @@ const copyImapToSmtp = () => {
 }
 
 .btn-copy:hover {
-  background: var(--primary-100);
-  border-color: var(--primary-300);
+  background: var(--neutral-100);
+  border-color: var(--neutral-300);
 }
 
 .form-grid {
@@ -482,7 +481,7 @@ const copyImapToSmtp = () => {
   padding: var(--spacing-3);
   background: white;
   border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   color: var(--neutral-900);
   transition: all var(--duration-base) var(--ease-out);
@@ -490,8 +489,7 @@ const copyImapToSmtp = () => {
 
 .form-input:focus {
   outline: none;
-  border-color: var(--primary-500);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--accent);
 }
 
 .password-input {
@@ -523,7 +521,7 @@ const copyImapToSmtp = () => {
   gap: var(--spacing-3);
   padding: var(--spacing-4);
   background: var(--info-50);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--info-100);
 }
 
@@ -578,7 +576,7 @@ const copyImapToSmtp = () => {
   background: transparent;
   color: var(--neutral-700);
   border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -594,10 +592,10 @@ const copyImapToSmtp = () => {
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3) var(--spacing-4);
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -605,7 +603,7 @@ const copyImapToSmtp = () => {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--primary-700);
+  background: var(--accent-hover);
 }
 
 .btn-primary:disabled {

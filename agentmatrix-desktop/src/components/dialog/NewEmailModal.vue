@@ -344,15 +344,14 @@ const close = () => {
 .new-email-modal__overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 26, 26, 0.3);
 }
 
 .new-email-modal__content {
   position: relative;
   background: white;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   width: 100%;
   max-width: 700px; /* Larger than before (was 2xl) */
   max-height: 90vh;
@@ -364,8 +363,8 @@ const close = () => {
 }
 
 .new-email-modal__content--dragging {
-  border: 2px dashed var(--primary-400);
-  background: var(--primary-50/30);
+  border: 2px dashed var(--accent);
+  background: rgba(194, 59, 34, 0.05);
 }
 
 /* Header */
@@ -447,7 +446,7 @@ const close = () => {
   padding: 0 var(--spacing-md) 0 40px;
   background: var(--neutral-50);
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   color: var(--neutral-700);
   transition: all var(--duration-base) var(--ease-out);
@@ -459,7 +458,7 @@ const close = () => {
 
 .new-email-modal__input:focus {
   outline: none;
-  border-color: var(--primary-300);
+  border-color: var(--accent);
   background: white;
 }
 
@@ -493,8 +492,8 @@ const close = () => {
   max-height: 200px;
   background: white;
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   overflow-y: auto;
   margin-top: 4px;
 }
@@ -547,7 +546,7 @@ const close = () => {
   padding: var(--spacing-md);
   background: var(--neutral-50);
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-base);
   font-family: inherit;
   line-height: var(--leading-relaxed);
@@ -562,7 +561,7 @@ const close = () => {
 
 .new-email-modal__textarea:focus {
   outline: none;
-  border-color: var(--primary-300);
+  border-color: var(--accent);
   background: white;
 }
 
@@ -574,11 +573,11 @@ const close = () => {
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  background: rgba(99, 102, 241, 0.9);
+  background: rgba(194, 59, 34, 0.9);
   color: white;
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   pointer-events: none;
 }
 
@@ -689,7 +688,7 @@ const close = () => {
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--neutral-100);
   border: 1px dashed var(--neutral-300);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   color: var(--neutral-600);
@@ -716,7 +715,7 @@ const close = () => {
 .new-email-modal__btn {
   height: var(--button-height-md);
   padding: 0 var(--spacing-lg);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -737,14 +736,14 @@ const close = () => {
 }
 
 .new-email-modal__btn--primary {
-  background: var(--primary-500);
-  border: 1px solid var(--primary-500);
+  background: var(--accent);
+  border: 1px solid var(--accent);
   color: white;
 }
 
 .new-email-modal__btn--primary:hover:not(:disabled) {
-  background: var(--primary-600);
-  border-color: var(--primary-600);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .new-email-modal__btn--primary:disabled {

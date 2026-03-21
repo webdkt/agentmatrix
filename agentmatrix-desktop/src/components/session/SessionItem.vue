@@ -165,19 +165,22 @@ const hasPending = computed(() => {
   padding: var(--spacing-sm) var(--spacing-md); /* 12px 16px */
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .session-item:hover {
-  background: var(--neutral-50);
-  border-color: var(--neutral-200);
+  background: var(--parchment-50);
+  border-color: transparent;
+  border-left-color: var(--neutral-300);
 }
 
 .session-item--active {
-  background: var(--primary-50);
-  border-color: var(--primary-200);
+  background: var(--parchment-50);
+  border-color: transparent;
+  border-left: 3px solid var(--accent);
 }
 
 /* Avatar */
@@ -196,7 +199,6 @@ const hasPending = computed(() => {
   color: white;
   font-weight: var(--font-semibold);
   font-size: var(--font-sm);
-  box-shadow: var(--shadow-sm);
   /* 背景色通过 :style 动态设置 */
 }
 
@@ -211,13 +213,12 @@ const hasPending = computed(() => {
   right: -2px;
   width: 18px;
   height: 18px;
-  background: var(--error-500);
+  background: var(--fault);
   border-radius: 50%;
   border: 2px solid white;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--shadow-xs);
 }
 
 .session-item__pending-count {

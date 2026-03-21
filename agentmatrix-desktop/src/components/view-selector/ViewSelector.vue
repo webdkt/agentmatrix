@@ -73,14 +73,13 @@ const handleViewClick = (viewId) => {
 .logo-icon {
   width: 44px;
   height: 44px;
-  background: var(--primary-500);
-  border-radius: var(--radius-lg);
+  background: var(--accent);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-size: 24px;
-  box-shadow: var(--shadow-sm);
 }
 
 .view-selector__nav {
@@ -95,7 +94,7 @@ const handleViewClick = (viewId) => {
 .view-selector__item {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--neutral-500);
@@ -114,8 +113,8 @@ const handleViewClick = (viewId) => {
 }
 
 .view-selector__item--active {
-  background: var(--primary-50);
-  color: var(--primary-600);
+  background: var(--parchment-50);
+  color: var(--accent);
 }
 
 .view-selector__item--active::before {
@@ -124,7 +123,7 @@ const handleViewClick = (viewId) => {
   left: -8px;
   width: 3px;
   height: 24px;
-  background: var(--primary-500);
+  background: var(--accent);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 

@@ -120,9 +120,9 @@ const textColor = computed(() => {
   align-items: center;
   gap: var(--spacing-3);
   padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border-left: 4px solid;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   min-width: 300px;
   max-width: 500px;
 }

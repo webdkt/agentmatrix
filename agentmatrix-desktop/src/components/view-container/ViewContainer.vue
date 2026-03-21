@@ -233,7 +233,7 @@ const handleViewChange = (viewId) => {
   width: 40px;
   height: 40px;
   border: 3px solid var(--neutral-200);
-  border-top-color: var(--primary-500);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -265,7 +265,7 @@ const handleViewChange = (viewId) => {
   width: 80px;
   height: 80px;
   background: var(--neutral-100);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;

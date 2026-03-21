@@ -213,7 +213,7 @@ const cancelDelete = () => {
 }
 
 .section-title i {
-  color: var(--primary-500);
+  color: var(--accent);
 }
 
 .section-description {
@@ -227,21 +227,19 @@ const cancelDelete = () => {
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3) var(--spacing-4);
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
-  box-shadow: var(--shadow-sm);
   flex-shrink: 0;
 }
 
 .btn-add:hover {
-  background: var(--primary-700);
-  box-shadow: var(--shadow-md);
+  background: var(--accent-hover);
 }
 
 .btn-add:active {
@@ -267,7 +265,7 @@ const cancelDelete = () => {
 .empty-icon {
   width: 80px;
   height: 80px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--neutral-100);
   display: flex;
   align-items: center;
@@ -294,20 +292,18 @@ const cancelDelete = () => {
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-4) var(--spacing-6);
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
-  box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover {
-  background: var(--primary-700);
-  box-shadow: var(--shadow-md);
+  background: var(--accent-hover);
 }
 
 .btn-primary:active {

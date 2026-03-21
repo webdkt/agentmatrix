@@ -179,7 +179,7 @@ function onSLMProviderChange(event) {
 }
 
 .step__title {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
   color: var(--neutral-800);
@@ -199,7 +199,7 @@ function onSLMProviderChange(event) {
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
   background: var(--neutral-50);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--neutral-200);
 }
 
@@ -212,7 +212,7 @@ function onSLMProviderChange(event) {
 
 .step__section-header i {
   font-size: 20px;
-  color: var(--primary-500);
+  color: var(--accent);
   margin-top: 2px;
 }
 

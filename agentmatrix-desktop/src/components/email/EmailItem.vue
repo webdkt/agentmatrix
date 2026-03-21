@@ -217,22 +217,21 @@ const handleAttachmentClick = async (attachment) => {
 
 /* Email Card */
 .email-card {
-  background: white;
+  background: var(--parchment-100);
   border: 1px solid var(--neutral-200);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: var(--spacing-md);
   transition: all var(--duration-base) var(--ease-out);
   position: relative;
 }
 
 .email-card:hover {
-  box-shadow: var(--shadow-md);
   border-color: var(--neutral-300);
-  border-left: 3px solid var(--primary-500);
+  border-left: 3px solid var(--accent);
 }
 
 .email-card--user {
-  background: linear-gradient(to bottom right, #f0fdf4, white);
+  background: var(--parchment-100);
   border-color: var(--success-200);
 }
 
@@ -257,18 +256,19 @@ const handleAttachmentClick = async (attachment) => {
 .email-card__label {
   font-size: 11px;
   font-weight: var(--font-semibold);
+  font-variant: small-caps;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid;
 }
 
 /* 收到的邮件 - From标签 */
 .email-card:not(.email-card--user) .email-card__label {
-  color: var(--primary-600);
-  background: var(--primary-50);
-  border-color: var(--primary-200);
+  color: var(--accent);
+  background: var(--parchment-100);
+  border-color: var(--neutral-200);
 }
 
 /* 发出的邮件 - To标签 */
@@ -294,7 +294,7 @@ const handleAttachmentClick = async (attachment) => {
 
 /* 收到的邮件 - robot图标颜色 */
 .email-card:not(.email-card--user) .email-card__name i {
-  color: var(--primary-500);
+  color: var(--accent);
 }
 
 /* 发出的邮件 - send图标颜色 */
@@ -346,7 +346,7 @@ const handleAttachmentClick = async (attachment) => {
 .email-card__attachment {
   padding: var(--spacing-xs);
   background: var(--neutral-50);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: all var(--duration-base) var(--ease-out);
 }
 
@@ -364,12 +364,12 @@ const handleAttachmentClick = async (attachment) => {
 .email-card__attachment-icon {
   width: 32px;
   height: 32px;
-  background: var(--primary-100);
-  border-radius: 4px;
+  background: var(--neutral-100);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--primary-600);
+  color: var(--ink-300);
   font-size: var(--font-sm);
   flex-shrink: 0;
 }
@@ -409,7 +409,7 @@ const handleAttachmentClick = async (attachment) => {
   font-size: var(--font-sm);
   color: var(--neutral-600);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -469,9 +469,9 @@ const handleAttachmentClick = async (attachment) => {
 
 .markdown-content :deep(code) {
   background: var(--neutral-100);
-  color: var(--primary-600);
+  color: var(--accent);
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
 }
 
@@ -479,7 +479,7 @@ const handleAttachmentClick = async (attachment) => {
   background: var(--neutral-800);
   color: var(--neutral-50);
   padding: var(--spacing-sm);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   margin-bottom: var(--spacing-sm);
 }

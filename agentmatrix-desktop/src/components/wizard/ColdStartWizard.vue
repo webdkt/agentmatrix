@@ -126,15 +126,15 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--neutral-50) 0%, var(--primary-50) 100%);
+  background: var(--parchment-100);
 }
 
 .wizard__container {
   width: 100%;
   max-width: 560px;
   background: white;
-  border-radius: var(--radius-xl);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--neutral-200);
   padding: var(--spacing-2xl);
   display: flex;
   flex-direction: column;
@@ -149,19 +149,18 @@ async function handleSubmit() {
 .wizard__logo {
   width: 64px;
   height: 64px;
-  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
-  border-radius: var(--radius-lg);
+  background: var(--accent);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32px;
   color: white;
   margin: 0 auto var(--spacing-md);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
 }
 
 .wizard__title {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: var(--font-2xl);
   font-weight: var(--font-bold);
   color: var(--neutral-900);
@@ -208,10 +207,9 @@ async function handleSubmit() {
 }
 
 .wizard__step--active .wizard__step-dot {
-  background: var(--primary-500);
+  background: var(--accent);
   color: white;
-  border-color: var(--primary-500);
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+  border-color: var(--accent);
 }
 
 .wizard__step--completed .wizard__step-dot {
@@ -227,7 +225,7 @@ async function handleSubmit() {
 }
 
 .wizard__step--active .wizard__step-label {
-  color: var(--primary-600);
+  color: var(--accent);
 }
 
 .wizard__step--completed .wizard__step-label {
@@ -263,7 +261,7 @@ async function handleSubmit() {
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--error-50);
   border: 1px solid var(--error-200, #fecaca);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--error-700);
   font-size: var(--font-sm);
 }

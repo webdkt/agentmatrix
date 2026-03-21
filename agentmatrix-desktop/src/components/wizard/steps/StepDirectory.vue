@@ -55,7 +55,7 @@ const configStore = useConfigStore()
 }
 
 .step__title {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
   color: var(--neutral-800);
@@ -103,7 +103,7 @@ const configStore = useConfigStore()
   gap: var(--spacing-md);
   padding: var(--spacing-md);
   background: var(--info-50);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   color: var(--info-700);
 }

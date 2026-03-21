@@ -39,7 +39,7 @@ const configStore = useConfigStore()
 }
 
 .step__title {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
   color: var(--neutral-800);
@@ -68,7 +68,7 @@ const configStore = useConfigStore()
 .input-lg {
   padding: var(--spacing-md) var(--spacing-lg);
   font-size: var(--font-lg);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
 }
 
 .step__hint {

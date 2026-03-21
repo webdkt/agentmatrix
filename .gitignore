@@ -202,7 +202,7 @@ agentmatrix-desktop/.vite/
 
 # Example worlds (user-specific data)
 MyWorld/
-examples/MyWorld/workspace/
+examples/MyWorld/
 examples/MyWorld/.matrix/
 
 # Test files and temporary data

@@ -155,7 +155,7 @@ const showEmailProxy = ref(false)
 }
 
 .step__title {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
   color: var(--neutral-800);
@@ -182,12 +182,12 @@ const showEmailProxy = ref(false)
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--neutral-50);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 .step__summary-item > i {
   font-size: 20px;
-  color: var(--primary-500);
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -217,12 +217,14 @@ const showEmailProxy = ref(false)
 .step__badge {
   display: inline-block;
   padding: 1px 6px;
-  background: var(--primary-100);
-  color: var(--primary-700);
+  background: var(--neutral-100);
+  color: var(--neutral-700);
   border-radius: var(--radius-sm);
-  font-size: var(--font-xs);
+  font-size: 11px;
   font-weight: var(--font-medium);
-  text-transform: capitalize;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* Optional section */
@@ -245,7 +247,7 @@ const showEmailProxy = ref(false)
 }
 
 .step__optional-toggle:hover {
-  color: var(--primary-600);
+  color: var(--accent);
 }
 
 /* Email Proxy form */
@@ -255,7 +257,7 @@ const showEmailProxy = ref(false)
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
   background: var(--neutral-50);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   margin-top: var(--spacing-sm);
 }
 

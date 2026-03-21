@@ -323,9 +323,8 @@ onMounted(async () => {
 .status-card {
   background: white;
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   padding: var(--spacing-lg);
-  box-shadow: var(--shadow-sm);
 }
 
 .status-header {
@@ -344,7 +343,7 @@ onMounted(async () => {
 .status-icon {
   width: 56px;
   height: 56px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--neutral-100);
   color: var(--neutral-400);
   display: flex;
@@ -383,7 +382,7 @@ onMounted(async () => {
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--neutral-300);
   background: white;
   color: var(--neutral-700);
@@ -431,9 +430,8 @@ onMounted(async () => {
 .config-card {
   background: white;
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   padding: var(--spacing-lg);
-  box-shadow: var(--shadow-sm);
 }
 
 .config-header {
@@ -463,10 +461,10 @@ onMounted(async () => {
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3) var(--spacing-4);
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -475,7 +473,7 @@ onMounted(async () => {
 }
 
 .btn-edit:hover {
-  background: var(--primary-700);
+  background: var(--accent-hover);
 }
 
 .config-details {
@@ -490,7 +488,7 @@ onMounted(async () => {
   gap: var(--spacing-3);
   padding: var(--spacing-4);
   background: var(--neutral-50);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 .detail-section-title {
@@ -504,7 +502,7 @@ onMounted(async () => {
 }
 
 .detail-section-title i {
-  color: var(--primary-500);
+  color: var(--accent);
   font-size: var(--icon-lg);
 }
 
@@ -545,7 +543,7 @@ onMounted(async () => {
 .empty-icon {
   width: 80px;
   height: 80px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--neutral-100);
   display: flex;
   align-items: center;
@@ -572,10 +570,10 @@ onMounted(async () => {
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-4) var(--spacing-6);
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -584,6 +582,6 @@ onMounted(async () => {
 }
 
 .btn-configure:hover {
-  background: var(--primary-700);
+  background: var(--accent-hover);
 }
 </style>

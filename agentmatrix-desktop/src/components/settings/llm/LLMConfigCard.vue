@@ -114,11 +114,10 @@ export default {
 
 <style scoped>
 .llm-config-card {
-  background: white;
+  background: var(--parchment-100);
   border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   padding: var(--spacing-lg);
-  box-shadow: var(--shadow-sm);
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   flex-direction: column;
@@ -126,13 +125,12 @@ export default {
 }
 
 .llm-config-card:hover {
-  box-shadow: var(--shadow-md);
   border-color: var(--neutral-300);
 }
 
 .llm-config-card.card-required {
-  border-color: var(--primary-200);
-  background: linear-gradient(135deg, #fafafa 0%, #f8f9ff 100%);
+  border-color: var(--neutral-200);
+  background: var(--parchment-100);
 }
 
 .card-header {
@@ -145,22 +143,21 @@ export default {
 .card-icon {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--icon-xl);
   flex-shrink: 0;
-  box-shadow: var(--shadow-sm);
 }
 
 .icon-required {
-  background: linear-gradient(135deg, var(--primary-400), var(--primary-600));
+  background: var(--accent);
   color: white;
 }
 
 .icon-custom {
-  background: linear-gradient(135deg, var(--neutral-300), var(--neutral-400));
+  background: var(--ink-300);
   color: white;
 }
 
@@ -169,11 +166,14 @@ export default {
   align-items: center;
   gap: var(--spacing-1);
   padding: var(--spacing-1) var(--spacing-3);
-  background: var(--primary-100);
-  color: var(--primary-700);
-  border-radius: var(--radius-full);
-  font-size: var(--font-xs);
+  background: transparent;
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
   font-weight: var(--font-semibold);
+  font-variant: small-caps;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   flex-shrink: 0;
 }
 
@@ -254,7 +254,7 @@ export default {
   justify-content: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--neutral-300);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
@@ -269,9 +269,9 @@ export default {
 }
 
 .btn-edit:hover {
-  background: var(--primary-50);
-  border-color: var(--primary-300);
-  color: var(--primary-700);
+  background: var(--neutral-50);
+  border-color: var(--neutral-400);
+  color: var(--accent);
 }
 
 .btn-delete {
