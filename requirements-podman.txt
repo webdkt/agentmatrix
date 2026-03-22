@@ -1,0 +1,16 @@
+# Podman 容器运行时依赖（可选）
+#
+# 安装说明：
+#   pip install -r requirements-podman.txt
+#
+# 或使用环境变量指定运行时：
+#   export CONTAINER_RUNTIME=docker
+
+# Podman Python SDK
+# 注意：需要先安装 Podman 本身
+# macOS: brew install podman
+# Linux: sudo apt install podman (Debian/Ubuntu)
+#        sudo dnf install podman (Fedora)
+# Windows: https://podman.io/getting-started/installation
+
+podman>=4.0.0

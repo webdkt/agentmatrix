@@ -18,7 +18,8 @@ from .paths import MatrixPaths
 from .config_sections import (
     LLMConfigSection,
     EmailProxyConfigSection,
-    MatrixConfigSection
+    MatrixConfigSection,
+    ContainerConfigSection
 )
 
 
@@ -44,6 +45,7 @@ class MatrixConfig(AutoLoggerMixin):
         self._load_llm_config()
         self._load_email_proxy_config()
         self._load_matrix_config()
+        self._load_container_config()
 
     def _load_llm_config(self):
         """加载LLM配置"""
@@ -90,6 +92,19 @@ class MatrixConfig(AutoLoggerMixin):
             self._matrix_config = self._get_default_matrix_config()
             self._save_matrix_config()
 
+    def _load_container_config(self):
+        """加载容器运行时配置"""
+        # 容器配置包含在 matrix_config.yml 中
+        # 从已加载的 matrix_config 中提取 container 部分
+        container_config = self._matrix_config.get('container', {})
+
+        # 如果配置为空，使用默认值
+        if not container_config:
+            self.logger.info("📄 使用默认容器运行时配置")
+            container_config = self._get_default_container_config()
+
+        self._container_config = container_config
+
     def _get_default_llm_config(self) -> Dict[str, Any]:
         """获取默认LLM配置"""
         return {
@@ -134,6 +149,14 @@ class MatrixConfig(AutoLoggerMixin):
             'matrix_version': '1.0.0',
             'description': 'AgentMatrix World',
             'timezone': 'UTC'
+        }
+
+    def _get_default_container_config(self) -> Dict[str, Any]:
+        """获取默认容器运行时配置"""
+        return {
+            'runtime': 'auto',  # 自动检测（Podman 优先）
+            'auto_start': True,
+            'fallback_strategy': 'fallback'
         }
 
     def _resolve_env_vars(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -232,6 +255,21 @@ class MatrixConfig(AutoLoggerMixin):
             '1.0.0'
         """
         return MatrixConfigSection(self._matrix_config)
+
+    @property
+    def container(self) -> ContainerConfigSection:
+        """
+        容器运行时配置节
+
+        提供对容器运行时配置的类型安全访问
+
+        Examples:
+            >>> config.container.runtime_type
+            'auto'
+            >>> config.container.auto_start
+            True
+        """
+        return ContainerConfigSection(self._container_config)
 
     def get(self, key: str, default=None) -> Any:
         """

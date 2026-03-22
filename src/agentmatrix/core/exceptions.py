@@ -76,3 +76,38 @@ class WorkspaceSwitchError(Exception):
     当切换工作区符号链接失败时抛出。
     """
     pass
+
+
+# ==================== 容器运行时通用异常 ====================
+
+
+class ContainerRuntimeError(Exception):
+    """容器运行时基类异常
+
+    所有容器运行时相关异常的基类。
+    """
+    pass
+
+
+class ContainerRuntimeNotAvailableError(ContainerRuntimeError):
+    """运行时不可用
+
+    当容器运行时（Docker/Podman）未安装或无法启动时抛出。
+    """
+    pass
+
+
+class ContainerRuntimeConnectionError(ContainerRuntimeError):
+    """运行时连接失败
+
+    当无法连接到容器运行时守护进程时抛出。
+    """
+    pass
+
+
+class ContainerRuntimeNotFoundError(ContainerRuntimeError):
+    """找不到可用的运行时
+
+    当自动检测无法找到任何可用的容器运行时时抛出。
+    """
+    pass
