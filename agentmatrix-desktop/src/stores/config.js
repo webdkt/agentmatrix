@@ -107,6 +107,14 @@ export const useConfigStore = defineStore('config', {
       // Presets are static JSON, no API needed
       this.llmPresets = llmPresets
 
+      // Auto-fill URL and model if provider is already set
+      if (this.wizardData.default_llm.provider && !this.wizardData.default_llm.url) {
+        this.selectLLMPreset('default_llm', this.wizardData.default_llm.provider)
+      }
+      if (this.wizardData.default_slm.provider && !this.wizardData.default_slm.url) {
+        this.selectLLMPreset('default_slm', this.wizardData.default_slm.provider)
+      }
+
       // Load Tauri config for default path
       try {
         const config = await invoke('get_config')

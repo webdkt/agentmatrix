@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import MIcon from '@/components/icons/MIcon.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 
@@ -114,7 +115,7 @@ const copyImapToSmtp = () => {
           @click="handleCancel"
           class="btn-close"
         >
-          <i class="ti ti-x"></i>
+          <MIcon name="x" />
         </button>
       </div>
 
@@ -123,7 +124,7 @@ const copyImapToSmtp = () => {
         <!-- Email Settings -->
         <div class="form-section">
           <h4 class="section-title">
-            <i class="ti ti-mail"></i>
+            <MIcon name="mail" />
             Email Settings
           </h4>
 
@@ -144,7 +145,7 @@ const copyImapToSmtp = () => {
         <div class="form-section">
           <div class="section-header">
             <h4 class="section-title">
-              <i class="ti ti-inbox"></i>
+              <MIcon name="inbox" />
               IMAP Configuration
             </h4>
             <button
@@ -153,7 +154,7 @@ const copyImapToSmtp = () => {
               class="btn-copy"
               title="Copy IMAP settings to SMTP"
             >
-              <i class="ti ti-copy"></i>
+              <MIcon name="copy" />
               <span>Copy to SMTP</span>
             </button>
           </div>
@@ -212,7 +213,7 @@ const copyImapToSmtp = () => {
                 @click="showImapPassword = !showImapPassword"
                 class="btn-toggle-visibility"
               >
-                <i :class="showImapPassword ? 'ti ti-eye-off' : 'ti ti-eye'"></i>
+                <MIcon :name="showImapPassword ? 'eye-off' : 'eye'" />
               </button>
             </div>
           </div>
@@ -221,7 +222,7 @@ const copyImapToSmtp = () => {
         <!-- SMTP Configuration -->
         <div class="form-section">
           <h4 class="section-title">
-            <i class="ti ti-send"></i>
+            <MIcon name="send" />
             SMTP Configuration
           </h4>
 
@@ -279,7 +280,7 @@ const copyImapToSmtp = () => {
                 @click="showSmtpPassword = !showSmtpPassword"
                 class="btn-toggle-visibility"
               >
-                <i :class="showSmtpPassword ? 'ti ti-eye-off' : 'ti ti-eye'"></i>
+                <MIcon :name="showSmtpPassword ? 'eye-off' : 'eye'" />
               </button>
             </div>
           </div>
@@ -288,7 +289,7 @@ const copyImapToSmtp = () => {
         <!-- Help Text -->
         <div class="help-section">
           <div class="help-icon">
-            <i class="ti ti-info-circle"></i>
+            <MIcon name="info-circle" />
           </div>
           <div class="help-content">
             <h5>Configuration Help</h5>
@@ -317,8 +318,8 @@ const copyImapToSmtp = () => {
           type="submit"
           class="btn-primary"
         >
-          <i v-if="isSubmitting" class="ti ti-loader spinner"></i>
-          <i v-else class="ti ti-check"></i>
+          <MIcon v-if="isSubmitting" name="loader" class="spinner" />
+          <MIcon v-else name="check" />
           <span>Save Configuration</span>
         </button>
       </div>

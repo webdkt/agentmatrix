@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   show: {
@@ -60,6 +61,10 @@ const iconClass = computed(() => {
   return icons[props.type] || icons.info
 })
 
+const iconName = computed(() => {
+  return iconClass.value.replace('ti-', '')
+})
+
 const iconColor = computed(() => {
   const colors = {
     danger: 'var(--error-500)',
@@ -86,7 +91,7 @@ const iconColor = computed(() => {
           >
             <!-- Icon -->
             <div class="confirm-icon" :style="{ color: iconColor }">
-              <i :class="['ti', iconClass]"></i>
+              <MIcon :name="iconName" />
             </div>
 
             <!-- Content -->

@@ -1,81 +1,50 @@
 <script setup>
 import { useConfigStore } from '@/stores/config'
-
 const configStore = useConfigStore()
 </script>
 
 <template>
-  <div class="step">
-    <h2 class="step__title">What should we call you?</h2>
-    <p class="step__desc">
-      This name will be used as your identity in the AgentMatrix system.
-      AI agents will address you by this name.
-    </p>
-
-    <div class="step__field">
-      <label class="step__label" for="user-name">Your Name</label>
-      <input
-        id="user-name"
-        v-model="configStore.wizardData.user_name"
-        class="input input-lg"
-        type="text"
-        placeholder="e.g. Alice, Bob, DKT..."
-        autofocus
-        @keydown.enter="configStore.isCurrentStepValid && configStore.nextStep()"
-      />
-      <span class="step__hint">
-        <i class="ti ti-info-circle"></i>
-        This will appear as your agent name in all conversations
-      </span>
-    </div>
-  </div>
+  <input
+    v-model="configStore.wizardData.user_name"
+    class="me-inp"
+    :class="{ done: configStore.wizardData.user_name.trim() }"
+    type="text"
+    placeholder="your name"
+    autocomplete="off"
+    spellcheck="false"
+  />
 </template>
 
 <style scoped>
-.step {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
+.me-inp {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--parchment-300);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: 44px;
+  padding: 14px 0;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.3s;
+  caret-color: var(--vermillion);
 }
 
-.step__title {
-  font-family: var(--font-serif);
-  font-size: var(--font-xl);
-  font-weight: var(--font-semibold);
-  color: var(--neutral-800);
-  margin: 0;
+.me-inp::placeholder {
+  color: var(--ink-ghost);
+  font-style: normal;
+  font-size: 24px;
 }
 
-.step__desc {
-  font-size: var(--font-sm);
-  color: var(--neutral-500);
-  margin: 0;
-  line-height: 1.6;
+.me-inp:focus {
+  border-bottom-color: var(--vermillion);
 }
 
-.step__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.step__label {
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  color: var(--neutral-700);
-}
-
-.input-lg {
-  padding: var(--spacing-md) var(--spacing-lg);
-  font-size: var(--font-lg);
-  border-radius: var(--radius-sm);
-}
-
-.step__hint {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-size: var(--font-xs);
-  color: var(--neutral-400);
+.me-inp.done {
+  border-bottom-color: var(--verdant);
 }
 </style>

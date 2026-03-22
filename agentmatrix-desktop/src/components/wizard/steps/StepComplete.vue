@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useConfigStore } from '@/stores/config'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const configStore = useConfigStore()
 const showEmailProxy = ref(false)
@@ -16,7 +17,7 @@ const showEmailProxy = ref(false)
     <!-- Summary -->
     <div class="step__summary">
       <div class="step__summary-item">
-        <i class="ti ti-user"></i>
+        <MIcon name="user" />
         <div>
           <span class="step__summary-label">User Name</span>
           <span class="step__summary-value">{{ configStore.wizardData.user_name }}</span>
@@ -24,7 +25,7 @@ const showEmailProxy = ref(false)
       </div>
 
       <div class="step__summary-item">
-        <i class="ti ti-folder"></i>
+        <MIcon name="folder" />
         <div>
           <span class="step__summary-label">Data Directory</span>
           <span class="step__summary-value step__summary-value--mono">
@@ -34,7 +35,7 @@ const showEmailProxy = ref(false)
       </div>
 
       <div class="step__summary-item">
-        <i class="ti ti-brain"></i>
+        <MIcon name="brain" />
         <div>
           <span class="step__summary-label">Large Model</span>
           <span class="step__summary-value">
@@ -45,7 +46,7 @@ const showEmailProxy = ref(false)
       </div>
 
       <div class="step__summary-item">
-        <i class="ti ti-bolt"></i>
+        <MIcon name="bolt" />
         <div>
           <span class="step__summary-label">Small Model</span>
           <span class="step__summary-value">
@@ -62,8 +63,8 @@ const showEmailProxy = ref(false)
         class="step__optional-toggle"
         @click="showEmailProxy = !showEmailProxy"
       >
-        <i :class="showEmailProxy ? 'ti ti-chevron-down' : 'ti ti-chevron-right'"></i>
-        <i class="ti ti-mail"></i>
+        <MIcon :name="showEmailProxy ? 'chevron-down' : 'chevron-right'" />
+        <MIcon name="mail" />
         Email Proxy Service (Optional)
       </button>
 

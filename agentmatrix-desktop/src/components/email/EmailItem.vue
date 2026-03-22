@@ -5,6 +5,7 @@ import { marked } from 'marked'
 import { useEmailStore } from '@/stores/email'
 import { useUIStore } from '@/stores/ui'
 import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   email: {
@@ -129,7 +130,7 @@ const handleAttachmentClick = async (attachment) => {
         <div class="email-card__sender">
           <span class="email-card__label">{{ email.is_from_user ? 'TO' : 'FROM' }}</span>
           <span class="email-card__name">
-            <i :class="['ti', email.is_from_user ? 'ti-send' : 'ti-robot']"></i>
+            <MIcon :name="email.is_from_user ? 'send' : 'robot'" />
             {{ displayName }}
           </span>
         </div>
@@ -159,7 +160,7 @@ const handleAttachmentClick = async (attachment) => {
               class="email-card__attachment-main"
             >
               <div class="email-card__attachment-icon">
-                <i :class="['ti', getAttachmentIcon(attachment.filename)]"></i>
+                <MIcon :name="getAttachmentIcon(attachment.filename).replace('ti-', '')" />
               </div>
               <div class="email-card__attachment-info">
                 <span class="email-card__attachment-name">{{ attachment.filename }}</span>
@@ -177,7 +178,7 @@ const handleAttachmentClick = async (attachment) => {
           class="email-card__action"
           :title="t('emails.reply')"
         >
-          <i class="ti ti-arrow-back-up"></i>
+          <MIcon name="arrow-back-up" />
           <span>Reply</span>
         </button>
         <button
@@ -185,14 +186,14 @@ const handleAttachmentClick = async (attachment) => {
           class="email-card__action"
           title="Copy"
         >
-          <i class="ti ti-copy"></i>
+          <MIcon name="copy" />
         </button>
         <button
           @click="handleDelete"
           class="email-card__action"
           :title="t('common.delete')"
         >
-          <i class="ti ti-trash"></i>
+          <MIcon name="trash" />
         </button>
       </div>
     </div>

@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { sessionAPI } from '@/api/session'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   currentSession: {
@@ -136,7 +137,7 @@ const adjustHeight = (event) => {
     <!-- Reply Info (only for bottom reply) -->
     <div v-if="!showInline && emails.length > 0" class="email-reply__info">
       <span class="email-reply__info-text">
-        <i class="ti ti-arrow-back-up"></i>
+        <MIcon name="arrow-back-up" />
         {{ t('emails.replyTo') }}
         <span class="email-reply__info-name">
           {{ lastEmail?.is_from_user
@@ -155,7 +156,7 @@ const adjustHeight = (event) => {
         class="email-reply__cancel"
         :title="t('common.cancel')"
       >
-        <i class="ti ti-x"></i>
+        <MIcon name="x" />
       </button>
 
       <!-- Textarea -->
@@ -175,8 +176,8 @@ const adjustHeight = (event) => {
         class="email-reply__send"
         :title="t('emails.send')"
       >
-        <i v-if="!isSending" class="ti ti-send"></i>
-        <i v-else class="ti ti-loader animate-spin"></i>
+        <MIcon v-if="!isSending" name="send" />
+        <span v-else class="animate-spin"><MIcon name="loader" /></span>
       </button>
     </div>
 

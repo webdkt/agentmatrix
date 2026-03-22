@@ -34,9 +34,9 @@
   --azure-muted:   #BEE3F8;
 
   /* Typography */
-  --font-serif: "Source Serif 4", "Noto Serif SC", "Songti SC", "SimSun", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Courier New", monospace;
+  --font-serif: "JetBrains Mono", "Noto Sans SC", "PingFang SC", sans-serif;
+  --font-sans: "JetBrains Mono", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Cascadia Code", monospace;
 
   /* Spacing */
   --space-1:  4px;

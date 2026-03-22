@@ -7,6 +7,7 @@ import { sessionAPI } from '@/api/session'
 import EmailItem from './EmailItem.vue'
 import EmailReply from './EmailReply.vue'
 import AgentStatusIndicator from '../agent/AgentStatusIndicator.vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   user_agent_name: {
@@ -214,7 +215,7 @@ const handleAgentQuestionSubmit = async () => {
           class="email-list__toolbar-btn"
           :title="t('emails.refresh')"
         >
-          <i class="ti ti-refresh"></i>
+          <MIcon name="refresh" />
         </button>
         <div class="email-list__toolbar-divider"></div>
         <button
@@ -222,7 +223,7 @@ const handleAgentQuestionSubmit = async () => {
           class="email-list__toolbar-btn"
           title="More options"
         >
-          <i class="ti ti-dots-vertical"></i>
+          <MIcon name="dots-vertical" />
         </button>
 
         <div v-if="showMenu" class="email-list__menu">
@@ -230,14 +231,14 @@ const handleAgentQuestionSubmit = async () => {
             @click="handleMenuAction('delete')"
             class="email-list__menu-item"
           >
-            <i class="ti ti-trash"></i>
+            <MIcon name="trash" />
             <span>Delete Session</span>
           </button>
           <button
             @click="handleMenuAction('refresh')"
             class="email-list__menu-item"
           >
-            <i class="ti ti-refresh"></i>
+            <MIcon name="refresh" />
             <span>Refresh</span>
           </button>
         </div>
@@ -254,21 +255,21 @@ const handleAgentQuestionSubmit = async () => {
     >
       <div v-if="!currentSession" class="email-list__empty">
         <div class="email-list__empty-icon">
-          <i class="ti ti-message-circle"></i>
+          <MIcon name="message-circle" />
         </div>
         <p class="email-list__empty-text">{{ t('emails.selectSession') }}</p>
       </div>
 
       <div v-else-if="isLoading" class="email-list__empty">
         <div class="email-list__empty-icon email-list__empty-icon--loading">
-          <i class="ti ti-loader animate-spin"></i>
+          <span class="animate-spin"><MIcon name="loader" /></span>
         </div>
         <p class="email-list__empty-text">{{ t('sessions.loading') }}</p>
       </div>
 
       <div v-else-if="error" class="email-list__empty">
         <div class="email-list__empty-icon email-list__empty-icon--error">
-          <i class="ti ti-alert-circle"></i>
+          <MIcon name="alert-circle" />
         </div>
         <p class="email-list__empty-text">{{ t('common.error') }}</p>
         <p class="email-list__empty-hint">{{ error }}</p>
@@ -305,7 +306,7 @@ const handleAgentQuestionSubmit = async () => {
               <div class="email-card__header">
                 <span class="email-card__label">Question</span>
                 <span class="email-card__name">
-                  <i class="ti ti-help"></i>
+                  <MIcon name="help" />
                   {{ pendingQuestion.agent_name }}
                 </span>
                 <span class="email-card__time">Just now</span>
@@ -323,7 +324,7 @@ const handleAgentQuestionSubmit = async () => {
               <div class="email-card__header">
                 <span class="email-card__label">Answer</span>
                 <span class="email-card__name">
-                  <i class="ti ti-user"></i>
+                  <MIcon name="user" />
                   {{ user_agent_name }}
                 </span>
                 <span class="email-card__time">Just now</span>
@@ -339,7 +340,7 @@ const handleAgentQuestionSubmit = async () => {
 
         <div v-if="!hasEmails" class="email-list__empty">
           <div class="email-list__empty-icon">
-            <i class="ti ti-mail-off"></i>
+            <MIcon name="mail-off" />
           </div>
           <p class="email-list__empty-text">{{ t('emails.noEmails') }}</p>
           <p class="email-list__empty-hint">{{ t('emails.startConversation') }}</p>
@@ -354,7 +355,7 @@ const handleAgentQuestionSubmit = async () => {
       class="email-list__bottom-area email-list__question-form-wrapper"
     >
       <div class="email-list__question-header">
-        <i class="ti ti-message-circle"></i>
+        <MIcon name="message-circle" />
         <span class="email-list__question-title">{{ pendingQuestion.agent_name }} {{ t('emails.hasQuestion') }}</span>
       </div>
       <p class="email-list__question-text">

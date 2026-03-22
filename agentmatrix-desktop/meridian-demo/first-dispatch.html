@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>First Dispatch — AgentMatrix Cold Start</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+SC:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.6.0/tabler-icons.min.css">
+
+  <style>
+    :root {
+      --parchment-50: #FDFCF9;
+      --parchment-100: #F7F5F0;
+      --parchment-200: #EDE9E1;
+      --parchment-300: #DBD5C9;
+      --ink-900: #1A1A1A;
+      --ink-700: #3D3D3D;
+      --ink-500: #6B6B6B;
+      --ink-400: #8A8A8A;
+      --ink-300: #ABABAB;
+      --ink-200: #D4D4D4;
+      --accent: #C23B22;
+      --accent-hover: #A33220;
+      --accent-muted: #E8C4B8;
+      --verdant: #2D6A4F;
+      --verdant-muted: #B7E4C7;
+      --font-serif: "JetBrains Mono", "Noto Sans SC", "PingFang SC", sans-serif;
+      --font-sans: "JetBrains Mono", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--parchment-100);
+      color: var(--ink-700);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    /* ============================================
+       THE DISPATCH DOCUMENT
+       ============================================ */
+
+    .dispatch {
+      width: 100%;
+      max-width: 640px;
+      background: var(--parchment-50);
+      border: 1px solid var(--parchment-300);
+      border-radius: 2px;
+      padding: 56px 64px;
+      position: relative;
+      animation: dispatch-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes dispatch-enter {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Top rule */
+    .dispatch::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 64px;
+      right: 64px;
+      height: 2px;
+      background: var(--accent);
+    }
+
+    /* Bottom rule */
+    .dispatch::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 64px;
+      right: 64px;
+      height: 2px;
+      background: var(--accent);
+    }
+
+    /* ============================================
+       HEADER
+       ============================================ */
+
+    .dispatch__header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .dispatch__logo {
+      width: 48px;
+      height: 48px;
+      background: var(--accent);
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+    }
+
+    .dispatch__logo svg {
+      width: 28px;
+      height: 28px;
+    }
+
+    .dispatch__title {
+      font-family: var(--font-serif);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--ink-900);
+      letter-spacing: -0.3px;
+      margin-bottom: 4px;
+    }
+
+    .dispatch__subtitle {
+      font-size: 11px;
+      color: var(--ink-400);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-variant: small-caps;
+    }
+
+    /* ============================================
+       THE LETTER BODY
+       ============================================ */
+
+    .letter {
+      font-family: var(--font-serif);
+      font-size: 16px;
+      line-height: 2.2;
+      color: var(--ink-700);
+    }
+
+    .letter p {
+      margin-bottom: 24px;
+    }
+
+    .letter__label {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--ink-400);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-variant: small-caps;
+      display: block;
+      margin-bottom: 4px;
+      line-height: 1.4;
+    }
+
+    .letter__field {
+      display: block;
+      width: 100%;
+      border: none;
+      border-bottom: 1.5px solid var(--parchment-300);
+      background: transparent;
+      font-family: var(--font-serif);
+      font-size: 16px;
+      color: var(--ink-900);
+      padding: 6px 0;
+      outline: none;
+      transition: border-color 0.25s ease;
+      line-height: 1.6;
+    }
+
+    .letter__field::placeholder {
+      color: var(--ink-300);
+      font-style: italic;
+    }
+
+    .letter__field:focus {
+      border-bottom-color: var(--accent);
+    }
+
+    /* Select styled as letter field */
+    .letter__select {
+      display: block;
+      width: 100%;
+      border: none;
+      border-bottom: 1.5px solid var(--parchment-300);
+      background: transparent;
+      font-family: var(--font-serif);
+      font-size: 16px;
+      color: var(--ink-900);
+      padding: 6px 0;
+      outline: none;
+      appearance: none;
+      cursor: pointer;
+      transition: border-color 0.25s ease;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A8A8A' stroke-width='1.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0 center;
+    }
+
+    .letter__select:focus {
+      border-bottom-color: var(--accent);
+    }
+
+    /* Field group with spacing */
+    .letter__group {
+      margin-bottom: 8px;
+    }
+
+    /* Inline field — for "My name is [____]" */
+    .letter__inline {
+      display: inline;
+      border: none;
+      border-bottom: 1.5px solid var(--parchment-300);
+      background: transparent;
+      font-family: var(--font-serif);
+      font-size: 16px;
+      color: var(--ink-900);
+      padding: 2px 4px;
+      outline: none;
+      width: 200px;
+      transition: border-color 0.25s ease;
+    }
+
+    .letter__inline::placeholder {
+      color: var(--ink-300);
+      font-style: italic;
+    }
+
+    .letter__inline:focus {
+      border-bottom-color: var(--accent);
+    }
+
+    /* ============================================
+       DIRECTORY PICKER
+       ============================================ */
+
+    .letter__directory {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1.5px solid var(--parchment-300);
+      padding: 6px 0;
+      cursor: pointer;
+      transition: border-color 0.25s ease;
+    }
+
+    .letter__directory:hover {
+      border-bottom-color: var(--accent);
+    }
+
+    .letter__directory-path {
+      flex: 1;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--ink-500);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .letter__directory-path.has-value {
+      color: var(--ink-900);
+    }
+
+    .letter__directory-browse {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--ink-400);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-variant: small-caps;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: color 0.15s;
+    }
+
+    .letter__directory:hover .letter__directory-browse {
+      color: var(--accent);
+    }
+
+    /* ============================================
+       ADVANCED SECTION (Email Proxy)
+       ============================================ */
+
+    .letter__advanced {
+      margin-top: 32px;
+      border-top: 1px solid var(--parchment-300);
+      padding-top: 24px;
+    }
+
+    .letter__advanced-toggle {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--ink-400);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-variant: small-caps;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: color 0.15s;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+
+    .letter__advanced-toggle:hover {
+      color: var(--ink-700);
+    }
+
+    .letter__advanced-toggle svg {
+      width: 16px;
+      height: 16px;
+      transition: transform 0.2s ease;
+    }
+
+    .letter__advanced-toggle.open svg {
+      transform: rotate(90deg);
+    }
+
+    .letter__advanced-content {
+      margin-top: 20px;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s ease, opacity 0.3s ease;
+      opacity: 0;
+    }
+
+    .letter__advanced-content.open {
+      max-height: 300px;
+      opacity: 1;
+    }
+
+    /* ============================================
+       THE BEGIN BUTTON
+       ============================================ */
+
+    .dispatch__begin {
+      margin-top: 48px;
+      text-align: center;
+    }
+
+    .dispatch__begin-line {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .dispatch__begin-line::before,
+    .dispatch__begin-line::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--parchment-300);
+    }
+
+    .dispatch__begin-label {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--ink-400);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-variant: small-caps;
+    }
+
+    .dispatch__begin-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 14px 48px;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .dispatch__begin-btn:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .dispatch__begin-btn:active {
+      transform: translateY(0);
+    }
+
+    .dispatch__begin-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* ============================================
+       SEALING ANIMATION
+       ============================================ */
+
+    .dispatch.sealing {
+      pointer-events: none;
+    }
+
+    .dispatch.sealing .dispatch__begin-btn {
+      animation: seal-press 0.4s ease forwards;
+    }
+
+    @keyframes seal-press {
+      0% { transform: scale(1); }
+      50% { transform: scale(0.95); background: var(--ink-900); }
+      100% { transform: scale(0.95); background: var(--ink-900); }
+    }
+
+    .dispatch.sealing .letter {
+      animation: letter-fade 0.6s 0.3s ease forwards;
+    }
+
+    @keyframes letter-fade {
+      to { opacity: 0.3; }
+    }
+
+    .seal-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--parchment-100);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 20px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .seal-overlay.active {
+      animation: seal-show 0.6s 0.5s ease forwards;
+      pointer-events: all;
+    }
+
+    @keyframes seal-show {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .seal-overlay__check {
+      width: 64px;
+      height: 64px;
+      border: 2px solid var(--verdant);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: seal-check 0.5s 0.8s ease both;
+    }
+
+    @keyframes seal-check {
+      from { transform: scale(0); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .seal-overlay__check svg {
+      width: 32px;
+      height: 32px;
+      color: var(--verdant);
+    }
+
+    .seal-overlay__text {
+      font-family: var(--font-serif);
+      font-size: 18px;
+      color: var(--ink-900);
+      animation: seal-text 0.5s 1s ease both;
+    }
+
+    @keyframes seal-text {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .seal-overlay__sub {
+      font-size: 13px;
+      color: var(--ink-400);
+      animation: seal-text 0.5s 1.2s ease both;
+    }
+
+    /* ============================================
+       FORM VALIDATION INDICATORS
+       ============================================ */
+
+    .letter__field.valid {
+      border-bottom-color: var(--verdant);
+    }
+
+    .letter__field.error {
+      border-bottom-color: var(--accent);
+    }
+
+    .letter__error {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--accent);
+      margin-top: 4px;
+      display: none;
+    }
+
+    .letter__error.show {
+      display: block;
+    }
+
+    /* ============================================
+       STEP DOTS (subtle, editorial)
+       ============================================ */
+
+    .dispatch__progress {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 40px;
+    }
+
+    .dispatch__dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ink-200);
+      transition: all 0.3s ease;
+    }
+
+    .dispatch__dot.active {
+      background: var(--accent);
+      transform: scale(1.3);
+    }
+
+    .dispatch__dot.done {
+      background: var(--verdant);
+    }
+
+    /* ============================================
+       THEME TOGGLE
+       ============================================ */
+
+    .theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--parchment-200);
+      border: 1px solid var(--parchment-300);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+      color: var(--ink-500);
+      transition: all 0.2s ease;
+      z-index: 10;
+    }
+
+    .theme-toggle:hover {
+      background: var(--parchment-300);
+      color: var(--ink-900);
+    }
+
+    /* ============================================
+       DARK MODE
+       ============================================ */
+
+    [data-theme="dark"] {
+      --parchment-50: #121212;
+      --parchment-100: #1E1E1E;
+      --parchment-200: #2A2A2A;
+      --parchment-300: #3A3A3A;
+      --ink-900: #F0EDE8;
+      --ink-700: #C8C4BC;
+      --ink-500: #9A978F;
+      --ink-400: #777570;
+      --ink-300: #555450;
+      --ink-200: #3A3936;
+      --accent: #E05A42;
+      --accent-hover: #C23B22;
+      --accent-muted: #5C2A1E;
+      --verdant: #52B788;
+      --verdant-muted: #1B4332;
+    }
+
+    /* ============================================
+       RESPONSIVE
+       ============================================ */
+
+    @media (max-width: 720px) {
+      .dispatch {
+        padding: 40px 32px;
+      }
+      .dispatch::before,
+      .dispatch::after {
+        left: 32px;
+        right: 32px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <button class="theme-toggle" id="theme-toggle" title="Toggle dark mode">
+    <i class="ti ti-moon"></i>
+  </button>
+
+  <div class="dispatch" id="dispatch">
+
+    <!-- HEADER -->
+    <div class="dispatch__header">
+      <div class="dispatch__logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="miter">
+          <rect x="4" y="4" width="16" height="16" rx="1"/>
+          <line x1="4" y1="12" x2="20" y2="12"/>
+          <line x1="12" y1="4" x2="12" y2="20"/>
+        </svg>
+      </div>
+      <div class="dispatch__title">AgentMatrix</div>
+      <div class="dispatch__subtitle">First Dispatch</div>
+    </div>
+
+    <!-- PROGRESS -->
+    <div class="dispatch__progress">
+      <div class="dispatch__dot active" data-step="0"></div>
+      <div class="dispatch__dot" data-step="1"></div>
+      <div class="dispatch__dot" data-step="2"></div>
+    </div>
+
+    <!-- THE LETTER -->
+    <div class="letter" id="letter">
+
+      <!-- SECTION 1: Identity -->
+      <div class="letter__section" data-section="0">
+        <p>To the Matrix,</p>
+
+        <p>
+          My name is
+          <input type="text" class="letter__inline" id="name-input" placeholder="your name" autofocus>
+          . I'd like to set up my thinking environment.
+        </p>
+
+        <div class="letter__group">
+          <span class="letter__label">Workspace</span>
+          <div class="letter__directory" id="dir-picker">
+            <span class="letter__directory-path" id="dir-path">Click to select a directory…</span>
+            <span class="letter__directory-browse">Browse</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 2: Thinking Engine -->
+      <div class="letter__section" data-section="1" style="display:none;">
+        <p>For thinking, I'll use:</p>
+
+        <div class="letter__group">
+          <span class="letter__label">Model</span>
+          <select class="letter__select" id="model-select">
+            <option value="">Select a model…</option>
+            <option value="claude-sonnet-4-20250514" selected>Claude Sonnet 4</option>
+            <option value="claude-opus-4-20250514">Claude Opus 4</option>
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-4.1">GPT-4.1</option>
+            <option value="deepseek-chat">DeepSeek V3</option>
+          </select>
+        </div>
+
+        <div class="letter__group" style="margin-top: 20px;">
+          <span class="letter__label">API Key</span>
+          <input type="password" class="letter__field" id="apikey-input" placeholder="sk-ant-…">
+        </div>
+
+        <div class="letter__group">
+          <span class="letter__label">Base URL (optional)</span>
+          <input type="text" class="letter__field" id="url-input" placeholder="https://api.anthropic.com">
+        </div>
+      </div>
+
+      <!-- SECTION 3: Advanced (Email Proxy) -->
+      <div class="letter__section" data-section="2" style="display:none;">
+        <p>I'm ready to begin.</p>
+
+        <div class="letter__advanced">
+          <button class="letter__advanced-toggle" id="advanced-toggle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="miter">
+              <polyline points="9 6 15 12 9 18"/>
+            </svg>
+            Email Proxy (optional)
+          </button>
+          <div class="letter__advanced-content" id="advanced-content">
+            <div class="letter__group">
+              <span class="letter__label">IMAP Server</span>
+              <input type="text" class="letter__field" placeholder="imap.example.com">
+            </div>
+            <div class="letter__group">
+              <span class="letter__label">Email Address</span>
+              <input type="text" class="letter__field" placeholder="agent@example.com">
+            </div>
+            <div class="letter__group">
+              <span class="letter__label">Password</span>
+              <input type="password" class="letter__field" placeholder="••••••••">
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- BEGIN -->
+    <div class="dispatch__begin">
+      <div class="dispatch__begin-line">
+        <span class="dispatch__begin-label">Ready</span>
+      </div>
+      <button class="dispatch__begin-btn" id="begin-btn" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="miter">
+          <path d="M22 2L11 13"/>
+          <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+        </svg>
+        Begin
+      </button>
+    </div>
+
+  </div>
+
+  <!-- SEAL OVERLAY -->
+  <div class="seal-overlay" id="seal-overlay">
+    <div class="seal-overlay__check">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter">
+        <polyline points="5 12 10 17 19 8"/>
+      </svg>
+    </div>
+    <div class="seal-overlay__text">Dispatch sealed.</div>
+    <div class="seal-overlay__sub">Initializing your matrix…</div>
+  </div>
+
+  <script>
+    // Dark mode toggle
+    const toggle = document.getElementById('theme-toggle')
+    const icon = toggle.querySelector('i')
+    toggle.addEventListener('click', () => {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+      document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark')
+      icon.className = isDark ? 'ti ti-moon' : 'ti ti-sun'
+    })
+
+    // Section navigation
+    let currentStep = 0
+    const sections = document.querySelectorAll('.letter__section')
+    const dots = document.querySelectorAll('.dispatch__dot')
+    const beginBtn = document.getElementById('begin-btn')
+
+    function showStep(step) {
+      sections.forEach((s, i) => {
+        s.style.display = i === step ? 'block' : 'none'
+        if (i === step) {
+          s.style.animation = 'dispatch-enter 0.5s ease both'
+        }
+      })
+      dots.forEach((d, i) => {
+        d.classList.toggle('active', i === step)
+        d.classList.toggle('done', i < step)
+      })
+      currentStep = step
+      updateBeginBtn()
+
+      // Focus first input in new section
+      const firstInput = sections[step].querySelector('input:not([type="password"]), select')
+      if (firstInput) setTimeout(() => firstInput.focus(), 300)
+    }
+
+    function updateBeginBtn() {
+      if (currentStep < 2) {
+        beginBtn.textContent = 'Next'
+        beginBtn.disabled = false
+      } else {
+        beginBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="miter" style="width:16px;height:16px"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg> Begin`
+        beginBtn.disabled = false
+      }
+    }
+
+    // Next/Begin button
+    beginBtn.addEventListener('click', () => {
+      if (currentStep < 2) {
+        showStep(currentStep + 1)
+      } else {
+        // Sealing animation
+        const dispatch = document.getElementById('dispatch')
+        dispatch.classList.add('sealing')
+        beginBtn.disabled = true
+
+        setTimeout(() => {
+          document.getElementById('seal-overlay').classList.add('active')
+        }, 400)
+      }
+    })
+
+    // Enter key advances to next step
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const target = e.target
+        if (target.tagName === 'INPUT' || target.tagName === 'SELECT') {
+          e.preventDefault()
+          if (currentStep < 2) {
+            showStep(currentStep + 1)
+          } else if (!beginBtn.disabled) {
+            beginBtn.click()
+          }
+        }
+      }
+    })
+
+    // Directory picker (simulated)
+    const dirPicker = document.getElementById('dir-picker')
+    const dirPath = document.getElementById('dir-path')
+    dirPicker.addEventListener('click', () => {
+      // Simulate selection
+      const paths = [
+        '/Users/dkt/MatrixWorld',
+        '/home/user/agentmatrix-workspace',
+        '~/Documents/MyAgents'
+      ]
+      const selected = paths[Math.floor(Math.random() * paths.length)]
+      dirPath.textContent = selected
+      dirPath.classList.add('has-value')
+    })
+
+    // Advanced toggle
+    const advToggle = document.getElementById('advanced-toggle')
+    const advContent = document.getElementById('advanced-content')
+    advToggle.addEventListener('click', () => {
+      advToggle.classList.toggle('open')
+      advContent.classList.toggle('open')
+    })
+
+    // Initialize
+    showStep(0)
+  </script>
+</body>
+</html>

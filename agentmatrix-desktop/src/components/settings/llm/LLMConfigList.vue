@@ -5,6 +5,7 @@ import { useUIStore } from '@/stores/ui'
 import LLMConfigCard from './LLMConfigCard.vue'
 import LLMConfigForm from './LLMConfigForm.vue'
 import ConfirmDialog from '../ConfirmDialog.vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const settingsStore = useSettingsStore()
 const uiStore = useUIStore()
@@ -89,7 +90,7 @@ const cancelDelete = () => {
     <div v-if="requiredConfigs.length > 0" class="config-section required-section">
       <div class="section-header">
         <h3 class="section-title">
-          <i class="ti ti-shield-check"></i>
+          <MIcon name="shield-check" />
           <span>Required Configurations</span>
         </h3>
         <p class="section-description">
@@ -112,7 +113,7 @@ const cancelDelete = () => {
       <div class="section-header">
         <div class="section-header-left">
           <h3 class="section-title">
-            <i class="ti ti-sliders"></i>
+            <MIcon name="sliders" />
             <span>Custom Configurations</span>
           </h3>
           <p class="section-description">
@@ -123,7 +124,7 @@ const cancelDelete = () => {
           @click="openCreateForm"
           class="btn-add"
         >
-          <i class="ti ti-plus"></i>
+          <MIcon name="plus" />
           <span>Add New</span>
         </button>
       </div>
@@ -142,7 +143,7 @@ const cancelDelete = () => {
     <!-- Empty State -->
     <div v-if="llmConfigs.length === 0" class="empty-state">
       <div class="empty-icon">
-        <i class="ti ti-brain-off"></i>
+        <MIcon name="brain-off" />
       </div>
       <h3>No LLM configurations</h3>
       <p>Add LLM configurations to enable AI capabilities</p>
@@ -150,7 +151,7 @@ const cancelDelete = () => {
         @click="openCreateForm"
         class="btn-primary"
       >
-        <i class="ti ti-plus"></i>
+        <MIcon name="plus" />
         <span>Add Your First Config</span>
       </button>
     </div>

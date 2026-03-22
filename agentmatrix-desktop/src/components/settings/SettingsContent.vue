@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import LLMConfigList from './llm/LLMConfigList.vue'
 import EmailProxyConfig from './email-proxy/EmailProxyConfig.vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   currentCategory: {
@@ -79,7 +80,7 @@ onMounted(async () => {
     <!-- Loading State -->
     <div v-if="isLoading" class="loading-state">
       <div class="loading-spinner">
-        <i class="ti ti-loader"></i>
+        <MIcon name="loader" />
       </div>
       <p>Loading settings...</p>
     </div>
@@ -87,7 +88,7 @@ onMounted(async () => {
     <!-- Error State -->
     <div v-else-if="error" class="error-state">
       <div class="error-icon">
-        <i class="ti ti-alert-circle"></i>
+        <MIcon name="alert-circle" />
       </div>
       <h3>Failed to load settings</h3>
       <p>{{ error }}</p>
@@ -107,7 +108,7 @@ onMounted(async () => {
       <div class="category-content">
         <component :is="currentCategoryComponent" v-if="currentCategoryComponent" />
         <div v-else class="not-found">
-          <i class="ti ti-help-circle"></i>
+          <MIcon name="help-circle" />
           <p>Category not found</p>
         </div>
       </div>

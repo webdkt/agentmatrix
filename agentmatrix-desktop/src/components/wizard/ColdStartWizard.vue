@@ -1,284 +1,474 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import { useConfigStore } from '@/stores/config'
 import StepUserName from './steps/StepUserName.vue'
 import StepDirectory from './steps/StepDirectory.vue'
 import StepLLM from './steps/StepLLM.vue'
-import StepComplete from './steps/StepComplete.vue'
 
 const emit = defineEmits(['complete'])
 const configStore = useConfigStore()
 
-onMounted(async () => {
-  await configStore.loadPresets()
-})
+const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789αβγδε∂∑∫√∞ΔΩ@#%&'.split('')
+const stepRefs = ref([])
+const currentStep = ref(0)
+const glitchText = ref(null)
+const rainCanvas = ref(null)
+let rainInterval = null
 
-const steps = [
-  { num: 1, label: 'Name', icon: 'ti ti-user' },
-  { num: 2, label: 'Directory', icon: 'ti ti-folder' },
-  { num: 3, label: 'LLM', icon: 'ti ti-brain' },
-  { num: 4, label: 'Done', icon: 'ti ti-check' },
-]
+// ─── Rain ───
+function initRain() {
+  const cv = rainCanvas.value
+  if (!cv) return
+  const cx = cv.getContext('2d')
+  cv.width = window.innerWidth
+  cv.height = window.innerHeight
+  const fs = 15
+  const colCount = Math.floor(cv.width / fs)
+  const drops = Array.from({ length: colCount }, () => Math.random() * -60)
+  const speeds = Array.from({ length: colCount }, () => .2 + Math.random() * .4)
 
+  function draw() {
+    cx.fillStyle = 'rgba(253,252,249,0.06)'
+    cx.fillRect(0, 0, cv.width, cv.height)
+    cx.font = fs + 'px "JetBrains Mono",monospace'
+    for (let i = 0; i < colCount; i++) {
+      const c = CHARS[Math.random() * CHARS.length | 0]
+      const x = i * fs
+      const y = drops[i] * fs
+      const isLead = Math.random() > .9
+      if (isLead) {
+        cx.fillStyle = 'rgba(212,168,67,0.7)'
+        cx.shadowColor = 'rgba(212,168,67,0.3)'
+        cx.shadowBlur = 6
+      } else {
+        const r = 180 + Math.random() * 40
+        const g = 140 + Math.random() * 40
+        const b = 40 + Math.random() * 20
+        cx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',0.15)'
+        cx.shadowColor = 'transparent'
+        cx.shadowBlur = 0
+      }
+      cx.fillText(c, x, y)
+      drops[i] += speeds[i]
+      if (drops[i] * fs > cv.height && Math.random() > .96) {
+        drops[i] = 0
+        speeds[i] = .2 + Math.random() * .4
+      }
+    }
+    cx.shadowBlur = 0
+  }
+
+  rainInterval = setInterval(draw, 50)
+}
+
+function isStepValid(idx) {
+  switch (idx) {
+    case 0: return true
+    case 1: return configStore.wizardData.user_name.trim().length > 0
+    case 2: return configStore.wizardData.matrix_world_path.trim().length > 0
+    case 3: {
+      const llm = configStore.wizardData.default_llm
+      return llm.url && llm.api_key && llm.model_name
+    }
+    case 4: {
+      const slm = configStore.wizardData.default_slm
+      return slm.url && slm.api_key && slm.model_name
+    }
+    case 5: return isStepValid(1) && isStepValid(2) && isStepValid(3) && isStepValid(4)
+    default: return false
+  }
+}
+
+function scrollToStep(idx) {
+  const el = stepRefs.value[idx]
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth' })
+  currentStep.value = idx
+}
+
+function setStepRef(el, idx) {
+  if (el) stepRefs.value[idx] = el
+}
+
+// ─── Typewriter welcome ───
+function typewriterReveal(text, targetEl) {
+  if (!targetEl) return
+  targetEl.textContent = ''
+  const spans = []
+  text.split('').forEach(c => {
+    const span = document.createElement('span')
+    span.style.opacity = '0'
+    span.textContent = c
+    targetEl.appendChild(span)
+    spans.push(span)
+  })
+  let idx = 0
+  const timer = setInterval(() => {
+    if (idx >= spans.length) {
+      clearInterval(timer)
+      targetEl.setAttribute('data-text', text)
+      targetEl.classList.add('done')
+      return
+    }
+    const pos = idx
+    spans[pos].textContent = CHARS[Math.random() * CHARS.length | 0]
+    spans[pos].style.opacity = '1'
+    spans[pos].style.textShadow = '0 0 12px rgba(212,168,67,0.5)'
+    setTimeout(() => {
+      spans[pos].textContent = text[pos]
+      spans[pos].style.textShadow = '0 0 4px rgba(212,168,67,0.2)'
+    }, 90)
+    idx++
+  }, 80)
+}
+
+// ─── Scroll lock ───
+function onScroll() {
+  let firstInvalid = -1
+  for (let i = 0; i < stepRefs.value.length; i++) {
+    if (!isStepValid(i)) { firstInvalid = i; break }
+  }
+  if (firstInvalid === -1) return
+  const el = stepRefs.value[firstInvalid]
+  if (!el) return
+  if (window.scrollY > el.offsetTop + 50) {
+    el.scrollIntoView({ behavior: 'smooth' })
+  }
+}
+
+// ─── Enter key ───
+function onKeydown(e) {
+  if (e.key !== 'Enter') return
+  const a = document.activeElement
+  if (a && a.tagName === 'SELECT') return
+  if (a && (a.type === 'password')) return
+
+  for (let i = 0; i < stepRefs.value.length; i++) {
+    const el = stepRefs.value[i]
+    if (!el) continue
+    const rect = el.getBoundingClientRect()
+    if (Math.abs(rect.top) < window.innerHeight * 0.5 && isStepValid(i)) {
+      if (i < stepRefs.value.length - 1) {
+        scrollToStep(i + 1)
+        setTimeout(() => {
+          const inp = stepRefs.value[i + 1]?.querySelector('input:not([type=checkbox]):not([type=password]),select')
+          if (inp) inp.focus()
+        }, 600)
+      }
+      break
+    }
+  }
+}
+
+// ─── Submit ───
 async function handleSubmit() {
   try {
     await configStore.submitWizard()
     emit('complete')
   } catch (error) {
-    // Error is handled in the store
+    // error handled in store
   }
 }
+
+onMounted(async () => {
+  await configStore.loadPresets()
+  addEventListener('scroll', onScroll)
+  document.addEventListener('keydown', onKeydown)
+
+  await nextTick()
+  initRain()
+  // Start typewriter immediately
+  typewriterReveal('Welcome to the Matrix', glitchText.value)
+  // Auto-advance to name after welcome finishes
+  setTimeout(() => scrollToStep(1), 4200)
+})
+
+onUnmounted(() => {
+  removeEventListener('scroll', onScroll)
+  document.removeEventListener('keydown', onKeydown)
+  if (rainInterval) clearInterval(rainInterval)
+})
 </script>
 
 <template>
-  <div class="wizard">
-    <div class="wizard__container">
-      <!-- Logo & Title -->
-      <div class="wizard__header">
-        <div class="wizard__logo">
-          <i class="ti ti-atom-2"></i>
-        </div>
-        <h1 class="wizard__title">AgentMatrix Setup</h1>
-        <p class="wizard__subtitle">Configure your AI agent workspace</p>
-      </div>
+  <div class="me">
+    <canvas ref="rainCanvas" class="me-rain"></canvas>
+    <div class="me-progress" :style="{ width: `${(currentStep / (stepRefs.length - 1)) * 100}%` }"></div>
 
-      <!-- Step Indicator -->
-      <div class="wizard__stepper">
-        <div
-          v-for="step in steps"
-          :key="step.num"
-          :class="[
-            'wizard__step',
-            {
-              'wizard__step--active': configStore.currentStep === step.num,
-              'wizard__step--completed': configStore.currentStep > step.num,
-            },
-          ]"
-        >
-          <div class="wizard__step-dot">
-            <i v-if="configStore.currentStep > step.num" class="ti ti-check"></i>
-            <span v-else>{{ step.num }}</span>
-          </div>
-          <span class="wizard__step-label">{{ step.label }}</span>
-        </div>
-        <div class="wizard__step-line">
-          <div
-            class="wizard__step-line-fill"
-            :style="{ width: `${((configStore.currentStep - 1) / (steps.length - 1)) * 100}%` }"
-          ></div>
-        </div>
+    <!-- STEP 0: Welcome -->
+    <div :ref="el => setStepRef(el, 0)" class="me-step">
+      <div class="step-inner visible">
+        <div class="me-title me-title--welcome"><span class="me-glitch" ref="glitchText"></span></div>
       </div>
+    </div>
 
-      <!-- Step Content -->
-      <div class="wizard__content">
-        <StepUserName v-if="configStore.currentStep === 1" />
-        <StepDirectory v-else-if="configStore.currentStep === 2" />
-        <StepLLM v-else-if="configStore.currentStep === 3" />
-        <StepComplete v-else-if="configStore.currentStep === 4" />
+    <!-- STEP 1: Name -->
+    <div :ref="el => setStepRef(el, 1)" class="me-step">
+      <div class="step-inner visible">
+        <div class="me-label">// identify yourself</div>
+        <StepUserName />
       </div>
+    </div>
 
-      <!-- Error -->
-      <div v-if="configStore.submitError" class="wizard__error">
-        <i class="ti ti-alert-circle"></i>
-        {{ configStore.submitError }}
+    <!-- STEP 2: Directory -->
+    <div :ref="el => setStepRef(el, 2)" class="me-step">
+      <div class="step-inner visible">
+        <div class="me-label">// workspace</div>
+        <StepDirectory />
       </div>
+    </div>
 
-      <!-- Navigation -->
-      <div class="wizard__nav">
+    <!-- STEP 3: Brain -->
+    <div :ref="el => setStepRef(el, 3)" class="me-step">
+      <div class="step-inner visible">
+        <div class="me-label">// brain</div>
+        <StepLLM which="llm" />
+      </div>
+    </div>
+
+    <!-- STEP 4: Cerebellum -->
+    <div :ref="el => setStepRef(el, 4)" class="me-step">
+      <div class="step-inner visible">
+        <div class="me-label">// cerebellum</div>
+        <StepLLM which="slm" />
+      </div>
+    </div>
+
+    <!-- STEP 5: Initialize -->
+    <div :ref="el => setStepRef(el, 5)" class="me-step">
+      <div class="step-inner visible">
         <button
-          v-if="configStore.canGoBack"
-          class="btn btn-secondary btn-lg"
-          @click="configStore.prevStep()"
-        >
-          <i class="ti ti-arrow-left"></i>
-          Back
-        </button>
-        <div v-else></div>
-
-        <button
-          v-if="!configStore.isLastStep"
-          class="btn btn-primary btn-lg"
-          :disabled="!configStore.isCurrentStepValid"
-          @click="configStore.nextStep()"
-        >
-          Next
-          <i class="ti ti-arrow-right"></i>
-        </button>
-        <button
-          v-else
-          class="btn btn-primary btn-lg"
-          :disabled="configStore.isSubmitting || !configStore.isCurrentStepValid"
+          class="me-start-btn"
+          :disabled="!isStepValid(5) || configStore.isSubmitting"
           @click="handleSubmit"
         >
-          <i v-if="configStore.isSubmitting" class="ti ti-loader wizard__spinner"></i>
-          <i v-else class="ti ti-rocket"></i>
-          {{ configStore.isSubmitting ? 'Setting up...' : 'Get Started' }}
+          <span v-if="configStore.isSubmitting" class="me-btn-spin"></span>
+          {{ configStore.isSubmitting ? 'Initializing...' : 'Initialize Matrix' }}
         </button>
+        <div class="me-summary" v-if="isStepValid(1) && isStepValid(2) && isStepValid(3)">
+          {{ configStore.wizardData.user_name }} // {{ configStore.wizardData.default_llm.model_name }} / {{ configStore.wizardData.default_slm.model_name }}
+        </div>
+        <div v-if="configStore.submitError" class="me-error">{{ configStore.submitError }}</div>
       </div>
+    </div>
+
+    <div class="me-hint" v-if="currentStep > 0 && currentStep < stepRefs.length - 1">
+      press enter to continue
+    </div>
+
+    <div class="me-overlay" :class="{ active: configStore.isSubmitting }">
+      <div class="me-overlay-spin"></div>
+      <div class="me-overlay-text">initializing matrix...</div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.wizard {
+.me {
   width: 100vw;
   height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--parchment-100);
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  background: var(--parchment-50);
+  scroll-behavior: smooth;
 }
 
-.wizard__container {
-  width: 100%;
-  max-width: 560px;
-  background: white;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--neutral-200);
-  padding: var(--spacing-2xl);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xl);
-}
-
-/* Header */
-.wizard__header {
-  text-align: center;
-}
-
-.wizard__logo {
-  width: 64px;
-  height: 64px;
-  background: var(--accent);
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  color: white;
-  margin: 0 auto var(--spacing-md);
-}
-
-.wizard__title {
-  font-family: var(--font-serif);
-  font-size: var(--font-2xl);
-  font-weight: var(--font-bold);
-  color: var(--neutral-900);
-  margin: 0;
-}
-
-.wizard__subtitle {
-  font-size: var(--font-sm);
-  color: var(--neutral-500);
-  margin: var(--spacing-xs) 0 0;
-}
-
-/* Stepper */
-.wizard__stepper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-lg);
-  position: relative;
-  padding: 0 var(--spacing-md);
-}
-
-.wizard__step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-xs);
-  z-index: 1;
-}
-
-.wizard__step-dot {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  background: var(--neutral-100);
-  color: var(--neutral-400);
-  border: 2px solid var(--neutral-200);
-  transition: all 0.3s ease;
-}
-
-.wizard__step--active .wizard__step-dot {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
-}
-
-.wizard__step--completed .wizard__step-dot {
-  background: var(--success-500);
-  color: white;
-  border-color: var(--success-500);
-}
-
-.wizard__step-label {
-  font-size: var(--font-xs);
-  color: var(--neutral-400);
-  font-weight: var(--font-medium);
-}
-
-.wizard__step--active .wizard__step-label {
-  color: var(--accent);
-}
-
-.wizard__step--completed .wizard__step-label {
-  color: var(--success-700);
-}
-
-.wizard__step-line {
-  position: absolute;
-  top: 18px;
-  left: 60px;
-  right: 60px;
-  height: 2px;
-  background: var(--neutral-200);
+.me-rain {
+  position: fixed;
+  inset: 0;
   z-index: 0;
+  pointer-events: none;
 }
 
-.wizard__step-line-fill {
+.me-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: var(--vermillion);
+  z-index: 10;
+  transition: width 0.5s ease;
+}
+
+.me-step {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+  scroll-snap-align: start;
+}
+
+.step-inner {
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.step-inner.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.me-title {
+  font-size: 52px;
+  font-weight: 700;
+  color: var(--ink-900);
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin-bottom: 32px;
+}
+
+.me-title--welcome {
+  font-size: 60px;
+  margin-bottom: 0;
+}
+
+.me-glitch {
+  position: relative;
+  display: inline-block;
+}
+
+.me-glitch::before,
+.me-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
   height: 100%;
-  background: var(--success-500);
-  transition: width 0.4s ease;
+  opacity: 0;
 }
 
-/* Content */
-.wizard__content {
-  min-height: 240px;
+.me-glitch.done::before {
+  color: var(--vermillion);
+  animation: me-g1 3s infinite linear alternate-reverse;
+  clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
+  opacity: 0.4;
 }
 
-/* Error */
-.wizard__error {
-  display: flex;
+.me-glitch.done::after {
+  color: var(--amber);
+  animation: me-g2 4s infinite linear alternate-reverse;
+  clip-path: polygon(0 60%, 100% 60%, 100% 100%, 0 100%);
+  opacity: 0.4;
+}
+
+@keyframes me-g1 {
+  0%,100%{transform:translate(0)}20%{transform:translate(-1px,1px)}40%{transform:translate(1px,-1px)}60%{transform:translate(-1px,0)}80%{transform:translate(1px,0)}
+}
+
+@keyframes me-g2 {
+  0%,100%{transform:translate(0)}25%{transform:translate(1px,-1px)}50%{transform:translate(-1px,1px)}75%{transform:translate(1px,0)}
+}
+
+.me-label {
+  font-size: 20px;
+  color: var(--amber);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+  font-weight: 600;
+}
+
+.me-start-btn {
+  display: inline-flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--error-50);
-  border: 1px solid var(--error-200, #fecaca);
-  border-radius: var(--radius-sm);
-  color: var(--error-700);
-  font-size: var(--font-sm);
+  gap: 8px;
+  background: var(--ink-900);
+  color: var(--parchment-50);
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 16px 52px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.25s;
+  margin-top: 40px;
 }
 
-/* Navigation */
-.wizard__nav {
+.me-start-btn:hover { background: var(--vermillion) }
+.me-start-btn:disabled { opacity: 0.2; cursor: default }
+
+.me-summary {
+  font-size: 13px;
+  color: var(--ink-ghost);
+  margin-top: 20px;
+  letter-spacing: 0.05em;
+}
+
+.me-error {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background: var(--fault-muted);
+  color: var(--fault);
+  font-size: 12px;
+  border-radius: 2px;
+}
+
+.me-hint {
+  position: fixed;
+  bottom: 28px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-ghost);
+  letter-spacing: 0.15em;
+  z-index: 2;
+  opacity: 0.6;
+}
+
+.me-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--parchment-50);
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s;
 }
 
-.wizard__spinner {
-  animation: spin 1s linear infinite;
+.me-overlay.active { opacity: 1; pointer-events: all }
+
+.me-overlay-spin {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--parchment-300);
+  border-top-color: var(--vermillion);
+  border-radius: 50%;
+  animation: me-spin 1s linear infinite;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.me-overlay-text {
+  font-size: 14px;
+  color: var(--ink-dim);
+  letter-spacing: 0.15em;
 }
+
+.me-btn-spin {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: me-spin 1s linear infinite;
+}
+
+@keyframes me-spin { to { transform: rotate(360deg) } }
 </style>

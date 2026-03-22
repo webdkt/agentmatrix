@@ -2,248 +2,186 @@
 import { computed } from 'vue'
 import { useConfigStore } from '@/stores/config'
 
+const props = defineProps({
+  which: { type: String, required: true } // 'llm' or 'slm'
+})
+
 const configStore = useConfigStore()
 
-const presetOptions = computed(() => {
-  return Object.entries(configStore.llmPresets).map(([key, val]) => ({
+const field = computed(() => props.which === 'llm' ? 'default_llm' : 'default_slm')
+const data = computed(() => configStore.wizardData[field.value])
+
+const presetOptions = computed(() =>
+  Object.entries(configStore.llmPresets).map(([key, val]) => ({
     value: key,
     label: val.label,
   }))
-})
+)
 
-const llmModels = computed(() => {
-  const provider = configStore.wizardData.default_llm.provider
-  return configStore.llmPresets[provider]?.models || []
-})
+const models = computed(() =>
+  configStore.llmPresets[data.value.provider]?.models || []
+)
 
-const slmModels = computed(() => {
-  const provider = configStore.wizardData.default_slm.provider
-  return configStore.llmPresets[provider]?.models || []
-})
+const isCustom = computed(() => data.value.provider === 'custom')
 
-const isLLMCustom = computed(() => configStore.wizardData.default_llm.provider === 'custom')
-const isSLMCustom = computed(() => configStore.wizardData.default_slm.provider === 'custom')
-
-function onLLMProviderChange(event) {
-  configStore.selectLLMPreset('default_llm', event.target.value)
+function onProviderChange(e) {
+  configStore.selectLLMPreset(field.value, e.target.value)
 }
 
-function onSLMProviderChange(event) {
-  configStore.selectLLMPreset('default_slm', event.target.value)
+function togEye(btn) {
+  const inp = btn.previousElementSibling
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '\u25ce' }
+  else { inp.type = 'password'; btn.textContent = '\u25c9' }
 }
 </script>
 
 <template>
-  <div class="step">
-    <h2 class="step__title">Configure your LLM providers</h2>
-    <p class="step__desc">
-      AgentMatrix uses two models: a <strong>Large Model</strong> for complex reasoning
-      and a <strong>Small Model</strong> for quick tasks.
-    </p>
-
-    <!-- Default LLM -->
-    <div class="step__section">
-      <div class="step__section-header">
-        <i class="ti ti-brain"></i>
-        <div>
-          <h3>Large Model (default_llm)</h3>
-          <p>Used for main agent reasoning and complex tasks</p>
-        </div>
-      </div>
-
-      <div class="step__row">
-        <div class="step__field">
-          <label class="step__label">Provider</label>
-          <select
-            class="input"
-            :value="configStore.wizardData.default_llm.provider"
-            @change="onLLMProviderChange"
-          >
-            <option v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <div v-if="isLLMCustom" class="step__field">
-        <label class="step__label">API URL</label>
-        <input
-          v-model="configStore.wizardData.default_llm.url"
-          class="input"
-          type="text"
-          placeholder="https://api.example.com/v1/chat/completions"
-        />
-      </div>
-
-      <div class="step__field">
-        <label class="step__label">API Key</label>
-        <input
-          v-model="configStore.wizardData.default_llm.api_key"
-          class="input"
-          type="password"
-          placeholder="sk-..."
-        />
-      </div>
-
-      <div class="step__field">
-        <label class="step__label">Model</label>
-        <select
-          v-if="!isLLMCustom && llmModels.length > 0"
-          v-model="configStore.wizardData.default_llm.model_name"
-          class="input"
-        >
-          <option v-for="m in llmModels" :key="m" :value="m">{{ m }}</option>
-        </select>
-        <input
-          v-else
-          v-model="configStore.wizardData.default_llm.model_name"
-          class="input"
-          type="text"
-          placeholder="model-name"
-        />
-      </div>
+  <div class="me-llm">
+    <!-- Custom: URL first -->
+    <div v-if="isCustom" class="me-fg">
+      <input
+        v-model="data.url"
+        class="me-sel"
+        type="text"
+        placeholder="api url"
+        spellcheck="false"
+      />
     </div>
 
-    <!-- Default SLM -->
-    <div class="step__section">
-      <div class="step__section-header">
-        <i class="ti ti-bolt"></i>
-        <div>
-          <h3>Small Model (default_slm)</h3>
-          <p>Used for fast tasks, parameter parsing, and lightweight operations</p>
-        </div>
-      </div>
+    <!-- Provider (non-custom) -->
+    <div v-else class="me-fg">
+      <select class="me-sel" :value="data.provider" @change="onProviderChange">
+        <option v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
+      </select>
+    </div>
 
-      <div class="step__row">
-        <div class="step__field">
-          <label class="step__label">Provider</label>
-          <select
-            class="input"
-            :value="configStore.wizardData.default_slm.provider"
-            @change="onSLMProviderChange"
-          >
-            <option v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </div>
-      </div>
+    <!-- Model -->
+    <div class="me-fg">
+      <select
+        v-if="!isCustom && models.length > 0"
+        class="me-sel"
+        :value="data.model_name"
+        @change="data.model_name = $event.target.value"
+      >
+        <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+      </select>
+      <input
+        v-else
+        v-model="data.model_name"
+        class="me-sel"
+        type="text"
+        placeholder="model name"
+        spellcheck="false"
+      />
+    </div>
 
-      <div v-if="isSLMCustom" class="step__field">
-        <label class="step__label">API URL</label>
+    <!-- API Key -->
+    <div class="me-fg">
+      <div class="me-pw">
         <input
-          v-model="configStore.wizardData.default_slm.url"
-          class="input"
-          type="text"
-          placeholder="https://api.example.com/v1/chat/completions"
-        />
-      </div>
-
-      <div class="step__field">
-        <label class="step__label">API Key</label>
-        <input
-          v-model="configStore.wizardData.default_slm.api_key"
-          class="input"
+          v-model="data.api_key"
+          class="me-inp"
           type="password"
-          placeholder="sk-..."
+          placeholder="api key"
+          spellcheck="false"
         />
-      </div>
-
-      <div class="step__field">
-        <label class="step__label">Model</label>
-        <select
-          v-if="!isSLMCustom && slmModels.length > 0"
-          v-model="configStore.wizardData.default_slm.model_name"
-          class="input"
-        >
-          <option v-for="m in slmModels" :key="m" :value="m">{{ m }}</option>
-        </select>
-        <input
-          v-else
-          v-model="configStore.wizardData.default_slm.model_name"
-          class="input"
-          type="text"
-          placeholder="model-name"
-        />
+        <button class="me-eye" @click="togEye($event.target)">&#x25c9;</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.step {
+.me-llm {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: 20px;
 }
 
-.step__title {
-  font-family: var(--font-serif);
-  font-size: var(--font-xl);
-  font-weight: var(--font-semibold);
-  color: var(--neutral-800);
+.me-fg {
+  margin-bottom: 0;
+}
+
+.me-sel {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--parchment-300);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: 24px;
+  padding: 12px 0;
+  outline: none;
+  text-align: center;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.3s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239A9A9A' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+}
+
+.me-sel:focus {
+  border-bottom-color: var(--vermillion);
+}
+
+.me-sel option {
+  background: var(--parchment-50);
+  color: var(--ink-900);
+}
+
+.me-pw {
+  position: relative;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.me-inp {
+  display: block;
+  width: 100%;
   margin: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--parchment-300);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: 24px;
+  padding: 12px 40px 12px 0;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.3s;
+  caret-color: var(--vermillion);
 }
 
-.step__desc {
-  font-size: var(--font-sm);
-  color: var(--neutral-500);
-  margin: 0;
-  line-height: 1.6;
+.me-inp::placeholder {
+  color: var(--ink-ghost);
+  font-size: 18px;
 }
 
-.step__section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  background: var(--neutral-50);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--neutral-200);
+.me-inp:focus {
+  border-bottom-color: var(--vermillion);
 }
 
-.step__section-header {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-xs);
-}
-
-.step__section-header i {
+.me-eye {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--ink-ghost);
+  cursor: pointer;
   font-size: 20px;
-  color: var(--accent);
-  margin-top: 2px;
+  padding: 4px;
+  transition: color 0.2s;
 }
 
-.step__section-header h3 {
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--neutral-800);
-  margin: 0;
-}
-
-.step__section-header p {
-  font-size: var(--font-xs);
-  color: var(--neutral-500);
-  margin: 0;
-}
-
-.step__row {
-  display: flex;
-  gap: var(--spacing-sm);
-}
-
-.step__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  flex: 1;
-}
-
-.step__label {
-  font-size: var(--font-xs);
-  font-weight: var(--font-medium);
-  color: var(--neutral-600);
+.me-eye:hover {
+  color: var(--ink-dim);
 }
 </style>

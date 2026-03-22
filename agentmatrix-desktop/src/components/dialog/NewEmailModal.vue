@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { agentAPI } from '@/api/agent'
 import { sessionAPI } from '@/api/session'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   show: {
@@ -190,7 +191,7 @@ const close = () => {
             @click="close"
             class="new-email-modal__close"
           >
-            <i class="ti ti-x"></i>
+            <MIcon name="x" />
           </button>
         </div>
 
@@ -200,7 +201,7 @@ const close = () => {
           <div class="new-email-modal__field">
             <label class="new-email-modal__label">{{ t('emails.to') }}</label>
             <div class="new-email-modal__input-wrapper">
-              <i class="ti ti-at new-email-modal__input-icon"></i>
+              <MIcon name="at" class="new-email-modal__input-icon" />
               <input
                 v-model="agentSearchQuery"
                 @focus="showAgentDropdown = true"
@@ -213,7 +214,7 @@ const close = () => {
                 @click="clearAgent"
                 class="new-email-modal__clear"
               >
-                <i class="ti ti-x"></i>
+                <MIcon name="x" />
               </button>
             </div>
 
@@ -254,7 +255,7 @@ const close = () => {
 
               <!-- Drag overlay hint -->
               <div v-if="isDragging" class="new-email-modal__drag-hint">
-                <i class="ti ti-upload"></i>
+                <MIcon name="upload" />
                 <span>Drop files to attach</span>
               </div>
             </div>
@@ -272,7 +273,7 @@ const close = () => {
                 class="new-email-modal__attachment"
               >
                 <div class="new-email-modal__attachment-icon">
-                  <i class="ti ti-file"></i>
+                  <MIcon name="file" />
                 </div>
                 <div class="new-email-modal__attachment-info">
                   <span class="new-email-modal__attachment-name">{{ file.name }}</span>
@@ -282,7 +283,7 @@ const close = () => {
                   @click="removeAttachment(index)"
                   class="new-email-modal__attachment-remove"
                 >
-                  <i class="ti ti-x"></i>
+                  <MIcon name="x" />
                 </button>
               </div>
             </div>
@@ -294,7 +295,7 @@ const close = () => {
               @click="$refs.fileInput.click()"
               class="new-email-modal__upload-btn"
             >
-              <i class="ti ti-paperclip"></i>
+              <MIcon name="paperclip" />
               <span>{{ t('emails.attachFile') }}</span>
             </button>
             <input
@@ -323,7 +324,7 @@ const close = () => {
           >
             <span v-if="!isSending">{{ t('emails.send') }}</span>
             <span v-else>{{ t('emails.sending') }}</span>
-            <i v-if="isSending" class="ti ti-loader animate-spin"></i>
+            <span v-if="isSending" class="animate-spin"><MIcon name="loader" /></span>
           </button>
         </div>
       </div>

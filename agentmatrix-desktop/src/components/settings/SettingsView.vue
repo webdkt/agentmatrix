@@ -4,6 +4,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 import SettingsSidebar from './SettingsSidebar.vue'
 import SettingsContent from './SettingsContent.vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const emit = defineEmits(['view-change'])
 
@@ -62,11 +63,11 @@ const handleBackClick = () => {
           class="back-button"
           title="Back to Email"
         >
-          <i class="ti ti-arrow-left"></i>
+          <MIcon name="arrow-left" />
         </button>
         <div class="header-info">
           <div class="header-icon">
-            <i class="ti ti-settings"></i>
+            <MIcon name="settings" />
           </div>
           <div>
             <h1 class="header-title">Settings</h1>

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted } from 'vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   message: {
@@ -96,10 +97,7 @@ const textColor = computed(() => {
         borderColor: borderColor
       }"
     >
-      <i
-        :class="['ti', iconClass, 'toast-icon']"
-        :style="{ color: iconColor }"
-      ></i>
+      <MIcon :name="iconClass.replace('ti-', '')" class="toast-icon" :style="{ color: iconColor }" />
       <span class="toast-message" :style="{ color: textColor }">
         {{ message }}
       </span>
@@ -108,7 +106,7 @@ const textColor = computed(() => {
         class="toast-close"
         :style="{ color: textColor }"
       >
-        <i class="ti ti-x"></i>
+        <MIcon name="x" />
       </button>
     </div>
   </Transition>

@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   currentView: {
@@ -14,11 +15,11 @@ const emit = defineEmits(['view-change'])
 const { t } = useI18n()
 
 const views = [
-  { id: 'dashboard', icon: 'ti-layout-dashboard', label: 'views.dashboard.title' },
-  { id: 'email', icon: 'ti-mail', label: 'views.email.title' },
-  { id: 'matrix', icon: 'ti-grid', label: 'views.matrix.title' },
-  { id: 'magic', icon: 'ti-wand', label: 'views.magic.title' },
-  { id: 'settings', icon: 'ti-settings', label: 'views.settings.title' }
+  { id: 'dashboard', icon: 'layout-dashboard', label: 'views.dashboard.title' },
+  { id: 'email', icon: 'mail', label: 'views.email.title' },
+  { id: 'matrix', icon: 'grid', label: 'views.matrix.title' },
+  { id: 'magic', icon: 'wand', label: 'views.magic.title' },
+  { id: 'settings', icon: 'settings', label: 'views.settings.title' }
 ]
 
 const handleViewClick = (viewId) => {
@@ -30,7 +31,7 @@ const handleViewClick = (viewId) => {
   <aside class="view-selector">
     <div class="view-selector__logo">
       <div class="logo-icon">
-        <i class="ti ti-robot"></i>
+        <MIcon name="robot" />
       </div>
     </div>
 
@@ -42,7 +43,7 @@ const handleViewClick = (viewId) => {
         :title="t(view.label)"
         @click="handleViewClick(view.id)"
       >
-        <i :class="['view-selector__icon', view.icon]"></i>
+        <MIcon :name="view.icon" />
       </button>
     </nav>
 

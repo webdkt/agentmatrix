@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import SessionItem from './SessionItem.vue'
 import NewEmailModal from '@/components/dialog/NewEmailModal.vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const { t } = useI18n()
 const sessionStore = useSessionStore()
@@ -99,14 +100,14 @@ const handleEmailSent = async (result) => {
         @click="openNewEmailModal"
         class="session-list__new-email-btn"
       >
-        <i class="ti ti-plus session-list__new-email-icon"></i>
+        <MIcon name="plus" />
         <span>{{ t('sessions.newEmail') }}</span>
       </button>
     </div>
 
     <!-- Search Box (Full-Width) -->
     <div class="session-list__search">
-      <i class="ti ti-search session-list__search-icon"></i>
+      <MIcon name="search" />
       <input
         type="text"
         :placeholder="t('sessions.search')"
@@ -135,7 +136,7 @@ const handleEmailSent = async (result) => {
           :disabled="isLoading"
           class="session-list__load-more-btn"
         >
-          <i class="ti" :class="isLoading ? 'ti-loader animate-spin' : 'ti-loader'"></i>
+          <span :class="{ 'animate-spin': isLoading }"><MIcon name="loader" /></span>
           <span>{{ isLoading ? t('sessions.loading') : t('sessions.loadMore') }}</span>
         </button>
       </div>
@@ -143,7 +144,7 @@ const handleEmailSent = async (result) => {
       <!-- Empty State -->
       <div v-if="sessions.length === 0" class="session-list__empty">
         <div class="session-list__empty-icon">
-          <i class="ti ti-messages"></i>
+          <MIcon name="messages" />
         </div>
         <p class="session-list__empty-text">{{ t('sessions.noSessions') }}</p>
         <p class="session-list__empty-hint">{{ t('sessions.startNew') }}</p>

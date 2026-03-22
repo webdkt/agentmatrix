@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { useSessionStore } from '@/stores/session'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   show: {
@@ -75,7 +76,7 @@ const close = () => {
         <div class="ask-user-dialog-header">
           <div class="ask-user-dialog-header-left">
             <div class="ask-user-dialog-icon">
-              <i class="ti ti-message-circle"></i>
+              <MIcon name="message-circle" />
             </div>
             <div class="ask-user-dialog-header-text">
               <h2 class="ask-user-dialog-title">{{ currentQuestion.agent_name }} 需要你的回答</h2>
@@ -87,7 +88,7 @@ const close = () => {
             class="ask-user-dialog-close"
             type="button"
           >
-            <i class="ti ti-x"></i>
+            <MIcon name="x" />
           </button>
         </div>
 
@@ -127,7 +128,7 @@ const close = () => {
           >
             <span v-if="!isSubmitting">提交回答</span>
             <span v-else>提交中...</span>
-            <i v-if="isSubmitting" class="ti ti-loader animate-spin"></i>
+            <span v-if="isSending" class="animate-spin"><MIcon name="loader" /></span>
           </button>
         </div>
       </div>

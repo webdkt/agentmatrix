@@ -102,10 +102,10 @@
   --font-2xl: 1.5rem;
   --font-3xl: 1.875rem;
 
-  --font-serif: "Source Serif 4", "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Courier New", monospace;
-  --font-display: var(--font-serif);
+  --font-serif: "JetBrains Mono", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: "JetBrains Mono", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "SF Pro Text", sans-serif;
+  --font-mono: "JetBrains Mono", "Noto Sans SC", "SF Mono", "Menlo", "Cascadia Code", monospace;
+  --font-display: "JetBrains Mono", "Noto Sans SC", "PingFang SC", sans-serif;
 
   --font-normal: 400;
   --font-medium: 500;

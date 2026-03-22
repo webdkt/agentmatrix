@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useAgentStore } from '@/stores/agent'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   agentName: {
@@ -67,7 +68,7 @@ const currentStatusConfig = computed(() => {
       v-if="agentStatus === 'IDLE'"
       class="flex items-center gap-2 text-sm text-slate-400"
     >
-      <i :class="['ti', currentStatusConfig.icon, 'text-xs']"></i>
+      <MIcon :name="currentStatusConfig.icon.replace('ti-', '')" />
       <span>{{ agentName }}</span>
     </div>
 
@@ -76,7 +77,7 @@ const currentStatusConfig = computed(() => {
       <!-- 为当前会话工作 -->
       <div v-if="isWorkingOnCurrentSession" class="space-y-1.5">
         <div class="flex items-center gap-2 text-sm" :class="currentStatusConfig.color">
-          <i :class="['ti', currentStatusConfig.icon, 'text-xs animate-spin']"></i>
+          <span class="animate-spin"><MIcon :name="currentStatusConfig.icon.replace('ti-', '')" /></span>
           <span>{{ agentName }}: {{ currentStatusConfig.text }}</span>
         </div>
 
@@ -94,7 +95,7 @@ const currentStatusConfig = computed(() => {
 
       <!-- 为其他会话工作 -->
       <div v-else class="flex items-center gap-2 text-sm text-amber-400">
-        <i class="ti ti-arrow-right text-xs"></i>
+        <MIcon name="arrow-right" />
         <span>{{ agentName }} 正在处理其他任务</span>
       </div>
     </div>

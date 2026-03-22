@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 import EmailProxyForm from './EmailProxyForm.vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const settingsStore = useSettingsStore()
 const uiStore = useUIStore()
@@ -186,7 +187,7 @@ onMounted(async () => {
       <div class="status-header">
         <div class="status-info">
           <div class="status-icon" :class="{ enabled: isEnabled }">
-            <i class="ti ti-mail"></i>
+            <MIcon name="mail" />
           </div>
           <div>
             <h3 class="status-title">Email Proxy Service</h3>
@@ -202,7 +203,7 @@ onMounted(async () => {
             class="btn-test"
             title="Test connection"
           >
-            <i class="ti ti-flask" :class="{ spinner: isTesting }"></i>
+            <MIcon name="flask" :class="{ spinner: isTesting }" />
             <span>{{ isTesting ? 'Testing...' : 'Test' }}</span>
           </button>
           <button
@@ -211,7 +212,7 @@ onMounted(async () => {
             class="btn-toggle"
             :class="{ enabled: isEnabled }"
           >
-            <i :class="isEnabled ? 'ti ti-player-pause' : 'ti ti-player-play'"></i>
+            <MIcon :name="isEnabled ? 'player-pause' : 'player-play'" />
             <span>{{ isEnabled ? 'Disable' : 'Enable' }}</span>
           </button>
         </div>
@@ -231,7 +232,7 @@ onMounted(async () => {
           @click="handleEditConfig"
           class="btn-edit"
         >
-          <i class="ti ti-pencil"></i>
+          <MIcon name="pencil" />
           <span>{{ hasConfig ? 'Edit' : 'Configure' }}</span>
         </button>
       </div>
@@ -239,7 +240,7 @@ onMounted(async () => {
       <div v-if="hasConfig && configSummary" class="config-details">
         <div class="detail-section">
           <h4 class="detail-section-title">
-            <i class="ti ti-mail"></i>
+            <MIcon name="mail" />
             Email Settings
           </h4>
           <div class="detail-item">
@@ -250,7 +251,7 @@ onMounted(async () => {
 
         <div class="detail-section">
           <h4 class="detail-section-title">
-            <i class="ti ti-inbox"></i>
+            <MIcon name="inbox" />
             IMAP Configuration
           </h4>
           <div class="detail-item">
@@ -269,7 +270,7 @@ onMounted(async () => {
 
         <div class="detail-section">
           <h4 class="detail-section-title">
-            <i class="ti ti-send"></i>
+            <MIcon name="send" />
             SMTP Configuration
           </h4>
           <div class="detail-item">
@@ -289,7 +290,7 @@ onMounted(async () => {
 
       <div v-else class="empty-config">
         <div class="empty-icon">
-          <i class="ti ti-mail-off"></i>
+          <MIcon name="mail-off" />
         </div>
         <h4>No Configuration</h4>
         <p>Configure your email proxy settings to enable email services</p>
@@ -297,7 +298,7 @@ onMounted(async () => {
           @click="handleEditConfig"
           class="btn-configure"
         >
-          <i class="ti ti-plus"></i>
+          <MIcon name="plus" />
           <span>Configure Now</span>
         </button>
       </div>

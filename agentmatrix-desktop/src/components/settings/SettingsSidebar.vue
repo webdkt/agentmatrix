@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   categories: {
@@ -34,7 +35,7 @@ const isActive = (categoryId) => {
         :title="category.description"
       >
         <div class="nav-item-icon-wrapper">
-          <i :class="['ti', category.icon, 'nav-item-icon']"></i>
+          <MIcon :name="category.icon.replace('ti-', '')" class="nav-item-icon" />
         </div>
         <div class="nav-item-content">
           <span class="nav-item-label">{{ category.label }}</span>

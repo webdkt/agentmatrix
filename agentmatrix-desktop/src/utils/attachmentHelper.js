@@ -32,19 +32,19 @@ export function getAttachmentIcon(filename) {
   const ext = filename.split('.').pop().toLowerCase()
 
   const icons = {
-    'jpg': 'ti-file-image', 'jpeg': 'ti-file-image', 'png': 'ti-file-image',
-    'gif': 'ti-file-image', 'svg': 'ti-file-image', 'webp': 'ti-file-image',
-    'pdf': 'ti-file-text', 'doc': 'ti-file-text', 'docx': 'ti-file-text',
-    'txt': 'ti-file-text', 'md': 'ti-file-text',
-    'xls': 'ti-file-spreadsheet', 'xlsx': 'ti-file-spreadsheet',
-    'csv': 'ti-file-spreadsheet',
-    'js': 'ti-file-code', 'ts': 'ti-file-code', 'py': 'ti-file-code',
-    'java': 'ti-file-code', 'cpp': 'ti-file-code', 'html': 'ti-file-code',
-    'css': 'ti-file-code', 'json': 'ti-file-code',
-    'zip': 'ti-file-zip', 'rar': 'ti-file-zip', '7z': 'ti-file-zip',
-    'mp4': 'ti-file-video', 'avi': 'ti-file-video', 'mov': 'ti-file-video',
-    'mp3': 'ti-file-music', 'wav': 'ti-file-music', 'flac': 'ti-file-music'
+    'jpg': 'file-image', 'jpeg': 'file-image', 'png': 'file-image',
+    'gif': 'file-image', 'svg': 'file-image', 'webp': 'file-image',
+    'pdf': 'file-text', 'doc': 'file-text', 'docx': 'file-text',
+    'txt': 'file-text', 'md': 'file-text',
+    'xls': 'file-spreadsheet', 'xlsx': 'file-spreadsheet',
+    'csv': 'file-spreadsheet',
+    'js': 'file-code', 'ts': 'file-code', 'py': 'file-code',
+    'java': 'file-code', 'cpp': 'file-code', 'html': 'file-code',
+    'css': 'file-code', 'json': 'file-code',
+    'zip': 'file-zip', 'rar': 'file-zip', '7z': 'file-zip',
+    'mp4': 'file-video', 'avi': 'file-video', 'mov': 'file-video',
+    'mp3': 'file-music', 'wav': 'file-music', 'flac': 'file-music'
   }
 
-  return icons[ext] || 'ti-file'
+  return icons[ext] || 'file'
 }

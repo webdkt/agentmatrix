@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import MIcon from '@/components/icons/MIcon.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 
@@ -134,7 +135,7 @@ const selectModel = (model) => {
           <div class="header-title-section">
             <h3 class="modal-title">{{ formTitle }}</h3>
             <div v-if="isRequiredConfig" class="required-badge-inline">
-              <i class="ti ti-shield"></i>
+              <MIcon name="shield" />
               <span>Required Configuration</span>
             </div>
           </div>
@@ -146,7 +147,7 @@ const selectModel = (model) => {
           @click="handleCancel"
           class="btn-close"
         >
-          <i class="ti ti-x"></i>
+          <MIcon name="x" />
         </button>
       </div>
 
@@ -172,7 +173,7 @@ const selectModel = (model) => {
         <!-- Basic Settings -->
         <div class="form-section">
           <h4 class="section-title">
-            <i class="ti ti-settings"></i>
+            <MIcon name="settings" />
             Basic Settings
           </h4>
 
@@ -209,7 +210,7 @@ const selectModel = (model) => {
         <!-- API Settings -->
         <div class="form-section">
           <h4 class="section-title">
-            <i class="ti ti-api"></i>
+            <MIcon name="api" />
             API Configuration
           </h4>
 
@@ -241,7 +242,7 @@ const selectModel = (model) => {
                 @click="toggleApiKeyVisibility"
                 class="btn-toggle-visibility"
               >
-                <i :class="showApiKey ? 'ti ti-eye-off' : 'ti ti-eye'"></i>
+                <MIcon :name="showApiKey ? 'eye-off' : 'eye'" />
               </button>
             </div>
           </div>
@@ -276,8 +277,8 @@ const selectModel = (model) => {
           type="submit"
           class="btn-primary"
         >
-          <i v-if="isSubmitting" class="ti ti-loader spinner"></i>
-          <i v-else class="ti ti-check"></i>
+          <MIcon v-if="isSubmitting" name="loader" class="spinner" />
+          <MIcon v-else name="check" />
           <span>{{ isEditMode ? 'Save Changes' : 'Create Config' }}</span>
         </button>
       </div>

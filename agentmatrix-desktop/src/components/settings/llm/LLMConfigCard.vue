@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   config: {
@@ -46,10 +47,10 @@ const configIconClass = computed(() => {
     <!-- Card Header -->
     <div class="card-header">
       <div :class="['card-icon', configIconClass]">
-        <i :class="['ti', configIcon]"></i>
+        <MIcon :name="configIcon.replace('ti-', '')" />
       </div>
       <div v-if="isRequired" class="required-badge">
-        <i class="ti ti-shield"></i>
+        <MIcon name="shield" />
         <span>Required</span>
       </div>
     </div>
@@ -63,12 +64,12 @@ const configIconClass = computed(() => {
 
       <div class="config-details">
         <div class="detail-item">
-          <i class="ti ti-database"></i>
+          <MIcon name="database" />
           <span class="detail-label">Model</span>
           <span class="detail-value">{{ config.model_name || 'Not configured' }}</span>
         </div>
         <div class="detail-item">
-          <i class="ti ti-link"></i>
+          <MIcon name="link" />
           <span class="detail-label">API</span>
           <span class="detail-value">{{ formatUrl(config.url) }}</span>
         </div>
@@ -82,7 +83,7 @@ const configIconClass = computed(() => {
         class="btn-action btn-edit"
         title="Edit configuration"
       >
-        <i class="ti ti-pencil"></i>
+        <MIcon name="pencil" />
         <span>Edit</span>
       </button>
       <button
@@ -91,7 +92,7 @@ const configIconClass = computed(() => {
         class="btn-action btn-delete"
         title="Delete configuration"
       >
-        <i class="ti ti-trash"></i>
+        <MIcon name="trash" />
       </button>
     </div>
   </div>
