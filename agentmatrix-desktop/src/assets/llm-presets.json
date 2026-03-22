@@ -3,18 +3,42 @@
     "label": "Anthropic",
     "url": "https://api.anthropic.com/v1/messages",
     "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250514"],
+    "patterns": ["claude"],
     "api_key_env": "ANTHROPIC_API_KEY"
   },
   "openai": {
     "label": "OpenAI",
     "url": "https://api.openai.com/v1/chat/completions",
-    "models": ["gpt-4o", "gpt-4o-mini"],
+    "models": ["gpt-4o", "gpt-4o-mini", "o1", "o3"],
+    "patterns": ["gpt", "o1", "o3"],
     "api_key_env": "OPENAI_API_KEY"
+  },
+  "deepseek": {
+    "label": "DeepSeek",
+    "url": "https://api.deepseek.com/v1/chat/completions",
+    "models": ["deepseek-chat", "deepseek-coder"],
+    "patterns": ["deepseek"],
+    "api_key_env": "DEEPSEEK_API_KEY"
+  },
+  "google": {
+    "label": "Google",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models",
+    "models": ["gemini-2.0-flash", "gemini-1.5-pro"],
+    "patterns": ["gemini"],
+    "api_key_env": "GOOGLE_API_KEY"
+  },
+  "xiaomi": {
+    "label": "Xiaomi",
+    "url": "https://api.xiaomimimo.com/v1/chat/completions",
+    "models": ["mimo-v2-pro", "mimo-v2-flash"],
+    "patterns": ["mimo"],
+    "api_key_env": "XIAOMI_API_KEY"
   },
   "custom": {
     "label": "Custom",
     "url": "",
     "models": [],
+    "patterns": [],
     "api_key_env": ""
   }
 }

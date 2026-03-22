@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick, onUnmounted } from 'vue'
+import { ref, computed, onMounted, nextTick, onUnmounted, watch } from 'vue'
 import { useConfigStore } from '@/stores/config'
 import StepUserName from './steps/StepUserName.vue'
 import StepDirectory from './steps/StepDirectory.vue'
@@ -9,15 +9,16 @@ const emit = defineEmits(['complete'])
 const configStore = useConfigStore()
 
 const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789αβγδε∂∑∫√∞ΔΩ@#%&'.split('')
-const stepRefs = ref([])
-const currentStep = ref(0)
 const glitchText = ref(null)
 const rainCanvas = ref(null)
+const currentStep = ref(0)
+const errors = ref({})
+const cerebellumPrefilled = ref(false)
 let rainInterval = null
 
 // ─── Rain ───
 function initRain() {
-  const cv = rainCanvas.value
+  const cv = document.querySelector('.me-rain')
   if (!cv) return
   const cx = cv.getContext('2d')
   cv.width = window.innerWidth
@@ -26,7 +27,6 @@ function initRain() {
   const colCount = Math.floor(cv.width / fs)
   const drops = Array.from({ length: colCount }, () => Math.random() * -60)
   const speeds = Array.from({ length: colCount }, () => .2 + Math.random() * .4)
-
   function draw() {
     cx.fillStyle = 'rgba(253,252,249,0.06)'
     cx.fillRect(0, 0, cv.width, cv.height)
@@ -57,40 +57,10 @@ function initRain() {
     }
     cx.shadowBlur = 0
   }
-
   rainInterval = setInterval(draw, 50)
 }
 
-function isStepValid(idx) {
-  switch (idx) {
-    case 0: return true
-    case 1: return configStore.wizardData.user_name.trim().length > 0
-    case 2: return configStore.wizardData.matrix_world_path.trim().length > 0
-    case 3: {
-      const llm = configStore.wizardData.default_llm
-      return llm.url && llm.api_key && llm.model_name
-    }
-    case 4: {
-      const slm = configStore.wizardData.default_slm
-      return slm.url && slm.api_key && slm.model_name
-    }
-    case 5: return isStepValid(1) && isStepValid(2) && isStepValid(3) && isStepValid(4)
-    default: return false
-  }
-}
-
-function scrollToStep(idx) {
-  const el = stepRefs.value[idx]
-  if (!el) return
-  el.scrollIntoView({ behavior: 'smooth' })
-  currentStep.value = idx
-}
-
-function setStepRef(el, idx) {
-  if (el) stepRefs.value[idx] = el
-}
-
-// ─── Typewriter welcome ───
+// ─── Typewriter ───
 function typewriterReveal(text, targetEl) {
   if (!targetEl) return
   targetEl.textContent = ''
@@ -122,42 +92,119 @@ function typewriterReveal(text, targetEl) {
   }, 80)
 }
 
-// ─── Scroll lock ───
-function onScroll() {
-  let firstInvalid = -1
-  for (let i = 0; i < stepRefs.value.length; i++) {
-    if (!isStepValid(i)) { firstInvalid = i; break }
-  }
-  if (firstInvalid === -1) return
-  const el = stepRefs.value[firstInvalid]
-  if (!el) return
-  if (window.scrollY > el.offsetTop + 50) {
-    el.scrollIntoView({ behavior: 'smooth' })
+// ─── Steps ───
+const STEPS = [
+  { id: 'welcome', fields: [] },
+  { id: 'name', fields: ['name'] },
+  { id: 'dir', fields: ['dir'] },
+  { id: 'brain', fields: ['brain-model', 'brain-key'] },
+  { id: 'cerebellum', fields: ['cerebellum-model', 'cerebellum-key'] },
+  { id: 'init', fields: [] },
+]
+
+// ─── Validation ───
+function isStepValid(idx) {
+  switch (idx) {
+    case 0: return true
+    case 1: return configStore.wizardData.user_name.trim().length > 0
+    case 2: return configStore.wizardData.matrix_world_path.trim().length > 0
+    case 3: {
+      const llm = configStore.wizardData.default_llm
+      return llm.model_name && llm.api_key && llm.url
+    }
+    case 4: {
+      const slm = configStore.wizardData.default_slm
+      return slm.model_name && slm.api_key && slm.url
+    }
+    case 5: return isStepValid(1) && isStepValid(2) && isStepValid(3) && isStepValid(4)
+    default: return false
   }
 }
 
-// ─── Enter key ───
-function onKeydown(e) {
-  if (e.key !== 'Enter') return
-  const a = document.activeElement
-  if (a && a.tagName === 'SELECT') return
-  if (a && (a.type === 'password')) return
+function showError(key) {
+  errors.value[key] = true
+  setTimeout(() => { delete errors.value[key] }, 800)
+}
 
-  for (let i = 0; i < stepRefs.value.length; i++) {
-    const el = stepRefs.value[i]
-    if (!el) continue
-    const rect = el.getBoundingClientRect()
-    if (Math.abs(rect.top) < window.innerHeight * 0.5 && isStepValid(i)) {
-      if (i < stepRefs.value.length - 1) {
-        scrollToStep(i + 1)
-        setTimeout(() => {
-          const inp = stepRefs.value[i + 1]?.querySelector('input:not([type=checkbox]):not([type=password]),select')
-          if (inp) inp.focus()
-        }, 600)
-      }
-      break
+// ─── Navigation ───
+function goBack() {
+  if (currentStep.value > 0) currentStep.value--
+}
+
+function advance() {
+  if (currentStep.value >= STEPS.length - 1) return
+
+  // Pre-fill Cerebellum from Brain when first entering step 4
+  if (currentStep.value === 3 && !cerebellumPrefilled.value) {
+    configStore.wizardData.default_slm = { ...configStore.wizardData.default_llm }
+    cerebellumPrefilled.value = true
+  }
+
+  if (!isStepValid(currentStep.value)) {
+    // Shake and show errors
+    const el = document.querySelector('.me-step--active')
+    if (el) {
+      el.classList.remove('me-shake')
+      void el.offsetWidth
+      el.classList.add('me-shake')
+      setTimeout(() => el.classList.remove('me-shake'), 500)
+    }
+    // Show errors on empty fields
+    const step = STEPS[currentStep.value]
+    step.fields.forEach(f => {
+      const val = getFieldValue(f)
+      if (!val) showError(`${currentStep.value}.${f}`)
+    })
+    return
+  }
+  currentStep.value++
+}
+
+function getFieldValue(fieldId) {
+  switch (fieldId) {
+    case 'name': return configStore.wizardData.user_name.trim()
+    case 'dir': return configStore.wizardData.matrix_world_path.trim()
+    case 'brain-model': return configStore.wizardData.default_llm.model_name.trim()
+    case 'brain-key': return configStore.wizardData.default_llm.api_key.trim()
+    case 'cerebellum-model': return configStore.wizardData.default_slm.model_name.trim()
+    case 'cerebellum-key': return configStore.wizardData.default_slm.api_key.trim()
+    default: return ''
+  }
+}
+
+// Enter key: advance field or step
+// Escape key: go back
+function onKeydown(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    goBack()
+    return
+  }
+  if (e.key !== 'Enter') return
+  e.preventDefault()
+
+  // Find next focusable input in current step
+  const stepEl = document.querySelector('.me-step--active')
+  if (stepEl) {
+    const inputs = [...stepEl.querySelectorAll('input:not([type=checkbox]):not([type=password]),input[type=password],select')]
+    const focused = document.activeElement
+    const idx = inputs.indexOf(focused)
+    if (idx >= 0 && idx < inputs.length - 1) {
+      // Focus next field
+      inputs[idx + 1].focus()
+      return
     }
   }
+
+  // No next field or not focused on input → advance step
+  advance()
+}
+
+// Click anywhere = advance
+function onClickStep(e) {
+  // Don't advance if clicking on interactive elements
+  if (e.target.closest('input,select,button,a,.ms,.me-pw,.me-eye,.ms-dropdown')) return
+  advance()
 }
 
 // ─── Submit ───
@@ -165,82 +212,94 @@ async function handleSubmit() {
   try {
     await configStore.submitWizard()
     emit('complete')
-  } catch (error) {
-    // error handled in store
-  }
+  } catch (error) { /* handled in store */ }
 }
 
+// ─── Init ───
 onMounted(async () => {
   await configStore.loadPresets()
-  addEventListener('scroll', onScroll)
   document.addEventListener('keydown', onKeydown)
-
-  await nextTick()
   initRain()
-  // Start typewriter immediately
-  typewriterReveal('Welcome to the Matrix', glitchText.value)
-  // Auto-advance to name after welcome finishes
-  setTimeout(() => scrollToStep(1), 4200)
+  typewriterReveal('Welcome to the Matrix', document.querySelector('.me-glitch'))
+  setTimeout(() => advance(), 4200)
 })
 
 onUnmounted(() => {
-  removeEventListener('scroll', onScroll)
   document.removeEventListener('keydown', onKeydown)
   if (rainInterval) clearInterval(rainInterval)
 })
 </script>
 
 <template>
-  <div class="me">
+  <div class="me" @click="onClickStep">
     <canvas ref="rainCanvas" class="me-rain"></canvas>
-    <div class="me-progress" :style="{ width: `${(currentStep / (stepRefs.length - 1)) * 100}%` }"></div>
+    <div class="me-progress" :style="{ width: `${(currentStep / (STEPS.length - 1)) * 100}%` }"></div>
+
+    <!-- Back indicator -->
+    <div v-if="currentStep > 0 && currentStep < STEPS.length - 1" class="me-back" @click.stop="goBack()">
+      &#x2190;
+    </div>
 
     <!-- STEP 0: Welcome -->
-    <div :ref="el => setStepRef(el, 0)" class="me-step">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 0 }" v-show="currentStep === 0">
       <div class="step-inner visible">
         <div class="me-title me-title--welcome"><span class="me-glitch" ref="glitchText"></span></div>
       </div>
     </div>
 
     <!-- STEP 1: Name -->
-    <div :ref="el => setStepRef(el, 1)" class="me-step">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 1 }" v-show="currentStep === 1">
       <div class="step-inner visible">
         <div class="me-label">// identify yourself</div>
-        <StepUserName />
+        <input
+          v-model="configStore.wizardData.user_name"
+          class="me-inp"
+          :class="{ done: configStore.wizardData.user_name.trim(), 'me-error': errors['1.name'] }"
+          type="text"
+          placeholder="your name"
+          autofocus
+          autocomplete="off"
+          spellcheck="false"
+        />
       </div>
     </div>
 
     <!-- STEP 2: Directory -->
-    <div :ref="el => setStepRef(el, 2)" class="me-step">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 2 }" v-show="currentStep === 2">
       <div class="step-inner visible">
         <div class="me-label">// workspace</div>
-        <StepDirectory />
+        <div class="me-dir" :class="{ 'me-error': errors['2.dir'] }" @click.stop="configStore.selectDirectory()">
+          <span class="me-dir-path" :class="{ has: configStore.wizardData.matrix_world_path }">
+            {{ configStore.wizardData.matrix_world_path || 'select workspace directory' }}
+          </span>
+          <span class="me-dir-browse">browse</span>
+        </div>
       </div>
     </div>
 
     <!-- STEP 3: Brain -->
-    <div :ref="el => setStepRef(el, 3)" class="me-step">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 3 }" v-show="currentStep === 3">
       <div class="step-inner visible">
         <div class="me-label">// brain</div>
-        <StepLLM which="llm" />
+        <StepLLM which="llm" :errors="errors" step-idx="3" />
       </div>
     </div>
 
     <!-- STEP 4: Cerebellum -->
-    <div :ref="el => setStepRef(el, 4)" class="me-step">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 4 }" v-show="currentStep === 4">
       <div class="step-inner visible">
         <div class="me-label">// cerebellum</div>
-        <StepLLM which="slm" />
+        <StepLLM which="slm" :errors="errors" step-idx="4" />
       </div>
     </div>
 
     <!-- STEP 5: Initialize -->
-    <div :ref="el => setStepRef(el, 5)" class="me-step">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 5 }" v-show="currentStep === 5">
       <div class="step-inner visible">
         <button
           class="me-start-btn"
           :disabled="!isStepValid(5) || configStore.isSubmitting"
-          @click="handleSubmit"
+          @click.stop="handleSubmit"
         >
           <span v-if="configStore.isSubmitting" class="me-btn-spin"></span>
           {{ configStore.isSubmitting ? 'Initializing...' : 'Initialize Matrix' }}
@@ -248,14 +307,16 @@ onUnmounted(() => {
         <div class="me-summary" v-if="isStepValid(1) && isStepValid(2) && isStepValid(3)">
           {{ configStore.wizardData.user_name }} // {{ configStore.wizardData.default_llm.model_name }} / {{ configStore.wizardData.default_slm.model_name }}
         </div>
-        <div v-if="configStore.submitError" class="me-error">{{ configStore.submitError }}</div>
+        <div v-if="configStore.submitError" class="me-error-msg">{{ configStore.submitError }}</div>
       </div>
     </div>
 
-    <div class="me-hint" v-if="currentStep > 0 && currentStep < stepRefs.length - 1">
+    <!-- Hint -->
+    <div class="me-hint" v-if="currentStep > 0 && currentStep < STEPS.length - 1">
       press enter to continue
     </div>
 
+    <!-- Submit overlay -->
     <div class="me-overlay" :class="{ active: configStore.isSubmitting }">
       <div class="me-overlay-spin"></div>
       <div class="me-overlay-text">initializing matrix...</div>
@@ -267,17 +328,21 @@ onUnmounted(() => {
 .me {
   width: 100vw;
   height: 100vh;
-  overflow-y: auto;
-  scroll-snap-type: y mandatory;
+  overflow: hidden;
   background: var(--parchment-50);
-  scroll-behavior: smooth;
+  position: relative;
+  cursor: default;
 }
 
 .me-rain {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
   z-index: 0;
   pointer-events: none;
+  display: block;
 }
 
 .me-progress {
@@ -291,15 +356,15 @@ onUnmounted(() => {
 }
 
 .me-step {
-  position: relative;
+  position: fixed;
+  inset: 0;
   z-index: 1;
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 60px 40px;
-  scroll-snap-align: start;
+  cursor: pointer;
 }
 
 .step-inner {
@@ -309,11 +374,13 @@ onUnmounted(() => {
   opacity: 0;
   transform: translateY(20px);
   transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
 }
 
 .step-inner.visible {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: all;
 }
 
 .me-title {
@@ -328,6 +395,7 @@ onUnmounted(() => {
 .me-title--welcome {
   font-size: 60px;
   margin-bottom: 0;
+  cursor: pointer;
 }
 
 .me-glitch {
@@ -377,6 +445,97 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+/* Input */
+.me-inp {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--parchment-300);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: 44px;
+  padding: 14px 0;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.3s;
+  caret-color: var(--vermillion);
+  cursor: text;
+}
+
+.me-inp::placeholder {
+  color: var(--ink-ghost);
+  font-style: normal;
+  font-size: 24px;
+}
+
+.me-inp:focus {
+  border-bottom-color: var(--vermillion);
+}
+
+.me-inp.done {
+  border-bottom-color: var(--verdant);
+}
+
+/* Error state */
+.me-inp.me-error,
+.me-dir.me-error {
+  border-bottom-color: var(--fault) !important;
+  animation: me-error-flash 0.4s ease;
+}
+
+@keyframes me-error-flash {
+  0%, 100% { opacity: 1 }
+  50% { opacity: 0.5 }
+}
+
+/* Dir picker */
+.me-dir {
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 2px solid var(--parchment-300);
+  padding: 12px 0;
+  cursor: pointer;
+  transition: border-color 0.3s;
+}
+
+.me-dir:hover {
+  border-bottom-color: var(--vermillion);
+}
+
+.me-dir-path {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: var(--ink-ghost);
+  text-align: center;
+}
+
+.me-dir-path.has {
+  color: var(--ink-900);
+}
+
+.me-dir-browse {
+  font-size: 12px;
+  color: var(--amber);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  transition: color 0.2s;
+  font-weight: 600;
+}
+
+.me-dir:hover .me-dir-browse {
+  color: var(--vermillion);
+}
+
+/* Same checkbox */
+/* Start button */
 .me-start-btn {
   display: inline-flex;
   align-items: center;
@@ -406,7 +565,7 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
 }
 
-.me-error {
+.me-error-msg {
   margin-top: 16px;
   padding: 8px 16px;
   background: var(--fault-muted);
@@ -414,6 +573,28 @@ onUnmounted(() => {
   font-size: 12px;
   border-radius: 2px;
 }
+
+/* Back indicator */
+.me-back {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 5;
+  font-size: 20px;
+  color: var(--ink-ghost);
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 2px;
+  transition: color 0.2s, background 0.2s;
+  user-select: none;
+}
+
+.me-back:hover {
+  color: var(--ink-900);
+  background: var(--parchment-200);
+}
+
+/* Hint */
 
 .me-hint {
   position: fixed;
@@ -426,8 +607,10 @@ onUnmounted(() => {
   letter-spacing: 0.15em;
   z-index: 2;
   opacity: 0.6;
+  pointer-events: none;
 }
 
+/* Overlay */
 .me-overlay {
   position: fixed;
   inset: 0;
@@ -471,4 +654,19 @@ onUnmounted(() => {
 }
 
 @keyframes me-spin { to { transform: rotate(360deg) } }
+
+/* Shake */
+.me-shake {
+  animation: me-shake 0.4s ease;
+}
+
+@keyframes me-shake {
+  0%, 100% { transform: translateX(0) }
+  15% { transform: translateX(-8px) }
+  30% { transform: translateX(8px) }
+  45% { transform: translateX(-6px) }
+  60% { transform: translateX(6px) }
+  75% { transform: translateX(-3px) }
+  90% { transform: translateX(3px) }
+}
 </style>

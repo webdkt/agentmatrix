@@ -1,32 +1,54 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useConfigStore } from '@/stores/config'
+import ModelSelector from '@/components/wizard/ModelSelector.vue'
 
 const props = defineProps({
-  which: { type: String, required: true } // 'llm' or 'slm'
+  which: { type: String, required: true }, // 'llm' or 'slm'
+  errors: { type: Object, default: () => ({}) },
+  stepIdx: { type: String, default: '3' },
 })
+
+const emit = defineEmits(['valid-change'])
 
 const configStore = useConfigStore()
 
 const field = computed(() => props.which === 'llm' ? 'default_llm' : 'default_slm')
 const data = computed(() => configStore.wizardData[field.value])
 
-const presetOptions = computed(() =>
-  Object.entries(configStore.llmPresets).map(([key, val]) => ({
-    value: key,
-    label: val.label,
-  }))
-)
+// ModelSelector state
+const modelState = ref('empty') // 'empty' | 'known' | 'new'
 
-const models = computed(() =>
-  configStore.llmPresets[data.value.provider]?.models || []
-)
-
-const isCustom = computed(() => data.value.provider === 'custom')
-
-function onProviderChange(e) {
-  configStore.selectLLMPreset(field.value, e.target.value)
+function onModelChange(val) {
+  data.value.model_name = val
 }
+
+function onProviderChange(val) {
+  data.value.provider = val
+}
+
+function onUrlChange(val) {
+  data.value.url = val
+}
+
+function onModelState(state) {
+  modelState.value = state
+}
+
+// Show URL when model is new (not exact match)
+const showUrl = computed(() => modelState.value === 'new')
+
+// Validation
+const isValid = computed(() => {
+  return data.value.model_name.trim() && data.value.api_key.trim() && data.value.url
+})
+
+watch(isValid, (v) => emit('valid-change', v), { immediate: true })
+
+// Error keys
+const prefix = computed(() => props.which === 'llm' ? 'brain' : 'cerebellum')
+const modelError = computed(() => props.errors[`${props.stepIdx}.${prefix.value}-model`])
+const keyError = computed(() => props.errors[`${props.stepIdx}.${prefix.value}-key`])
 
 function togEye(btn) {
   const inp = btn.previousElementSibling
@@ -37,48 +59,21 @@ function togEye(btn) {
 
 <template>
   <div class="me-llm">
-    <!-- Custom: URL first -->
-    <div v-if="isCustom" class="me-fg">
-      <input
-        v-model="data.url"
-        class="me-sel"
-        type="text"
-        placeholder="api url"
-        spellcheck="false"
-      />
-    </div>
-
-    <!-- Provider (non-custom) -->
-    <div v-else class="me-fg">
-      <select class="me-sel" :value="data.provider" @change="onProviderChange">
-        <option v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
-          {{ opt.label }}
-        </option>
-      </select>
-    </div>
-
-    <!-- Model -->
-    <div class="me-fg">
-      <select
-        v-if="!isCustom && models.length > 0"
-        class="me-sel"
-        :value="data.model_name"
-        @change="data.model_name = $event.target.value"
-      >
-        <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
-      </select>
-      <input
-        v-else
-        v-model="data.model_name"
-        class="me-sel"
-        type="text"
-        placeholder="model name"
-        spellcheck="false"
+    <!-- Model selector -->
+    <div class="me-fg" :class="{ 'me-error': modelError }">
+      <ModelSelector
+        :presets="configStore.llmPresets"
+        :model-value="data.model_name"
+        :provider="data.provider"
+        @update:model-value="onModelChange"
+        @update:provider="onProviderChange"
+        @update:url="onUrlChange"
+        @state-change="onModelState"
       />
     </div>
 
     <!-- API Key -->
-    <div class="me-fg">
+    <div class="me-fg" :class="{ 'me-error': keyError }">
       <div class="me-pw">
         <input
           v-model="data.api_key"
@@ -86,9 +81,22 @@ function togEye(btn) {
           type="password"
           placeholder="api key"
           spellcheck="false"
+          @keydown.enter="$emit('enter')"
         />
         <button class="me-eye" @click="togEye($event.target)">&#x25c9;</button>
       </div>
+    </div>
+
+    <!-- URL (only for new/unknown models) -->
+    <div v-if="showUrl" class="me-fg me-url-row">
+      <input
+        v-model="data.url"
+        class="me-url"
+        type="text"
+        placeholder="api url"
+        spellcheck="false"
+        @keydown.enter="$emit('enter')"
+      />
     </div>
   </div>
 </template>
@@ -97,42 +105,17 @@ function togEye(btn) {
 .me-llm {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
+}
+
+/* Error state */
+.me-error :deep(.ms-input),
+.me-error :deep(.me-inp) {
+  border-bottom-color: var(--fault) !important;
 }
 
 .me-fg {
   margin-bottom: 0;
-}
-
-.me-sel {
-  display: block;
-  width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid var(--parchment-300);
-  color: var(--ink-900);
-  font-family: var(--font-mono);
-  font-size: 24px;
-  padding: 12px 0;
-  outline: none;
-  text-align: center;
-  appearance: none;
-  cursor: pointer;
-  transition: border-color 0.3s;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239A9A9A' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0 center;
-}
-
-.me-sel:focus {
-  border-bottom-color: var(--vermillion);
-}
-
-.me-sel option {
-  background: var(--parchment-50);
-  color: var(--ink-900);
 }
 
 .me-pw {
@@ -183,5 +166,42 @@ function togEye(btn) {
 
 .me-eye:hover {
   color: var(--ink-dim);
+}
+
+/* URL field - appears for new models */
+.me-url-row {
+  animation: me-fade-in 0.3s ease;
+}
+
+@keyframes me-fade-in {
+  from { opacity: 0; transform: translateY(-8px) }
+  to { opacity: 1; transform: translateY(0) }
+}
+
+.me-url {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--parchment-300);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  padding: 10px 0;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.3s;
+  caret-color: var(--vermillion);
+}
+
+.me-url::placeholder {
+  color: var(--ink-ghost);
+  font-size: 14px;
+}
+
+.me-url:focus {
+  border-bottom-color: var(--vermillion);
 }
 </style>
