@@ -1,34 +1,66 @@
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useBackendStore } from '@/stores/backend'
+import { useConfigStore } from '@/stores/config'
 import { useWebSocket } from '@/composables/useWebSocket'
 import ViewSelector from '@/components/view-selector/ViewSelector.vue'
 import ViewContainer from '@/components/view-container/ViewContainer.vue'
+import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
 
 const currentView = ref('email')
 const backendStore = useBackendStore()
+const configStore = useConfigStore()
 const { isConnected } = useWebSocket()
 
-// Computed
+// App state: 'loading' | 'wizard' | 'ready'
+const appState = ref('loading')
+
 const backendStatus = computed(() => backendStore.status)
 
-// Handle view changes
 const handleViewChange = (viewId) => {
   currentView.value = viewId
 }
 
-// Lifecycle
+async function handleWizardComplete() {
+  appState.value = 'ready'
+  // Backend is now running and configured (submitted by wizard)
+  await backendStore.initializeBackend()
+}
+
+onMounted(async () => {
+  try {
+    const isFirstRun = await configStore.checkFirstRun()
+    if (isFirstRun) {
+      appState.value = 'wizard'
+      return
+    }
+    // Warm start
+    await backendStore.initializeBackend()
+    appState.value = 'ready'
+  } catch (error) {
+    console.error('Failed to initialize:', error)
+    appState.value = 'ready' // fallback to normal app
+  }
+})
+
 onUnmounted(() => {
   backendStore.stopHealthMonitoring()
 })
 </script>
 
 <template>
-  <div class="app">
-    <!-- View Selector (Left Sidebar) -->
+  <!-- Wizard: completely separate full-screen experience -->
+  <ColdStartWizard v-if="appState === 'wizard'" @complete="handleWizardComplete" />
+
+  <!-- Loading -->
+  <div v-else-if="appState === 'loading'" class="app-loading">
+    <div class="app-loading__spinner"></div>
+  </div>
+
+  <!-- Normal app -->
+  <div v-else class="app">
     <ViewSelector :current-view="currentView" @view-change="handleViewChange">
       <template #status>
-        <!-- Backend Status Indicator -->
         <div
           :class="['status-indicator', `status-indicator--${backendStatus}`]"
           :title="backendStatus.charAt(0).toUpperCase() + backendStatus.slice(1)"
@@ -37,8 +69,6 @@ onUnmounted(() => {
             :class="['status-indicator__dot', `status-indicator__dot--${backendStatus}`]"
           ></span>
         </div>
-
-        <!-- WebSocket Status Indicator -->
         <div
           :class="['status-indicator', `status-indicator--${isConnected ? 'connected' : 'disconnected'}`]"
           :title="isConnected ? 'Connected' : 'Connecting...'"
@@ -49,8 +79,6 @@ onUnmounted(() => {
         </div>
       </template>
     </ViewSelector>
-
-    <!-- View Container (Main Content) -->
     <ViewContainer
       :current-view="currentView"
       @view-change="handleViewChange"
@@ -66,7 +94,29 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* Status indicators in ViewSelector */
+.app-loading {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.app-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--parchment-300);
+  border-top-color: var(--vermillion);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg) }
+}
+
+/* Status indicators */
 .status-indicator {
   width: 48px;
   height: 48px;
@@ -107,15 +157,10 @@ onUnmounted(() => {
 }
 
 @keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1 }
+  50% { opacity: 0.5 }
 }
 
-/* Tooltip for status indicators */
 .status-indicator[title]:hover::after {
   content: attr(title);
   position: absolute;
