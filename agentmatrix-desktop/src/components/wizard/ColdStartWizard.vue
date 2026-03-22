@@ -158,6 +158,15 @@ function advance() {
     return
   }
   currentStep.value++
+
+  // Auto-focus first input in the new step
+  nextTick(() => {
+    const stepEl = document.querySelector('.me-step--active')
+    if (stepEl) {
+      const inp = stepEl.querySelector('input:not([type=checkbox])')
+      if (inp) inp.focus()
+    }
+  })
 }
 
 function getFieldValue(fieldId) {
@@ -528,6 +537,12 @@ onUnmounted(() => {
   flex-shrink: 0;
   transition: color 0.2s;
   font-weight: 600;
+  animation: me-breathe 2s ease-in-out infinite;
+}
+
+@keyframes me-breathe {
+  0%, 100% { opacity: 0.5 }
+  50% { opacity: 1 }
 }
 
 .me-dir:hover .me-dir-browse {
@@ -540,8 +555,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: var(--ink-900);
-  color: var(--parchment-50);
+  background-color: #1A1A1A;
+  color: #FDFCF9;
   border: none;
   font-family: var(--font-mono);
   font-size: 14px;
@@ -551,12 +566,13 @@ onUnmounted(() => {
   padding: 16px 52px;
   border-radius: 2px;
   cursor: pointer;
-  transition: all 0.25s;
+  transition: background-color 0.2s;
   margin-top: 40px;
 }
 
-.me-start-btn:hover { background: var(--vermillion) }
-.me-start-btn:disabled { opacity: 0.2; cursor: default }
+.me-start-btn:hover { background-color: #C23B22; }
+.me-start-btn:disabled { opacity: 0.2; cursor: default; }
+.me-start-btn:disabled:hover { background-color: #1A1A1A; }
 
 .me-summary {
   font-size: 13px;
@@ -602,12 +618,17 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   text-align: center;
-  font-size: 12px;
-  color: var(--ink-ghost);
+  font-size: 13px;
+  color: var(--ink-dim);
   letter-spacing: 0.15em;
   z-index: 2;
-  opacity: 0.6;
   pointer-events: none;
+  animation: me-hint-blink 2s ease-in-out infinite;
+}
+
+@keyframes me-hint-blink {
+  0%, 100% { opacity: 0.4 }
+  50% { opacity: 0.9 }
 }
 
 /* Overlay */
