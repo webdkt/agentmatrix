@@ -1,5 +1,6 @@
 #!/bin/bash
-# cleanup_worktree.sh - 清理 worktree 脚本
+# cleanup_worktree.sh - 在主仓库目录执行，合并分支并清理 worktree
+# 用法: cd /Users/dkt/myprojects/agentmatrix && ./cleanup_worktree.sh
 
 set -e
 
@@ -35,7 +36,7 @@ git worktree list | grep -v "bare$" | while read -r worktree_path branch_info; d
     fi
 done
 
-# 读取 worktree 列表（兼容 bash 3.2）
+# 读取 worktree 列表
 lines=()
 while IFS= read -r line; do
     [ -n "$line" ] && lines+=("$line")
@@ -77,51 +78,86 @@ if [ -d "$worktree_path" ]; then
     uncommitted_count=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 
     if [ "$uncommitted_count" -gt 0 ]; then
-        log_warning "有 $uncommitted_count 个未提交的更改!"
+        log_warning "worktree 中有 $uncommitted_count 个未提交的更改!"
         git status --short | head -5
         if [ "$uncommitted_count" -gt 5 ]; then
             echo "  ... 还有 $((uncommitted_count - 5)) 个文件"
         fi
         echo ""
-        read -p "仍然继续? (y/n) " -n 1 -r
+        read -p "是否先提交? (y/n) " -n 1 -r
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "取消操作"
-            exit 0
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            read -p "提交信息: " commit_msg
+            if [ -z "$commit_msg" ]; then
+                log_error "提交信息不能为空"
+                exit 1
+            fi
+            git add -A
+            git commit -m "$commit_msg"
+            log_success "已提交"
+            # 推送
+            git push 2>/dev/null || git push -u origin "$branch_name"
+            log_success "已推送"
+        else
+            log_warning "跳过未提交的更改"
         fi
     fi
 fi
 
-# 询问是否删除分支
-echo ""
-read -p "删除分支 '$branch_name'? (y/n) " -n 1 -r
-echo
-delete_branch=false
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    delete_branch=true
-fi
-
-# 确认
-echo ""
-read -p "确认删除 '$worktree_name'? (y/n) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    log_info "取消操作"
-    exit 0
-fi
-
-# 删除
+# 回到主仓库
 cd "$BASE_DIR/$MAIN_REPO"
 
-log_info "删除 worktree..."
+# ===== 合并到 main =====
+log_info "开始合并 $branch_name 到 main ..."
+
+# 确保在 main 分支
+git checkout main
+git pull origin main
+
+# 检查远程分支是否存在（如果之前没 push 过）
+if git rev-parse --verify "origin/$branch_name" >/dev/null 2>&1; then
+    git merge "origin/$branch_name" --no-edit
+else
+    # 本地分支直接合并
+    git merge "$branch_name" --no-edit
+fi
+
+log_success "合并完成"
+
+# 推送 main
+log_info "推送到 origin/main ..."
+git push origin main
+log_success "推送完成"
+
+# ===== 清理 =====
+echo ""
+log_info "开始清理..."
+
+# 删除 worktree
+log_info "删除 worktree: $worktree_path"
 git worktree remove "$worktree_path" 2>/dev/null || {
     rm -rf "$worktree_path"
     git worktree prune
 }
 
-if [ "$delete_branch" = true ]; then
-    git branch -D "$branch_name" 2>/dev/null || true
-    echo "提示: 如已推送远程，需手动删除: git push origin --delete $branch_name"
+# 删除本地分支
+log_info "删除本地分支: $branch_name"
+git branch -D "$branch_name" 2>/dev/null || true
+
+# 删除远程分支
+if git rev-parse --verify "origin/$branch_name" >/dev/null 2>&1; then
+    echo ""
+    read -p "删除远程分支 origin/$branch_name? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        git push origin --delete "$branch_name"
+        log_success "远程分支已删除"
+    fi
 fi
 
-log_success "清理完成!"
+echo ""
+log_success "全部完成! 🎉"
+echo ""
+echo "  worktree: 已删除"
+echo "  本地分支: 已删除"
+echo "  main: 已合并并推送"
