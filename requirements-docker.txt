@@ -1,4 +1,46 @@
-# Docker 容器内依赖
-# 容器内只需要 Docker SDK，其他依赖在宿主机
+# Docker 容器内依赖 - Agent 常用工具包
+# 包含办公自动化、数据处理、文档处理等常用包
 
+# 容器运行时 SDK
 docker>=6.0.0
+
+# === 数据处理 ===
+pandas>=2.0.0          # 数据分析
+numpy>=1.24.0          # 数值计算
+openpyxl>=3.1.0        # Excel 读写
+xlsxwriter>=3.1.0      # Excel 写入
+xlrd>=2.0.1            # Excel 读取
+
+# === Office 文档处理 ===
+python-pptx>=0.6.21    # PowerPoint 操作
+python-docx>=1.1.0     # Word 操作
+
+# === 配置文件 ===
+pyyaml>=6.0            # YAML 配置
+toml>=0.10.2           # TOML 配置
+
+# === 网络请求 ===
+requests>=2.31.0       # HTTP 请求
+httpx>=0.25.0          # 异步 HTTP
+aiohttp>=3.9.0         # 异步网络库
+
+# === 文本/HTML 处理 ===
+markdown>=3.5.0        # Markdown 解析
+beautifulsoup4>=4.12.0 # HTML 解析
+lxml>=4.9.0            # XML/HTML 处理
+
+# === 实用工具 ===
+python-dateutil>=2.8.0 # 日期处理
+pytz>=2023.3           # 时区
+tqdm>=4.66.0           # 进度条
+rich>=13.7.0           # 终端美化
+
+# === 图像处理 ===
+pillow>=10.0.0         # 图像处理
+
+# === PDF 处理 ===
+pdfplumber>=0.10.0     # PDF 解析
+
+# === 其他实用工具 ===
+pydantic>=2.0.0        # 数据验证
+python-multipart>=0.0.6  # 多部分表单数据

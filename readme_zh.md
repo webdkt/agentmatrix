@@ -264,6 +264,22 @@ email = Email(
 await matrix.post_office.send_email(email)
 ```
 
+### 构建容器镜像
+
+如果你使用容器的 Agent 功能，需要先构建镜像：
+
+```bash
+# 使用构建脚本（自动检测 Docker 或 Podman）
+./build_image.sh
+
+# 或手动构建
+docker build -t agentmatrix:latest .
+# 或
+podman build -t agentmatrix:latest .
+```
+
+详见：[容器镜像构建指南](docs/container-image.md)
+
 ## 📚 架构概览
 
 ### 核心组件
@@ -323,6 +339,17 @@ BaseAgent 发送回复邮件
   - 自然语言 → 结构化数据
   - 解析器设计和实现
   - 自定义解析器创建指南
+
+### 容器运行时
+- **[容器镜像构建指南](docs/container-image.md)**
+  - 镜像包含的 Python 包
+  - 构建 Docker/Podman 镜像
+  - 镜像使用和更新
+
+- **[容器运行时抽象层](docs/container-runtime.md)**
+  - Docker 和 Podman 支持
+  - 运行时自动检测
+  - 配置和最佳实践
 
 ## 🛠️ 内置技能
 

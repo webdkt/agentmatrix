@@ -228,3 +228,13 @@ web/
 # Root level node_modules (from npm installs in root)
 node_modules/
 package-lock.json
+
+# Docker / Container images (never commit images!)
+*.tar
+*.tar.gz
+*.docker
+docker-image.tar
+agentmatrix*.tar
+
+# Docker build cache (optional, comment out if you want to cache)
+# .dockercache/

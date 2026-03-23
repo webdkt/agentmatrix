@@ -1,12 +1,22 @@
 FROM python:3.12-slim
 
-# 安装基础工具
+# 安装基础工具和 Office/PDF 处理依赖
 RUN apt-get update && apt-get install -y \
     bash \
     curl \
     git \
     vim \
     tree \
+    # Office 文档处理依赖
+    libxml2 \
+    libxslt1.1 \
+    # PDF 处理依赖
+    libpoppler-cpp-dev \
+    poppler-utils \
+    # 图像处理依赖
+    libjpeg-dev \
+    libpng-dev \
+    # 清理缓存
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖（容器内最小依赖）
