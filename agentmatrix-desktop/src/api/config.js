@@ -26,11 +26,11 @@ export const configAPI = {
   },
 
   /**
-   * 完成冷启动配置（生成目录 + 写配置 + 初始化 Runtime）
-   * @param {object} data - { user_name, matrix_world_path, default_llm, default_slm, email_proxy? }
+   * 初始化 runtime（文件已由 Tauri 创建，后端只读取）
+   * @param {object} data - { matrix_world_path }
    */
-  async completeColdStart(data) {
-    return API.post('/api/config/complete', data)
+  async initRuntime(data) {
+    return API.post('/api/config/init', data)
   },
 
   /**

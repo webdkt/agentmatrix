@@ -54,11 +54,6 @@ class MatrixPaths:
         return self.agent_config_dir / "llm_config.json"
 
     @property
-    def email_proxy_config_path(self) -> Path:
-        """Email Proxy配置文件：.matrix/configs/email_proxy_config.yml"""
-        return self.config_dir / "email_proxy_config.yml"
-
-    @property
     def matrix_config_path(self) -> Path:
         """Matrix配置文件：.matrix/configs/matrix_config.yml"""
         return self.config_dir / "matrix_config.yml"
@@ -82,8 +77,6 @@ class MatrixPaths:
     def sessions_dir(self) -> Path:
         """Session目录：.matrix/sessions"""
         return self.system_dir / "sessions"
-
-    
 
     @property
     def browser_profile_dir(self) -> Path:
@@ -120,6 +113,7 @@ class MatrixPaths:
             Path: .matrix/sessions/{agent_name}/{session_id}/history.json
         """
         return self.sessions_dir / agent_name / session_id / "history.json"
+
     def get_agent_work_base_dir(self, agent_name: str) -> Path:
         """
         获取Agent的work_files目录
@@ -131,7 +125,7 @@ class MatrixPaths:
         Returns:
             Path: workspace/agent_files/{agent_name}/work_files/{task_id}/
         """
-        return self.workspace_dir / "agent_files" / agent_name / "work_files" 
+        return self.workspace_dir / "agent_files" / agent_name / "work_files"
 
     def get_agent_work_files_dir(self, agent_name: str, task_id: str) -> Path:
         """
@@ -170,8 +164,6 @@ class MatrixPaths:
             Path: workspace/agent_files/{agent_name}/work_files/{task_id}/attachments/
         """
         return self.get_agent_work_files_dir(agent_name, task_id) / "attachments"
-
-    
 
     def get_browser_profile_dir(self, agent_name: str) -> Path:
         """

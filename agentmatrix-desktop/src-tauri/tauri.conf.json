@@ -31,6 +31,9 @@
     "targets": "all",
     "icon": [
       "icons/icon.png"
+    ],
+    "resources": [
+      "resources/matrix-template/**/*"
     ]
   },
   "plugins": {

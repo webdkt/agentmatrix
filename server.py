@@ -133,26 +133,6 @@ class LLMConfigsRequest(BaseModel):
     default_slm: LLMConfig
 
 
-class EmailProxyRequest(BaseModel):
-    """Email proxy configuration model"""
-
-    enabled: bool = False
-    matrix_mailbox: str = ""
-    user_mailbox: str = ""
-    imap: Optional[dict] = None
-    smtp: Optional[dict] = None
-
-
-class ColdStartConfigRequest(BaseModel):
-    """Complete cold start configuration request model"""
-
-    user_name: str
-    matrix_world_path: str
-    default_llm: LLMConfig
-    default_slm: LLMConfig
-    email_proxy: Optional[EmailProxyRequest] = None
-
-
 class SendEmailRequest(BaseModel):
     """Send email request model"""
 
@@ -264,116 +244,6 @@ def load_user_agent_name(matrix_world_dir: Path) -> str:
     except Exception as e:
         print(f"⚠️  Error loading matrix_config.yml: {e}, using default 'User'")
         return "User"
-
-
-def create_directory_structure(matrix_world_dir: Path, user_name: str):
-    """
-    创建 Matrix World 目录结构并复制模板，并替换 User agent 名称
-
-    新架构：模板已经是正确的结构，直接复制即可
-    """
-    import shutil
-
-    template_dir = Path(__file__).resolve().parent / "web" / "matrix_template"
-    if not template_dir.exists():
-        raise FileNotFoundError(f"Matrix template directory not found: {template_dir}")
-
-    # 创建根目录
-    matrix_world_dir.mkdir(parents=True, exist_ok=True)
-
-    # 直接复制整个 template 到 Matrix World 根目录
-    shutil.copytree(template_dir, matrix_world_dir, dirs_exist_ok=True)
-    print(f"✅ Copied matrix template from {template_dir}")
-
-    # 替换 User.yml 中的 {{USER_NAME}} 占位符
-    # 新架构：User.yml 在 .matrix/configs/agents/User.yml
-    user_yml_path = matrix_world_dir / ".matrix" / "configs" / "agents" / "User.yml"
-    if user_yml_path.exists():
-        with open(user_yml_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # 替换模板变量
-        content = content.replace("{{USER_NAME}}", user_name)
-
-        with open(user_yml_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        print(f"✅ User agent configured with name: {user_name}")
-    else:
-        print(f"⚠️  Warning: {user_yml_path} not found")
-
-
-def create_world_config(matrix_world_dir: Path, user_name: str):
-    """创建 matrix_config.yml 配置文件（新架构）"""
-    import yaml
-
-    config = {
-        "user_agent_name": user_name,
-        "matrix_version": "1.0.0",
-        "description": "AgentMatrix World",
-        "timezone": "UTC",
-    }
-
-    # 新架构：保存到 .matrix/configs/matrix_config.yml
-    config_path = matrix_world_dir / ".matrix" / "configs" / "matrix_config.yml"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-
-    print(f"✅ Created matrix configuration: {config_path}")
-
-
-def save_llm_configs(configs: dict, config_path: Path):
-    """Save LLM configurations to file"""
-    llm_config_data = {}
-    for name, config in configs.items():
-        if hasattr(config, "url"):
-            # Pydantic model
-            llm_config_data[name] = {
-                "url": config.url,
-                "API_KEY": config.api_key,
-                "model_name": config.model_name,
-            }
-        elif isinstance(config, dict):
-            # dict
-            llm_config_data[name] = {
-                "url": config.get("url", ""),
-                "API_KEY": config.get("api_key", config.get("API_KEY", "")),
-                "model_name": config.get("model_name", ""),
-            }
-        else:
-            llm_config_data[name] = config
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(llm_config_data, indent=4))
-    print(f"✅ Saved LLM configs to {config_path}")
-
-
-def save_email_proxy_config(email_proxy: dict, config_path: Path):
-    """Save email proxy configuration to system_config.yml"""
-    import yaml
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
-    else:
-        config = {}
-
-    config["email_proxy"] = {
-        "enabled": email_proxy.get("enabled", False),
-        "matrix_mailbox": email_proxy.get("matrix_mailbox", ""),
-        "user_mailbox": email_proxy.get("user_mailbox", ""),
-        "imap": email_proxy.get("imap", {}),
-        "smtp": email_proxy.get("smtp", {}),
-    }
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-
-    print(f"✅ Saved email proxy config to {config_path}")
 
 
 def save_llm_configs_to_file(configs: dict):
@@ -761,46 +631,29 @@ async def get_config():
     return response_data
 
 
-@app.post("/api/config/complete")
-async def complete_cold_start(configs: ColdStartConfigRequest):
+@app.post("/api/config/init")
+async def init_runtime_api(request: dict):
     """
-    Complete cold start configuration: generate directories, save configs,
-    and initialize the runtime in-process (hot reload, no restart needed).
+    Initialize runtime from existing directory structure.
+    Files should already be created by Tauri commands.
     """
     global matrix_runtime
 
     try:
         config = app.state.config
-        matrix_world_dir = Path(configs.matrix_world_path).resolve()
+        matrix_world_dir = Path(request["matrix_world_path"]).resolve()
 
-        # 1. Create directory structure and replace template variables
-        create_directory_structure(matrix_world_dir, configs.user_name)
+        if not matrix_world_dir.exists():
+            return {
+                "success": False,
+                "message": f"Directory not found: {matrix_world_dir}",
+            }
 
-        # 2. Create world configuration file
-        create_world_config(matrix_world_dir, configs.user_name)
-
-        # 3. Save LLM configurations
-        llm_config_path = (
+        # Update app.state.config
+        config["matrix_world_dir"] = matrix_world_dir
+        config["llm_config_path"] = (
             matrix_world_dir / ".matrix" / "configs" / "agents" / "llm_config.json"
         )
-        configs_dict = {
-            "default_llm": configs.default_llm,
-            "default_slm": configs.default_slm,
-        }
-        save_llm_configs(configs_dict, llm_config_path)
-
-        # 4. Save email proxy config if provided
-        if configs.email_proxy:
-            system_config_path = (
-                matrix_world_dir / ".matrix" / "configs" / "system_config.yml"
-            )
-            save_email_proxy_config(
-                configs.email_proxy.model_dump(), system_config_path
-            )
-
-        # 5. Update app.state.config with the actual path
-        config["matrix_world_dir"] = matrix_world_dir
-        config["llm_config_path"] = llm_config_path
         config["system_config_path"] = (
             matrix_world_dir / ".matrix" / "configs" / "system_config.yml"
         )
@@ -809,13 +662,13 @@ async def complete_cold_start(configs: ColdStartConfigRequest):
         )
         config["agents_dir"] = matrix_world_dir / ".matrix" / "configs" / "agents"
 
-        # 6. In-process runtime initialization (hot reload)
+        # Initialize runtime (reads existing files)
         runtime = init_runtime(matrix_world_dir)
         app.state.matrix = runtime
 
         return {
             "success": True,
-            "message": "Configuration complete, runtime initialized",
+            "message": "Runtime initialized",
             "user_name": runtime.get_user_agent_name(),
         }
     except Exception as e:

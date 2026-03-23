@@ -19,7 +19,7 @@ from .config_sections import (
     LLMConfigSection,
     EmailProxyConfigSection,
     MatrixConfigSection,
-    ContainerConfigSection
+    ContainerConfigSection,
 )
 
 
@@ -53,7 +53,7 @@ class MatrixConfig(AutoLoggerMixin):
 
         if llm_config_path.exists():
             self.logger.info(f"📄 加载LLM配置: {llm_config_path}")
-            with open(llm_config_path, 'r', encoding='utf-8') as f:
+            with open(llm_config_path, "r", encoding="utf-8") as f:
                 self._llm_config = json.load(f)
         else:
             self.logger.info(f"📄 创建默认LLM配置: {llm_config_path}")
@@ -65,19 +65,19 @@ class MatrixConfig(AutoLoggerMixin):
             raise ValueError("llm_config.json 中必须包含 'default_slm' 配置")
 
     def _load_email_proxy_config(self):
-        """加载Email Proxy配置"""
-        email_proxy_config_path = self.paths.email_proxy_config_path
+        """加载Email Proxy配置 - 从 matrix_config.yml 中读取"""
+        matrix_config_path = self.paths.matrix_config_path
 
-        if email_proxy_config_path.exists():
-            self.logger.info(f"📄 加载Email Proxy配置: {email_proxy_config_path}")
-            with open(email_proxy_config_path, 'r', encoding='utf-8') as f:
-                self._email_proxy_config = yaml.safe_load(f) or {}
-            # 解析环境变量
+        if matrix_config_path.exists():
+            with open(matrix_config_path, "r", encoding="utf-8") as f:
+                full_config = yaml.safe_load(f) or {}
+            # email_proxy 是 matrix_config.yml 的一个子节
+            self._email_proxy_config = {
+                "email_proxy": full_config.get("email_proxy", {})
+            }
             self._email_proxy_config = self._resolve_env_vars(self._email_proxy_config)
         else:
-            self.logger.info(f"📄 创建默认Email Proxy配置: {email_proxy_config_path}")
             self._email_proxy_config = self._get_default_email_proxy_config()
-            self._save_email_proxy_config()
 
     def _load_matrix_config(self):
         """加载Matrix配置"""
@@ -85,7 +85,7 @@ class MatrixConfig(AutoLoggerMixin):
 
         if matrix_config_path.exists():
             self.logger.info(f"📄 加载Matrix配置: {matrix_config_path}")
-            with open(matrix_config_path, 'r', encoding='utf-8') as f:
+            with open(matrix_config_path, "r", encoding="utf-8") as f:
                 self._matrix_config = yaml.safe_load(f) or {}
         else:
             self.logger.info(f"📄 创建默认Matrix配置: {matrix_config_path}")
@@ -96,7 +96,7 @@ class MatrixConfig(AutoLoggerMixin):
         """加载容器运行时配置"""
         # 容器配置包含在 matrix_config.yml 中
         # 从已加载的 matrix_config 中提取 container 部分
-        container_config = self._matrix_config.get('container', {})
+        container_config = self._matrix_config.get("container", {})
 
         # 如果配置为空，使用默认值
         if not container_config:
@@ -111,52 +111,52 @@ class MatrixConfig(AutoLoggerMixin):
             "default_llm": {
                 "url": "https://api.anthropic.com/v1/messages",
                 "API_KEY": "ANTHROPIC_API_KEY",
-                "model_name": "claude-sonnet-4-20250514"
+                "model_name": "claude-sonnet-4-20250514",
             },
             "default_slm": {
                 "url": "https://api.anthropic.com/v1/messages",
                 "API_KEY": "ANTHROPIC_API_KEY",
-                "model_name": "claude-haiku-4-20250514"
-            }
+                "model_name": "claude-haiku-4-20250514",
+            },
         }
 
     def _get_default_email_proxy_config(self) -> Dict[str, Any]:
         """获取默认Email Proxy配置"""
         return {
-            'email_proxy': {
-                'enabled': False,
-                'matrix_mailbox': '',
-                'user_mailbox': '',
-                'imap': {
-                    'host': 'imap.gmail.com',
-                    'port': 993,
-                    'user': '',
-                    'password': ''
+            "email_proxy": {
+                "enabled": False,
+                "matrix_mailbox": "",
+                "user_mailbox": "",
+                "imap": {
+                    "host": "imap.gmail.com",
+                    "port": 993,
+                    "user": "",
+                    "password": "",
                 },
-                'smtp': {
-                    'host': 'smtp.gmail.com',
-                    'port': 587,
-                    'user': '',
-                    'password': ''
-                }
+                "smtp": {
+                    "host": "smtp.gmail.com",
+                    "port": 587,
+                    "user": "",
+                    "password": "",
+                },
             }
         }
 
     def _get_default_matrix_config(self) -> Dict[str, Any]:
         """获取默认Matrix配置"""
         return {
-            'user_agent_name': 'User',
-            'matrix_version': '1.0.0',
-            'description': 'AgentMatrix World',
-            'timezone': 'UTC'
+            "user_agent_name": "User",
+            "matrix_version": "1.0.0",
+            "description": "AgentMatrix World",
+            "timezone": "UTC",
         }
 
     def _get_default_container_config(self) -> Dict[str, Any]:
         """获取默认容器运行时配置"""
         return {
-            'runtime': 'auto',  # 自动检测（Podman 优先）
-            'auto_start': True,
-            'fallback_strategy': 'fallback'
+            "runtime": "auto",  # 自动检测（Podman 优先）
+            "auto_start": True,
+            "fallback_strategy": "fallback",
         }
 
     def _resolve_env_vars(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -173,14 +173,15 @@ class MatrixConfig(AutoLoggerMixin):
         Returns:
             解析后的配置字典
         """
+
         def resolve_value(value):
             if isinstance(value, str):
                 # 优先匹配 ${ENV_VAR} 格式
-                if value.startswith('${') and value.endswith('}'):
+                if value.startswith("${") and value.endswith("}"):
                     env_var = value[2:-1]
                     return os.environ.get(env_var, value)
                 # 其次匹配 $ENV_VAR 格式
-                elif value.startswith('$') and not value.startswith('${'):
+                elif value.startswith("$") and not value.startswith("${"):
                     env_var = value[1:]
                     return os.environ.get(env_var, value)
                 return value
@@ -195,20 +196,34 @@ class MatrixConfig(AutoLoggerMixin):
     def _save_llm_config(self):
         """保存LLM配置到文件"""
         self.paths.llm_config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.paths.llm_config_path, 'w', encoding='utf-8') as f:
+        with open(self.paths.llm_config_path, "w", encoding="utf-8") as f:
             json.dump(self._llm_config, f, ensure_ascii=False, indent=2)
 
     def _save_email_proxy_config(self):
-        """保存Email Proxy配置到文件"""
-        self.paths.email_proxy_config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.paths.email_proxy_config_path, 'w', encoding='utf-8') as f:
-            yaml.dump(self._email_proxy_config, f, allow_unicode=True, default_flow_style=False)
+        """保存Email Proxy配置到 matrix_config.yml"""
+        matrix_config_path = self.paths.matrix_config_path
+        matrix_config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 读取现有 matrix_config
+        if matrix_config_path.exists():
+            with open(matrix_config_path, "r", encoding="utf-8") as f:
+                full_config = yaml.safe_load(f) or {}
+        else:
+            full_config = {}
+
+        # 更新 email_proxy 节
+        full_config["email_proxy"] = self._email_proxy_config.get("email_proxy", {})
+
+        with open(matrix_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(full_config, f, allow_unicode=True, default_flow_style=False)
 
     def _save_matrix_config(self):
         """保存Matrix配置到文件"""
         self.paths.matrix_config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.paths.matrix_config_path, 'w', encoding='utf-8') as f:
-            yaml.dump(self._matrix_config, f, allow_unicode=True, default_flow_style=False)
+        with open(self.paths.matrix_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(
+                self._matrix_config, f, allow_unicode=True, default_flow_style=False
+            )
 
     @property
     def llm(self) -> LLMConfigSection:
@@ -238,7 +253,7 @@ class MatrixConfig(AutoLoggerMixin):
             >>> config.email_proxy.is_configured()
             True
         """
-        email_proxy_config = self._email_proxy_config.get('email_proxy', {})
+        email_proxy_config = self._email_proxy_config.get("email_proxy", {})
         return EmailProxyConfigSection(email_proxy_config)
 
     @property
@@ -288,8 +303,8 @@ class MatrixConfig(AutoLoggerMixin):
             >>> config.get('matrix.user_agent_name', 'User')
             'User'
         """
-        keys = key.split('.')
-        value = self._system_config
+        keys = key.split(".")
+        value = self._matrix_config
 
         for k in keys:
             if isinstance(value, dict) and k in value:

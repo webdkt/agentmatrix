@@ -183,8 +183,37 @@ export const useConfigStore = defineStore('config', {
       this.submitError = null
       this.submitResult = null
 
+      const path = this.wizardData.matrix_world_path
+      const name = this.wizardData.user_name
+
       try {
-        // 1. 先启动后端（向导提交时需要后端运行）
+        // 1. 创建目录和模板（Tauri，不需要后端）
+        await invoke('init_matrix_world', { matrixWorldPath: path, userName: name })
+
+        // 2. 保存 LLM 配置
+        const llmConfig = {
+          default_llm: {
+            url: this.wizardData.default_llm.url,
+            API_KEY: this.wizardData.default_llm.api_key,
+            model_name: this.wizardData.default_llm.model_name,
+          },
+          default_slm: {
+            url: this.wizardData.default_slm.url,
+            API_KEY: this.wizardData.default_slm.api_key,
+            model_name: this.wizardData.default_slm.model_name,
+          },
+        }
+        await invoke('save_llm_config', { matrixWorldPath: path, llmConfig })
+
+        // 3. 保存 Email Proxy 配置（如果有）
+        if (this.wizardData.email_proxy.enabled) {
+          await invoke('save_email_proxy_config_cmd', {
+            matrixWorldPath: path,
+            emailProxy: this.wizardData.email_proxy,
+          })
+        }
+
+        // 4. 启动后端（此时目录和文件已存在）
         await invoke('start_backend')
 
         // 等待后端启动
@@ -198,38 +227,17 @@ export const useConfigStore = defineStore('config', {
           await new Promise(resolve => setTimeout(resolve, 2000))
         }
 
-        // 2. 提交配置到后端
-        const payload = {
-          user_name: this.wizardData.user_name,
-          matrix_world_path: this.wizardData.matrix_world_path,
-          default_llm: {
-            url: this.wizardData.default_llm.url,
-            api_key: this.wizardData.default_llm.api_key,
-            model_name: this.wizardData.default_llm.model_name,
-          },
-          default_slm: {
-            url: this.wizardData.default_slm.url,
-            api_key: this.wizardData.default_slm.api_key,
-            model_name: this.wizardData.default_slm.model_name,
-          },
-        }
-
-        if (this.wizardData.email_proxy.enabled) {
-          payload.email_proxy = this.wizardData.email_proxy
-        }
-
-        const result = await configAPI.completeColdStart(payload)
+        // 5. 通知后端初始化 runtime（读取已有文件）
+        const result = await configAPI.initRuntime({ matrix_world_path: path })
 
         if (!result.success) {
-          throw new Error(result.message || 'Configuration failed')
+          throw new Error(result.message || 'Runtime initialization failed')
         }
 
         this.submitResult = result
 
-        // 3. 通知 Tauri 标记为已配置
-        await invoke('mark_configured', {
-          matrixWorldPath: this.wizardData.matrix_world_path,
-        })
+        // 6. 标记已配置
+        await invoke('mark_configured', { matrixWorldPath: path })
 
         this.isFirstRun = false
         return result
