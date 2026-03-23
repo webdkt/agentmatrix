@@ -60,8 +60,8 @@ class MemorySkillMixin:
         description="回忆实体或事件。当你需要查询之前提到的实体（人物、项目等）或历史事件时调用此 action。",
         param_infos={
             "entity_name": "要查询的实体名称（如'张三'、'Alpha项目'）",
-            "question": "关于该实体的具体问题（如'张三之前的决策是什么？'）"
-        }
+            "question": "关于该实体的具体问题（如'张三之前的决策是什么？'）",
+        },
     )
     async def recall(self, entity_name: str, question: str) -> str:
         """
@@ -85,13 +85,13 @@ class MemorySkillMixin:
 
         if self.root_agent.runtime is None:
             return f"错误：runtime 未注入"
-        
+
         # 1. 查询并合并 profiles（使用 storage 高层 API）
         merged_profiles = await search_entities_merged(
             str(self.root_agent.runtime.paths.workspace_dir),
             self.root_agent.name,
             self.root_agent.current_task_id,
-            entity_name
+            entity_name,
         )
 
         if not merged_profiles:
@@ -137,9 +137,7 @@ JSON 格式示例：
             try:
                 # 使用 think_with_retry 获取结构化回答
                 result = await self.root_agent.cerebellum.think_with_retry(
-                    initial_messages=prompt,
-                    parser=recall_answer_parser,
-                    max_retries=2
+                    initial_messages=prompt, parser=recall_answer_parser, max_retries=2
                 )
 
                 # result = {"answer": "...", "can_answer_user": true/false}
@@ -156,11 +154,11 @@ JSON 格式示例：
         return f"记忆里没有找到相关信息"
 
     @register_action(
-            short_desc="() #自动更新维护记忆",
+        short_desc="() #自动更新维护记忆",
         description="更新记忆。当对话告一段落或完成重要信息澄清时调用此 action。可以提示记忆总结重点，如'重点关注财务决策'、'突出实体关系变化'等",
         param_infos={
             "focus_hint": "可选。指导总结重点，如'重点关注财务决策'、'突出实体关系变化'等"
-        }
+        },
     )
     async def update_memory(self, focus_hint: str = "") -> str:
         """
@@ -185,7 +183,7 @@ JSON 格式示例：
             uncompressed_msg = self.messages.copy()
             print(uncompressed_msg)
             print("=======END OF UNCOMPRESSSED")
-        
+
         whiteboard = await self._compress_messages()
 
         # 2. Top-Level: 持久化（仅 top-level 需要持久化）
@@ -194,10 +192,10 @@ JSON 格式示例：
             await self._persist_whiteboard(whiteboard)
             # ✅ TODO 1: 过滤邮件历史（避免重复保存）
             messages_for_events = self._filter_email_history(uncompressed_msg)
-            
+
             # ✅ TODO 2: 添加完成标记
             self._add_update_memory_done_marker()
-            
+
             events = await self._generate_memory_events(messages_for_events)
             await self._persist_timeline(events)
             print("NOW MESSAGES:")
@@ -210,18 +208,18 @@ JSON 格式示例：
     def _filter_email_history(self, messages: list) -> list:
         """
         过滤掉邮件历史（避免在 timeline 中重复保存）
-        
+
         如果第一个 user message 以 "[EMAIL HISTORY]" 开头，则丢弃它。
-        
+
         Args:
             messages: 原始消息列表
-            
+
         Returns:
             list: 过滤后的消息列表
         """
         if not messages:
             return messages
-            
+
         # 找到第一个 user message
         filtered = messages.copy()
         for i, msg in enumerate(filtered):
@@ -236,29 +234,26 @@ JSON 格式示例：
                 else:
                     # 不是邮件历史，不需要过滤
                     break
-        
+
         return filtered
 
     def _add_update_memory_done_marker(self):
         """
         在对话末尾添加 "[update_memory Done]" 标记
-        
+
         规则：
         - 如果最后一条是 assistant：追加新的 user message
         - 如果最后一条是 user：在其 content 后追加标记
         """
         if not self.messages:
             return
-            
+
         last_msg = self.messages[-1]
         last_role = last_msg.get("role", "")
-        
+
         if last_role == "assistant":
             # 追加新的 user message
-            self.messages.append({
-                "role": "user",
-                "content": "[update_memory Done]"
-            })
+            self.messages.append({"role": "user", "content": "[update_memory Done]"})
             self.logger.debug("✅ 添加 update_memory 完成标记（新 message）")
         elif last_role == "user":
             # 在现有 user message 的 content 后追加
@@ -269,6 +264,7 @@ JSON 格式示例：
     def _is_top_level(self) -> bool:
         """判断是否是 top-level MicroAgent"""
         from ...agents.base import BaseAgent
+
         return isinstance(self.parent, BaseAgent)
 
     async def _generate_memory_events(self, messages: list) -> List[str]:
@@ -284,7 +280,7 @@ JSON 格式示例：
 3. 仅包含有长期价值的信息
 
 对话历史：
-{format_session_messages(messages, max_length=200)}
+{format_session_messages(messages)}
 
 输出 JSON 列表：
 ["事件1", "事件2", ...]
@@ -308,7 +304,7 @@ JSON 格式示例：
             content,
             str(self.root_agent.runtime.paths.workspace_dir),
             self.root_agent.name,
-            self.root_agent.current_task_id
+            self.root_agent.current_task_id,
         )
 
     async def _persist_timeline(self, events: List[str]):
@@ -319,5 +315,5 @@ JSON 格式示例：
             str(self.root_agent.runtime.paths.workspace_dir),
             self.root_agent.name,
             self.root_agent.current_task_id,
-            events
+            events,
         )

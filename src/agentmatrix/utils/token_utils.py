@@ -24,16 +24,21 @@ def estimate_tokens(text: str) -> int:
         估算的 token 数量
     """
     # 统计中文字符数
-    chinese_chars = len([c for c in text if '\u4e00' <= c <= '\u9fff'])
+    chinese_chars = len([c for c in text if "\u4e00" <= c <= "\u9fff"])
 
     # 统计英文单词数（按空格分词）
-    english_words = len(re.findall(r'\b[a-zA-Z]+\b', text))
+    english_words = len(re.findall(r"\b[a-zA-Z]+\b", text))
 
     # 统计特殊字符/代码符号（非中英文、空格、换行）
-    special_chars = len([c for c in text
-                        if not ('\u4e00' <= c <= '\u9fff')  # 非中文
-                        and not c.isalpha()  # 非字母
-                        and not c.isspace()])  # 非空白
+    special_chars = len(
+        [
+            c
+            for c in text
+            if not ("\u4e00" <= c <= "\u9fff")  # 非中文
+            and not c.isalpha()  # 非字母
+            and not c.isspace()
+        ]
+    )  # 非空白
 
     # 估算 token 数
     # 中文：1-1.5 倍（取平均 1.3）
@@ -54,10 +59,10 @@ def estimate_messages_tokens(messages: List[Dict]) -> int:
     Returns:
         估算的总 token 数量
     """
-    return sum(estimate_tokens(m.get('content', '')) for m in messages)
+    return sum(estimate_tokens(m.get("content", "")) for m in messages)
 
 
-def format_session_messages(messages: List[Dict], max_length: int = 500) -> str:
+def format_session_messages(messages: List[Dict]) -> str:
     """
     格式化对话历史为可读文本
 
@@ -65,15 +70,11 @@ def format_session_messages(messages: List[Dict], max_length: int = 500) -> str:
 
     Args:
         messages: 消息列表
-        max_length: 每条消息的最大长度（避免过长）
 
     Returns:
         str: 格式化的对话历史
     """
     # 过滤掉 system message，只保留对话历史
-    session_msgs = [m for m in messages if m.get('role') != 'system']
+    session_msgs = [m for m in messages if m.get("role") != "system"]
 
-    return "\n".join([
-        f"{m['role']}: {m['content'][:max_length]}"
-        for m in session_msgs
-    ])
+    return "\n".join([f"{m['role']}: {m['content']}" for m in session_msgs])

@@ -14,6 +14,7 @@
 | **[消息系统](./message-system.md)** | Email模型、PostOffice、消息路由 | 系统集成者 |
 | **[会话管理](./session-management.md)** | SessionManager、状态持久化 | 后端开发者 |
 | **[技能系统](./skill-system.md)** | Skill Mixin、Action注册、技能开发 | 技能开发者 |
+| **[执行循环](./microagent-loop.md)** | MicroAgent Think-Act循环、上下文管理、压缩机制 | 所有开发者 |
 
 ### 使用指南
 
