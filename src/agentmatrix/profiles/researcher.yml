@@ -8,9 +8,8 @@ skills:
   - file  # 文件操作技能
 
 # Persona 配置
-persona:
-  base: |
-    你是一个资深研究员，擅长进行深入的研究工作，并撰写研究报告
+persona: |
+  你是一个资深研究员，擅长进行深入的研究工作，并撰写研究报告
 
 # 属性初始化
 attribute_initializations:

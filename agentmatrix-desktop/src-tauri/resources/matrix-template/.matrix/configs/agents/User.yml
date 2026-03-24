@@ -5,6 +5,5 @@ backend_model: default_llm
 skills:
   - base
   - email
-persona:
-  base: |
-    你是{{USER_NAME}}的个人助手，帮助用户完成各种任务。
+persona: |
+  你是{{USER_NAME}}的个人助手，帮助用户完成各种任务。

@@ -8,8 +8,8 @@ import uuid
 OnMailReceived = Callable[[Email], Awaitable[None]]
 
 class UserProxyAgent(BaseAgent):
-    def __init__(self, profile) :
-        super().__init__(profile)
+    def __init__(self, profile, profile_path: str = None):
+        super().__init__(profile, profile_path=profile_path)
         self.on_mail_received = None
 
         # UserProxyAgent 不需要 docker_manager

@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SMTPConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
     host: str = Field(..., description="SMTP server host, e.g. smtp.gmail.com")
     port: int = Field(
         587, description="SMTP port, typically 587 (STARTTLS) or 465 (SSL)"
@@ -24,6 +26,8 @@ class SMTPConfig(BaseModel):
 
 
 class IMAPConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
     host: str = Field(..., description="IMAP server host, e.g. imap.gmail.com")
     port: int = Field(993, description="IMAP port, typically 993 (SSL)")
     user: str = Field(..., description="IMAP username (email address)")
@@ -31,6 +35,8 @@ class IMAPConfig(BaseModel):
 
 
 class EmailProxyConfig(BaseModel):
+    model_config = {"extra": "forbid"}  # 拒绝未知字段
+
     enabled: bool = Field(False, description="Whether email proxy is enabled")
     matrix_mailbox: str = Field(
         "", description="Matrix mailbox address for sending emails to user"
@@ -115,6 +121,8 @@ class LLMConfig(BaseModel):
 
 
 class SystemConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
     user_agent_name: str = Field("User", description="Name of the user agent")
     matrix_version: str = Field("1.0.0", description="AgentMatrix version")
     description: str = Field("", description="World description")
@@ -125,6 +133,8 @@ class SystemConfig(BaseModel):
 
 
 class AgentProfile(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(..., description="Agent name (unique identifier)")
     description: str = Field(..., description="One-line description of the agent")
     class_name: str = Field(
@@ -133,9 +143,9 @@ class AgentProfile(BaseModel):
     backend_model: str = Field(
         "default_llm", description="LLM model name from llm_config.json"
     )
-    persona: Dict[str, str] = Field(
-        default_factory=lambda: {"base": ""},
-        description='Named personas, e.g. {"base": "You are a helpful assistant."}',
+    persona: str = Field(
+        "",
+        description='Persona prompt, e.g. "You are a helpful assistant."',
     )
     skills: List[str] = Field(
         default_factory=list,

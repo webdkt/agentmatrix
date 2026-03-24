@@ -130,6 +130,7 @@ async def verify_llm_connection(config: dict) -> VerifyResult:
 async def verify_smtp_connection(config: dict) -> VerifyResult:
     """
     Test SMTP server connectivity.
+    Skip verification if fields are blank (user hasn't configured yet).
 
     Args:
         config: SMTP config dict with host, port, user, password
@@ -142,11 +143,12 @@ async def verify_smtp_connection(config: dict) -> VerifyResult:
     user = config.get("user", "")
     password = config.get("password", "")
 
+    # 如果字段为空，跳过验证（用户尚未配置）
     if not host or not user or not password:
         return VerifyResult(
-            success=False,
+            success=True,
             test_type="smtp_connection",
-            message="Missing required fields: host, user, or password",
+            message="Skipped (fields not configured yet)",
         )
 
     try:
@@ -193,6 +195,7 @@ async def verify_smtp_connection(config: dict) -> VerifyResult:
 async def verify_imap_connection(config: dict) -> VerifyResult:
     """
     Test IMAP server connectivity.
+    Skip verification if fields are blank (user hasn't configured yet).
 
     Args:
         config: IMAP config dict with host, port, user, password
@@ -205,11 +208,12 @@ async def verify_imap_connection(config: dict) -> VerifyResult:
     user = config.get("user", "")
     password = config.get("password", "")
 
+    # 如果字段为空，跳过验证（用户尚未配置）
     if not host or not user or not password:
         return VerifyResult(
-            success=False,
+            success=True,
             test_type="imap_connection",
-            message="Missing required fields: host, user, or password",
+            message="Skipped (fields not configured yet)",
         )
 
     try:

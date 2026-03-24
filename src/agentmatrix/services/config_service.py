@@ -383,6 +383,20 @@ class ConfigService:
 
         return backups
 
+    def list_agent_backups(self, agent_name: str) -> List[BackupInfo]:
+        """
+        根据 agent 的 name 属性列出配置备份。
+
+        Args:
+            agent_name: Agent 的显示名（name 字段的值），如 "John", "SystemAdmin"
+        """
+        try:
+            file_path = self._find_agent_file_by_name(agent_name)
+            file_name = file_path.stem
+            return self.list_backups("agent", file_name)
+        except FileNotFoundError:
+            return []
+
     def read_backup(self, config_type: str, backup_name: str, name: str = None) -> str:
         """
         Read a specific backup file.
@@ -437,6 +451,102 @@ class ConfigService:
         except Exception:
             pass
         return []
+
+    # ==================== Agent Config (by agent_name) ====================
+
+    def _find_agent_file_by_name(self, agent_name: str) -> Path:
+        """
+        根据 agent 的 name 属性找到对应的配置文件。
+        遍历 agents 目录下的所有 .yml 文件，找到 name 字段匹配的那个。
+        """
+        agents_dir = self.paths.agent_config_dir
+        if not agents_dir.exists():
+            raise FileNotFoundError(f"Agents directory not found: {agents_dir}")
+
+        for yml_file in agents_dir.glob("*.yml"):
+            try:
+                content = yml_file.read_text(encoding="utf-8")
+                profile = yaml.safe_load(content)
+                if profile and profile.get("name") == agent_name:
+                    return yml_file
+            except Exception:
+                continue
+
+        raise FileNotFoundError(f"Agent config not found for agent_name='{agent_name}'")
+
+    def read_agent_config(self, agent_name: str) -> ConfigReadResult:
+        """
+        根据 agent 的 name 属性读取配置文件。
+
+        Args:
+            agent_name: Agent 的显示名（name 字段的值），如 "John", "SystemAdmin"
+        """
+        try:
+            file_path = self._find_agent_file_by_name(agent_name)
+            content = file_path.read_text(encoding="utf-8")
+            return ConfigReadResult(
+                success=True,
+                content=content,
+                config_type="agent",
+                name=agent_name,
+                file_path=str(file_path),
+            )
+        except FileNotFoundError as e:
+            return ConfigReadResult(
+                success=False,
+                content="",
+                config_type="agent",
+                name=agent_name,
+                file_path="",
+                error=str(e),
+            )
+        except Exception as e:
+            return ConfigReadResult(
+                success=False,
+                content="",
+                config_type="agent",
+                name=agent_name,
+                file_path="",
+                error=str(e),
+            )
+
+    async def write_agent_config(
+        self,
+        agent_name: str,
+        content: str,
+        skip_verification: bool = False,
+    ) -> ConfigWriteResult:
+        """
+        根据 agent 的 name 属性更新配置文件。
+
+        Args:
+            agent_name: Agent 的显示名（name 字段的值），如 "John", "SystemAdmin"
+            content: 完整的 YAML 配置内容
+            skip_verification: 是否跳过连接测试
+        """
+        try:
+            file_path = self._find_agent_file_by_name(agent_name)
+            # 使用 write_config 的验证和备份逻辑
+            return await self.write_config(
+                "agent",
+                content,
+                file_path.stem,  # 传入文件名（不含后缀）
+                skip_verification,
+            )
+        except FileNotFoundError as e:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[ConfigError(field="agent_name", issue=str(e))],
+            )
+        except Exception as e:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[ConfigError(field="agent_name", issue=str(e))],
+            )
 
     # ==================== Internal helpers ====================
 

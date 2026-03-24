@@ -26,17 +26,17 @@ class AgentStatus:
 
 
 class BaseAgent(AutoLoggerMixin):
-    _log_from_attr = "name" # 日志名字来自 self.name 属性
+    _log_from_attr = "name"  # 日志名字来自 self.name 属性
 
     _custom_log_level = logging.DEBUG
 
-    def __init__(self, profile):
+    def __init__(self, profile, profile_path: str = None):
         self.name = profile["name"]
         self.description = profile["description"]
+        self.profile_path = profile_path  # 配置文件路径（用于 ConfigService 定位）
 
-        # 加载 persona 配置（多个 persona，按阶段或功能分类）
-        self.persona_config = profile.get("persona", {"base":""})
-        self.persona = self.get_persona()
+        # persona 直接是字符串
+        self.persona = profile.get("persona", "")
 
         # 加载其他 prompts（如 task_prompt）
         self.other_prompts = profile.get("prompts", {})
@@ -55,13 +55,14 @@ class BaseAgent(AutoLoggerMixin):
 
         self._status = AgentStatus.IDLE  # 🔧 私有变量，只能通过 update_status 修改
         from datetime import datetime
+
         self._status_since = datetime.now()  # 状态变化的时间
 
         # 📊 状态历史（最近 10 条，用于前端查询）
         self.status_history = []
         self._max_status_history = 10  # 🔧 扩展到 10 条
 
-        self.last_received_email = None #最后收到的信
+        self.last_received_email = None  # 最后收到的信
         self.post_office = None
         self.last_email_processed = True
 
@@ -90,13 +91,10 @@ class BaseAgent(AutoLoggerMixin):
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
 
-
         # 🔀 暂停/恢复机制
         self._paused = False
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # 初始状态为已设置（不阻塞）
-
-        
 
         # 💬 ask_user 机制（等待用户输入）
         self._pending_user_question = None  # 当前等待用户回答的问题
@@ -115,27 +113,6 @@ class BaseAgent(AutoLoggerMixin):
         # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
         # 不再需要手动注册，移除 _register_new_skills() 方法
 
-
-    def get_persona(self, persona_name: str = "base", **kwargs) -> str:
-        """
-        获取并渲染 persona
-
-        Args:
-            persona_name: persona 名称（如 "planner", "researcher"）
-            **kwargs: 模板变量（如 round_count=1, blueprint_content="..."）
-
-        Returns:
-            渲染后的 persona 字符串
-
-        Raises:
-            ValueError: persona 不存在
-            KeyError: 缺少必需的变量
-        """
-        template = self.persona_config.get(persona_name.lower(), "")
-
-        # 直接渲染，缺变量会抛出 KeyError
-        return f"你的名字叫{self.name}.\n" + template.format(**kwargs)
-
     def _init_docker_manager(self):
         """初始化 Docker 容器管理器"""
         from ..core.docker_manager import DockerContainerManager
@@ -147,7 +124,7 @@ class BaseAgent(AutoLoggerMixin):
             self.docker_manager = DockerContainerManager(
                 agent_name=self.name,
                 workspace_root=self.runtime.paths.workspace_dir,
-                parent_logger=self.logger
+                parent_logger=self.logger,
             )
 
             # 初始化目录结构
@@ -159,7 +136,9 @@ class BaseAgent(AutoLoggerMixin):
             self.logger.error(f"Docker 初始化失败: {e}")
             raise  # 不降级，直接抛出异常
 
-    def deprecated_get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+    def deprecated_get_skill_prompt(
+        self, skill_name: str, prompt_name: str, **kwargs
+    ) -> str:
         """
         获取并渲染 skill prompt
 
@@ -178,7 +157,9 @@ class BaseAgent(AutoLoggerMixin):
         # 从文件加载（带缓存）
         return self.deprecated_load_skill_prompt(skill_name, prompt_name, **kwargs)
 
-    def deprecated_load_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+    def deprecated_load_skill_prompt(
+        self, skill_name: str, prompt_name: str, **kwargs
+    ) -> str:
         """
         从文件加载 skill prompt
 
@@ -211,15 +192,13 @@ class BaseAgent(AutoLoggerMixin):
         # 读取模板（带缓存）
         cache_key = f"{skill_name}/{prompt_name}"
         if cache_key not in self._prompt_cache:
-            with open(prompt_file, 'r', encoding='utf-8') as f:
+            with open(prompt_file, "r", encoding="utf-8") as f:
                 self._prompt_cache[cache_key] = f.read()
 
         template = self._prompt_cache[cache_key]
 
         # 直接渲染，缺变量会抛出 KeyError
         return template.format(**kwargs)
-
-
 
     @property
     def runtime(self):
@@ -231,8 +210,7 @@ class BaseAgent(AutoLoggerMixin):
         if value is not None:
             # 初始化SessionManager（使用 runtime.paths）
             self.session_manager = SessionManager(
-                agent_name=self.name,
-                matrixpath=self.runtime.paths
+                agent_name=self.name, matrixpath=self.runtime.paths
             )
 
             # 🆕 初始化 SKILLS 目录（用于 MD Document Skills）
@@ -255,7 +233,6 @@ class BaseAgent(AutoLoggerMixin):
     def status(self):
         """只读属性：必须通过 update_status() 方法来修改"""
         return self._status
-
 
     # ========== 暂停/恢复机制 ==========
 
@@ -325,16 +302,16 @@ class BaseAgent(AutoLoggerMixin):
         self.update_status(new_status=AgentStatus.WAITING_FOR_USER)
 
         # ✅ 发送邮件通知（如果 runtime 可用）
-        task_id = self.current_task_id 
-        session_id = self.current_session.get('session_id')
+        task_id = self.current_task_id
+        session_id = self.current_session.get("session_id")
         await self._send_ask_user_email(question, task_id, session_id)
-
-        
 
         # 4. 创建 Future 并挂起
         self._user_input_future = asyncio.Future()
 
-        self.logger.info(f"💬 向用户提问: {question[:50]}{'...' if len(question) > 50 else ''}")
+        self.logger.info(
+            f"💬 向用户提问: {question[:50]}{'...' if len(question) > 50 else ''}"
+        )
 
         try:
             # 发起提问前，先确保当前没有被暂停
@@ -347,7 +324,9 @@ class BaseAgent(AutoLoggerMixin):
             # 拿到答案后，再次检查是否在等待期间系统被暂停了
             await self._checkpoint()
 
-            self.logger.info(f"✅ 收到用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}")
+            self.logger.info(
+                f"✅ 收到用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}"
+            )
             return answer
 
         finally:
@@ -379,14 +358,14 @@ class BaseAgent(AutoLoggerMixin):
             # 获取 Email Proxy Service
             email_proxy = self.runtime.email_proxy
             if not email_proxy:
-                self.logger.warning("⚠️ Email Proxy Service 未找到，跳过 ask_user 邮件发送")
+                self.logger.warning(
+                    "⚠️ Email Proxy Service 未找到，跳过 ask_user 邮件发送"
+                )
                 return
 
             # 直接调用 EmailProxyService 的专用方法
             await email_proxy.send_ask_user_email(
-                agent_name=self.name,
-                agent_session_id=session_id,
-                question=question
+                agent_name=self.name, agent_session_id=session_id, question=question
             )
 
             self.logger.info(f"✅ 已发送 ask_user 邮件通知: {question[:50]}...")
@@ -409,18 +388,18 @@ class BaseAgent(AutoLoggerMixin):
             # 在 Server API 中
             await agent.submit_user_input("5万-10万")
         """
-        if self.current_session.get('session_id') != session_id:
-            #not for this session
+        if self.current_session.get("session_id") != session_id:
+            # not for this session
             return
         if not self._user_input_future or self._user_input_future.done():
             return
 
-        self.logger.debug(f"📥 提交用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}")
+        self.logger.debug(
+            f"📥 提交用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}"
+        )
 
         # 设置结果，唤醒 Future
         self._user_input_future.set_result(answer)
-
-    
 
     def _scan_all_actions(self):
         """
@@ -433,7 +412,7 @@ class BaseAgent(AutoLoggerMixin):
 
         for cls in self.__class__.__mro__:
             for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
-                if hasattr(method, '_is_action') and method._is_action:
+                if hasattr(method, "_is_action") and method._is_action:
                     # 只存储第一次遇到的（避免重复）
                     if name not in self.action_registry:
                         # 存储已绑定的方法（直接可调用）
@@ -446,7 +425,7 @@ class BaseAgent(AutoLoggerMixin):
                         self.actions_meta[name] = {
                             "action": name,
                             "description": desc,
-                            "params": param_infos
+                            "params": param_infos,
                         }
 
     @property
@@ -489,32 +468,28 @@ class BaseAgent(AutoLoggerMixin):
 
         return workspace
 
-
-
     async def emit(self, event_type, content, payload={}):
         """
         发送事件到注册的事件回调函数
-        
+
         Args:
             event_type (str): 事件的类型，用于标识不同种类的事件,
-            
+
             content (str): 事件的主要内容描述
             payload (dict, optional): 事件的附加数据，默认为None，当为None时会使用空字典
-            
+
         Returns:
             None
-            
+
         Raises:
             无显式抛出异常
         """
         # 检查是否存在事件回调函数
         if self.async_event_callback:
             # 创建新的事件对象，包含事件类型、发送者名称、内容和附加数据
-            event = AgentEvent(event_type, self.name,self.status, content, payload)
+            event = AgentEvent(event_type, self.name, self.status, content, payload)
             # 异步调用事件回调函数，将事件对象传递过去
             await self.async_event_callback(event)
-
-
 
     async def run(self):
         """主循环：启动并监控双 worker"""
@@ -536,7 +511,11 @@ class BaseAgent(AutoLoggerMixin):
                 self.history_worker_task.cancel()
             # 等待worker任务完成
             try:
-                await asyncio.gather(self.email_worker_task, self.history_worker_task, return_exceptions=True)
+                await asyncio.gather(
+                    self.email_worker_task,
+                    self.history_worker_task,
+                    return_exceptions=True,
+                )
             except Exception:
                 pass
             raise  # Re-raise CancelledError to properly propagate cancellation
@@ -561,18 +540,22 @@ class BaseAgent(AutoLoggerMixin):
         if self.runtime and email.sender == self.runtime.get_user_agent_name():
             # 邮件来自User，设置 current_user_session_id
             self.current_user_session_id = email.sender_session_id
-            self.logger.debug(f"📧 邮件来自用户 User，设置 current_user_session_id = {email.sender_session_id[:8] if email.sender_session_id else None}...")
+            self.logger.debug(
+                f"📧 邮件来自用户 User，设置 current_user_session_id = {email.sender_session_id[:8] if email.sender_session_id else None}..."
+            )
         else:
             # 邮件来自其他Agent，清空 current_user_session_id
             self.current_user_session_id = None
-            self.logger.debug(f"📧 邮件来自 {email.sender}，清空 current_user_session_id")
+            self.logger.debug(
+                f"📧 邮件来自 {email.sender}，清空 current_user_session_id"
+            )
 
         # 2. 更新 recipient_session_id（如果尚未设置）
         if email.recipient_session_id is None:
             await self.post_office.update_email_receiver_session(
                 email_id=email.id,
                 recipient_session_id=session["session_id"],
-                receiver_name=self.name
+                receiver_name=self.name,
             )
 
         # 🐳 容器模式：唤醒并切换工作区
@@ -581,8 +564,7 @@ class BaseAgent(AutoLoggerMixin):
         # 检查 Docker 管理器是否已初始化
         if self.docker_manager is None:
             raise RuntimeError(
-                "Docker 容器管理器未初始化。"
-                "请确保 workspace_root 已正确设置。"
+                "Docker 容器管理器未初始化。请确保 workspace_root 已正确设置。"
             )
 
         # 唤醒容器
@@ -611,21 +593,18 @@ class BaseAgent(AutoLoggerMixin):
             # 4. 执行 Micro Agent
             # 每次创建新的 MicroAgent
             # 🆕 传入身份特征参数
-            persona = self.get_persona()
+            persona = self.persona
             micro_core = MicroAgent(
-                parent=self,
-                name=self.name,
-                
-                available_skills=available_skills
+                parent=self, name=self.name, available_skills=available_skills
             )
 
             result = await micro_core.execute(
-                run_label='Process Email',
+                run_label="Process Email",
                 task=task,
                 max_steps=100,
                 yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
                 session_manager=self.session_manager,
-                session=session
+                session=session,
             )
 
             # 5. 更新 session 元数据
@@ -636,7 +615,9 @@ class BaseAgent(AutoLoggerMixin):
             # 6. 最终保存到磁盘（保险起见，虽然 MicroAgent 已经自动保存）
             try:
                 await self.session_manager.save_session(session)
-                self.logger.debug(f"💾 Final save of session {session['session_id'][:8]}")
+                self.logger.debug(
+                    f"💾 Final save of session {session['session_id'][:8]}"
+                )
             except Exception as e:
                 self.logger.warning(f"Failed to final-save session: {e}")
 
@@ -644,9 +625,11 @@ class BaseAgent(AutoLoggerMixin):
             if isinstance(result, str) and len(result) > 100:
                 result_preview = f"{result[:100]}..."
             else:
-                result_preview = result if result else 'No result'
+                result_preview = result if result else "No result"
             self.logger.debug(f"Email processing completed. Result: {result_preview}")
-            self.logger.info(f"Session {session['session_id'][:8]} now has {len(session['history'])} messages")
+            self.logger.info(
+                f"Session {session['session_id'][:8]} now has {len(session['history'])} messages"
+            )
 
         finally:
             # 🐳 容器模式：休眠容器
@@ -673,11 +656,15 @@ class BaseAgent(AutoLoggerMixin):
         """
         return {
             "status": self._status,
-            "pending_question": self._pending_user_question if hasattr(self, '_pending_user_question') else None,
-            "current_session_id": self.current_session.get("session_id") if self.current_session else None,
+            "pending_question": self._pending_user_question
+            if hasattr(self, "_pending_user_question")
+            else None,
+            "current_session_id": self.current_session.get("session_id")
+            if self.current_session
+            else None,
             "current_task_id": self.current_task_id,
             "current_user_session_id": self.current_user_session_id,
-            "status_history": self.status_history.copy()
+            "status_history": self.status_history.copy(),
         }
 
     def update_status(self, new_status=None, new_message=None):
@@ -701,16 +688,18 @@ class BaseAgent(AutoLoggerMixin):
         if new_status is not None:
             self._status = new_status
             from datetime import datetime
+
             self._status_since = datetime.now()
             self.logger.debug(f"📊 Status: {new_status}")
 
         # 🔧 2. 更新状态历史
         if new_message is not None:
             from datetime import datetime
+
             entry = {
                 "message": new_message,
                 "timestamp": datetime.now().isoformat(),
-                "user_session_id": self.current_user_session_id
+                "user_session_id": self.current_user_session_id,
             }
             self.status_history.append(entry)
             if len(self.status_history) > self._max_status_history:
@@ -724,7 +713,7 @@ class BaseAgent(AutoLoggerMixin):
             message = {
                 "type": "AGENT_STATUS_UPDATE",
                 "agent_name": self.name,
-                "data": agent_info
+                "data": agent_info,
             }
             # 异步发送，但数据已经在上面收集好了
             asyncio.create_task(self._send_message(message))
@@ -739,14 +728,14 @@ class BaseAgent(AutoLoggerMixin):
     def get_current_status(self) -> dict:
         """
         获取当前状态（最新一条）
-        
+
         Returns:
             dict: {"message": str, "timestamp": str}
         """
         if self.status_history:
             return self.status_history[-1]
         return {"message": "空闲", "timestamp": None}
-    
+
     def get_status_history(self) -> list:
         """
         获取状态历史（最近 10 条）
@@ -755,7 +744,7 @@ class BaseAgent(AutoLoggerMixin):
             list: [{"message": str, "timestamp": str, "user_session_id": str}, ...]
         """
         return self.status_history.copy()
-    
+
         # ==================== 🆕 双 Worker 模型 ====================
 
     async def _email_worker(self):
@@ -803,7 +792,9 @@ class BaseAgent(AutoLoggerMixin):
                         self.inbox.task_done()
 
                     # ✅ 邮件处理完成，恢复 history_worker
-                    self.history_worker_task = asyncio.create_task(self._history_worker())
+                    self.history_worker_task = asyncio.create_task(
+                        self._history_worker()
+                    )
                     self.logger.info("✅ 邮件处理完成，恢复 history worker")
 
                 except Exception as e:
@@ -942,16 +933,14 @@ NO EVENTS
 
 
 # Session History
-{format_session_messages(summary_item['messages'])}
+{format_session_messages(summary_item["messages"])}
 
 Extract facts now.
 """
 
         # 使用 think_with_retry 获取 events
         result = await self.cerebellum.backend.think_with_retry(
-            initial_messages=prompt,
-            parser=events_list_parser,
-            max_retries=2
+            initial_messages=prompt, parser=events_list_parser, max_retries=2
         )
 
         return result  # List[Dict]: [{"event": str, "entities": List[str]}]
@@ -971,16 +960,16 @@ Extract facts now.
         if self.runtime is None:
             self.logger.error("❌ runtime 未注入，无法持久化事件")
             return
-        
+
         # 获取上下文信息
         agent_name = self.name
-        
+
         try:
             await append_timeline_events(
                 workspace_root=str(self.runtime.paths.workspace_dir),
                 agent_name=agent_name,
-                task_id= self.current_task_id,
-                events=events  # 直接传递事件对象列表
+                task_id=self.current_task_id,
+                events=events,  # 直接传递事件对象列表
             )
             self.logger.info(f"💾 成功持久化 {len(events)} 个事件到 Timeline")
         except Exception as e:
@@ -988,12 +977,6 @@ Extract facts now.
 
     # ==================== 🆕 双 Worker 模型结束 ====================
 
-
-
-
-
-
-    
     def dump_state(self) -> Dict:
         """生成当前 Agent 的完整快照"""
 
@@ -1002,13 +985,13 @@ Extract facts now.
         inbox_content = []
         while not self.inbox.empty():
             email = self.inbox.get_nowait()
-            inbox_content.append(asdict(email)) # Email 也需要 to_dict
+            inbox_content.append(asdict(email))  # Email 也需要 to_dict
             self.inbox.task_done()
 
         # 额外检查：如果保存时正在处理某封信，把它塞回 Inbox 的头部！
         # 这样下次启动时，Agent 会重新处理这封信，相当于"断点重试"
         if self.last_received_email and not self.last_email_processed:
-             inbox_content.insert(0, asdict(self.last_received_email))
+            inbox_content.insert(0, asdict(self.last_received_email))
 
         return {
             "name": self.name,
@@ -1016,7 +999,7 @@ Extract facts now.
             # Session 数据已经在 SessionManager 中自动持久化，不需要在这里保存
             # 如果是 Planner，它会有额外的 project_state，
             # 可以通过 hasattr 检查或者子类覆盖 dump_state
-            "extra_state": getattr(self, "project_state", None)
+            "extra_state": getattr(self, "project_state", None),
         }
 
     def load_state(self, snapshot: Dict):
@@ -1032,61 +1015,60 @@ Extract facts now.
         if snapshot.get("extra_state"):
             self.project_state = snapshot["extra_state"]
 
-
     def deprecated_resolve_real_path(self, filename: str) -> Path:
         """
         解析文件名并返回真实的绝对路径
-        
+
         Args:
             filename: 可能是绝对路径、相对路径或单个文件名
-            
+
         Returns:
             解析后的绝对路径
-            
+
         Raises:
             FileNotFoundError: 文件未找到
             ValueError: 路径超出 workspace 范围
         """
         from pathlib import Path
-        
+
         if self.runtime is None:
             raise RuntimeError("runtime 未注入，无法解析路径")
-        
+
         # 转换为 Path 对象
         input_path = Path(filename)
-        
+
         # 获取 workspace 路径
         workspace_root = self.runtime.paths.workspace_dir.resolve()
-        
+
         # 情况1: 处理绝对路径
         if input_path.is_absolute():
             try:
                 # 检查是否在 workspace 范围内
                 resolved_path = input_path.resolve()
-                
+
                 # 检查路径是否在 workspace 下
                 if not str(resolved_path).startswith(str(workspace_root)):
                     raise ValueError(f"Path {filename} is outside workspace")
-                    
+
                 # 检查文件是否存在
                 if not resolved_path.exists():
                     raise FileNotFoundError(f"File not found: {filename}")
-                    
+
                 return resolved_path
-                
+
             except Exception as e:
                 raise ValueError(f"Invalid absolute path: {filename}") from e
-        
+
         # 情况2: 处理相对路径
         # 判断是否是单个文件名（不包含路径分隔符）
-        is_single_filename = '/' not in str(input_path) and '\\' not in str(input_path)
-    
+        is_single_filename = "/" not in str(input_path) and "\\" not in str(input_path)
+
         # 定义搜索顺序的函数
         def try_resolve_in_workspace(workspace: Path) -> Optional[Path]:
             """在指定工作区中解析路径"""
             if not workspace:
                 return None
-                
+
             try:
                 # 对于单个文件名，需要递归搜索
                 if is_single_filename:
@@ -1099,32 +1081,29 @@ Extract facts now.
                     candidate = (workspace / input_path).resolve()
                     if candidate.exists() and candidate.is_file():
                         return candidate
-                        
+
             except Exception:
                 pass
-                
+
             return None
-        
+
         # 按优先级顺序尝试解析
         # 1. 先尝试共享工作区
         resolved = try_resolve_in_workspace(self.current_workspace)
         if resolved:
             return resolved
-        
+
         # 2. 再尝试私有工作区
         resolved = try_resolve_in_workspace(self.private_workspace)
         if resolved:
             return resolved
-        
+
         # 3. 如果都没找到，抛出异常
         raise FileNotFoundError(f"File not found in any workspace: {filename}")
-
-   
 
     # ==========================================
     # 通用 Actions
     # ==========================================
-
 
     @classmethod
     def shutdown_all_docker_containers(cls):
