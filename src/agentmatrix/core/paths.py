@@ -50,8 +50,28 @@ class MatrixPaths:
 
     @property
     def llm_config_path(self) -> Path:
-        """LLM配置文件：.matrix/configs/agents/llm_config.json"""
-        return self.agent_config_dir / "llm_config.json"
+        """LLM配置文件：.matrix/configs/llm_config.json"""
+        return self.config_dir / "llm_config.json"
+
+    @property
+    def system_config_path(self) -> Path:
+        """系统配置文件：.matrix/configs/system_config.yml"""
+        return self.config_dir / "system_config.yml"
+
+    @property
+    def email_proxy_config_path(self) -> Path:
+        """Email Proxy配置文件：.matrix/configs/email_proxy_config.yml"""
+        return self.config_dir / "email_proxy_config.yml"
+
+    @property
+    def backup_dir(self) -> Path:
+        """备份目录：.matrix/configs/backups/"""
+        return self.config_dir / "backups"
+
+    @property
+    def agent_backup_dir(self) -> Path:
+        """Agent备份目录：.matrix/configs/backups/agents/"""
+        return self.backup_dir / "agents"
 
     @property
     def matrix_config_path(self) -> Path:
@@ -214,6 +234,8 @@ class MatrixPaths:
             self.workspace_dir,
             self.workspace_dir / "agent_files",
             self.get_skills_dir(),
+            self.backup_dir,
+            self.agent_backup_dir,
         ]
 
         for directory in directories:

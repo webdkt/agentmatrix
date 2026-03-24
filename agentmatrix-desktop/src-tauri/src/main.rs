@@ -4,7 +4,7 @@
 use std::process::{Command, Child};
 use std::sync::Mutex;
 use std::path::PathBuf;
-use tauri::State;
+use tauri::{State, Manager};
 use serde_json::Value as JsonValue;
 
 mod config;
@@ -30,8 +30,8 @@ fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name
     copy_dir_recursive(&src, &dest)
         .map_err(|e| format!("Failed to copy template: {}", e))?;
 
-    // Replace {{USER_NAME}} in User.yml and matrix_config.yml
-    for rel_path in &[".matrix/configs/agents/User.yml", ".matrix/configs/matrix_config.yml"] {
+    // Replace {{USER_NAME}} in User.yml and system_config.yml
+    for rel_path in &[".matrix/configs/agents/User.yml", ".matrix/configs/system_config.yml"] {
         let file_path = dest.join(rel_path);
         if file_path.exists() {
             let content = std::fs::read_to_string(&file_path)
@@ -49,7 +49,7 @@ fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name
 #[tauri::command]
 fn save_llm_config(matrix_world_path: String, llm_config: JsonValue) -> Result<(), String> {
     let config_path = PathBuf::from(&matrix_world_path)
-        .join(".matrix/configs/agents/llm_config.json");
+        .join(".matrix/configs/llm_config.json");
 
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
@@ -69,34 +69,18 @@ fn save_llm_config(matrix_world_path: String, llm_config: JsonValue) -> Result<(
 #[tauri::command]
 fn save_email_proxy_config_cmd(matrix_world_path: String, email_proxy: JsonValue) -> Result<(), String> {
     let config_path = PathBuf::from(&matrix_world_path)
-        .join(".matrix/configs/matrix_config.yml");
+        .join(".matrix/configs/email_proxy_config.yml");
 
-    // Read existing matrix_config.yml
-    let mut config: serde_yaml::Value = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read matrix_config.yml: {}", e))?;
-        serde_yaml::from_str(&content)
-            .unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
-    } else {
-        serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
-    };
-
-    // Update email_proxy section
-    let ep_yaml: serde_yaml::Value = serde_yaml::to_value(&email_proxy)
-        .map_err(|e| format!("Failed to convert email proxy: {}", e))?;
-
-    if let serde_yaml::Value::Mapping(ref mut map) = config {
-        map.insert(
-            serde_yaml::Value::String("email_proxy".into()),
-            ep_yaml,
-        );
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
-    let yaml_str = serde_yaml::to_string(&config)
+    let yaml_str = serde_yaml::to_string(&email_proxy)
         .map_err(|e| format!("Failed to serialize YAML: {}", e))?;
 
     std::fs::write(&config_path, yaml_str)
-        .map_err(|e| format!("Failed to write matrix_config.yml: {}", e))?;
+        .map_err(|e| format!("Failed to write email_proxy_config.yml: {}", e))?;
 
     println!("✅ Saved email proxy config to {:?}", config_path);
     Ok(())
@@ -195,7 +179,7 @@ async fn get_config() -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Option<bool>, enable_notifications: Option<bool>, is_configured: Option<bool>) -> Result<AppConfig, String> {
+async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Option<bool>, enable_notifications: Option<bool>) -> Result<AppConfig, String> {
     let mut config = AppConfig::load()?;
     
     if let Some(path) = matrix_world_path {
@@ -206,9 +190,6 @@ async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Op
     }
     if let Some(notifications) = enable_notifications {
         config.enable_notifications = notifications;
-    }
-    if let Some(configured) = is_configured {
-        config.is_configured = configured;
     }
     
     config.save()?;
@@ -225,9 +206,8 @@ async fn is_first_run() -> Result<bool, String> {
 async fn mark_configured(matrix_world_path: String) -> Result<(), String> {
     let mut config = AppConfig::load()?;
     config.matrix_world_path = matrix_world_path;
-    config.is_configured = true;
     config.save()?;
-    println!("✅ App marked as configured");
+    println!("✅ Config saved");
     Ok(())
 }
 

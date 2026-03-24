@@ -246,5 +246,12 @@ export const useSessionStore = defineStore('session', {
         this.markDialogShown(sessionId)
       }
     },
+
+    /**
+     * Alias for loadSessions (refresh mode)
+     */
+    async fetchSessions() {
+      return this.loadSessions(false)
+    },
   },
 })

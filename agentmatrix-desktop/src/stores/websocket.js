@@ -12,6 +12,7 @@ export const useWebSocketStore = defineStore('websocket', {
     isConnected: false,
     lastEvent: null,
     newEmailCallbacks: [],  // 新邮件回调函数列表
+    listeners: {},          // 事件监听器 { eventType: [callback, ...] }
   }),
 
   getters: {
@@ -35,6 +36,14 @@ export const useWebSocketStore = defineStore('websocket', {
       this.lastEvent = data
 
       console.log('📨 WebSocket message received:', data.type, data)
+
+      // Trigger registered listeners
+      const eventType = data.type || data.event
+      if (eventType && this.listeners[eventType]) {
+        this.listeners[eventType].forEach(cb => {
+          try { cb(data) } catch (e) { console.error('Listener error:', e) }
+        })
+      }
 
       // 处理新邮件事件
       if (data.type === 'new_email') {
@@ -175,6 +184,27 @@ export const useWebSocketStore = defineStore('websocket', {
             sessionStore.clearPendingQuestion(agentInfo.current_user_session_id)
           }
         })
+      }
+    },
+
+    /**
+     * 注册事件监听器
+     */
+    registerListener(eventType, callback) {
+      if (!this.listeners[eventType]) {
+        this.listeners[eventType] = []
+      }
+      this.listeners[eventType].push(callback)
+    },
+
+    /**
+     * 注册回调（别名，兼容 onNewEmail）
+     */
+    registerCallback(event, callback) {
+      if (event === 'on_new_email') {
+        this.onNewEmail(callback)
+      } else {
+        this.registerListener(event, callback)
       }
     },
 

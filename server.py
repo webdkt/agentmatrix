@@ -76,7 +76,8 @@ configs_dir = system_dir / "configs"
 agents_dir = configs_dir / "agents"
 llm_config_path = agents_dir / "llm_config.json"
 system_config_path = configs_dir / "system_config.yml"
-matrix_config_path = configs_dir / "matrix_config.yml"
+email_proxy_config_path = configs_dir / "email_proxy_config.yml"
+matrix_config_path = configs_dir / "matrix_config.yml"  # 向后兼容
 
 active_websockets = []
 matrix_runtime = None
@@ -209,32 +210,28 @@ REQUIRED_LLM_CONFIGS = ["default_llm", "default_slm", "browser-use-llm"]
 # === Helper Functions ===
 
 
-def check_cold_start(config_path: Path) -> bool:
-    """Check if this is a cold start (no LLM config exists)"""
-    if not config_path or not config_path.exists():
-        return True
-    return False
-
-
 def load_user_agent_name(matrix_world_dir: Path) -> str:
-    """Load user agent name from matrix_config.yml configuration file"""
+    """Load user agent name from system_config.yml configuration file"""
     import yaml
 
-    # 新架构：从 .matrix/configs/matrix_config.yml 读取
-    config_path = matrix_world_dir / ".matrix" / "configs" / "matrix_config.yml"
+    # 新架构：从 .matrix/configs/system_config.yml 读取
+    config_path = matrix_world_dir / ".matrix" / "configs" / "system_config.yml"
     if not config_path.exists():
-        # 向后兼容：尝试从旧的位置读取
-        old_config_path = matrix_world_dir / "matrix_world.yml"
-        if old_config_path.exists():
-            print(
-                "⚠️  Warning: Using old matrix_world.yml, please migrate to new structure"
-            )
-            with open(old_config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-                return config.get("user_agent_name", "User")
-        else:
-            print("⚠️  Warning: matrix_config.yml not found, using default 'User'")
-            return "User"
+        # 向后兼容：尝试从 matrix_config.yml 读取
+        config_path = matrix_world_dir / ".matrix" / "configs" / "matrix_config.yml"
+        if not config_path.exists():
+            # 向后兼容：尝试从旧的位置读取
+            old_config_path = matrix_world_dir / "matrix_world.yml"
+            if old_config_path.exists():
+                print(
+                    "⚠️  Warning: Using old matrix_world.yml, please migrate to new structure"
+                )
+                with open(old_config_path, "r", encoding="utf-8") as f:
+                    config = yaml.safe_load(f)
+                    return config.get("user_agent_name", "User")
+            else:
+                print("⚠️  Warning: system_config.yml not found, using default 'User'")
+                return "User"
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -242,7 +239,7 @@ def load_user_agent_name(matrix_world_dir: Path) -> str:
             user_name = config.get("user_agent_name", "User")
             return user_name
     except Exception as e:
-        print(f"⚠️  Error loading matrix_config.yml: {e}, using default 'User'")
+        print(f"⚠️  Error loading system_config.yml: {e}, using default 'User'")
         return "User"
 
 
@@ -423,27 +420,9 @@ async def lifespan(app: FastAPI):
     print(f"🚀 Starting AgentMatrix Server...")
     print(f"📁 Matrix World Directory: {config['matrix_world_dir']}")
 
-    # Check if this is cold start
-    is_cold_start = check_cold_start(config["llm_config_path"])
-    if is_cold_start:
-        print("❄️  Cold start detected - Waiting for user configuration via wizard")
-        try:
-            yield
-        finally:
-            await graceful_shutdown()
-        return
-    else:
-        print("✅ Configuration found - warm start")
-        try:
-            runtime = init_runtime(config["matrix_world_dir"])
-            app.state.matrix = runtime
-        except Exception as e:
-            print(f"❌ Failed to initialize AgentMatrix runtime: {e}")
-            import traceback
-
-            traceback.print_exc()
-            matrix_runtime = None
-            app.state.matrix = None
+    runtime = init_runtime(config["matrix_world_dir"])
+    app.state.matrix = runtime
+    print("✅ Runtime initialized")
 
     try:
         yield
@@ -469,6 +448,7 @@ app.state.config = {
     "agents_dir": agents_dir,
     "llm_config_path": llm_config_path,
     "system_config_path": system_config_path,
+    "email_proxy_config_path": email_proxy_config_path,
     "matrix_config_path": matrix_config_path,
     "host": args.host,
     "port": args.port,
@@ -561,15 +541,10 @@ async def root():
 
 @app.get("/api/config/status")
 async def get_config_status():
-    """Check if the system is configured (cold/warm start)"""
-    config = app.state.config
-    is_cold = check_cold_start(config["llm_config_path"])
-
+    """Check if the system is configured and runtime is ready"""
     return {
-        "configured": not is_cold,
-        "matrix_world_dir": str(config["matrix_world_dir"]),
-        "agents_dir": str(config["agents_dir"]),
-        "workspace_dir": str(config["workspace_dir"]),
+        "configured": matrix_runtime is not None,
+        "matrix_world_dir": str(app.state.config["matrix_world_dir"]),
         "user_agent_name": matrix_runtime.get_user_agent_name()
         if matrix_runtime
         else None,
@@ -611,22 +586,20 @@ async def get_config():
     global matrix_runtime
 
     config = app.state.config
-    is_cold = check_cold_start(config["llm_config_path"])
 
     response_data = {
-        "configured": not is_cold,
+        "configured": matrix_runtime is not None,
         "matrix_world_dir": str(config["matrix_world_dir"]),
         "agents_dir": str(config["agents_dir"]),
         "workspace_dir": str(config["workspace_dir"]),
     }
 
-    # Only include user_agent_name if runtime is initialized
-    if matrix_runtime and not is_cold:
+    if matrix_runtime:
         response_data["user_agent_name"] = matrix_runtime.get_user_agent_name()
     else:
-        # Try to load from config file even if runtime is not initialized
-        user_agent_name = load_user_agent_name(config["matrix_world_dir"])
-        response_data["user_agent_name"] = user_agent_name
+        response_data["user_agent_name"] = load_user_agent_name(
+            config["matrix_world_dir"]
+        )
 
     return response_data
 
@@ -652,10 +625,13 @@ async def init_runtime_api(request: dict):
         # Update app.state.config
         config["matrix_world_dir"] = matrix_world_dir
         config["llm_config_path"] = (
-            matrix_world_dir / ".matrix" / "configs" / "agents" / "llm_config.json"
+            matrix_world_dir / ".matrix" / "configs" / "llm_config.json"
         )
         config["system_config_path"] = (
             matrix_world_dir / ".matrix" / "configs" / "system_config.yml"
+        )
+        config["email_proxy_config_path"] = (
+            matrix_world_dir / ".matrix" / "configs" / "email_proxy_config.yml"
         )
         config["matrix_config_path"] = (
             matrix_world_dir / ".matrix" / "configs" / "matrix_config.yml"

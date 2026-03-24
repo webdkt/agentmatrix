@@ -9,8 +9,6 @@ const CONFIG_FILE: &str = "settings.json";
 pub struct AppConfig {
     pub matrix_world_path: String,
     #[serde(default)]
-    pub is_configured: bool,
-    #[serde(default)]
     pub auto_start_backend: bool,
     #[serde(default)]
     pub enable_notifications: bool,
@@ -22,7 +20,6 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             matrix_world_path: "~/MatrixWorld".to_string(),
-            is_configured: false,
             auto_start_backend: true,
             enable_notifications: true,
             log_level: "INFO".to_string(),
@@ -38,11 +35,9 @@ impl AppConfig {
 
         let config_dir = PathBuf::from(home_dir).join(CONFIG_DIR);
 
-        // Create config directory if it doesn't exist
         if !config_dir.exists() {
             fs::create_dir_all(&config_dir)
                 .map_err(|e| format!("Failed to create config directory: {}", e))?;
-            println!("Created config directory: {:?}", config_dir);
         }
 
         Ok(config_dir)
@@ -57,7 +52,6 @@ impl AppConfig {
         let config_path = Self::get_config_path()?;
 
         if !config_path.exists() {
-            println!("Config file not found, returning default config (cold start)");
             return Ok(Self::default());
         }
 
@@ -67,7 +61,6 @@ impl AppConfig {
         let config: Self = serde_json::from_str(&config_str)
             .map_err(|e| format!("Failed to parse config file: {}", e))?;
 
-        println!("Loaded config from: {:?}", config_path);
         Ok(config)
     }
 
@@ -80,12 +73,10 @@ impl AppConfig {
         fs::write(&config_path, config_str)
             .map_err(|e| format!("Failed to write config file: {}", e))?;
 
-        println!("Saved config to: {:?}", config_path);
         Ok(())
     }
 
     pub fn get_matrix_world_path(&self) -> PathBuf {
-        // Expand ~ if present
         let path_str = if self.matrix_world_path.starts_with("~/") {
             if let Ok(home) = std::env::var("HOME") {
                 PathBuf::from(home)
@@ -99,7 +90,6 @@ impl AppConfig {
             self.matrix_world_path.clone()
         };
 
-        // If relative path, make it relative to parent of agentmatrix-desktop
         if path_str.starts_with('.') || !path_str.starts_with('/') {
             let desktop_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let parent_dir = desktop_dir.parent().unwrap_or(&desktop_dir);
@@ -109,24 +99,42 @@ impl AppConfig {
         }
     }
 
+    /// Cold start detection based on file system state, not flags.
+    ///
+    /// Returns true (needs wizard) if:
+    ///   1. No ~/.agentmatrix/settings.json
+    ///   2. Settings exist but matrix_world_path directory doesn't exist
+    ///   3. Directory exists but .matrix/configs/llm_config.json doesn't exist
     pub fn is_first_run(&self) -> bool {
+        // Force wizard via env var
         if std::env::var("AGENTMATRIX_FORCE_WIZARD").is_ok() {
             return true;
         }
-        if self.is_configured {
-            return false;
-        }
-        // Legacy: if settings.json exists with valid matrix_world_path dir, not first run
+
+        // Check 1: settings.json exists?
         let config_path = match Self::get_config_path() {
             Ok(p) => p,
             Err(_) => return true,
         };
-        if config_path.exists() {
-            let path = self.get_matrix_world_path();
-            if path.exists() {
-                return false;
-            }
+        if !config_path.exists() {
+            return true;
         }
-        true
+
+        // Check 2: matrix_world_path directory exists?
+        let world_path = self.get_matrix_world_path();
+        if !world_path.exists() {
+            return true;
+        }
+
+        // Check 3: .matrix/configs/llm_config.json exists?
+        let llm_config = world_path
+            .join(".matrix")
+            .join("configs")
+            .join("llm_config.json");
+        if !llm_config.exists() {
+            return true;
+        }
+
+        false
     }
 }

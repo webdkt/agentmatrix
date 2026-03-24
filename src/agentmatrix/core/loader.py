@@ -23,7 +23,7 @@ class AgentLoader(AutoLoggerMixin):
         if os.path.exists(env_file) and os.access(env_file, os.R_OK):
             load_dotenv(env_file)
         
-        llm_config_file = llm_config_path or os.path.join(profile_path, "llm_config.json")
+        llm_config_file = llm_config_path or os.path.join(os.path.dirname(profile_path), "llm_config.json")
         #llm_config_file = os.path.join(self.profile_path, "llm_config.json")
 
         with open(llm_config_file, 'r', encoding='utf-8') as f:

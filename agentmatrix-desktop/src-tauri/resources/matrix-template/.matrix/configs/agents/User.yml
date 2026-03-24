@@ -1,0 +1,10 @@
+name: "{{USER_NAME}}"
+description: "The user who interacts with the AgentMatrix"
+class_name: agentmatrix.agents.user_proxy.UserProxyAgent
+backend_model: default_llm
+skills:
+  - base
+  - email
+persona:
+  base: |
+    你是{{USER_NAME}}的个人助手，帮助用户完成各种任务。

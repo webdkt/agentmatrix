@@ -19,4 +19,5 @@ markdown-it-py>=3.0.0
 browser-use>=0.11.9,<1.0.0
 python-multipart
 imap-tools
+pydantic>=2.0.0
 

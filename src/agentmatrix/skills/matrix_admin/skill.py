@@ -1,605 +1,373 @@
 """
-Matrix Admin Skill - AgentMatrix 系统管理技能
+Matrix Admin Skill - AgentMatrix System Configuration
 
-提供系统级管理功能：
-- 添加新 Agent（创建配置文件并加载）
-- 重载 Agent
-- 配置 Email Proxy（支持 SMTP 发送和 IMAP 接收）
-- 修改 Agent 设置
-- 系统状态查询
+Content-first approach:
+- read_config: return raw YAML/JSON content
+- write_config: accept raw content, validate, verify, backup, write
+- Agent reads config → thinks → provides modified content → service validates & writes
 
-用途：
-- 动态扩展系统功能
-- 运行时配置调整
-- 系统维护和管理
+This skill is the ONLY way agents should interact with system configuration.
+Agents never touch config files directly.
 """
 
 from typing import Optional, Dict, Any, List
-from pathlib import Path
 from ...core.action import register_action
 import yaml
-import asyncio
 
 
 class Matrix_adminSkillMixin:
-    """AgentMatrix 系统管理技能"""
+    """AgentMatrix system configuration management"""
 
-    _skill_description = "AgentMatrix系统管理：添加Agent、重载Agent、配置Email Proxy（支持SMTP发送和IMAP接收）、修改Agent设置等"
-    _skill_dependencies = ["base"]  # 依赖基础技能
-
-    @register_action(
-        short_desc="添加新的Agent",
-        description="创建一个新的Agent配置文件并加载到系统中。需要提供Agent的基本信息。",
-        param_infos={
-            "agent_name": "Agent名称（唯一标识，如'assistant'）",
-            "description": "Agent的描述（一句话介绍这个Agent的用途）",
-            "backend_model": "后端模型名称（可选，默认使用default_llm）",
-            "skills": "技能列表（可选，逗号分隔，如'email,file'）",
-            "persona": "Persona提示词（可选，Agent的角色设定）"
-        }
+    _skill_description = (
+        "系统配置管理：读取/修改 Agent profile、LLM 配置、系统配置、Email Proxy 配置。"
+        "支持配置验证、连接测试、备份管理。"
     )
-    async def add_agent(
-        self,
-        agent_name: str,
-        description: str,
-        backend_model: Optional[str] = None,
-        skills: Optional[str] = None,
-        persona: Optional[str] = None
-    ) -> str:
-        """
-        添加新 Agent
+    _skill_dependencies = ["base"]
 
-        流程：
-        1. 验证参数
-        2. 创建 Agent 配置文件 (agent_name.yml)
-        3. 调用 runtime.load_and_register_agent() 加载
-
-        Args:
-            agent_name: Agent 名称
-            description: Agent 描述
-            backend_model: 后端模型（可选）
-            skills: 技能列表，逗号分隔（可选）
-            persona: Persona 提示词（可选）
-
-        Returns:
-            str: 操作结果
-        """
+    def _get_config_service(self):
+        """Get ConfigService from runtime."""
         runtime = self.root_agent.runtime
         if not runtime:
-            return "❌ runtime 未注入，无法添加 Agent"
+            raise RuntimeError("Runtime not available. ConfigService requires runtime.")
+        return runtime.config_service
 
-        try:
-            # 1. 检查 Agent 是否已存在
-            if agent_name in runtime.agents:
-                return f"❌ Agent '{agent_name}' 已存在于系统中"
+    def _format_result(self, result) -> str:
+        """Format a result object into LLM-friendly text."""
+        if isinstance(result, dict):
+            if result.get("success"):
+                lines = [f"✅ {result.get('message', 'Success')}"]
+                if result.get("backup_path"):
+                    lines.append(f"📦 Backup: {result['backup_path']}")
+                if result.get("file_path"):
+                    lines.append(f"📄 File: {result['file_path']}")
+                if result.get("verification"):
+                    lines.append("\nVerification results:")
+                    for v in result["verification"]:
+                        icon = "✅" if v.get("success") else "❌"
+                        lines.append(f"  {icon} {v['test_type']}: {v['message']}")
+                return "\n".join(lines)
+            else:
+                lines = [f"❌ {result.get('message', 'Failed')}"]
+                if result.get("errors"):
+                    lines.append("\nErrors:")
+                    for err in result["errors"]:
+                        lines.append(f"  • [{err['field']}] {err['issue']}")
+                        if err.get("suggestion"):
+                            lines.append(f"    💡 {err['suggestion']}")
+                if result.get("verification"):
+                    lines.append("\nVerification results:")
+                    for v in result["verification"]:
+                        icon = "✅" if v.get("success") else "❌"
+                        lines.append(f"  {icon} {v['test_type']}: {v['message']}")
+                if result.get("hint"):
+                    lines.append(f"\n💡 {result['hint']}")
+                return "\n".join(lines)
+        return str(result)
 
-            # 2. 检查配置文件是否已存在
-            agent_yml_path = runtime.paths.agent_config_dir / f"{agent_name}.yml"
-            if agent_yml_path.exists():
-                return f"❌ Agent 配置文件已存在: {agent_yml_path}"
-
-            # 3. 解析技能列表
-            skill_list = []
-            if skills:
-                skill_list = [s.strip() for s in skills.split(",") if s.strip()]
-
-            # 4. 构建配置字典
-            config = {
-                "name": agent_name,
-                "description": description,
-                "class_name": "agentmatrix.agents.base.BaseAgent"
-            }
-
-            if backend_model:
-                config["backend_model"] = backend_model
-
-            if skill_list:
-                config["skills"] = skill_list
-
-            if persona:
-                config["persona"] = {
-                    "base": persona
-                }
-
-            # 5. 写入配置文件
-            with open(agent_yml_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-
-            self.logger.info(f"✅ 已创建 Agent 配置文件: {agent_yml_path}")
-
-            # 6. 加载并注册 Agent
-            agent = await runtime.load_and_register_agent(agent_name)
-
-            return f"✅ 成功创建并加载 Agent '{agent_name}'\n" \
-                   f"   配置文件: {agent_yml_path}\n" \
-                   f"   描述: {description}"
-
-        except ValueError as e:
-            return f"❌ 添加失败: {e}"
-        except Exception as e:
-            return f"❌ 创建 Agent 时出错: {e}"
+    # ==================== Discovery ====================
 
     @register_action(
-        short_desc="重载Agent配置",
-        description="重新加载已存在的Agent。这会停止Agent的当前任务，重新加载配置文件，然后重新启动。",
+        short_desc="列出配置类型",
+        description="列出所有可用的配置类型。每个类型对应一个独立的配置文件。",
+        param_infos={},
+    )
+    async def list_config_types(self) -> str:
+        """List available config types."""
+        try:
+            cs = self._get_config_service()
+            types = cs.list_config_types()
+            lines = ["可用的配置类型:\n"]
+            for t in types:
+                lines.append(f"  • {t}")
+            lines.append("\n使用 get_config_schema(type) 查看每种类型的结构")
+            lines.append("使用 read_config(type, name?) 读取配置内容")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"❌ {e}"
+
+    @register_action(
+        short_desc="获取配置Schema",
+        description="获取指定配置类型的 JSON Schema，了解配置的合法结构和字段说明。",
+        param_infos={"config_type": "配置类型：agent, llm, system, email_proxy"},
+    )
+    async def get_config_schema(self, config_type: str) -> str:
+        """Get JSON Schema for a config type."""
+        try:
+            cs = self._get_config_service()
+            schema = cs.get_schema(config_type)
+            return yaml.dump(
+                schema, allow_unicode=True, default_flow_style=False, sort_keys=False
+            )
+        except ValueError as e:
+            return f"❌ {e}\n💡 可用类型: {', '.join(self._get_config_service().list_config_types())}"
+        except Exception as e:
+            return f"❌ {e}"
+
+    # ==================== Read ====================
+
+    @register_action(
+        short_desc="读取配置内容",
+        description="读取指定配置的原始内容（YAML或JSON格式）。返回的是文件的完整文本，可以直接修改后用于 write_config。",
         param_infos={
-            "agent_name": "要重载的Agent名称"
-        }
+            "config_type": "配置类型：agent, llm, system, email_proxy",
+            "name": "Agent名称（仅 agent 类型需要，如 'SystemAdmin'）",
+        },
+    )
+    async def read_config(self, config_type: str, name: str = None) -> str:
+        """Read config and return raw content."""
+        try:
+            cs = self._get_config_service()
+            result = cs.read_config(config_type, name)
+            if result.success:
+                return result.content
+            else:
+                return f"❌ {result.error}"
+        except Exception as e:
+            return f"❌ {e}"
+
+    # ==================== Write ====================
+
+    @register_action(
+        short_desc="写入配置（验证+测试+备份）",
+        description=(
+            "写入配置内容。流程：解析 → Schema验证 → 内容验证 → 连接测试 → 备份旧文件 → 写入新文件。"
+            "先用 read_config 读取当前配置，修改后用此方法写入。"
+            "如果只是想验证不写入，用 validate_config。"
+        ),
+        param_infos={
+            "config_type": "配置类型：agent, llm, system, email_proxy",
+            "content": "完整的配置内容（YAML或JSON格式的字符串）",
+            "name": "Agent名称（仅 agent 类型需要，如 'SystemAdmin'）",
+            "skip_verification": "是否跳过连接测试（true/false，默认false）",
+        },
+    )
+    async def write_config(
+        self,
+        config_type: str,
+        content: str,
+        name: str = None,
+        skip_verification: bool = False,
+    ) -> str:
+        """Write config: validate → verify → backup → write."""
+        try:
+            cs = self._get_config_service()
+            result = await cs.write_config(
+                config_type, content, name, skip_verification
+            )
+            return self._format_result(result.to_dict())
+        except Exception as e:
+            return f"❌ {e}"
+
+    # ==================== Validate Only ====================
+
+    @register_action(
+        short_desc="验证配置（不写入）",
+        description="验证配置内容是否合法，但不实际写入文件。用于在写入前检查配置是否正确。",
+        param_infos={
+            "config_type": "配置类型：agent, llm, system, email_proxy",
+            "content": "要验证的配置内容（YAML或JSON格式的字符串）",
+            "name": "Agent名称（仅 agent 类型需要）",
+        },
+    )
+    async def validate_config(
+        self, config_type: str, content: str, name: str = None
+    ) -> str:
+        """Validate config without writing."""
+        try:
+            cs = self._get_config_service()
+            result = cs.validate_config(config_type, content, name)
+            if result.success:
+                msg = f"✅ {result.message}"
+                if result.parsed_content:
+                    msg += f"\nParsed successfully: {len(str(result.parsed_content))} chars"
+                return msg
+            else:
+                lines = [f"❌ {result.message}"]
+                for err in result.errors:
+                    lines.append(f"  • [{err.field}] {err.issue}")
+                    if err.suggestion:
+                        lines.append(f"    💡 {err.suggestion}")
+                return "\n".join(lines)
+        except Exception as e:
+            return f"❌ {e}"
+
+    # ==================== Backup ====================
+
+    @register_action(
+        short_desc="列出备份",
+        description="列出指定配置类型的所有可用备份。备份按时间倒序排列，最新的在前面。",
+        param_infos={
+            "config_type": "配置类型：agent, llm, system, email_proxy",
+            "name": "Agent名称（仅 agent 类型需要）",
+        },
+    )
+    async def list_backups(self, config_type: str, name: str = None) -> str:
+        """List available backups."""
+        try:
+            cs = self._get_config_service()
+            backups = cs.list_backups(config_type, name)
+            if not backups:
+                return f"No backups found for {config_type}" + (
+                    f" ({name})" if name else ""
+                )
+
+            lines = [
+                f"Backups for {config_type}"
+                + (f" ({name})" if name else "")
+                + f" (total {len(backups)}):\n"
+            ]
+            for b in backups:
+                lines.append(f"  • {b.name} ({b.size} bytes, {b.modified})")
+            lines.append("\n使用 read_backup(config_type, backup_name) 查看备份内容")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"❌ {e}"
+
+    @register_action(
+        short_desc="读取备份内容",
+        description="读取指定备份文件的原始内容。",
+        param_infos={
+            "config_type": "配置类型：agent, llm, system, email_proxy",
+            "backup_name": "备份文件名（如 'SystemAdmin_20260324_120000.yml'）",
+            "name": "Agent名称（仅 agent 类型需要，用于定位备份目录）",
+        },
+    )
+    async def read_backup(
+        self, config_type: str, backup_name: str, name: str = None
+    ) -> str:
+        """Read a specific backup file."""
+        try:
+            cs = self._get_config_service()
+            content = cs.read_backup(config_type, backup_name, name)
+            return content
+        except FileNotFoundError as e:
+            # List available backups as hint
+            backups = cs.list_backups(config_type, name)
+            hint = (
+                f"\nAvailable backups: {[b.name for b in backups[:5]]}"
+                if backups
+                else ""
+            )
+            return f"❌ {e}{hint}"
+        except Exception as e:
+            return f"❌ {e}"
+
+    # ==================== Agent Lifecycle ====================
+
+    @register_action(
+        short_desc="列出所有Agent",
+        description="列出系统中当前运行的所有Agent及其状态。",
+        param_infos={},
+    )
+    async def list_agents(self) -> str:
+        """List all running agents."""
+        try:
+            runtime = self.root_agent.runtime
+            if not runtime:
+                return "❌ runtime not available"
+
+            if not runtime.agents:
+                return "No agents running"
+
+            lines = [f"Running agents ({len(runtime.agents)}):\n"]
+            for agent_name, agent in runtime.agents.items():
+                status = "running" if not agent.is_paused else "paused"
+                lines.append(f"  ** {agent_name} **")
+                lines.append(
+                    f"     description: {getattr(agent, 'description', 'N/A')}"
+                )
+                lines.append(f"     status: {status}")
+                lines.append(f"     model: {getattr(agent, 'backend_model', 'N/A')}")
+                skills = getattr(agent, "skills", [])
+                lines.append(f"     skills: {', '.join(skills) if skills else 'none'}")
+                lines.append("")
+
+            return "\n".join(lines)
+        except Exception as e:
+            return f"❌ {e}"
+
+    @register_action(
+        short_desc="重载Agent",
+        description="从配置文件重新加载指定的Agent。会停止当前任务并重新启动。",
+        param_infos={"agent_name": "要重载的Agent名称"},
     )
     async def reload_agent(self, agent_name: str) -> str:
-        """
-        重载 Agent 配置
-
-        流程：
-        1. 从运行时移除 Agent
-        2. 停止其任务
-        3. 从配置文件重新加载
-        4. 重新注册并启动
-
-        Returns:
-            str: 操作结果
-        """
-        runtime = self.root_agent.runtime
-        if not runtime:
-            return "❌ runtime 未注入，无法重载 Agent"
-
-        if agent_name not in runtime.agents:
-            return f"❌ Agent '{agent_name}' 不存在于运行时中"
-
+        """Reload agent from config file."""
         try:
-            # 1. 暂停 Agent
+            runtime = self.root_agent.runtime
+            if not runtime:
+                return "❌ runtime not available"
+
+            if agent_name not in runtime.agents:
+                return f"❌ Agent '{agent_name}' not found. Available: {list(runtime.agents.keys())}"
+
+            # Pause and reload
             agent = runtime.agents[agent_name]
             await agent.pause()
 
-            # 2. 从 PostOffice 注销（如果有这个方法）
-            # 注意：PostOffice 可能没有 unregister 方法，需要检查
-
-            # 3. 停止运行中的任务
-            if hasattr(agent, 'email_worker_task') and agent.email_worker_task:
+            # Stop tasks
+            if hasattr(agent, "email_worker_task") and agent.email_worker_task:
                 agent.email_worker_task.cancel()
-            if hasattr(agent, 'history_worker_task') and agent.history_worker_task:
+            if hasattr(agent, "history_worker_task") and agent.history_worker_task:
                 agent.history_worker_task.cancel()
 
-            # 4. 重新加载配置
+            # Reload from file
             agent_yml_path = runtime.paths.agent_config_dir / f"{agent_name}.yml"
-
             if not agent_yml_path.exists():
-                return f"❌ Agent 配置文件不存在: {agent_yml_path}"
+                return f"❌ Config file not found: {agent_yml_path}"
 
-            # 使用保存的 loader 重新加载
+            import asyncio
+
             new_agent = runtime.loader.load_from_file(str(agent_yml_path))
             new_agent.async_event_callback = runtime.async_event_callback
             new_agent.runtime = runtime
 
-            # 5. 替换运行时中的 Agent
             runtime.agents[agent_name] = new_agent
-
-            # 6. 重新注册并启动
             runtime.post_office.register(new_agent)
             agent_task = asyncio.create_task(new_agent.run())
             runtime.running_agent_tasks.append(agent_task)
-
-            # 7. 恢复 Agent
             await new_agent.resume()
 
-            return f"✅ 成功重载 Agent '{agent_name}'"
-
+            return f"✅ Agent '{agent_name}' reloaded successfully"
         except Exception as e:
-            return f"❌ 重载失败: {e}"
-
-    @register_action(
-        short_desc="配置Email Proxy",
-        description="配置或更新Email Proxy服务，支持SMTP发送和IMAP接收。配置后Agent可以通过邮件与外部沟通。",
-        param_infos={
-            "enabled": "是否启用Email Proxy (true/false)",
-            "matrix_mailbox": "Matrix邮箱地址（如matrix@gmail.com，用于发送邮件给用户）",
-            "user_mailbox": "用户邮箱地址（如your-email@gmail.com，只接收来自此地址的邮件）",
-            "smtp_host": "SMTP服务器地址（如smtp.gmail.com）",
-            "smtp_port": "SMTP端口（如587）",
-            "smtp_user": "SMTP用户名（邮箱地址）",
-            "smtp_password": "SMTP密码或应用密码",
-            "imap_host": "IMAP服务器地址（如imap.gmail.com）",
-            "imap_port": "IMAP端口（如993）",
-            "imap_user": "IMAP用户名（邮箱地址，可选，默认同smtp_user）",
-            "imap_password": "IMAP密码（可选，默认同smtp_password）"
-        }
-    )
-    async def config_email_proxy(
-        self,
-        enabled: bool,
-        matrix_mailbox: str,
-        user_mailbox: str,
-        smtp_host: str,
-        smtp_port: int,
-        smtp_user: str,
-        smtp_password: str,
-        imap_host: str,
-        imap_port: int,
-        imap_user: Optional[str] = None,
-        imap_password: Optional[str] = None
-    ) -> str:
-        """
-        配置 Email Proxy 服务（支持 SMTP 发送和 IMAP 接收）
-
-        功能说明：
-        - SMTP：Agent 发送邮件到用户邮箱
-        - IMAP：从用户邮箱接收邮件，转发给对应 Agent
-        - 每 30 秒检查一次新邮件
-        - 只处理来自 user_mailbox 的邮件
-
-        Args:
-            enabled: 是否启用
-            matrix_mailbox: Matrix 邮箱（用于发送邮件给用户）
-            user_mailbox: 用户邮箱（只接收来自此邮箱的邮件）
-            smtp_host: SMTP 服务器
-            smtp_port: SMTP 端口
-            smtp_user: SMTP 用户名
-            smtp_password: SMTP 密码
-            imap_host: IMAP 服务器
-            imap_port: IMAP 端口
-            imap_user: IMAP 用户名（可选，默认同 smtp_user）
-            imap_password: IMAP 密码（可选，默认同 smtp_password）
-
-        Returns:
-            str: 操作结果
-        """
-        runtime = self.root_agent.runtime
-        if not runtime:
-            return "❌ runtime 未注入，无法配置 Email Proxy"
-
-        try:
-            # 1. 读取当前配置
-            config_file = runtime.paths.matrix_config_path
-
-            if config_file.exists():
-                with open(config_file, 'r', encoding='utf-8') as f:
-                    config = yaml.safe_load(f) or {}
-            else:
-                config = {}
-
-            # 2. 更新 Email Proxy 配置（嵌套结构）
-            if "email_proxy" not in config:
-                config["email_proxy"] = {}
-
-            config["email_proxy"]["enabled"] = enabled
-            config["email_proxy"]["matrix_mailbox"] = matrix_mailbox
-            config["email_proxy"]["user_mailbox"] = user_mailbox
-
-            # SMTP 配置
-            config["email_proxy"]["smtp"] = {
-                "host": smtp_host,
-                "port": smtp_port,
-                "user": smtp_user,
-                "password": smtp_password
-            }
-
-            # IMAP 配置
-            config["email_proxy"]["imap"] = {
-                "host": imap_host,
-                "port": imap_port,
-                "user": imap_user or smtp_user,
-                "password": imap_password or smtp_password
-            }
-
-            # 3. 写回配置文件
-            with open(config_file, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-
-            self.logger.info(f"✅ 已更新 Email Proxy 配置: {config_file}")
-
-            # 4. 处理服务启动/重启
-            if enabled:
-                if runtime.email_proxy:
-                    # 重启现有服务
-                    await runtime.email_proxy.stop()
-                    
-                    # 直接创建新的 EmailProxyService
-                    from ...services.email_proxy_service import EmailProxyService
-                    
-                    email_proxy_config = {
-                        'enabled': True,
-                        'matrix_mailbox': matrix_mailbox,
-                        'user_mailbox': user_mailbox,
-                        'smtp': {
-                            'host': smtp_host,
-                            'port': smtp_port,
-                            'user': smtp_user,
-                            'password': smtp_password
-                        },
-                        'imap': {
-                            'host': imap_host,
-                            'port': imap_port,
-                            'user': imap_user or smtp_user,
-                            'password': imap_password or smtp_password
-                        }
-                    }
-                    
-                    runtime.email_proxy = EmailProxyService(
-                        paths=runtime.paths,
-                        config=email_proxy_config,
-                        post_office=runtime.post_office,
-                        db_path=str(runtime.paths.database_path),
-                        parent_logger=runtime.logger
-                    )
-                    
-                    # 注入到UserProxyAgent
-                    user_agent = runtime.agents.get(runtime.user_agent_name)
-                    if user_agent and hasattr(user_agent, 'set_email_proxy'):
-                        user_agent.set_email_proxy(runtime.email_proxy)
-                    
-                    await runtime.email_proxy.start()
-                    return f"✅ Email Proxy 配置已更新并重启\n" \
-                           f"   📤 SMTP (发送): {smtp_user}@{smtp_host}:{smtp_port}\n" \
-                           f"   📥 IMAP (接收): {imap_user or smtp_user}@{imap_host}:{imap_port}\n" \
-                           f"   📬 Matrix邮箱: {matrix_mailbox}\n" \
-                           f"   👤 用户邮箱: {user_mailbox}\n" \
-                           f"   ⏱️  拉取频率: 每 30 秒检查一次新邮件"
-                else:
-                    # 首次启动 - 直接创建 EmailProxyService
-                    from ...services.email_proxy_service import EmailProxyService
-                    
-                    email_proxy_config = {
-                        'enabled': True,
-                        'matrix_mailbox': matrix_mailbox,
-                        'user_mailbox': user_mailbox,
-                        'smtp': {
-                            'host': smtp_host,
-                            'port': smtp_port,
-                            'user': smtp_user,
-                            'password': smtp_password
-                        },
-                        'imap': {
-                            'host': imap_host,
-                            'port': imap_port,
-                            'user': imap_user or smtp_user,
-                            'password': imap_password or smtp_password
-                        }
-                    }
-                    
-                    runtime.email_proxy = EmailProxyService(
-                        paths=runtime.paths,
-                        config=email_proxy_config,
-                        post_office=runtime.post_office,
-                        db_path=str(runtime.paths.database_path),
-                        parent_logger=runtime.logger
-                    )
-                    
-                    # 注入到UserProxyAgent
-                    user_agent = runtime.agents.get(runtime.user_agent_name)
-                    if user_agent and hasattr(user_agent, 'set_email_proxy'):
-                        user_agent.set_email_proxy(runtime.email_proxy)
-                    
-                    await runtime.email_proxy.start()
-                    return f"✅ Email Proxy 已配置并启动\n" \
-                           f"   📤 SMTP (发送): {smtp_user}@{smtp_host}:{smtp_port}\n" \
-                           f"   📥 IMAP (接收): {imap_user or smtp_user}@{imap_host}:{imap_port}\n" \
-                           f"   📬 Matrix邮箱: {matrix_mailbox}\n" \
-                           f"   👤 用户邮箱: {user_mailbox}\n" \
-                           f"   ⏱️  拉取频率: 每 30 秒检查一次新邮件"
-            else:
-                # 禁用
-                if runtime.email_proxy:
-                    await runtime.email_proxy.stop()
-                    runtime.email_proxy = None
-                return f"✅ Email Proxy 已禁用"
-
-        except Exception as e:
-            return f"❌ 配置 Email Proxy 失败: {e}"
-
-    @register_action(
-        short_desc="修改Agent设置",
-        description="修改运行中Agent的配置。某些修改需要重载Agent才能生效。",
-        param_infos={
-            "agent_name": "Agent名称",
-            "setting_key": "设置键（如description, backend_model, skills等）",
-            "setting_value": "新的设置值"
-        }
-    )
-    async def change_agent_setting(
-        self,
-        agent_name: str,
-        setting_key: str,
-        setting_value: Any
-    ) -> str:
-        """
-        修改 Agent 设置
-
-        支持的设置：
-        - description: Agent 描述（立即生效）
-        - backend_model: 使用的 LLM 模型（需要重载）
-        - skills: 技能列表（需要重载，逗号分隔）
-
-        Args:
-            agent_name: Agent 名称
-            setting_key: 设置键
-            setting_value: 设置值
-
-        Returns:
-            str: 操作结果
-        """
-        runtime = self.root_agent.runtime
-        if not runtime:
-            return "❌ runtime 未注入，无法修改设置"
-
-        if agent_name not in runtime.agents:
-            return f"❌ Agent '{agent_name}' 不存在"
-
-        try:
-            agent = runtime.agents[agent_name]
-            config_file = runtime.paths.agent_config_dir / f"{agent_name}.yml"
-
-            # 读取配置文件
-            with open(config_file, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-
-            # 1. 修改配置文件
-            if setting_key == "description":
-                config["description"] = setting_value
-                agent.description = setting_value
-                need_reload = False
-
-            elif setting_key == "backend_model":
-                if setting_value not in runtime.loader.llm_config:
-                    return f"❌ 模型 '{setting_value}' 不在 llm_config.json 中"
-                config["backend_model"] = setting_value
-                agent.backend_model = setting_value
-                need_reload = True
-
-            elif setting_key == "skills":
-                # 解析技能列表
-                if isinstance(setting_value, str):
-                    skills = [s.strip() for s in setting_value.split(",")]
-                else:
-                    skills = setting_value
-                config["skills"] = skills
-                agent.skills = skills
-                need_reload = True
-
-            else:
-                return f"❌ 不支持的设置项: {setting_key}"
-
-            # 2. 写回配置文件
-            with open(config_file, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-
-            # 3. 返回结果
-            if need_reload:
-                return f"⚠️ 已更新配置文件，请使用 reload_agent('{agent_name}') 重载 Agent 以应用更改"
-            else:
-                return f"✅ 已更新 Agent '{agent_name}' 的 {setting_key}"
-
-        except Exception as e:
-            return f"❌ 修改设置失败: {e}"
-
-    @register_action(
-        short_desc="列出所有Agent",
-        description="列出系统中当前运行的所有Agent及其状态",
-        param_infos={}
-    )
-    async def list_agents(self) -> str:
-        """
-        列出所有 Agent 及其状态
-
-        Returns:
-            str: Agent 列表及状态信息
-        """
-        runtime = self.root_agent.runtime
-        if not runtime:
-            return "❌ runtime 未注入"
-
-        if not runtime.agents:
-            return "系统中没有 Agent"
-
-        result = f"系统中的 Agent（共 {len(runtime.agents)} 个）：\n\n"
-
-        for agent_name, agent in runtime.agents.items():
-            status = "运行中" if not agent.is_paused else "已暂停"
-            result += f"** {agent_name} **\n"
-            result += f"   描述: {agent.description}\n"
-            result += f"   状态: {status}\n"
-            result += f"   模型: {agent.backend_model}\n"
-            result += f"   技能: {', '.join(agent.skills) if agent.skills else '无'}\n"
-            result += f"   邮箱: {agent.inbox.qsize()} 封未读邮件\n"
-            result += "\n"
-
-        return result
-
-    @register_action(
-        short_desc="查看系统状态",
-        description="查看 AgentMatrix 系统的整体状态",
-        param_infos={}
-    )
-    async def system_status(self) -> str:
-        """
-        查看系统整体状态
-
-        Returns:
-            str: 系统状态信息
-        """
-        runtime = self.root_agent.runtime
-        if not runtime:
-            return "❌ runtime 未注入"
-
-        result = "=== AgentMatrix 系统状态 ===\n\n"
-
-        # 1. Agent 数量
-        result += f"📊 Agent 数量: {len(runtime.agents)}\n"
-
-        # 2. PostOffice 状态
-        if runtime.post_office:
-            result += f"📬 PostOffice: 运行中\n"
-
-        # 3. TaskScheduler 状态
-        if hasattr(runtime, 'task_scheduler') and runtime.task_scheduler:
-            result += f"⏰ TaskScheduler: 运行中\n"
-
-        # 4. EmailProxy 状态
-        if runtime.email_proxy:
-            result += f"📧 EmailProxy: 运行中\n"
-        else:
-            result += f"📧 EmailProxy: 未启用\n"
-
-        # 5. LLM 监控状态
-        if runtime.llm_monitor:
-            result += f"🔍 LLM Monitor: 运行中\n"
-
-        return result
+            return f"❌ Reload failed: {e}"
 
     @register_action(
         short_desc="删除Agent",
-        description="从系统中移除指定的Agent。停止其任务并从运行时注销。",
+        description="从系统中移除指定的Agent。",
         param_infos={
             "agent_name": "要删除的Agent名称",
-            "delete_config": "是否同时删除配置文件（true/false，默认false）"
-        }
+            "delete_config": "是否同时删除配置文件（true/false，默认false）",
+        },
     )
-    async def remove_agent(
-        self,
-        agent_name: str,
-        delete_config: bool = False
-    ) -> str:
-        """
-        删除 Agent
-
-        Args:
-            agent_name: Agent 名称
-            delete_config: 是否删除配置文件
-
-        Returns:
-            str: 操作结果
-        """
-        runtime = self.root_agent.runtime
-        if not runtime:
-            return "❌ runtime 未注入，无法删除 Agent"
-
-        if agent_name not in runtime.agents:
-            return f"❌ Agent '{agent_name}' 不存在"
-
+    async def delete_agent(self, agent_name: str, delete_config: bool = False) -> str:
+        """Remove agent from system."""
         try:
-            agent = runtime.agents[agent_name]
+            runtime = self.root_agent.runtime
+            if not runtime:
+                return "❌ runtime not available"
 
-            # 1. 暂停 Agent
+            if agent_name not in runtime.agents:
+                return f"❌ Agent '{agent_name}' not found"
+
+            agent = runtime.agents[agent_name]
             await agent.pause()
 
-            # 2. 停止任务
-            if hasattr(agent, 'email_worker_task') and agent.email_worker_task:
+            if hasattr(agent, "email_worker_task") and agent.email_worker_task:
                 agent.email_worker_task.cancel()
-            if hasattr(agent, 'history_worker_task') and agent.history_worker_task:
+            if hasattr(agent, "history_worker_task") and agent.history_worker_task:
                 agent.history_worker_task.cancel()
 
-            # 3. 从运行时移除
             del runtime.agents[agent_name]
 
-            # 4. 删除配置文件（可选）
             if delete_config:
                 config_file = runtime.paths.agent_config_dir / f"{agent_name}.yml"
                 if config_file.exists():
                     config_file.unlink()
-                    return f"✅ 已删除 Agent '{agent_name}' 及其配置文件"
+                    return f"✅ Agent '{agent_name}' removed (config file deleted)"
                 else:
-                    return f"✅ 已删除 Agent '{agent_name}'（配置文件不存在）"
+                    return f"✅ Agent '{agent_name}' removed (config file not found)"
             else:
-                return f"✅ 已从运行时移除 Agent '{agent_name}'（配置文件保留）"
-
+                return f"✅ Agent '{agent_name}' removed (config file preserved)"
         except Exception as e:
-            return f"❌ 删除 Agent 失败: {e}"
+            return f"❌ Delete failed: {e}"

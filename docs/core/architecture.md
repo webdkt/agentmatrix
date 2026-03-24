@@ -363,6 +363,7 @@ class MyLLMClient(LLMClient):
 - **[消息系统](./message-system.md)** - 消息传递机制
 - **[会话管理](./session-management.md)** - 状态管理详解
 - **[技能系统](./skill-system.md)** - 技能开发指南
+- **[LLM-Managed Config](./llm-managed-config.md)** - ConfigService + SystemAdmin Agent 设计模式
 - **[核心概念](../concepts/CONCEPTS.md)** - 核心概念定义
 
 ---

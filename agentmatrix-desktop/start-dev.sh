@@ -7,8 +7,10 @@
 
 set -e
 
-PROJECT_DIR="/Users/dkt/myprojects/agentmatrix"
-cd "$PROJECT_DIR/agentmatrix-desktop"
+# Auto-detect project root from script location
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$SCRIPT_DIR"
 
 echo "🚀 Starting AgentMatrix Desktop Development Environment..."
 
@@ -29,6 +31,16 @@ echo ""
 # 设置 PYTHONPATH
 export PYTHONPATH="$PROJECT_DIR/src:$PYTHONPATH"
 echo "🐍 PYTHONPATH set to: $PROJECT_DIR/src"
+echo "📁 PROJECT_DIR: $PROJECT_DIR"
+
+# Copy template to where Tauri expects it in dev mode
+TEMPLATE_SRC="$SCRIPT_DIR/src-tauri/resources/matrix-template"
+TEMPLATE_DST="$SCRIPT_DIR/src-tauri/target/debug/matrix-template"
+if [ -d "$TEMPLATE_SRC" ]; then
+    rm -rf "$TEMPLATE_DST"
+    cp -r "$TEMPLATE_SRC" "$TEMPLATE_DST"
+    echo "📦 Synced matrix-template to target/debug/"
+fi
 
 # Check if processes are already running
 if lsof -Pi :5173 -sTCP:LISTEN -t >/dev/null 2>&1; then

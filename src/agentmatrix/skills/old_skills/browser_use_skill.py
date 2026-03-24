@@ -15,6 +15,7 @@ Browser-Use Skill - 基于 browser-use 的浏览器自动化技能
   * remove_defaults_from_schema=True - 移除 JSON schema 中的默认值
 - 对于 Mimo 等需要 extra_body 传递 thinking 参数的模型，会自动使用包装器
 """
+
 import asyncio
 import os
 from typing import Optional, Dict, Any
@@ -23,6 +24,7 @@ from ..core.action import register_action
 from ..skills.parser_utils import simple_section_parser
 from ..core.exceptions import LLMServiceUnavailableError
 from browser_use import Agent
+
 
 class BrowserUseSkillMixin:
     """
@@ -59,7 +61,7 @@ class BrowserUseSkillMixin:
             "dont_force_structured_output": True,
             "remove_min_items_from_schema": True,
             "remove_defaults_from_schema": True,
-            "use_extra_body": True,   # Mimo 使用 extra_body 传递 thinking 参数
+            "use_extra_body": True,  # Mimo 使用 extra_body 传递 thinking 参数
         },
         # DeepSeek (如果需要)
         "deepseek": {
@@ -88,13 +90,15 @@ class BrowserUseSkillMixin:
         - workspace_root 指向 MyWorld/workspace
         - llm_config.json 在 MyWorld/agents/llm_config.json
         """
-        if not (hasattr(self, 'workspace_root') and self.workspace_root):
+        if not (hasattr(self, "workspace_root") and self.workspace_root):
             raise ValueError("workspace_root 未设置，无法确定 llm_config.json 路径")
 
         # 从 workspace_root 推断：workspace 是 MyWorld 的子目录
-        # 所以 agents 目录是 workspace 的兄弟目录
+        # llm_config.json 现在在 .matrix/configs/ 目录下
         workspace_root_path = Path(self.workspace_root)
-        config_path = workspace_root_path.parent / "agents" / "llm_config.json"
+        config_path = (
+            workspace_root_path.parent / ".matrix" / "configs" / "llm_config.json"
+        )
 
         if not config_path.exists():
             raise FileNotFoundError(f"llm_config.json 不存在: {config_path}")
@@ -133,21 +137,20 @@ class BrowserUseSkillMixin:
             from browser_use.llm.openai.chat import ChatOpenAI as BUChatOpenAI
         except ImportError:
             raise ImportError(
-                "使用 BrowserUseSkill 需要安装 browser-use: "
-                "pip install browser-use"
+                "使用 BrowserUseSkill 需要安装 browser-use: pip install browser-use"
             )
 
         # 从 LLMClient 提取配置
-        url = getattr(llm_client, 'url', None)
-        api_key = getattr(llm_client, 'api_key', None)
-        model_name = getattr(llm_client, 'model_name', '')
+        url = getattr(llm_client, "url", None)
+        api_key = getattr(llm_client, "api_key", None)
+        model_name = getattr(llm_client, "model_name", "")
 
         self.logger.info(f"BrowserUseSkill 使用模型: {model_name}")
 
         # browser-use 的 ChatOpenAI 会自动添加 /chat/completions
         # 如果配置的 URL 已经包含 /chat/completions，需要去掉
         if url and url.endswith("/chat/completions"):
-            url = url[:-len("/chat/completions")]
+            url = url[: -len("/chat/completions")]
 
         # 检测厂商（从模型名称或 URL）
         model_lower = model_name.lower()
@@ -155,7 +158,9 @@ class BrowserUseSkillMixin:
 
         vendor = None
         for v, patterns in self.VENDOR_PATTERNS.items():
-            if any(p in model_lower for p in patterns) or any(p in url_lower for p in patterns):
+            if any(p in model_lower for p in patterns) or any(
+                p in url_lower for p in patterns
+            ):
                 vendor = v
                 break
 
@@ -171,11 +176,19 @@ class BrowserUseSkillMixin:
         # 如果是国产模型，添加兼容性参数
         if vendor and vendor in self.CHINESE_LLM_CONFIG:
             config = self.CHINESE_LLM_CONFIG[vendor]
-            llm_kwargs.update({
-                "dont_force_structured_output": config["dont_force_structured_output"],
-                "remove_min_items_from_schema": config["remove_min_items_from_schema"],
-                "remove_defaults_from_schema": config["remove_defaults_from_schema"],
-            })
+            llm_kwargs.update(
+                {
+                    "dont_force_structured_output": config[
+                        "dont_force_structured_output"
+                    ],
+                    "remove_min_items_from_schema": config[
+                        "remove_min_items_from_schema"
+                    ],
+                    "remove_defaults_from_schema": config[
+                        "remove_defaults_from_schema"
+                    ],
+                }
+            )
 
             self.logger.info(
                 f"检测到国产模型 ({vendor})，启用兼容性模式："
@@ -187,9 +200,7 @@ class BrowserUseSkillMixin:
             # 如果需要使用 extra_body 传递 thinking 参数（Mimo）
             if config.get("use_extra_body", False):
                 self.logger.info(f"使用 ChatOpenAI with extra_body for {vendor}")
-                llm = self._create_llm_with_extra_body(
-                    BUChatOpenAI, llm_kwargs, vendor
-                )
+                llm = self._create_llm_with_extra_body(BUChatOpenAI, llm_kwargs, vendor)
             else:
                 # 直接使用 ChatOpenAI
                 llm = BUChatOpenAI(**llm_kwargs)
@@ -218,7 +229,7 @@ class BrowserUseSkillMixin:
         from browser_use.llm.messages import BaseMessage
         from functools import wraps
 
-        T = TypeVar('T')
+        T = TypeVar("T")
 
         class LLMWithExtraBodyWrapper:
             """Wrapper for models that need extra_body parameter"""
@@ -230,7 +241,12 @@ class BrowserUseSkillMixin:
                 """将所有其他属性访问委托给 base_llm"""
                 return getattr(self._base_llm, name)
 
-            async def ainvoke(self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any):
+            async def ainvoke(
+                self,
+                messages: list[BaseMessage],
+                output_format: type[T] | None = None,
+                **kwargs: Any,
+            ):
                 """
                 调用模型，自动添加 extra_body 参数
 
@@ -242,7 +258,7 @@ class BrowserUseSkillMixin:
                 async def patched_create(*args, **create_kwargs):
                     # 添加 extra_body 参数
                     create_kwargs = create_kwargs.copy()
-                    create_kwargs['extra_body'] = {"thinking": {"type": "disabled"}}
+                    create_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
                     return await original_create(*args, **create_kwargs)
 
                 # 临时替换 create 方法
@@ -250,11 +266,15 @@ class BrowserUseSkillMixin:
 
                 try:
                     # 调用原始的 ainvoke
-                    result = await self._base_llm.ainvoke(messages, output_format, **kwargs)
+                    result = await self._base_llm.ainvoke(
+                        messages, output_format, **kwargs
+                    )
                     return result
                 finally:
                     # 恢复原始 create 方法
-                    self._base_llm.get_client().chat.completions.create = original_create
+                    self._base_llm.get_client().chat.completions.create = (
+                        original_create
+                    )
 
         # 创建基础 LLM 实例
         base_llm = llm_class(**llm_kwargs)
@@ -274,7 +294,7 @@ class BrowserUseSkillMixin:
             browser-use 的 ChatOpenAI 实例
         """
         # 惰性初始化：检查属性是否存在
-        if not hasattr(self, '_browser_use_llm'):
+        if not hasattr(self, "_browser_use_llm"):
             self._browser_use_llm = None
 
         # 如果已经创建，直接返回
@@ -290,7 +310,9 @@ class BrowserUseSkillMixin:
             self.logger.info(f"BrowserUseSkill 使用配置: {config_name}")
         except Exception as e:
             # 回退到 deepseek-chat
-            self.logger.warning(f"无法加载配置 '{config_name}': {e}，回退到 'deepseek-chat'")
+            self.logger.warning(
+                f"无法加载配置 '{config_name}': {e}，回退到 'deepseek-chat'"
+            )
             config_name = "deepseek-chat"
             try:
                 llm_client = self._create_llm_client_for_browser_use(config_name)
@@ -331,23 +353,26 @@ class BrowserUseSkillMixin:
 
             # 设置短超时（10秒）
             response = await asyncio.wait_for(
-                llm_client.think(messages=test_messages),
-                timeout=10.0
+                llm_client.think(messages=test_messages), timeout=10.0
             )
 
             # 检查响应
-            if response and 'reply' in response:
+            if response and "reply" in response:
                 self.logger.debug(f"✓ browser-use-llm ({config_name}) is available")
                 return True
             else:
-                self.logger.warning(f"✗ browser-use-llm ({config_name}) returned invalid response")
+                self.logger.warning(
+                    f"✗ browser-use-llm ({config_name}) returned invalid response"
+                )
                 return False
 
         except asyncio.TimeoutError:
             self.logger.warning(f"✗ browser-use-llm ({config_name}) timeout")
             return False
         except LLMServiceUnavailableError:
-            self.logger.warning(f"✗ browser-use-llm ({config_name}) service unavailable")
+            self.logger.warning(
+                f"✗ browser-use-llm ({config_name}) service unavailable"
+            )
             return False
         except Exception as e:
             self.logger.warning(f"✗ browser-use-llm check failed: {str(e)}")
@@ -366,7 +391,9 @@ class BrowserUseSkillMixin:
 
             # 检查是否恢复
             if await self._check_browser_llm_available():
-                self.logger.info(f"✅ browser-use-llm recovered after {waited_seconds}s")
+                self.logger.info(
+                    f"✅ browser-use-llm recovered after {waited_seconds}s"
+                )
                 break
 
             # 每 30 秒打印一次日志
@@ -386,7 +413,7 @@ class BrowserUseSkillMixin:
             headless: 是否使用无头模式（默认 False，显示浏览器）
         """
         # 惰性初始化：检查属性是否存在
-        if not hasattr(self, '_browser_use_browser'):
+        if not hasattr(self, "_browser_use_browser"):
             self._browser_use_browser = None
 
         # 检查现有浏览器实例是否可用
@@ -401,8 +428,7 @@ class BrowserUseSkillMixin:
             from browser_use import Browser
         except ImportError:
             raise ImportError(
-                "使用 BrowserUseSkill 需要安装 browser-use: "
-                "pip install browser-use"
+                "使用 BrowserUseSkill 需要安装 browser-use: pip install browser-use"
             )
 
         try:
@@ -419,7 +445,7 @@ class BrowserUseSkillMixin:
             from ..core.working_context import WorkingContext
 
             # 获取根 Agent 的 name 和 workspace_root（即使在 MicroAgent 中调用也能正确获取）
-            if hasattr(self, 'root_agent'):
+            if hasattr(self, "root_agent"):
                 agent_name = self.root_agent.name
                 workspace_root = self.root_agent.workspace_root
             else:
@@ -427,7 +453,9 @@ class BrowserUseSkillMixin:
                 agent_name = self.name
                 workspace_root = self.workspace_root
 
-            user_data_dir = os.path.join(workspace_root, ".matrix", "browser_profile", agent_name)
+            user_data_dir = os.path.join(
+                workspace_root, ".matrix", "browser_profile", agent_name
+            )
             os.makedirs(user_data_dir, exist_ok=True)  # 确保 profile 目录存在
 
             browser_kwargs["user_data_dir"] = user_data_dir
@@ -448,7 +476,9 @@ class BrowserUseSkillMixin:
                 # 使用保守值 1280x720，适合大多数屏幕
                 browser_kwargs["window_size"] = {"width": 1280, "height": 720}
                 self.logger.info("BrowserUseSkill 窗口大小: 1280x720")
-            browser_kwargs["executable_path"] = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+            browser_kwargs["executable_path"] = (
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            )
 
             self._browser_use_browser = Browser(**browser_kwargs)
             await self._browser_use_browser.start()
@@ -494,8 +524,7 @@ class BrowserUseSkillMixin:
         try:
             # 使用 get_browser_state_summary 检查连接（3秒超时）
             state = await asyncio.wait_for(
-                self._browser_use_browser.get_browser_state_summary(),
-                timeout=3.0
+                self._browser_use_browser.get_browser_state_summary(), timeout=3.0
             )
             return state is not None
         except (asyncio.TimeoutError, Exception) as e:
@@ -509,11 +538,11 @@ class BrowserUseSkillMixin:
         同时清理 browser-use Agent 和 Browser 实例
         """
         # 清理 Agent 引用（Agent 没有 close 方法）
-        if hasattr(self, '_browser_use_agent'):
+        if hasattr(self, "_browser_use_agent"):
             self._browser_use_agent = None
 
         # 清理 headless 模式记录
-        if hasattr(self, '_browser_headless_mode'):
+        if hasattr(self, "_browser_headless_mode"):
             self._browser_headless_mode = False
 
         # 关闭 Browser
@@ -565,11 +594,7 @@ class BrowserUseSkillMixin:
 
         # 创建 Agent，使用默认参数
         agent = Agent(
-            task=task,
-            llm=llm,
-            browser=browser,
-            use_vision=False,
-            use_judge=False
+            task=task, llm=llm, browser=browser, use_vision=False, use_judge=False
         )
 
         # 记录 headless 状态
@@ -581,11 +606,7 @@ class BrowserUseSkillMixin:
         self.logger.info(f"✅ 已创建新的 browser-use Agent（headless={headless}）")
         return agent
 
-    async def _get_or_create_agent(
-        self,
-        task: str,
-        headless: bool = False
-    ):
+    async def _get_or_create_agent(self, task: str, headless: bool = False):
         """
         获取或创建 Agent 实例
 
@@ -603,9 +624,9 @@ class BrowserUseSkillMixin:
             Agent: browser-use Agent 实例
         """
         # 惰性初始化：检查属性是否存在
-        if not hasattr(self, '_browser_use_agent'):
+        if not hasattr(self, "_browser_use_agent"):
             self._browser_use_agent = None
-        if not hasattr(self, '_browser_headless_mode'):
+        if not hasattr(self, "_browser_headless_mode"):
             self._browser_headless_mode = False
 
         # 首次创建
@@ -633,30 +654,22 @@ class BrowserUseSkillMixin:
         self._browser_use_agent.add_new_task(task)
         return self._browser_use_agent
 
-    
-
-
     @register_action(
         short_desc="(task) #描述任务",
         description="""操作浏览器，简单描述对浏览器做什么，例如访问某个网站，查看当前页面内容，点击某个按钮等等针对浏览器的操作,可以一次一个动作，也可以一次描述多个动作。""",
         param_infos={
             "task": "对浏览器器的具体操作和要求，包括访问哪里，要获取什么数据等等，注意区别用户描述里哪些是具体针对浏览器的，哪些是做这些事情的最终目的。这个参数应该只包含针对浏览器的操作描述，不需要包含更高级最终意图的描述。",
-            "headless": "是否无头模式（默认False，显示浏览器窗口）"
-        }
+            "headless": "是否无头模式（默认False，显示浏览器窗口）",
+        },
     )
-    async def use_browser(
-        self,
-        task: str,
-        headless: bool = False
-    ) -> str:
-        
-        if hasattr(self, 'root_agent'):
+    async def use_browser(self, task: str, headless: bool = False) -> str:
+
+        if hasattr(self, "root_agent"):
             llm = self.root_agent._get_browser_use_llm()
         else:
             # self 是 BaseAgent，直接调用
             llm = self._get_browser_use_llm()
 
-        
         '''
         # ========== 使用 think_with_retry 优化任务描述 ==========
         self.logger.info("开始优化任务描述...")
@@ -725,8 +738,9 @@ Task 优化示例：
         '''
 
         # 构建完整任务描述（包含 URL）
-        full_task = task + "\n用完的tab尽早关闭。不要做太多重复尝试，尽早返回结果" #f"{full_task}"
-
+        full_task = (
+            task + "\n用完的tab尽早关闭。不要做太多重复尝试，尽早返回结果"
+        )  # f"{full_task}"
 
         self.logger.info(f"BrowserUseSkill 开始任务")
 
@@ -739,8 +753,10 @@ Task 优化示例：
         while retry_count < max_retries:
             try:
                 # 获取或创建 Agent（会自动复用）
-                if hasattr(self, 'root_agent'):
-                    agent = await self.root_agent._get_or_create_agent(full_task, headless)
+                if hasattr(self, "root_agent"):
+                    agent = await self.root_agent._get_or_create_agent(
+                        full_task, headless
+                    )
                 else:
                     agent = await self._get_or_create_agent(full_task, headless)
 
@@ -759,7 +775,9 @@ Task 优化示例：
 
                 # 如果已经重试多次，放弃
                 if retry_count >= max_retries:
-                    error_msg = f"browser-use-llm 服务不可用，已重试 {max_retries} 次仍失败"
+                    error_msg = (
+                        f"browser-use-llm 服务不可用，已重试 {max_retries} 次仍失败"
+                    )
                     self.logger.error(error_msg)
                     return f"任务执行失败: {error_msg}"
 
@@ -792,7 +810,10 @@ Task 优化示例：
 
         # 清理结果中的 Simple judge note（经常不准确）
         import re
-        final_result = re.sub(r'\[Simple judge:.*?\]', '', final_result, flags=re.DOTALL).strip()
+
+        final_result = re.sub(
+            r"\[Simple judge:.*?\]", "", final_result, flags=re.DOTALL
+        ).strip()
 
         # 获取当前浏览器停留的 URL
         try:
@@ -803,7 +824,7 @@ Task 优化示例：
         # 🆕 保存最后访问的 URL（供 WebSearcherV2 使用）
         if current_url:
             # 通过 root_agent 保存，确保 WebSearcherV2 能读取到
-            if hasattr(self, 'root_agent'):
+            if hasattr(self, "root_agent"):
                 self.root_agent._last_browser_url = current_url
             else:
                 self._last_browser_url = current_url

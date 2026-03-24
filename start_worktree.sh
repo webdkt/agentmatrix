@@ -66,6 +66,20 @@ git fetch origin main >/dev/null 2>&1
 # 创建 worktree 和分支
 git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME" origin/main
 
+# Symlink shared directories (node_modules, Cargo target, etc.)
+MAIN_DESKTOP="$BASE_DIR/$MAIN_REPO/agentmatrix-desktop"
+WORKTREE_DESKTOP="$WORKTREE_PATH/agentmatrix-desktop"
+
+if [ -d "$MAIN_DESKTOP/node_modules" ] && [ ! -e "$WORKTREE_DESKTOP/node_modules" ]; then
+    ln -s "$MAIN_DESKTOP/node_modules" "$WORKTREE_DESKTOP/node_modules"
+    log_success "Symlinked node_modules → main repo"
+fi
+
+if [ -d "$MAIN_DESKTOP/src-tauri/target" ] && [ ! -e "$WORKTREE_DESKTOP/src-tauri/target" ]; then
+    ln -s "$MAIN_DESKTOP/src-tauri/target" "$WORKTREE_DESKTOP/src-tauri/target"
+    log_success "Symlinked src-tauri/target → main repo"
+fi
+
 log_success "Worktree 创建成功!"
 echo "  路径: $WORKTREE_PATH"
 echo "  分支: $BRANCH_NAME"

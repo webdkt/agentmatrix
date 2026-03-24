@@ -56,41 +56,65 @@ class MatrixConfig(AutoLoggerMixin):
             with open(llm_config_path, "r", encoding="utf-8") as f:
                 self._llm_config = json.load(f)
         else:
-            self.logger.info(f"📄 创建默认LLM配置: {llm_config_path}")
+            self.logger.warning(f"⚠️ LLM配置文件不存在: {llm_config_path}")
             self._llm_config = self._get_default_llm_config()
-            self._save_llm_config()
 
         # 验证必需的配置
         if "default_slm" not in self._llm_config:
             raise ValueError("llm_config.json 中必须包含 'default_slm' 配置")
 
     def _load_email_proxy_config(self):
-        """加载Email Proxy配置 - 从 matrix_config.yml 中读取"""
-        matrix_config_path = self.paths.matrix_config_path
+        """加载Email Proxy配置 - 从 email_proxy_config.yml 中读取"""
+        email_proxy_path = self.paths.email_proxy_config_path
 
-        if matrix_config_path.exists():
-            with open(matrix_config_path, "r", encoding="utf-8") as f:
-                full_config = yaml.safe_load(f) or {}
-            # email_proxy 是 matrix_config.yml 的一个子节
-            self._email_proxy_config = {
-                "email_proxy": full_config.get("email_proxy", {})
-            }
+        if email_proxy_path.exists():
+            self.logger.info(f"📄 加载Email Proxy配置: {email_proxy_path}")
+            with open(email_proxy_path, "r", encoding="utf-8") as f:
+                ep_data = yaml.safe_load(f) or {}
+            self._email_proxy_config = {"email_proxy": ep_data}
             self._email_proxy_config = self._resolve_env_vars(self._email_proxy_config)
         else:
-            self._email_proxy_config = self._get_default_email_proxy_config()
+            # 向后兼容：尝试从 matrix_config.yml 读取
+            matrix_config_path = self.paths.matrix_config_path
+            if matrix_config_path.exists():
+                self.logger.info(
+                    f"📄 向后兼容：从 matrix_config.yml 加载 Email Proxy 配置"
+                )
+                with open(matrix_config_path, "r", encoding="utf-8") as f:
+                    full_config = yaml.safe_load(f) or {}
+                self._email_proxy_config = {
+                    "email_proxy": full_config.get("email_proxy", {})
+                }
+                self._email_proxy_config = self._resolve_env_vars(
+                    self._email_proxy_config
+                )
+            else:
+                self._email_proxy_config = self._get_default_email_proxy_config()
 
     def _load_matrix_config(self):
-        """加载Matrix配置"""
-        matrix_config_path = self.paths.matrix_config_path
+        """加载系统配置 - 从 system_config.yml 中读取"""
+        system_config_path = self.paths.system_config_path
 
-        if matrix_config_path.exists():
-            self.logger.info(f"📄 加载Matrix配置: {matrix_config_path}")
-            with open(matrix_config_path, "r", encoding="utf-8") as f:
+        if system_config_path.exists():
+            self.logger.info(f"📄 加载系统配置: {system_config_path}")
+            with open(system_config_path, "r", encoding="utf-8") as f:
                 self._matrix_config = yaml.safe_load(f) or {}
         else:
-            self.logger.info(f"📄 创建默认Matrix配置: {matrix_config_path}")
-            self._matrix_config = self._get_default_matrix_config()
-            self._save_matrix_config()
+            # 向后兼容：尝试从 matrix_config.yml 读取
+            matrix_config_path = self.paths.matrix_config_path
+            if matrix_config_path.exists():
+                self.logger.info(f"📄 向后兼容：从 matrix_config.yml 加载系统配置")
+                with open(matrix_config_path, "r", encoding="utf-8") as f:
+                    full_config = yaml.safe_load(f) or {}
+                # 只提取系统配置字段，排除 email_proxy 和 container
+                self._matrix_config = {
+                    k: v
+                    for k, v in full_config.items()
+                    if k not in ("email_proxy", "container")
+                }
+            else:
+                self.logger.info(f"📄 使用默认系统配置")
+                self._matrix_config = self._get_default_matrix_config()
 
     def _load_container_config(self):
         """加载容器运行时配置"""
@@ -200,27 +224,17 @@ class MatrixConfig(AutoLoggerMixin):
             json.dump(self._llm_config, f, ensure_ascii=False, indent=2)
 
     def _save_email_proxy_config(self):
-        """保存Email Proxy配置到 matrix_config.yml"""
-        matrix_config_path = self.paths.matrix_config_path
-        matrix_config_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # 读取现有 matrix_config
-        if matrix_config_path.exists():
-            with open(matrix_config_path, "r", encoding="utf-8") as f:
-                full_config = yaml.safe_load(f) or {}
-        else:
-            full_config = {}
-
-        # 更新 email_proxy 节
-        full_config["email_proxy"] = self._email_proxy_config.get("email_proxy", {})
-
-        with open(matrix_config_path, "w", encoding="utf-8") as f:
-            yaml.dump(full_config, f, allow_unicode=True, default_flow_style=False)
+        """保存Email Proxy配置到 email_proxy_config.yml"""
+        email_proxy_path = self.paths.email_proxy_config_path
+        email_proxy_path.parent.mkdir(parents=True, exist_ok=True)
+        ep_data = self._email_proxy_config.get("email_proxy", {})
+        with open(email_proxy_path, "w", encoding="utf-8") as f:
+            yaml.dump(ep_data, f, allow_unicode=True, default_flow_style=False)
 
     def _save_matrix_config(self):
-        """保存Matrix配置到文件"""
-        self.paths.matrix_config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.paths.matrix_config_path, "w", encoding="utf-8") as f:
+        """保存系统配置到 system_config.yml"""
+        self.paths.system_config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.paths.system_config_path, "w", encoding="utf-8") as f:
             yaml.dump(
                 self._matrix_config, f, allow_unicode=True, default_flow_style=False
             )

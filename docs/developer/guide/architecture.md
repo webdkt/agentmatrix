@@ -129,6 +129,11 @@ LLM 输出 Python 函数调用格式，Parser 解析：
 MatrixWorld/
 ├── .matrix/              # 系统数据（自动生成）
 │   ├── configs/          # 配置文件
+│   │   ├── agents/       # Agent profile YAML
+│   │   ├── llm_config.json
+│   │   ├── system_config.yml
+│   │   ├── email_proxy_config.yml
+│   │   └── backups/      # 自动备份
 │   ├── database/         # SQLite 数据库
 │   ├── logs/             # 日志文件
 │   └── sessions/         # Agent 会话历史
@@ -137,4 +142,4 @@ MatrixWorld/
     └── agent_files/      # Agent 工作文件
 ```
 
-详见 [Directory Structure](../reference/directory-structure.md)。
+详见 [LLM-Managed Config](../../core/llm-managed-config.md) 了解配置管理设计。
