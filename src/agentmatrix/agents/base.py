@@ -108,6 +108,9 @@ class BaseAgent(AutoLoggerMixin):
         # 🐳 Docker 容器管理器（延迟初始化，在 workspace_root setter 中初始化）
         self.docker_manager = None
 
+        # 🆕 记录最后一次 top-level MicroAgent 执行的 system prompt
+        self.last_system_prompt = None
+
         self.logger.info(f"Agent {self.name} 初始化完成")
 
         # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
@@ -1100,6 +1103,61 @@ Extract facts now.
 
         # 3. 如果都没找到，抛出异常
         raise FileNotFoundError(f"File not found in any workspace: {filename}")
+
+    def preview_system_prompt(
+        self,
+        yellow_pages: Optional[str] = None,
+        available_skills: Optional[List[str]] = None
+    ) -> str:
+        """
+        预览 System Prompt（不执行任务）
+
+        用于调试或查看 Agent 配置后的完整 prompt，
+        不需要实际运行任务就能看到 prompt 长什么样。
+
+        Args:
+            yellow_pages: 黄页信息（其他 Agent 列表）。
+                如果为 None，使用默认空字符串。
+            available_skills: 可用的 skill 列表。
+                如果为 None，使用 profile 中的 skills 配置。
+
+        Returns:
+            str: 完整的 system prompt 文本
+
+        Example:
+            >>> agent = get_agent("alice")
+            >>> # 预览默认配置的 prompt
+            >>> prompt = agent.preview_system_prompt()
+            >>> print(prompt)
+            >>> # 预览指定黄页的 prompt
+            >>> yellow_pages = "Bob - 邮件专家\\nCharlie - 数据分析师"
+            >>> prompt = agent.preview_system_prompt(yellow_pages=yellow_pages)
+        """
+        # 准备 available_skills
+        if available_skills is None:
+            available_skills = self.profile.get("skills", [])
+
+        # 自动注入基础 skills（与 process_email 逻辑一致）
+        for required in ["base", "email"]:
+            if required not in available_skills:
+                available_skills = [required] + available_skills
+
+        # 创建临时 MicroAgent
+        temp_micro = MicroAgent(
+            parent=self,
+            name=self.name,
+            available_skills=available_skills
+        )
+
+        # 设置 yellow_pages（如果提供）
+        if yellow_pages is not None:
+            temp_micro.yellow_pages = yellow_pages
+
+        # 构建 prompt（会自动同步到 temp_micro.system_prompt）
+        temp_micro._build_system_prompt()
+
+        # 返回构建的 prompt
+        return temp_micro.system_prompt
 
     # ==========================================
     # 通用 Actions

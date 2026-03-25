@@ -7,12 +7,37 @@ Container Manager - 容器管理器（使用新的抽象层）
 
 from pathlib import Path
 from typing import Tuple, Dict, Optional
+import hashlib
 import logging
 from datetime import datetime
 
 from .runtime_factory import ContainerRuntimeFactory
 from .runtime_adapter import ContainerAdapter, ContainerHandle
 from .compat import ContainerCompat
+
+
+
+def sanitize_container_name(agent_name: str) -> str:
+    """
+    标准化容器名称，确保符合容器命名规范
+
+    Docker/Podman 容器名称要求：[a-zA-Z0-9][a-zA-Z0-9_.-]*
+
+    使用 SHA256 哈希确保：
+    1. 符合命名规范
+    2. 唯一性（不同 agent 名称产生不同哈希）
+    3. 确定性（相同名称总是产生相同哈希）
+
+    Args:
+        agent_name: Agent 原始名称（可能包含中文）
+
+    Returns:
+        str: 符合规范的容器名称（格式：agent_xxxxxxxxxxxx）
+    """
+    # SHA256 哈希，取前 8 位
+    hash_obj = hashlib.sha256(agent_name.encode('utf-8'))
+    short_hash = hash_obj.hexdigest()[:8]
+    return f"agent_{short_hash}"
 
 
 class ContainerManager:
@@ -80,7 +105,7 @@ class ContainerManager:
         self.work_files_base = self.agent_files_dir / "work_files"
 
         # 容器名称（标准化）
-        self.container_name = f"agent_{agent_name}"
+        self.container_name = sanitize_container_name(agent_name)
 
         # 容器句柄（延迟创建）
         self.container: Optional[ContainerHandle] = None

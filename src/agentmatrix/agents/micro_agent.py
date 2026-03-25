@@ -118,6 +118,9 @@ class MicroAgent(AutoLoggerMixin):
         self.compression_token_threshold = 32000  # 32K tokens
         self.last_compression_step = 0  # 上次压缩时的步数
 
+        # 🆕 记录自己的 system prompt（构建后自动填充）
+        self.system_prompt = None
+
         # 日志
         self.logger.info(f"MicroAgent '{self.name}' initialized (parent: {parent.name})")
 
@@ -1025,6 +1028,10 @@ Start generating the Whiteboard now.
 
 {self.yellow_pages}
 """
+            # 🆕 同步 prompt 到属性
+            self.system_prompt = prompt
+            if self._is_top_level_microagent():
+                self.root_agent.last_system_prompt = prompt
             return prompt
 
 
@@ -1119,6 +1126,10 @@ Start generating the Whiteboard now.
 ```
 """
 
+        # 🆕 同步 prompt 到属性
+        self.system_prompt = prompt
+        if self._is_top_level_microagent():
+            self.root_agent.last_system_prompt = prompt
         return prompt
 
 
