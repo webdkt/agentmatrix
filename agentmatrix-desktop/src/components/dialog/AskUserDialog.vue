@@ -72,36 +72,32 @@ const close = () => {
 
       <!-- Modal Content -->
       <div class="ask-user-dialog-content">
-        <!-- Header -->
-        <div class="ask-user-dialog-header">
-          <div class="ask-user-dialog-header-left">
-            <div class="ask-user-dialog-icon">
-              <MIcon name="message-circle" />
-            </div>
-            <div class="ask-user-dialog-header-text">
-              <h2 class="ask-user-dialog-title">{{ currentQuestion.agent_name }} 需要你的回答</h2>
-              <p class="ask-user-dialog-subtitle">请回答以下问题继续</p>
-            </div>
-          </div>
-          <button
-            @click="close"
-            class="ask-user-dialog-close"
-            type="button"
-          >
-            <MIcon name="x" />
-          </button>
-        </div>
+        <!-- Close button -->
+        <button
+          @click="close"
+          class="ask-user-dialog-close"
+          type="button"
+        >
+          <MIcon name="x" />
+        </button>
 
         <!-- Body -->
         <div class="ask-user-dialog-body">
-          <!-- 问题显示 -->
-          <div class="ask-user-dialog-question">
-            <p>{{ currentQuestion.question }}</p>
+          <!-- Header -->
+          <div class="ask-user-dialog-header">
+            <h2 class="ask-user-dialog-title">{{ currentQuestion.agent_name }} 需要你的回答</h2>
+            <div class="ask-user-dialog-divider"></div>
           </div>
 
-          <!-- 回答输入 -->
+          <!-- Question -->
+          <div class="ask-user-dialog-question">
+            <span class="ask-user-dialog-label">问题</span>
+            <p class="ask-user-dialog-question-text">{{ currentQuestion.question }}</p>
+          </div>
+
+          <!-- Answer Input -->
           <div class="ask-user-dialog-input-group">
-            <label class="ask-user-dialog-label">你的回答</label>
+            <label class="ask-user-dialog-input-label">你的回答</label>
             <textarea
               v-model="answer"
               rows="5"
@@ -128,7 +124,6 @@ const close = () => {
           >
             <span v-if="!isSubmitting">提交回答</span>
             <span v-else>提交中...</span>
-            <span v-if="isSending" class="animate-spin"><MIcon name="loader" /></span>
           </button>
         </div>
       </div>
@@ -151,15 +146,17 @@ const close = () => {
 .ask-user-dialog-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(26, 26, 26, 0.3);
+  background: rgba(26, 26, 26, 0.4);
+  backdrop-filter: blur(2px);
 }
 
 /* Modal Content */
 .ask-user-dialog-content {
   position: relative;
-  background: white;
+  background: var(--parchment-50);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--parchment-300);
+  box-shadow: var(--shadow-xl);
   width: 100%;
   max-width: 540px;
   overflow: hidden;
@@ -169,7 +166,7 @@ const close = () => {
 @keyframes dialogScaleIn {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
@@ -177,71 +174,29 @@ const close = () => {
   }
 }
 
-/* Header */
-.ask-user-dialog-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-lg) var(--spacing-xl);
-  border-bottom: 1px solid var(--neutral-200);
-  background: var(--warning-50);
-}
-
-.ask-user-dialog-header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.ask-user-dialog-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-sm);
-  background: var(--warning-100);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--warning-600);
-  font-size: 20px;
-}
-
-.ask-user-dialog-header-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.ask-user-dialog-title {
-  font-size: var(--font-lg);
-  font-weight: var(--font-semibold);
-  color: var(--neutral-900);
-  margin: 0;
-}
-
-.ask-user-dialog-subtitle {
-  font-size: var(--font-xs);
-  color: var(--neutral-500);
-  margin: 0;
-}
-
+/* Close button */
 .ask-user-dialog-close {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--ink-400);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 20px;
+  z-index: 1;
 }
 
 .ask-user-dialog-close:hover {
-  color: var(--neutral-600);
-  background: var(--neutral-100);
+  color: var(--ink-700);
+  background: var(--parchment-100);
+  border-radius: var(--radius-sm);
 }
 
 /* Body */
@@ -249,64 +204,105 @@ const close = () => {
   padding: var(--spacing-xl);
 }
 
-.ask-user-dialog-question {
-  padding: var(--spacing-md);
-  background: var(--warning-50);
-  border: 1px solid var(--warning-200);
-  border-radius: var(--radius-sm);
+/* Header */
+.ask-user-dialog-header {
   margin-bottom: var(--spacing-lg);
 }
 
-.ask-user-dialog-question p {
-  font-size: var(--font-base);
-  color: var(--neutral-900);
-  margin: 0;
+.ask-user-dialog-title {
+  font-family: var(--font-serif);
+  font-size: var(--font-xl);
+  font-weight: var(--font-medium);
+  color: var(--ink-900);
+  margin: 0 0 var(--spacing-md) 0;
+  line-height: var(--leading-snug);
 }
 
+.ask-user-dialog-divider {
+  height: 1px;
+  background: var(--parchment-300);
+  width: 100%;
+}
+
+/* Question */
+.ask-user-dialog-question {
+  padding: var(--spacing-md);
+  background: var(--parchment-100);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin-bottom: var(--spacing-lg);
+}
+
+.ask-user-dialog-label {
+  display: block;
+  font-size: 11px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  margin-bottom: var(--spacing-xs);
+  font-weight: var(--font-medium);
+}
+
+.ask-user-dialog-question-text {
+  font-size: var(--font-base);
+  color: var(--ink-700);
+  margin: 0;
+  line-height: 1.8;
+}
+
+/* Input Group */
 .ask-user-dialog-input-group {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
 }
 
-.ask-user-dialog-label {
-  font-size: var(--font-sm);
+.ask-user-dialog-input-label {
+  font-size: 11px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-700);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
 }
 
 .ask-user-dialog-input {
   width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-md) 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--parchment-300);
   font-size: var(--font-base);
-  color: var(--neutral-700);
+  color: var(--ink-700);
   resize: none;
-  font-family: inherit;
-  transition: all var(--duration-base) var(--ease-out);
+  font-family: var(--font-serif);
+  line-height: 1.8;
+  transition: border-color var(--duration-base) var(--ease-out);
 }
 
 .ask-user-dialog-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-bottom-color: var(--accent);
+  border-bottom-width: 2px;
 }
 
 .ask-user-dialog-input::placeholder {
-  color: var(--neutral-400);
+  color: var(--ink-400);
+  font-style: italic;
 }
 
 /* Footer */
 .ask-user-dialog-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
   padding: var(--spacing-lg) var(--spacing-xl);
-  border-top: 1px solid var(--neutral-200);
-  background: var(--neutral-50);
+  border-top: 1px solid var(--parchment-300);
+  background: var(--parchment-100);
 }
 
+/* Buttons */
 .ask-user-dialog-btn {
   padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: var(--radius-sm);
@@ -318,35 +314,56 @@ const close = () => {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
+  letter-spacing: 0.05em;
 }
 
 .ask-user-dialog-btn--secondary {
   background: transparent;
-  border: 1px solid var(--neutral-200);
-  color: var(--neutral-700);
+  border: 1px solid var(--parchment-300);
+  color: var(--ink-700);
 }
 
 .ask-user-dialog-btn--secondary:hover {
-  background: var(--neutral-100);
+  background: var(--parchment-200);
+  border-color: var(--parchment-300);
 }
 
 .ask-user-dialog-btn--primary {
-  background: var(--accent);
-  color: white;
+  background: var(--ink-900);
+  color: var(--parchment-50);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
 }
 
 .ask-user-dialog-btn--primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--accent);
 }
 
 .ask-user-dialog-btn--primary:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 /* Modal transitions */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 200ms var(--ease-out);
+}
 
+.modal-enter-active .ask-user-dialog-content,
+.modal-leave-active .ask-user-dialog-content {
+  transition: all 200ms var(--ease-out);
+}
 
-/* Spin animation */
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
 
+.modal-enter-from .ask-user-dialog-content,
+.modal-leave-to .ask-user-dialog-content {
+  opacity: 0;
+  transform: scale(0.96);
+}
 </style>

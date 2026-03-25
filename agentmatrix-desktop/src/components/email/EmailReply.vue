@@ -187,7 +187,6 @@ const adjustHeight = (event) => {
     </div>
   </div>
 </template>
-
 <style scoped>
 .email-reply {
   padding: 0;
@@ -208,8 +207,11 @@ const adjustHeight = (event) => {
 }
 
 .email-reply__info-text {
-  font-size: var(--font-xs);
-  color: var(--neutral-500);
+  font-size: 11px;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-500);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -217,19 +219,28 @@ const adjustHeight = (event) => {
 
 .email-reply__info-name {
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--ink-700);
+  font-variant: normal;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* Container */
 .email-reply__container {
-  background: white;
-  border: 1px solid var(--neutral-200);
+  background: var(--parchment-50);
+  border: 1px solid var(--parchment-300);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
   padding: var(--spacing-xs);
   display: flex;
   align-items: flex-end;
   gap: var(--spacing-xs);
+  transition: border-color var(--duration-base) var(--ease-out);
+}
+
+.email-reply__container:focus-within {
+  border-color: var(--accent);
+  border-left-width: 3px;
+  padding-left: calc(var(--spacing-xs) - 2px);
 }
 
 /* Cancel button (inline only) */
@@ -238,7 +249,7 @@ const adjustHeight = (event) => {
   height: 32px;
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--ink-400);
   font-size: var(--icon-md);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -248,8 +259,8 @@ const adjustHeight = (event) => {
 }
 
 .email-reply__cancel:hover {
-  color: var(--neutral-600);
-  background: var(--neutral-100);
+  color: var(--ink-700);
+  background: var(--parchment-200);
   border-radius: var(--radius-sm);
 }
 
@@ -261,15 +272,16 @@ const adjustHeight = (event) => {
   padding: var(--spacing-sm);
   background: transparent;
   border: none;
-  color: var(--neutral-700);
+  color: var(--ink-700);
   font-size: var(--font-sm);
   line-height: var(--leading-normal);
   resize: none;
-  font-family: inherit;
+  font-family: var(--font-serif);
 }
 
 .email-reply__textarea::placeholder {
-  color: var(--neutral-400);
+  color: var(--ink-400);
+  font-style: italic;
 }
 
 .email-reply__textarea:focus {
@@ -281,8 +293,8 @@ const adjustHeight = (event) => {
   width: 32px;
   height: 32px;
   border: none;
-  background: var(--accent);
-  color: white;
+  background: var(--ink-900);
+  color: var(--parchment-50);
   font-size: var(--icon-md);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -294,7 +306,7 @@ const adjustHeight = (event) => {
 }
 
 .email-reply__send:hover:not(:disabled) {
-  opacity: 0.9;
+  background: var(--accent);
 }
 
 .email-reply__send:active:not(:disabled) {
@@ -302,7 +314,7 @@ const adjustHeight = (event) => {
 }
 
 .email-reply__send:disabled {
-  opacity: 0.5;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
@@ -316,10 +328,10 @@ const adjustHeight = (event) => {
 
 .email-reply__hint-text {
   font-size: 10px;
-  color: var(--neutral-300);
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-300);
   line-height: 1;
 }
-
-/* Animations */
-
 </style>
