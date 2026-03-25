@@ -109,12 +109,10 @@ const handleDelete = async () => {
 // 处理附件点击
 const handleAttachmentClick = async (attachment) => {
   try {
-    // 附件保存在发送者目录下：
-    // - 用户发出(is_from_user=true): User -> workspace/agent_files/User/work_files/{task_id}/attachments/
-    // - Agent发出(is_from_user=false): Agent名称 -> workspace/agent_files/{Agent}/work_files/{task_id}/attachments/
-    const owner = props.email.is_from_user ? 'User' : props.email.sender
+    // 附件永远保存在 User 的工作目录下
+    // 无论邮件是发出还是收到，前端都是 User 打开的，所有文件都在 User 目录里
     await openAttachment(
-      owner,
+      props.user_agent_name,  // 使用实际的 user name（如 "DKT"）
       props.email.task_id,
       attachment.filename
     )

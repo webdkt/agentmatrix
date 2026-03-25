@@ -108,6 +108,11 @@ class FileSkillMixin:
         # 在容器内执行
         exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
 
+        self.logger.info(f"[list_dir] 命令: {cmd}")
+        self.logger.info(f"[list_dir] exit_code: {exit_code}")
+        self.logger.info(f"[list_dir] stdout:\n{stdout}")
+        self.logger.info(f"[list_dir] stderr:\n{stderr}")
+
         if exit_code != 0:
             # 提供详细的错误信息
             container_status = "unknown"
@@ -166,6 +171,11 @@ class FileSkillMixin:
         cmd = f"sed -n '{start_line},{end_line}p' {container_path}"
 
         exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
+
+        self.logger.info(f"[read] 命令: {cmd}")
+        self.logger.info(f"[read] exit_code: {exit_code}")
+        self.logger.info(f"[read] stdout:\n{stdout}")
+        self.logger.info(f"[read] stderr:\n{stderr}")
 
         if exit_code != 0:
             container_status = "unknown"
@@ -262,6 +272,11 @@ class FileSkillMixin:
 
         exit_code, stdout, stderr = await docker_manager.exec_command(write_cmd)
 
+        self.logger.info(f"[write] 命令: {write_cmd}")
+        self.logger.info(f"[write] exit_code: {exit_code}")
+        self.logger.info(f"[write] stdout:\n{stdout}")
+        self.logger.info(f"[write] stderr:\n{stderr}")
+
         if exit_code != 0:
             container_status = "unknown"
             try:
@@ -328,6 +343,11 @@ class FileSkillMixin:
 
         exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
 
+        self.logger.info(f"[search_file] 命令: {cmd}")
+        self.logger.info(f"[search_file] exit_code: {exit_code}")
+        self.logger.info(f"[search_file] stdout:\n{stdout}")
+        self.logger.info(f"[search_file] stderr:\n{stderr}")
+
         if exit_code != 0 and not stdout:
             return f"未找到匹配结果"
 
@@ -358,11 +378,16 @@ class FileSkillMixin:
         # 注意：Agent 在自己的容器里有完全权限，可以执行任意命令
         exit_code, stdout, stderr = await docker_manager.exec_command(command)
 
+        self.logger.info(f"[bash] 命令: {command}")
+        self.logger.info(f"[bash] exit_code: {exit_code}")
+        self.logger.info(f"[bash] stdout:\n{stdout}")
+        self.logger.info(f"[bash] stderr:\n{stderr}")
+
         result = ""
         if stdout:
             result += stdout
         if stderr:
-            result += f"\n[错误输出]\n{stderr}"
+            result += f"\n{stderr}"
 
         if not result:
             return "Done（无输出）"
@@ -412,6 +437,11 @@ class FileSkillMixin:
             cmd = f"sed -i 's/{sed_pattern}/{sed_replacement}/g' {container_path}"
 
         exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
+
+        self.logger.info(f"[replace_string_in_file] 命令: {cmd}")
+        self.logger.info(f"[replace_string_in_file] exit_code: {exit_code}")
+        self.logger.info(f"[replace_string_in_file] stdout:\n{stdout}")
+        self.logger.info(f"[replace_string_in_file] stderr:\n{stderr}")
 
         if exit_code != 0:
             return f"❌ 替换失败：{stderr}"
