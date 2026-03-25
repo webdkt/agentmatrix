@@ -1434,6 +1434,23 @@ async def get_agent_profile(agent_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/agents/{agent_name}/prompt")
+async def get_agent_prompt(agent_name: str):
+    """获取 Agent 的完整 System Prompt"""
+    global matrix_runtime
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    agent = matrix_runtime.agents.get(agent_name)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    # 获取 system prompt（使用 preview_system_prompt 方法）
+    system_prompt = agent.preview_system_prompt()
+
+    return {"agent_name": agent_name, "system_prompt": system_prompt}
+
+
 @app.post("/api/agent-profiles")
 async def create_agent_profile(request: AgentConfigRequest):
     """Create a new agent profile - 支持灵活的配置结构"""

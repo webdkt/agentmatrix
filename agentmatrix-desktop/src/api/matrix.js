@@ -37,11 +37,11 @@ export const matrixAPI = {
   },
 
   /**
-   * 获取 Agent 构建后的 System Prompt
+   * 获取 Agent 的完整 System Prompt
    * @param {string} agentName - Agent 名称
    */
-  async getSystemPrompt(agentName) {
-    return API.get(`/api/agents/${agentName}/system-prompt`)
+  async getAgentPrompt(agentName) {
+    return API.get(`/api/agents/${agentName}/prompt`)
   },
 
   /**

@@ -102,6 +102,12 @@
       "memory": "记忆"
     },
     "profile": {
+      "actions": "操作",
+      "viewPrompt": "查看 Prompt",
+      "stop": "停止",
+      "reload": "重新加载",
+      "clone": "克隆",
+      "mailTo": "发邮件",
       "basicInfo": "基本信息",
       "name": "名称",
       "description": "描述",

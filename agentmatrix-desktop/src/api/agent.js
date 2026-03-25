@@ -60,4 +60,12 @@ export const agentAPI = {
       body: JSON.stringify({ session_id: sessionId, question, answer })
     })
   },
+
+  /**
+   * 获取 Agent 的完整 System Prompt
+   * @param {string} agentName - Agent 名称
+   */
+  async getAgentPrompt(agentName) {
+    return API.get(`/api/agents/${agentName}/prompt`)
+  },
 }

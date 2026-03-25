@@ -12,6 +12,7 @@ export const useMatrixStore = defineStore('matrix', () => {
   const profile = ref(null)        // Agent 配置
   const logContent = ref('')       // 日志内容
   const sessions = ref([])         // Session 历史
+  const agentPrompt = ref(null)    // Agent 的完整 System Prompt
   const isLoadingAgents = ref(false)
   const isLoadingProfile = ref(false)
   const isLoadingLog = ref(false)
@@ -124,6 +125,22 @@ export const useMatrixStore = defineStore('matrix', () => {
     await loadLog(selectedAgent.value)
   }
 
+  /**
+   * 加载 Agent 的完整 System Prompt
+   * @param {string} agentName - Agent 名称
+   */
+  async function loadAgentPrompt(agentName) {
+    try {
+      const data = await matrixAPI.getAgentPrompt(agentName)
+      agentPrompt.value = data.system_prompt
+      return data.system_prompt
+    } catch (error) {
+      console.error('Failed to load agent prompt:', error)
+      agentPrompt.value = null
+      throw error
+    }
+  }
+
   return {
     // State
     agents,
@@ -131,6 +148,7 @@ export const useMatrixStore = defineStore('matrix', () => {
     profile,
     logContent,
     sessions,
+    agentPrompt,
     isLoadingAgents,
     isLoadingProfile,
     isLoadingLog,
@@ -146,6 +164,7 @@ export const useMatrixStore = defineStore('matrix', () => {
     loadProfile,
     loadLog,
     loadSessions,
-    refreshLog
+    refreshLog,
+    loadAgentPrompt
   }
 })

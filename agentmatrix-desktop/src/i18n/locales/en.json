@@ -102,6 +102,12 @@
       "memory": "Memory"
     },
     "profile": {
+      "actions": "Actions",
+      "viewPrompt": "View Prompt",
+      "stop": "Stop",
+      "reload": "Reload",
+      "clone": "Clone",
+      "mailTo": "Mail To",
       "basicInfo": "Basic Information",
       "name": "Name",
       "description": "Description",

@@ -68,11 +68,6 @@ class AgentMatrix(AutoLoggerMixin):
         self.async_event_callback = async_event_callback
         self.matrix_path = matrix_root  # 保留向后兼容
 
-        # 🆕 配置 SKILL_REGISTRY，自动添加 workspace/skills/ 目录
-        # 导入在这里，避免循环依赖
-        from ..skills.registry import SKILL_REGISTRY
-        SKILL_REGISTRY.add_workspace_skills(self.paths)
-
         # Store user agent name
         self.user_agent_name = user_agent_name
 

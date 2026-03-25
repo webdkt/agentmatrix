@@ -5,6 +5,40 @@
     </div>
 
     <div v-else-if="profile" class="profile-tab__content">
+      <!-- Action Buttons -->
+      <section class="profile-section">
+        <h3 class="profile-section__title">{{ $t('matrix.profile.actions') }}</h3>
+        <div class="profile-actions">
+          <button
+            class="profile-action profile-action--primary"
+            @click="showPromptModal = true"
+          >
+            <MIcon name="terminal" />
+            <span>{{ $t('matrix.profile.viewPrompt') }}</span>
+          </button>
+
+          <button class="profile-action" disabled>
+            <MIcon name="square" />
+            <span>{{ $t('matrix.profile.stop') }}</span>
+          </button>
+
+          <button class="profile-action" disabled>
+            <MIcon name="refresh-cw" />
+            <span>{{ $t('matrix.profile.reload') }}</span>
+          </button>
+
+          <button class="profile-action" disabled>
+            <MIcon name="copy" />
+            <span>{{ $t('matrix.profile.clone') }}</span>
+          </button>
+
+          <button class="profile-action" disabled>
+            <MIcon name="mail" />
+            <span>{{ $t('matrix.profile.mailTo') }}</span>
+          </button>
+        </div>
+      </section>
+
       <!-- 基本信息 -->
       <section class="profile-section">
         <h3 class="profile-section__title">{{ $t('matrix.profile.basicInfo') }}</h3>
@@ -54,13 +88,22 @@
     <div v-else class="profile-tab__empty">
       {{ $t('matrix.profile.noData') }}
     </div>
+
+    <!-- Prompt Preview Modal -->
+    <PromptPreviewModal
+      :show="showPromptModal"
+      :agentName="agentName"
+      @close="showPromptModal = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import { useMatrixStore } from '../../../stores/matrix'
 import { storeToRefs } from 'pinia'
+import MIcon from '@/components/icons/MIcon.vue'
+import PromptPreviewModal from '@/components/dialog/PromptPreviewModal.vue'
 
 const props = defineProps({
   agentName: {
@@ -73,6 +116,7 @@ const matrixStore = useMatrixStore()
 const { profile, isLoadingProfile } = storeToRefs(matrixStore)
 
 const isLoading = ref(false)
+const showPromptModal = ref(false)
 
 watch(() => props.agentName, async (newName) => {
   if (newName) {
@@ -120,6 +164,55 @@ watch(() => props.agentName, async (newName) => {
   margin-bottom: var(--spacing-md);
   padding-bottom: var(--spacing-xs);
   border-bottom: 1px solid var(--parchment-300);
+}
+
+/* Action Buttons */
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-600);
+  background: white;
+  border: 1px solid var(--parchment-300);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.profile-action:hover:not(:disabled) {
+  background: var(--parchment-100);
+  border-color: var(--parchment-400);
+}
+
+.profile-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.profile-action--primary {
+  color: var(--accent-600, #5a3d2e);
+  background: var(--accent-50, #f9f6f4);
+  border-color: var(--accent-200, #d4c4b8);
+}
+
+.profile-action--primary:hover:not(:disabled) {
+  background: var(--accent-100, #f0e9e4);
+  border-color: var(--accent-300, #c4a894);
+}
+
+.profile-action :deep(svg) {
+  width: 14px;
+  height: 14px;
 }
 
 .profile-fields {

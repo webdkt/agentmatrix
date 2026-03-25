@@ -164,23 +164,22 @@ class MicroAgent(AutoLoggerMixin):
             type: 动态创建的类
 
         Example:
-            available_skills = ["file", "browser", "git_workflow"]
+            available_skills = ["file", "browser"]
             返回：type('DynamicAgent_MicroAgent_abc123',
                      (MicroAgent, FileSkillMixin, BrowserSkillMixin),
-                     {'_md_skills': [git_workflow_metadata]})
+                     {})
         """
         from ..skills.registry import SKILL_REGISTRY
 
         # 使用统一的 get_skills() 接口（Lazy Load）
         result = SKILL_REGISTRY.get_skills(available_skills)
         mixin_classes = result.python_mixins
-        md_skills = result.md_skills  # 🆕 获取 MD skills
 
         # 检查加载失败的情况
         if result.failed_skills:
             self.logger.warning(f"  ⚠️  以下 Skills 加载失败: {result.failed_skills}")
 
-        if not mixin_classes and not md_skills:
+        if not mixin_classes:
             self.logger.warning(f"  ⚠️  没有找到可用的 Skills: {available_skills}")
             return self.__class__
 
@@ -188,18 +187,12 @@ class MicroAgent(AutoLoggerMixin):
         for mixin in mixin_classes:
             self.logger.debug(f"  🧩 混入 Skill Mixin: {mixin.__name__}")
 
-        # 🆕 记录 MD Skills 日志
-        for md_skill in md_skills:
-            self.logger.info(
-                f"  📄 加载 MD Skill: {md_skill.skill_name} ({md_skill.display_name})"
-            )
-
         # 动态创建类（Python 的 type 函数）
         # type(name, bases, dict)
         dynamic_class = type(
             f"DynamicAgent_{self.name}",  # 类名
             (self.__class__,) + tuple(mixin_classes),  # 继承链
-            {"_md_skills": md_skills},  # 🆕 额外的类属性：存储 MD skills 元数据
+            {},  # 额外的类属性（MD skills 已移除，现在通过 list_additional_skills 动态发现）
         )
 
         return dynamic_class
@@ -1216,10 +1209,7 @@ Start generating the Whiteboard now.
         """
         获取 skill 的描述
 
-        优先级：
-        1. _skill_description（Python Skills）
-        2. brief_summary（MD Skills）
-        3. 默认描述
+        从 Python Skills 的 _skill_description 属性获取
         """
         # 检查 Python Skills
         for cls in self.__class__.__mro__:
@@ -1229,46 +1219,8 @@ Start generating the Whiteboard now.
                 if cls_skill_name == skill_name:
                     return cls._skill_description
 
-        # 检查 MD Skills
-        md_skills = getattr(self, "_md_skills", [])
-        for md_skill in md_skills:
-            if md_skill.skill_name == skill_name:
-                return md_skill.brief_summary or md_skill.description
-
         # 默认描述
         return f"{skill_name} skill"
-
-    def _format_md_skills_summary(self) -> str:
-        """
-        格式化 MD Document Skills 摘要（用于 system prompt）
-
-        显示格式：
-        - **显示名称**: 简要描述
-          完整文档: SKILLS/{skill_name}/skill.md
-        """
-        # 获取 MD skills（从 skill load result 中）
-        md_skills = getattr(self, "_md_skills", [])
-
-        if not md_skills:
-            return ""
-
-        lines = []
-        for skill_meta in md_skills:
-            # 显示名称 + 摘要
-            lines.append(f"- **{skill_meta.display_name}**: {skill_meta.brief_summary}")
-            # 文档路径（相对于 workspace）
-            if skill_meta.workspace_path:
-                doc_path = f"SKILLS/{skill_meta.skill_name}/skill.md"
-                lines.append(f"  完整文档: `{doc_path}`")
-
-            # 列出可用的 Actions
-            if skill_meta.actions:
-                action_names = [action.name for action in skill_meta.actions]
-                lines.append(f"  包含操作: {', '.join(action_names)}")
-
-            lines.append("")  # 空行分隔
-
-        return "\n".join(lines)
 
     def _format_task_message(self) -> str:
         """格式化任务消息"""

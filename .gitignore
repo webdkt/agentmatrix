@@ -246,3 +246,5 @@ agentmatrix*.tar
 
 # Docker build cache (optional, comment out if you want to cache)
 # .dockercache/
+src-tauri/target
+agentmatrix-desktop/src-tauri/target
