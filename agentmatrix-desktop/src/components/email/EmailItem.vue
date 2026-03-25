@@ -232,7 +232,7 @@ const handleAttachmentClick = async (attachment) => {
 }
 
 .email-card--user {
-  background: var(--parchment-100);
+  background: var(--parchment-50);
   border-color: var(--success-200);
 }
 

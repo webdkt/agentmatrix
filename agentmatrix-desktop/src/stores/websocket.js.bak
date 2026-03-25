@@ -164,13 +164,10 @@ export const useWebSocketStore = defineStore('websocket', {
       console.log('📊 SYSTEM_STATUS received:', statusData)
 
       const sessionStore = useSessionStore()
-      const agentStore = useAgentStore()
 
       // 遍历所有 agent 的状态
       if (statusData.agents) {
         Object.entries(statusData.agents).forEach(([agentName, agentInfo]) => {
-          // 更新 agent store（包含 current_session_id）
-          agentStore.updateAgentStatus(agentName, agentInfo)
           console.log(`  - Agent ${agentName}:`, agentInfo)
 
           // 如果 agent 有 pending_question
@@ -178,7 +175,6 @@ export const useWebSocketStore = defineStore('websocket', {
             console.log(`    ✅ Found pending question for session ${agentInfo.current_user_session_id}`)
             sessionStore.setPendingQuestion(agentInfo.current_user_session_id, {
               agent_name: agentName,
-              agent_session_id: agentInfo.current_session_id,  // ← agent 的 session_id
               question: agentInfo.pending_question,
               task_id: agentInfo.current_task_id,
               timestamp: new Date().toISOString()

@@ -1,7 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useBackendStore } from '@/stores/backend'
 import { useConfigStore } from '@/stores/config'
+import { useSessionStore } from '@/stores/session'
+import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
 import ViewSelector from '@/components/view-selector/ViewSelector.vue'
 import ViewContainer from '@/components/view-container/ViewContainer.vue'
@@ -10,21 +12,79 @@ import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
 const currentView = ref('email')
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
-const { isConnected } = useWebSocket()
+const sessionStore = useSessionStore()
+const websocketStore = useWebSocketStore()
+const { isConnected, connect, onMessage } = useWebSocket()
 
 // App state: 'loading' | 'wizard' | 'ready'
 const appState = ref('loading')
 
 const backendStatus = computed(() => backendStore.status)
+const currentSession = computed(() => sessionStore.currentSession)
 
 const handleViewChange = (viewId) => {
   currentView.value = viewId
+}
+
+// 初始化WebSocket连接
+async function initializeWebSocket() {
+  console.log('🔌 Initializing WebSocket connection...')
+
+  // If backend is running, connect WebSocket
+  if (backendStore.isRunning) {
+    console.log('✅ Backend is running, connecting WebSocket...')
+    connect()
+  } else {
+    console.log('⏳ Backend not running yet, will connect when ready')
+  }
+
+  // 监听 WebSocket 消息
+  onMessage((data) => {
+    websocketStore.handle_message(data)
+  })
+
+  // 注册新邮件回调
+  websocketStore.onNewEmail(async (emailData) => {
+    console.log('📧 Handling new email from WebSocket:', emailData)
+    console.log('📊 Current session:', currentSession.value?.session_id)
+    console.log('📊 Email recipient_session_id:', emailData.recipient_session_id || emailData.receiver_session_id)
+
+    // 1. 刷新会话列表（处理新会话）
+    await sessionStore.loadSessions()
+
+    // 2. 使用 recipient_session_id 匹配会话
+    const sessionId = emailData.recipient_session_id || emailData.receiver_session_id
+    if (sessionId) {
+      const targetSession = sessionStore.sessions.find(
+        s => s.session_id === sessionId
+      )
+
+      if (targetSession) {
+        if (targetSession.session_id === currentSession.value?.session_id) {
+          // 是当前会话 → 强制刷新
+          console.log('✅ Email belongs to current session, forcing refresh...')
+          await sessionStore.selectSession(targetSession, true)
+        } else {
+          // 是其他会话 → 切换过去
+          console.log('🔄 Email belongs to different session, switching...')
+          await sessionStore.selectSession(targetSession, true)
+        }
+      } else {
+        console.log('⚠️ Session not found in list, might be a new session')
+      }
+    } else {
+      console.log('⚠️ Email has no session_id')
+    }
+  })
 }
 
 async function handleWizardComplete() {
   appState.value = 'ready'
   // Backend is now running and configured (submitted by wizard)
   await backendStore.initializeBackend()
+
+  // 初始化WebSocket连接
+  await initializeWebSocket()
 }
 
 onMounted(async () => {
@@ -36,6 +96,10 @@ onMounted(async () => {
     }
     // Warm start
     await backendStore.initializeBackend()
+
+    // 初始化WebSocket连接
+    await initializeWebSocket()
+
     appState.value = 'ready'
   } catch (error) {
     console.error('Failed to initialize:', error)

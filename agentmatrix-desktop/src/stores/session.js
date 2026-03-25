@@ -210,9 +210,14 @@ export const useSessionStore = defineStore('session', {
       }
 
       try {
-        // 调用 API 提交回答
+        // 调用 API 提交回答（传递 agent_session_id）
         const { agentAPI } = await import('@/api/agent')
-        await agentAPI.submitUserInput(question.agent_name, question.question, answer)
+        await agentAPI.submitUserInput(
+          question.agent_name,
+          question.agent_session_id,
+          question.question,
+          answer
+        )
 
         console.log('✅ Answer submitted for', question.agent_name)
 

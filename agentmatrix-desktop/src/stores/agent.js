@@ -27,6 +27,16 @@ export const useAgentStore = defineStore('agent', () => {
       ...data,
       lastUpdated: new Date().toISOString()
     }
+
+    // 确保存储 current_session_id（agent 的会话ID）
+    if (data.current_session_id) {
+      agents.value[agentName].current_session_id = data.current_session_id
+    }
+  }
+
+  // 获取 agent 的 current_session_id
+  const getAgentSessionId = (agentName) => {
+    return agents.value[agentName]?.current_session_id || null
   }
 
   const clearAgentStatus = (agentName) => {
@@ -38,6 +48,7 @@ export const useAgentStore = defineStore('agent', () => {
     agents,
     getAgent,
     getAgentStatus,
+    getAgentSessionId,
     updateAgentStatus,
     clearAgentStatus
   }

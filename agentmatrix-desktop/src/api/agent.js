@@ -47,16 +47,17 @@ export const agentAPI = {
   /**
    * 提交 ask_user 回答
    * @param {string} agentName - Agent 名称
+   * @param {string} sessionId - Agent 的 session_id
    * @param {string} question - 问题
    * @param {string} answer - 回答
    */
-  async submitUserInput(agentName, question, answer) {
+  async submitUserInput(agentName, sessionId, question, answer) {
     return API.request(`/api/agents/${agentName}/submit_user_input`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ question, answer })
+      body: JSON.stringify({ session_id: sessionId, question, answer })
     })
   },
 }

@@ -1876,12 +1876,16 @@ async def submit_user_input(agent_name: str, request: Request):
     # 获取用户输入
     request_data = await request.json()
     answer = request_data.get("answer")
+    session_id = request_data.get("session_id")  # 获取 agent 的 session_id
     if not answer:
         raise HTTPException(status_code=400, detail="Missing 'answer' field")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Missing 'session_id' field")
 
     try:
         agent = matrix_runtime.agents[agent_name]
-        await agent.submit_user_input(answer)
+        # 传递 session_id 给 submit_user_input（位置参数）
+        await agent.submit_user_input(answer, session_id)
 
         return {
             "success": True,
