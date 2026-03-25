@@ -31,7 +31,7 @@ const handleViewClick = (viewId) => {
   <aside class="view-selector">
     <div class="view-selector__logo">
       <div class="logo-icon">
-        <MIcon name="robot" />
+        <MIcon name="dispatch" />
       </div>
     </div>
 

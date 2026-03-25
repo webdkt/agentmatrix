@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background: Vermillion rounded square -->
+  <rect x="0" y="0" width="512" height="512" rx="16" ry="16" fill="#C23B22"/>
+  
+  <!-- Geometric "A" - constructed with precise strokes -->
+  <!-- Using stroke-based approach, no fills -->
+  <g stroke="#FDFCF9" stroke-width="12" stroke-linecap="square" fill="none">
+    <!-- Left leg of A -->
+    <line x1="146" y1="420" x2="256" y2="92"/>
+    <!-- Right leg of A -->
+    <line x1="366" y1="420" x2="256" y2="92"/>
+    <!-- Extended crossbar - touches frame edges conceptually -->
+    <line x1="120" y1="280" x2="392" y2="280"/>
+  </g>
+  
+  <!-- Inner square border - thin stroke frame -->
+  <rect x="24" y="24" width="464" height="464" rx="8" ry="8" 
+        fill="none" stroke="#FDFCF9" stroke-width="4" opacity="0.3"/>
+</svg>

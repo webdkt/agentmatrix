@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background: India Ink -->
+  <rect x="0" y="0" width="512" height="512" rx="16" ry="16" fill="#1A1A1A"/>
+  
+  <!-- Geometric "A" in Parchment -->
+  <g stroke="#FDFCF9" stroke-width="12" stroke-linecap="square" fill="none">
+    <line x1="146" y1="420" x2="256" y2="92"/>
+    <line x1="366" y1="420" x2="256" y2="92"/>
+    <line x1="120" y1="280" x2="392" y2="280"/>
+  </g>
+  
+  <!-- Inner border -->
+  <rect x="24" y="24" width="464" height="464" rx="8" ry="8" 
+        fill="none" stroke="#FDFCF9" stroke-width="4" opacity="0.3"/>
+</svg>

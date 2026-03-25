@@ -130,7 +130,7 @@ const handleAttachmentClick = async (attachment) => {
         <div class="email-card__sender">
           <span class="email-card__label">{{ email.is_from_user ? 'TO' : 'FROM' }}</span>
           <span class="email-card__name">
-            <MIcon :name="email.is_from_user ? 'send' : 'robot'" />
+            <MIcon :name="email.is_from_user ? 'send' : 'agent-dispatch'" />
             {{ displayName }}
           </span>
         </div>

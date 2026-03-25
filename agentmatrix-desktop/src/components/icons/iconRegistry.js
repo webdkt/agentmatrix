@@ -13,6 +13,18 @@ export const iconRegistry = {
          <line x1="4" y1="12" x2="20" y2="12"/>
          <line x1="12" y1="4" x2="12" y2="20"/>`,
 
+  // ─── Dispatch (App Icon) ───
+  // Matrix node with dispatch lines - represents distributed cognition
+  'dispatch': `<circle cx="12" cy="12" r="3"/>
+               <line x1="12" y1="2" x2="12" y2="6"/>
+               <line x1="12" y1="18" x2="12" y2="22"/>
+               <line x1="2" y1="12" x2="6" y2="12"/>
+               <line x1="18" y1="12" x2="22" y2="12"/>
+               <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/>
+               <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/>
+               <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/>
+               <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>`,
+
   // ─── Actions ───
   send: `<path d="M22 2L11 13"/>
          <path d="M22 2L15 22L11 13L2 9L22 2Z"/>`,
@@ -65,6 +77,20 @@ export const iconRegistry = {
                 <path d="M16.5 13.5C18.5 13.5 20 12 20 10C20 8 18.5 6.5 17 6.5C17 4 15 2 12 2"/>
                 <line x1="2" y1="2" x2="22" y2="22"/>`,
 
+  // Agent Node - a hexagonal vessel (like a vessel icon), abstract autonomous entity
+  'agent': `<polygon points="12,3 21,8 21,16 12,21 5,16 5,8"/>
+            <line x1="12" y1="3" x2="12" y2="21"/>
+            <line x1="5" y1="8" x2="18" y2="8"/>`,
+
+  // Agent variant - dispatch node (concentric circles with crosshair)
+  'agent-dispatch': `<circle cx="12" cy="12" r="8"/>
+                     <circle cx="12" cy="12" r="3"/>
+                     <line x1="12" y1="2" x2="12" y2="6"/>
+                     <line x1="12" y1="18" x2="12" y2="22"/>
+                     <line x1="2" y1="12" x2="6" y2="12"/>
+                     <line x1="18" y1="12" x2="22" y2="12"/>`,
+
+  // Legacy robot (keep for compatibility)
   robot: `<rect x="5" y="8" width="14" height="12" rx="1"/>
           <circle cx="9" cy="13" r="1.5"/>
           <circle cx="15" cy="13" r="1.5"/>

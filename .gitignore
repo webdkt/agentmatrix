@@ -200,6 +200,14 @@ agentmatrix-desktop/dist-ssr/
 agentmatrix-desktop/*.local
 agentmatrix-desktop/.vite/
 
+# Preview files (temporary development aids)
+agentmatrix-desktop/preview-icons.html
+
+# Python backup files
+*.backup
+*.backup[0-9]
+*.bak
+
 # Example worlds (user-specific data)
 MyWorld/
 examples/MyWorld/
