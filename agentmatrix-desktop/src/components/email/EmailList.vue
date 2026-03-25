@@ -541,7 +541,6 @@ const handleAgentQuestionSubmit = async () => {
 .email-list__retry-btn:hover {
   opacity: 0.9;
 }
-
 .email-list__question-form {
   flex-shrink: 0;
   padding: var(--spacing-lg);
@@ -550,6 +549,13 @@ const handleAgentQuestionSubmit = async () => {
   border-radius: var(--radius-sm);
   box-shadow: 0 2px 12px rgba(194, 59, 34, 0.15);
   position: relative;
+  transition: all 0.3s var(--ease-out);
+}
+
+/* 输入框聚焦时，表单边框变淡 */
+.email-list__question-form:focus-within {
+  border-color: var(--parchment-300);
+  box-shadow: none;
 }
 
 .email-list__question-header {
@@ -611,6 +617,8 @@ const handleAgentQuestionSubmit = async () => {
   border-color: var(--accent);
   border-width: 2px;
   padding: calc(var(--spacing-md) - 1px);
+  box-shadow: 0 0 0 3px rgba(194, 59, 34, 0.1);
+  background: var(--parchment-50);
 }
 
 .email-list__question-input::placeholder {
