@@ -16,7 +16,7 @@ MatrixWorld/                    # matrix_path (默认 ./MatrixWorld/)
 |------|------|
 | `.matrix/configs/` | 配置文件 |
 | `.matrix/configs/agents/` | Agent profiles |
-| `.matrix/configs/agents/llm_config.json` | LLM 后端配置 |
+| `.matrix/configs/llm_config.json` | LLM 后端配置 |
 | `.matrix/database/` | SQLite 数据库 |
 | `.matrix/logs/` | 日志文件 |
 | `.matrix/sessions/` | Agent 会话历史 |
