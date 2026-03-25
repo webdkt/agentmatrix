@@ -119,7 +119,9 @@
       "homeFolder": "Open Home",
       "homeFolderDesc": "Browse agent's home directory",
       "sessionFolder": "Open Session",
-      "sessionFolderDesc": "Browse agent's session files"
+      "sessionFolderDesc": "Browse agent's session files",
+      "skillsFolder": "Open Skills",
+      "skillsFolderDesc": "Browse agent's additional skills"
     },
     "log": {
       "autoScroll": "Auto-scroll",

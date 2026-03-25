@@ -11,65 +11,12 @@ File Operation Skill - Docker 容器内执行版本
 核心设计：
 - 容器内工作目录：/work_files
 - 所有命令通过容器执行
-- bash 安全白名单保留
+- Agent 在容器内有完全权限（无白名单限制）
 """
 
 import os
 from typing import Optional
 from ..core.action import register_action
-
-
-# ==================== Bash 安全白名单 ====================
-
-# 分级白名单（Unix）
-BASH_WHITELIST_UNIX = {
-    # ===== 等级 1: 完全安全（无副作用）=====
-    "safe": {
-        # 文本查看
-        "cat", "head", "tail", "less", "more",
-        # 搜索
-        "grep", "egrep", "fgrep",
-        # 排序和统计
-        "sort", "uniq", "wc", "nl",
-        # 文本处理
-        "cut", "tr", "sed", "awk",
-        # 系统信息（只读）
-        "pwd", "date", "whoami", "hostname", "uname",
-        "df", "du",
-        # 文件列表
-        "ls", "ll", "dir",
-        # 回显
-        "echo", "printf",
-    },
-
-    # ===== 等级 2: 需要参数限制（有文件操作）=====
-    "restricted": {
-        # 创建目录
-        "mkdir",
-        # 创建文件
-        "touch",
-        # 删除文件
-        "rm",
-        # 复制/移动
-        "cp", "mv",
-        # 压缩
-        "tar", "gzip", "gunzip",
-        # 查找文件
-        "find",
-        # 链接
-        "ln",
-    },
-
-    # ===== 等级 3: 需要谨慎使用（开发工具）=====
-    "caution": {
-        # 开发工具
-        "python3", "python",
-        # 版本控制
-        "git",
-        # 网络工具
-        "curl", "wget",
-    },
-}
 
 
 class FileSkillMixin:
@@ -114,17 +61,17 @@ class FileSkillMixin:
 
     def _get_root_agent(self):
         """获取 root_agent"""
-        if hasattr(self, 'root_agent') and self.root_agent:
+        if hasattr(self, "root_agent") and self.root_agent:
             return self.root_agent
         return self
 
     def _ensure_docker_manager(self):
         """确保 docker_manager 可用"""
         root_agent = self._get_root_agent()
-        
-        if not hasattr(root_agent, 'docker_manager') or not root_agent.docker_manager:
+
+        if not hasattr(root_agent, "docker_manager") or not root_agent.docker_manager:
             raise RuntimeError("Docker manager 未初始化，无法执行文件操作")
-        
+
         return root_agent.docker_manager
 
     # ==================== Actions ====================
@@ -134,13 +81,11 @@ class FileSkillMixin:
         description="列出目录内容。支持单层或递归列出",
         param_infos={
             "directory": "目录路径（可选，默认当前目录 /work_files）",
-            "recursive": "是否递归列出子目录（默认False）"
-        }
+            "recursive": "是否递归列出子目录（默认False）",
+        },
     )
     async def list_dir(
-        self,
-        directory: Optional[str] = None,
-        recursive: bool = False
+        self, directory: Optional[str] = None, recursive: bool = False
     ) -> str:
         """
         列出目录内容（容器内执行）
@@ -162,10 +107,28 @@ class FileSkillMixin:
 
         # 在容器内执行
         exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
-        
+
         if exit_code != 0:
-            return f"错误：列出目录失败\n{stderr}"
-        
+            # 提供详细的错误信息
+            container_status = "unknown"
+            try:
+                container_status = (
+                    docker_manager.container.status
+                    if docker_manager.container
+                    else "no_container"
+                )
+            except Exception:
+                container_status = "error_getting_status"
+
+            error_msg = f"""列出目录失败
+- 命令: {cmd}
+- 退出码: {exit_code}
+- 容器状态: {container_status}
+- 标准输出: {stdout.strip() if stdout else "(空)"}
+- 标准错误: {stderr.strip() if stderr else "(空)"}
+"""
+            return error_msg
+
         return stdout or "目录为空"
 
     @register_action(
@@ -174,14 +137,14 @@ class FileSkillMixin:
         param_infos={
             "file_path": "文件路径（相对于 /work_files）",
             "start_line": "起始行号（从1开始，默认1）",
-            "end_line": "结束行号（默认200）"
-        }
+            "end_line": "结束行号（默认200）",
+        },
     )
     async def read(
         self,
         file_path: str,
         start_line: Optional[int] = 1,
-        end_line: Optional[int] = 200
+        end_line: Optional[int] = 200,
     ) -> str:
         """
         读取文件内容（容器内执行）
@@ -192,26 +155,41 @@ class FileSkillMixin:
             end_line: 结束行号（默认 200）
         """
         docker_manager = self._ensure_docker_manager()
-        
+
         # 容器内路径
         if not os.path.isabs(file_path):
             container_path = f"/work_files/{file_path}"
         else:
             container_path = file_path
-        
+
         # 使用 sed 读取指定行
         cmd = f"sed -n '{start_line},{end_line}p' {container_path}"
-        
+
         exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
-        
+
         if exit_code != 0:
-            return f"错误：读取文件失败: {stderr}"
-        
+            container_status = "unknown"
+            try:
+                container_status = (
+                    docker_manager.container.status
+                    if docker_manager.container
+                    else "no_container"
+                )
+            except Exception:
+                container_status = "error_getting_status"
+            return f"""读取文件失败
+- 文件路径: {file_path}
+- 容器内路径: {container_path}
+- 退出码: {exit_code}
+- 容器状态: {container_status}
+- 标准错误: {stderr.strip() if stderr else "(空)"}
+"""
+
         # 获取文件总行数
         total_cmd = f"wc -l {container_path}"
         total_exit, total_out, _ = await docker_manager.exec_command(total_cmd)
         total_lines = total_out.strip().split()[0] if total_exit == 0 else "?"
-        
+
         return f"# 文件: {file_path} (共 {total_lines} 行)\n# 显示第 {start_line}-{end_line} 行\n\n{stdout}"
 
     @register_action(
@@ -221,15 +199,15 @@ class FileSkillMixin:
             "file_path": "文件路径（相对于 /work_files）",
             "content": "文件内容",
             "mode": "写入模式，'overwrite' 覆盖或 'append' 追加（默认overwrite）",
-            "allow_overwrite": "（可选）是否允许覆盖已存在文件（默认False）"
-        }
+            "allow_overwrite": "（可选）是否允许覆盖已存在文件（默认False）",
+        },
     )
     async def write(
         self,
         file_path: str,
         content: str,
         mode: str = "overwrite",
-        allow_overwrite: bool = False
+        allow_overwrite: bool = False,
     ) -> str:
         """
         写入文件内容（容器内执行）
@@ -263,28 +241,45 @@ class FileSkillMixin:
         # 写入文件
         # 使用 base64 编码传递内容（避免转义问题）
         import base64
-        encoded_content = base64.b64encode(content.encode('utf-8')).decode('ascii')
+
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
 
         # 使用相对路径（因为 workdir 已经是 /work_files）
         # 去掉 /work_files 前缀，得到相对路径
         if container_path.startswith("/work_files/"):
-            relative_path = container_path[len("/work_files/"):]
+            relative_path = container_path[len("/work_files/") :]
         elif container_path == "/work_files":
             relative_path = "."
         else:
             relative_path = container_path
 
         if mode == "append":
-            write_cmd = f'echo {encoded_content} | base64 -d | tee -a {relative_path} > /dev/null'
+            write_cmd = f"echo {encoded_content} | base64 -d | tee -a {relative_path} > /dev/null"
         else:
-            write_cmd = f'echo {encoded_content} | base64 -d | tee {relative_path} > /dev/null'
+            write_cmd = (
+                f"echo {encoded_content} | base64 -d | tee {relative_path} > /dev/null"
+            )
 
         exit_code, stdout, stderr = await docker_manager.exec_command(write_cmd)
-        
+
         if exit_code != 0:
-            return f"错误：写入文件失败\n{stderr}"
-        
-        mode_desc = '追加到' if mode == 'append' else '写入'
+            container_status = "unknown"
+            try:
+                container_status = (
+                    docker_manager.container.status
+                    if docker_manager.container
+                    else "no_container"
+                )
+            except Exception:
+                container_status = "error_getting_status"
+            return f"""写入文件失败
+- 文件路径: {file_path}
+- 退出码: {exit_code}
+- 容器状态: {container_status}
+- 标准错误: {stderr.strip() if stderr else "(空)"}
+"""
+
+        mode_desc = "追加到" if mode == "append" else "写入"
         return f"成功{mode_desc} {file_path}\n"
 
     @register_action(
@@ -294,15 +289,15 @@ class FileSkillMixin:
             "pattern": "搜索模式（文件名模式或文本内容）",
             "target": "搜索目标，'content' 表示在文件内容中搜索，'filename' 表示按文件名搜索（默认content）",
             "directory": "搜索目录（可选，默认当前目录 /work_files）",
-            "recursive": "是否递归搜索（默认True）"
-        }
+            "recursive": "是否递归搜索（默认True）",
+        },
     )
     async def search_file(
         self,
         pattern: str,
         target: str = "content",
         directory: Optional[str] = None,
-        recursive: bool = True
+        recursive: bool = True,
     ) -> str:
         """
         搜索文件或内容（容器内执行）
@@ -343,12 +338,12 @@ class FileSkillMixin:
         description="""执行 bash 命令或脚本（在容器内执行）""",
         param_infos={
             "command": "bash 命令或脚本（多行脚本用 \\n 分隔）",
-            "timeout": "超时时间（秒，默认30）"
-        }
+            "timeout": "超时时间（秒，默认30）",
+        },
     )
     async def bash(self, command: str, timeout: int = 30) -> str:
         """
-        执行 bash 命令或脚本（容器内执行，安全模式）
+        执行 bash 命令或脚本（容器内执行）
 
         Args:
             command: bash 命令或脚本
@@ -358,30 +353,20 @@ class FileSkillMixin:
             执行结果
         """
         docker_manager = self._ensure_docker_manager()
-        
-        # 1. 预处理：移除注释
-        cleaned_command = self._remove_bash_comments(command)
-        
-        # 2. 语法检查（可选）
-        # 跳过语法检查，因为命令将在容器内执行
-        
-        # 3. 命令白名单验证
-        is_allowed, allow_error = await self._validate_bash_command(cleaned_command)
-        if not is_allowed:
-            return f"❌ 命令验证失败：\n{allow_error}"
-        
-        # 4. 在容器内执行命令
-        exit_code, stdout, stderr = await docker_manager.exec_command(cleaned_command)
-        
+
+        # 直接在容器内执行命令（无白名单限制）
+        # 注意：Agent 在自己的容器里有完全权限，可以执行任意命令
+        exit_code, stdout, stderr = await docker_manager.exec_command(command)
+
         result = ""
         if stdout:
             result += stdout
         if stderr:
             result += f"\n[错误输出]\n{stderr}"
-        
+
         if not result:
             return "Done（无输出）"
-        
+
         return result
 
     @register_action(
@@ -391,15 +376,11 @@ class FileSkillMixin:
             "file_path": "文件路径（相对于 /work_files）",
             "old_pattern": "要替换的旧字符串",
             "new_string": "新字符串",
-            "use_regex": "是否使用正则表达式（默认false）"
-        }
+            "use_regex": "是否使用正则表达式（默认false）",
+        },
     )
     async def replace_string_in_file(
-        self,
-        file_path: str,
-        old_pattern: str,
-        new_string: str,
-        use_regex: bool = False
+        self, file_path: str, old_pattern: str, new_string: str, use_regex: bool = False
     ) -> str:
         """
         在文件中查找并替换字符串（容器内执行）
@@ -411,13 +392,13 @@ class FileSkillMixin:
             use_regex: 是否使用正则表达式（默认false）
         """
         docker_manager = self._ensure_docker_manager()
-        
+
         # 容器内路径
         if not os.path.isabs(file_path):
             container_path = f"/work_files/{file_path}"
         else:
             container_path = file_path
-        
+
         # 使用 sed 进行替换
         if use_regex:
             # sed 正则表达式替换
@@ -426,133 +407,13 @@ class FileSkillMixin:
             cmd = f"sed -i 's/{sed_pattern}/{new_string}/g' {container_path}"
         else:
             # sed 字面字符串替换（需要转义）
-            sed_pattern = old_pattern.replace('/', '\\/')
-            sed_replacement = new_string.replace('/', '\\/')
+            sed_pattern = old_pattern.replace("/", "\\/")
+            sed_replacement = new_string.replace("/", "\\/")
             cmd = f"sed -i 's/{sed_pattern}/{sed_replacement}/g' {container_path}"
-        
+
         exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
-        
+
         if exit_code != 0:
             return f"❌ 替换失败：{stderr}"
-        
+
         return f"字符串已替换"
-
-    # ==================== 辅助方法（Bash 安全）====================
-
-    def _remove_bash_comments(self, script: str) -> str:
-        """
-        移除 bash 脚本中的注释行
-
-        规则：
-        - 保留 shebang (#!)
-        - 移除以 # 开头的行
-        - 移除行尾的 # 注释
-        - 保留字符串中的 #
-        """
-        lines = []
-        for line in script.split('\n'):
-            # 保留 shebang
-            if line.strip().startswith('#!'):
-                lines.append(line)
-                continue
-
-            # 移除注释行
-            stripped = line.strip()
-            if stripped.startswith('#'):
-                continue
-
-            # 移除行尾注释（但要小心字符串中的 #）
-            # 简化版：只在非引号内的 # 移除
-            in_single_quote = False
-            in_double_quote = False
-            result = []
-            i = 0
-            while i < len(line):
-                char = line[i]
-                if char == "'" and not in_double_quote and (i == 0 or line[i-1] != '\\'):
-                    in_single_quote = not in_single_quote
-                elif char == '"' and not in_single_quote and (i == 0 or line[i-1] != '\\'):
-                    in_double_quote = not in_double_quote
-                elif char == '#' and not in_single_quote and not in_double_quote:
-                    # 找到注释，跳过剩余部分
-                    break
-                result.append(char)
-                i += 1
-
-            cleaned = ''.join(result).rstrip()
-            if cleaned:
-                lines.append(cleaned)
-
-        return '\n'.join(lines)
-
-    async def _validate_bash_command(self, command: str) -> tuple[bool, str]:
-        """
-        验证 bash 命令是否在白名单中
-
-        Returns:
-            (is_allowed, error_message)
-        """
-        # 获取白名单
-        whitelist = BASH_WHITELIST_UNIX
-
-        # 解析命令中的所有命令（处理管道、分号等）
-        commands = self._parse_command_tokens(command)
-
-        if not commands:
-            return True, ""  # 空命令
-
-        # 检查每个命令
-        for cmd_name in commands:
-            # 检查是否在白名单中
-            if cmd_name in whitelist.get("safe", set()):
-                continue  # 等级1：完全允许
-
-            elif cmd_name in whitelist.get("restricted", set()):
-                # 等级2：允许但需要参数检查
-                continue
-
-            elif cmd_name in whitelist.get("caution", set()):
-                # 等级3：谨慎使用，但允许
-                continue
-
-            else:
-                # 不在白名单
-                return False, f"命令 '{cmd_name}' 不在白名单中。\n提示：只允许使用安全的文件和文本处理命令。"
-
-        return True, ""
-
-    def _parse_command_tokens(self, command: str) -> list:
-        """
-        解析命令，提取所有命令名
-
-        处理：
-        - 管道 |
-        - 分号 ;
-        - 逻辑运算 &&, ||
-        - 重定向 >, >>, <
-
-        Returns:
-            list of command names
-        """
-        import re
-
-        # 移除重定向（简化处理）
-        # 替换重定向为空格
-        command = re.sub(r'[<>][<>?\s]', ' ', command)
-
-        # 按管道、分号、逻辑运算分割
-        separators = r'\s*[|;]\s*|\s&&\s*|\s\|\|\s*'
-        parts = re.split(separators, command)
-
-        # 提取每个部分的命令名
-        commands = []
-        for part in parts:
-            part = part.strip()
-            if part:
-                # 分割单词，取第一个作为命令名
-                words = part.split()
-                if words:
-                    cmd_name = words[0]
-                    commands.append(cmd_name)
-
-        return commands

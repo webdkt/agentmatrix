@@ -47,6 +47,19 @@
         <div class="resource-card__label">{{ $t('matrix.resources.sessionFolder') }}</div>
         <div class="resource-card__desc">{{ $t('matrix.resources.sessionFolderDesc') }}</div>
       </button>
+
+      <!-- Open Skills Folder -->
+      <button class="resource-card" @click="openSkillsFolder">
+        <div class="resource-card__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div class="resource-card__label">{{ $t('matrix.resources.skillsFolder') }}</div>
+        <div class="resource-card__desc">{{ $t('matrix.resources.skillsFolderDesc') }}</div>
+      </button>
     </div>
   </div>
 </template>
@@ -93,6 +106,16 @@ async function openWorkFiles() {
     await invoke('open_folder', { path })
   } catch (error) {
     console.error('Failed to open work files:', error)
+  }
+}
+
+async function openSkillsFolder() {
+  try {
+    const worldPath = await getWorldPath()
+    const path = `${worldPath}/workspace/agent_files/${props.agentName}/home/SKILLS`
+    await invoke('open_folder', { path })
+  } catch (error) {
+    console.error('Failed to open skills folder:', error)
   }
 }
 </script>

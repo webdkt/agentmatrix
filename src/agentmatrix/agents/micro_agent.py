@@ -45,7 +45,7 @@ class MicroAgent(AutoLoggerMixin):
 
     def __init__(
         self,
-        parent: Union['BaseAgent', 'MicroAgent'],
+        parent: Union["BaseAgent", "MicroAgent"],
         name: Optional[str] = None,
         default_max_steps: int = 50,
         # independent_session_context parameter removed
@@ -79,7 +79,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== 继承 workspace_root（如果 parent 有）==========
         # 这样 BrowserSkillMixin 等技能可以访问到配置文件路径
-        if hasattr(parent, 'workspace_root') and parent.workspace_root:
+        if hasattr(parent, "workspace_root") and parent.workspace_root:
             self.workspace_root = parent.workspace_root
 
         # ========== 🆕 扫描所有 actions（新架构 - 嵌套结构）==========
@@ -92,7 +92,7 @@ class MicroAgent(AutoLoggerMixin):
             "_by_skill": {},
             "_flat": {},
             "_aliases": {},
-            "_metadata": {}  # 🆕 存储元数据（因为绑定方法无法设置属性）
+            "_metadata": {},  # 🆕 存储元数据（因为绑定方法无法设置属性）
         }
         self._scan_all_actions()
 
@@ -101,7 +101,8 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== 找到根 Agent ==========
         from .base import BaseAgent
-        if isinstance(parent,BaseAgent):
+
+        if isinstance(parent, BaseAgent):
             self.root_agent = parent
         else:
             self.root_agent = parent.root_agent
@@ -122,9 +123,13 @@ class MicroAgent(AutoLoggerMixin):
         self.system_prompt = None
 
         # 日志
-        self.logger.info(f"MicroAgent '{self.name}' initialized (parent: {parent.name})")
+        self.logger.info(
+            f"MicroAgent '{self.name}' initialized (parent: {parent.name})"
+        )
 
-    def deprecated_get_skill_prompt(self, skill_name: str, prompt_name: str, **kwargs) -> str:
+    def deprecated_get_skill_prompt(
+        self, skill_name: str, prompt_name: str, **kwargs
+    ) -> str:
         """
         获取 skill prompt（从 parent Agent）
 
@@ -147,7 +152,6 @@ class MicroAgent(AutoLoggerMixin):
         """
         # 直接调用 parent 的方法
         return self.parent.get_skill_prompt(skill_name, prompt_name, **kwargs)
-
 
     def _create_dynamic_class(self, available_skills: List[str]) -> type:
         """
@@ -186,24 +190,24 @@ class MicroAgent(AutoLoggerMixin):
 
         # 🆕 记录 MD Skills 日志
         for md_skill in md_skills:
-            self.logger.info(f"  📄 加载 MD Skill: {md_skill.skill_name} ({md_skill.display_name})")
+            self.logger.info(
+                f"  📄 加载 MD Skill: {md_skill.skill_name} ({md_skill.display_name})"
+            )
 
         # 动态创建类（Python 的 type 函数）
         # type(name, bases, dict)
         dynamic_class = type(
-            f'DynamicAgent_{self.name}',  # 类名
+            f"DynamicAgent_{self.name}",  # 类名
             (self.__class__,) + tuple(mixin_classes),  # 继承链
-            {'_md_skills': md_skills}  # 🆕 额外的类属性：存储 MD skills 元数据
+            {"_md_skills": md_skills},  # 🆕 额外的类属性：存储 MD skills 元数据
         )
 
         return dynamic_class
 
     @register_action(
-            short_desc="全部工作完成",
+        short_desc="全部工作完成",
         description="所有任务都已完成。当你觉得没有其他要做的，就必须调用此 action。",
-        param_infos={
-            "result": "最终结果的描述（可选）"
-        }
+        param_infos={"result": "最终结果的描述（可选）"},
     )
     async def all_finished(self, result: str = None) -> Any:
         """
@@ -219,13 +223,12 @@ class MicroAgent(AutoLoggerMixin):
         """
         return {"result": result or "", "finished": True}
 
-
     @register_action(
         short_desc="查看skill或action帮助[skill?, action?], ",
         description="查看 skill 或 action 的详细使用信息",
         param_infos={
             "target": "目标，格式：skill_name、action_name 或 skill_name.action_name（可选）"
-        }
+        },
     )
     async def help(self, target: str = None) -> str:
         """
@@ -257,7 +260,9 @@ class MicroAgent(AutoLoggerMixin):
                 lines.append(f"  可用 actions: {', '.join(action_names)}")
                 lines.append("")
 
-            lines.append("使用 help(\"xxx\") 查看技能或动作，help(\"xxx.yyy\") 查看指定动作")
+            lines.append(
+                '使用 help("xxx") 查看技能或动作，help("xxx.yyy") 查看指定动作'
+            )
             return "\n".join(lines)
 
         # 解析 target
@@ -308,7 +313,7 @@ class MicroAgent(AutoLoggerMixin):
                         lines = [
                             f"=== {skill_name}.{candidate} ===\n",
                             f"描述: {desc}\n",
-                            f"参数:\n"
+                            f"参数:\n",
                         ]
 
                         if params:
@@ -341,7 +346,7 @@ class MicroAgent(AutoLoggerMixin):
             lines = [
                 f"=== {skill_name}.{action_name} ===\n",
                 f"描述: {desc}\n",
-                f"参数:\n"
+                f"参数:\n",
             ]
 
             if params:
@@ -353,7 +358,7 @@ class MicroAgent(AutoLoggerMixin):
             return "\n".join(lines)
 
         else:
-            return f"❌ 格式错误。使用 help()、help(\"skill\")、help(\"action\") 或 help(\"skill.action\")"
+            return f'❌ 格式错误。使用 help()、help("skill")、help("action") 或 help("skill.action")'
 
     def _scan_all_actions(self):
         """
@@ -368,7 +373,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # 已注册的 action 名称（用于冲突检测）
         registered_actions = set()
-        
+
         # 已注册的 skill 名称（用于统计）
         registered_skills = set()
 
@@ -378,15 +383,15 @@ class MicroAgent(AutoLoggerMixin):
             # 1. 扫描所有 *SkillMixin 类（真正的 skills）
             # 2. 扫描 MicroAgent 类本身（获取 all_finished, help）
             # 3. 排除动态类（DynamicAgent_*）和其他类
-            is_skill_mixin = cls.__name__.endswith('SkillMixin')
-            is_microagent_class = cls.__name__ == 'MicroAgent'
+            is_skill_mixin = cls.__name__.endswith("SkillMixin")
+            is_microagent_class = cls.__name__ == "MicroAgent"
 
             if not (is_skill_mixin or is_microagent_class):
                 continue
 
             # 特殊处理：MicroAgent 的 actions 归入 base skill
             if is_microagent_class:
-                skill_name = 'base'
+                skill_name = "base"
             else:
                 # 🔥 推断 skill 名称
                 skill_name = self._infer_skill_name(cls.__name__)
@@ -394,38 +399,43 @@ class MicroAgent(AutoLoggerMixin):
             registered_skills.add(skill_name)
 
             for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
-                if hasattr(method, '_is_action') and method._is_action:
-                    
+                if hasattr(method, "_is_action") and method._is_action:
                     # 🔥 检测冲突
                     if name in registered_actions:
                         # 冲突！自动重命名
                         new_name = f"{skill_name}_{name}"
-                        
+
                         self.logger.info(
                             f"  🔀 Action name conflict: '{name}' in {cls.__name__}. "
                             f"Auto-renamed to '{new_name}'"
                         )
-                        
+
                         # 创建新的绑定方法
                         bound_method = getattr(self, name)
-                        
+
                         # 在实例上设置新方法
                         setattr(self, new_name, bound_method)
-                        
+
                         # 注册到 _by_skill
                         if skill_name not in self.action_registry["_by_skill"]:
                             self.action_registry["_by_skill"][skill_name] = {}
-                        self.action_registry["_by_skill"][skill_name][new_name] = bound_method
-                        
+                        self.action_registry["_by_skill"][skill_name][new_name] = (
+                            bound_method
+                        )
+
                         # 注册到 _flat（完整命名）
-                        self.action_registry["_flat"][f"{skill_name}.{name}"] = bound_method
+                        self.action_registry["_flat"][f"{skill_name}.{name}"] = (
+                            bound_method
+                        )
                         self.action_registry["_flat"][new_name] = bound_method
-                        
+
                         # 记录别名映射
                         self.action_registry["_aliases"][name] = f"{skill_name}.{name}"
-                        
-                        self.logger.debug(f"  ✅ 注册 Action: {new_name} (来自 {cls.__name__}, 重命名)")
-                        
+
+                        self.logger.debug(
+                            f"  ✅ 注册 Action: {new_name} (来自 {cls.__name__}, 重命名)"
+                        )
+
                     else:
                         # 无冲突，正常注册
                         bound_method = getattr(self, name)
@@ -433,26 +443,34 @@ class MicroAgent(AutoLoggerMixin):
                         self.action_registry["_metadata"][name] = {
                             "skill_name": skill_name,
                             "action_name": name,
-                            "is_renamed": False
+                            "is_renamed": False,
                         }
-                        
+
                         # 注册到 _by_skill
                         if skill_name not in self.action_registry["_by_skill"]:
                             self.action_registry["_by_skill"][skill_name] = {}
-                        self.action_registry["_by_skill"][skill_name][name] = bound_method
-                        
+                        self.action_registry["_by_skill"][skill_name][name] = (
+                            bound_method
+                        )
+
                         # 注册到 _flat（简写）
                         self.action_registry["_flat"][name] = bound_method
-                        
+
                         # 注册到 _flat（完整命名）
-                        self.action_registry["_flat"][f"{skill_name}.{name}"] = bound_method
-                        
+                        self.action_registry["_flat"][f"{skill_name}.{name}"] = (
+                            bound_method
+                        )
+
                         registered_actions.add(name)
-                        
-                        self.logger.debug(f"  ✅ 注册 Action: {name} (来自 {cls.__name__})")
-        
+
+                        self.logger.debug(
+                            f"  ✅ 注册 Action: {name} (来自 {cls.__name__})"
+                        )
+
         # 日志汇总
-        total_actions = sum(len(actions) for actions in self.action_registry["_by_skill"].values())
+        total_actions = sum(
+            len(actions) for actions in self.action_registry["_by_skill"].values()
+        )
         self.logger.info(
             f"✅ 扫描完成: {len(registered_skills)} 个 skills, "
             f"{total_actions} 个 actions"
@@ -461,23 +479,22 @@ class MicroAgent(AutoLoggerMixin):
     def _infer_skill_name(self, class_name: str) -> str:
         """
         从类名推断 skill 名称
-        
+
         Examples:
             FileSkillMixin → file
             Simple_web_searchSkillMixin → simple_web_search
             EmailSkillMixin → email
         """
         # 移除 SkillMixin 后缀
-        if class_name.endswith('SkillMixin'):
+        if class_name.endswith("SkillMixin"):
             base_name = class_name[:-10]  # 移除 "SkillMixin"
-        elif class_name.endswith('Mixin'):
+        elif class_name.endswith("Mixin"):
             base_name = class_name[:-5]  # 移除 "Mixin"
         else:
             base_name = class_name
-        
+
         # 转换为小写
         return base_name.lower()
-
 
     def _resolve_action(self, action_call: str):
         """
@@ -497,21 +514,21 @@ class MicroAgent(AutoLoggerMixin):
             ValueError: action 不存在或有歧义
         """
         # 格式1：完整命名 "skill.action"
-        if '.' in action_call:
-            skill_name, action_name = action_call.split('.', 1)
-            
+        if "." in action_call:
+            skill_name, action_name = action_call.split(".", 1)
+
             # 从 _by_skill 查找
             if skill_name in self.action_registry["_by_skill"]:
                 if action_name in self.action_registry["_by_skill"][skill_name]:
                     return self.action_registry["_by_skill"][skill_name][action_name]
-            
+
             # 如果 _by_skill 找不到，尝试 _flat
             full_name = f"{skill_name}.{action_name}"
             if full_name in self.action_registry["_flat"]:
                 return self.action_registry["_flat"][full_name]
-            
+
             raise ValueError(f"Action '{action_call}' not found")
-        
+
         # 格式2：简写 "action"
         else:
             # 检查是否有歧义（多个 skill 有同名 action）
@@ -519,23 +536,23 @@ class MicroAgent(AutoLoggerMixin):
             for skill_name, actions in self.action_registry["_by_skill"].items():
                 if action_call in actions:
                     matches.append(skill_name)
-            
+
             if len(matches) == 1:
                 # 唯一，返回
                 return self.action_registry["_by_skill"][matches[0]][action_call]
-            
+
             elif len(matches) > 1:
                 # 歧义！
                 raise ValueError(
                     f"Ambiguous action '{action_call}'. Found in {len(matches)} skills: {matches}. "
                     f"Please use 'skill.action' format."
                 )
-            
+
             else:
                 # 尝试从 _flat 查找
                 if action_call in self.action_registry["_flat"]:
                     return self.action_registry["_flat"][action_call]
-                
+
                 raise ValueError(f"Action '{action_call}' not found")
 
     def deprecated_session_folder(self) -> str:
@@ -557,8 +574,9 @@ class MicroAgent(AutoLoggerMixin):
             return True
         return False
 
-    async def _generate_whiteboard_summary(self, messages: list,
-                                           focus_hint: str = "") -> str:
+    async def _generate_whiteboard_summary(
+        self, messages: list, focus_hint: str = ""
+    ) -> str:
         """
         LLM 总结：生成 whiteboard（当前状态快照）
 
@@ -578,7 +596,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # 注入 Agent Persona（如有）
         persona_hint = ""
-        if hasattr(self, 'persona') and self.persona:
+        if hasattr(self, "persona") and self.persona:
             persona_hint = f"""
 
 [Agent Persona Reference]
@@ -651,9 +669,7 @@ Start generating the Whiteboard now.
 
         # 使用 think_with_retry 精确获取 whiteboard
         whiteboard = await self.brain.think_with_retry(
-            initial_messages=prompt,
-            parser=whiteboard_parser,
-            max_retries=3
+            initial_messages=prompt, parser=whiteboard_parser, max_retries=3
         )
 
         return whiteboard  # think_with_retry 直接返回 content (Markdown 字符串)
@@ -688,7 +704,7 @@ Start generating the Whiteboard now.
                 emails = self.root_agent.post_office.get_emails_by_session(
                     session_id=self.session["session_id"],
                     agent_name=self.root_agent.name,
-                    task_id=self.session["task_id"]
+                    task_id=self.session["task_id"],
                 )
                 self.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
 
@@ -708,9 +724,13 @@ Start generating the Whiteboard now.
                         break
                 if first_user_msg:
                     original_content = first_user_msg.get("content", "")
-                    new_user_content = f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+                    new_user_content = (
+                        f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+                    )
                 else:
-                    new_user_content = f"[WHITEBOARD]\n{whiteboard}\n\n请继续执行下一步。"
+                    new_user_content = (
+                        f"[WHITEBOARD]\n{whiteboard}\n\n请继续执行下一步。"
+                    )
         else:
             # === 嵌套 MicroAgent：保持现有逻辑 ===
             # 找到第一个 user message（原始用户请求）
@@ -731,23 +751,22 @@ Start generating the Whiteboard now.
                 if "[WHITEBOARD]" in original_content:
                     # 有旧 whiteboard：替换掉（保留 [WHITEBOARD] 之前的内容）
                     whiteboard_index = original_content.index("[WHITEBOARD]")
-                    original_without_old_whiteboard = original_content[:whiteboard_index].strip()
+                    original_without_old_whiteboard = original_content[
+                        :whiteboard_index
+                    ].strip()
                     new_user_content = f"{original_without_old_whiteboard}\n\n[WHITEBOARD]\n{whiteboard}"
                 else:
                     # 没有旧 whiteboard：追加
-                    new_user_content = f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+                    new_user_content = (
+                        f"{original_content}\n\n[WHITEBOARD]\n{whiteboard}"
+                    )
 
         # ========== 3. 重新构建 messages ==========
         if has_system:
             system_msg = self.messages[0]
-            self.messages = [
-                system_msg,
-                {"role": "user", "content": new_user_content}
-            ]
+            self.messages = [system_msg, {"role": "user", "content": new_user_content}]
         else:
-            self.messages = [
-                {"role": "user", "content": new_user_content}
-            ]
+            self.messages = [{"role": "user", "content": new_user_content}]
 
         # 重置计数器
         self.last_compression_step = self.current_step
@@ -762,6 +781,7 @@ Start generating the Whiteboard now.
             bool: 是否是 top-level MicroAgent（parent 是 BaseAgent）
         """
         from .base import BaseAgent
+
         return isinstance(self.parent, BaseAgent)
 
     def _push_pending_summary(self):
@@ -773,13 +793,15 @@ Start generating the Whiteboard now.
         import time
 
         # 过滤掉 system message（总结不需要 system prompt）
-        filtered_messages = [msg.copy() for msg in self.messages if msg.get('role') != 'system']
+        filtered_messages = [
+            msg.copy() for msg in self.messages if msg.get("role") != "system"
+        ]
 
         summary_item = {
-            'messages': filtered_messages,
-            'timestamp': time.time(),
-            'agent_name': self.name,
-            'run_label': self.run_label
+            "messages": filtered_messages,
+            "timestamp": time.time(),
+            "agent_name": self.name,
+            "run_label": self.run_label,
         }
 
         # 推送到 root_agent 的队列
@@ -806,7 +828,9 @@ Start generating the Whiteboard now.
         lines = ["[EMAIL HISTORY]", "------------"]
 
         for email in emails:
-            agent_name = email.sender.split('@')[0] if '@' in email.sender else email.sender
+            agent_name = (
+                email.sender.split("@")[0] if "@" in email.sender else email.sender
+            )
             speaker = f"{agent_name} ({email.timestamp.strftime('%H:%M')}):"
             lines.append("")
             lines.append(speaker)
@@ -814,11 +838,9 @@ Start generating the Whiteboard now.
             lines.append(email.body)
             lines.append("")
             lines.append("------------")
-        lines.append('[END OF EMAIL HISTORY]')
+        lines.append("[END OF EMAIL HISTORY]")
 
         return "\n".join(lines)
-
-    
 
         # ==================== 🆕 自动压缩机制结束 ====================
 
@@ -833,10 +855,9 @@ Start generating the Whiteboard now.
         result_params: Optional[Dict[str, str]] = None,
         yellow_pages: Optional[str] = None,
         session: Optional[Dict] = None,
-        session_manager = None,
+        session_manager=None,
         simple_mode: bool = False,
-        exit_actions = [] # 如果运行哪些动作就退出主循环（all_finished 一定会退出）
-
+        exit_actions=[],  # 如果运行哪些动作就退出主循环（all_finished 一定会退出）
     ) -> Any:
         """
         执行任务（可重复调用）
@@ -876,7 +897,7 @@ Start generating the Whiteboard now.
         start_time = time.time()
 
         # ========== 记录开始 ==========
-        self._log(logging.INFO, f"{'='*60}")
+        self._log(logging.INFO, f"{'=' * 60}")
         self._log(logging.INFO, f"MicroAgent '{self.run_label}' starting")
         self._log(logging.INFO, f"Task: {task[:200]}{'...' if len(task) > 200 else ''}")
 
@@ -902,7 +923,7 @@ Start generating the Whiteboard now.
             self.current_task_id = session.get("task_id")
 
             # 设置 session 文件夹（如果 root_agent 有 workspace_root）
-            '''
+            """
             TODO: 应该不需要了，准备删除
             if self.root_agent and hasattr(self.root_agent, 'workspace_root') and self.root_agent.workspace_root:
                 from pathlib import Path
@@ -915,7 +936,7 @@ Start generating the Whiteboard now.
                 )
             else:
                 self.current_session_folder = None
-            '''
+            """
 
         # 硬限制：如果都没有设置，最多 1024 步（确保总是会返回）
         if self.max_steps is None and self.max_time is None:
@@ -930,7 +951,9 @@ Start generating the Whiteboard now.
         # 动态更新 all_finished 的元数据（如果提供了 result_params）
         if result_params:
             # 获取 all_finished 方法
-            all_finished_method = self.action_registry.get("all_finished")  # 注意：这里改为 "all_finished"
+            all_finished_method = self.action_registry.get(
+                "all_finished"
+            )  # 注意：这里改为 "all_finished"
 
             if all_finished_method:
                 # 更新参数描述
@@ -947,11 +970,16 @@ Start generating the Whiteboard now.
         if session:
             # 从 session 获取 history
             self.messages = session.get("history", []).copy()
-            self._log(logging.INFO, f"Loaded {len(self.messages)} messages from session")
+            self._log(
+                logging.INFO, f"Loaded {len(self.messages)} messages from session"
+            )
 
             # 🆕 总是使用最新的 system prompt（确保 skills 变化立即生效）
             if self.messages and self.messages[0]["role"] == "system":
-                self.messages[0] = {"role": "system", "content": self._build_system_prompt()}
+                self.messages[0] = {
+                    "role": "system",
+                    "content": self._build_system_prompt(),
+                }
                 # 添加新的任务输入（只在恢复已有会话时）
                 self._add_message("user", self._format_task_message())
             elif not self.messages:
@@ -960,11 +988,16 @@ Start generating the Whiteboard now.
         elif initial_history:
             # 恢复记忆：复制历史记录
             self.messages = initial_history.copy()
-            self._log(logging.INFO, f"Restoring memory with {len(initial_history)} messages")
+            self._log(
+                logging.INFO, f"Restoring memory with {len(initial_history)} messages"
+            )
 
             # 🆕 总是使用最新的 system prompt
             if self.messages and self.messages[0]["role"] == "system":
-                self.messages[0] = {"role": "system", "content": self._build_system_prompt()}
+                self.messages[0] = {
+                    "role": "system",
+                    "content": self._build_system_prompt(),
+                }
                 # 添加新的任务输入（只在恢复已有会话时）
                 self._add_message("user", self._format_task_message())
             elif not self.messages:
@@ -974,9 +1007,17 @@ Start generating the Whiteboard now.
             # 新对话：初始化
             self.messages = []
             self._initialize_session()
-        self._log(logging.INFO, f"Start to '{self.run_label}' with {len(self.messages)} initial messages")
-        self._log(logging.DEBUG, f"Available actions: {list(self.action_registry.keys())}")
-        self._log(logging.DEBUG, f"Messages:\n{self._format_messages_for_debug(self.messages)}")
+        self._log(
+            logging.INFO,
+            f"Start to '{self.run_label}' with {len(self.messages)} initial messages",
+        )
+        self._log(
+            logging.DEBUG, f"Available actions: {list(self.action_registry.keys())}"
+        )
+        self._log(
+            logging.DEBUG,
+            f"Messages:\n{self._format_messages_for_debug(self.messages)}",
+        )
 
         try:
             # 执行 think-negotiate-act 循环
@@ -986,8 +1027,11 @@ Start generating the Whiteboard now.
             duration = time.time() - start_time
 
             # ========== 记录结束 ==========
-            self._log(logging.INFO, f"'{self.run_label}' completed in {duration:.2f}s ({self.step_count} steps)")
-            self._log(logging.INFO, f"{'='*60}")
+            self._log(
+                logging.INFO,
+                f"'{self.run_label}' completed in {duration:.2f}s ({self.step_count} steps)",
+            )
+            self._log(logging.INFO, f"{'=' * 60}")
 
             # 返回结果
             return self.result
@@ -998,6 +1042,7 @@ Start generating the Whiteboard now.
             self._log(logging.ERROR, f"Error: {str(e)}")
             # 打印完整 traceback 以便调试
             import traceback
+
             self._log(logging.ERROR, f"Traceback:\n{traceback.format_exc()}")
             return {"error": str(e)}
 
@@ -1015,7 +1060,7 @@ Start generating the Whiteboard now.
         """构建 System Prompt"""
 
         # 简化模式：只保留 persona + 可用工具 + 黄页
-        if getattr(self, 'simple_mode', False):
+        if getattr(self, "simple_mode", False):
             prompt = f""" {self.persona}
 
 ### 可用工具
@@ -1033,10 +1078,6 @@ Start generating the Whiteboard now.
             if self._is_top_level_microagent():
                 self.root_agent.last_system_prompt = prompt
             return prompt
-
-
-
-        
 
         # 完整模式（默认）：包含操作环境说明
         prompt = f"""{self.persona}
@@ -1075,13 +1116,11 @@ Start generating the Whiteboard now.
 *   通过 help(skill_name.action_name) 来查看 action 的详细说明和参数列表
 """
 
-        # 🆕 添加 MD Document Skills 摘要
-        md_skills_summary = self._format_md_skills_summary()
-        if md_skills_summary:
-            prompt += f"""#### B. 扩展技能库 (Procedural Skills)
-你拥有以下任务的标准操作程序 (SOP)。当遇到相关任务时，优先使用 `read` 获取详细步骤：
+        # 🆕 动态发现的扩展技能库
+        prompt += """#### B. 扩展技能库 (Procedural Skills)
+你的扩展技能存放在 /home/SKILLS/ 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。
 
-{md_skills_summary}
+发现技能：使用 `base.list_additional_skills()` 可以列出当前可用的扩展技能，包括技能描述和包含的操作。
 
 """
 
@@ -1132,13 +1171,11 @@ Start generating the Whiteboard now.
             self.root_agent.last_system_prompt = prompt
         return prompt
 
-
-
     def _format_actions_list(self) -> str:
         """格式化可用 actions 列表（新架构：按 skill 分组）"""
         # 委托给 _format_skills_overview
         return self._format_skills_overview()
-    
+
     def _format_skills_overview(self) -> str:
         """
         格式化 skills 概览（按 skill 分组）
@@ -1174,11 +1211,11 @@ Start generating the Whiteboard now.
             lines.append("")  # 空行分隔
 
         return "\n".join(lines)
-    
+
     def _get_skill_description(self, skill_name: str) -> str:
         """
         获取 skill 的描述
-        
+
         优先级：
         1. _skill_description（Python Skills）
         2. brief_summary（MD Skills）
@@ -1186,18 +1223,18 @@ Start generating the Whiteboard now.
         """
         # 检查 Python Skills
         for cls in self.__class__.__mro__:
-            if hasattr(cls, '_skill_description') and cls.__name__.endswith('Mixin'):
+            if hasattr(cls, "_skill_description") and cls.__name__.endswith("Mixin"):
                 # 检查是否是匹配的 skill
                 cls_skill_name = self._infer_skill_name(cls.__name__)
                 if cls_skill_name == skill_name:
                     return cls._skill_description
-        
+
         # 检查 MD Skills
-        md_skills = getattr(self, '_md_skills', [])
+        md_skills = getattr(self, "_md_skills", [])
         for md_skill in md_skills:
             if md_skill.skill_name == skill_name:
                 return md_skill.brief_summary or md_skill.description
-        
+
         # 默认描述
         return f"{skill_name} skill"
 
@@ -1210,7 +1247,7 @@ Start generating the Whiteboard now.
           完整文档: SKILLS/{skill_name}/skill.md
         """
         # 获取 MD skills（从 skill load result 中）
-        md_skills = getattr(self, '_md_skills', [])
+        md_skills = getattr(self, "_md_skills", [])
 
         if not md_skills:
             return ""
@@ -1233,12 +1270,11 @@ Start generating the Whiteboard now.
 
         return "\n".join(lines)
 
-
     def _format_task_message(self) -> str:
         """格式化任务消息"""
-        #msg = f"[💡NEW SIGNAL]\n{self.task}\n"
+        # msg = f"[💡NEW SIGNAL]\n{self.task}\n"
 
-        #return msg
+        # return msg
         return self.task
 
     def _format_messages_for_debug(self, messages: List[Dict]) -> str:
@@ -1286,7 +1322,9 @@ Start generating the Whiteboard now.
             # 检查步数限制
             if step_count >= max_steps:
                 self.logger.warning(f"达到最大步数 ({max_steps})")
-                self.result = "未完成，达到最大步数限制，最后的状态如下：\n" + self.result
+                self.result = (
+                    "未完成，达到最大步数限制，最后的状态如下：\n" + self.result
+                )
                 break
 
             # 🆕 检查是否需要自动压缩（基于 32K tokens）
@@ -1297,8 +1335,12 @@ Start generating the Whiteboard now.
             if max_time_seconds:
                 elapsed = time.time() - start_time
                 if elapsed >= max_time_seconds:
-                    self.logger.warning(f"达到最大时间 ({self.max_time}分钟)，已执行 {step_count} 步")
-                    self.result = "未完成，达到最大时间限制，最后的状态如下：\n" + self.result
+                    self.logger.warning(
+                        f"达到最大时间 ({self.max_time}分钟)，已执行 {step_count} 步"
+                    )
+                    self.result = (
+                        "未完成，达到最大时间限制，最后的状态如下：\n" + self.result
+                    )
                     break
 
             step_count += 1
@@ -1320,15 +1362,17 @@ Start generating the Whiteboard now.
             try:
                 # 1. Think（使用 think_with_retry + actions parser）
                 # ✅ 状态更新：Thinking
-                self.root_agent.update_status(new_status="THINKING", new_message="Thinking...")
-                
+                self.root_agent.update_status(
+                    new_status="THINKING", new_message="Thinking..."
+                )
+
                 thought = await self.brain.think_with_retry(
-                    initial_messages = self.messages,
+                    initial_messages=self.messages,
                     parser=self._parse_actions_from_thought,
                     action_registry=self.action_registry["_flat"],
-                    max_retries=3
+                    max_retries=3,
                 )
-                
+
                 # ✅ 状态更新：LLM 返回内容（"[ACTION]" 之前的部分）
                 if raw_reply := thought.get("[RAW_REPLY]"):
                     # 提取 "[ACTION]" 之前的部分
@@ -1338,27 +1382,27 @@ Start generating the Whiteboard now.
                     else:
                         # 如果没有 "[ACTION]" 标记，全部返回
                         self.root_agent.update_status(new_message=raw_reply)
-                
+
                 action_thought = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
-                
 
-                #self.logger.debug(f"THOUGHTS: {raw_reply}")  
-                #self.logger.debug(f"ACTIONS: {action_thougth}") 
-
+                # self.logger.debug(f"THOUGHTS: {raw_reply}")
+                # self.logger.debug(f"ACTIONS: {action_thougth}")
 
                 # 2. 检测 actions（多个，保持顺序）
                 action_names = await self._detect_actions(action_thought)
 
                 self.logger.debug(f"Detected actions: {action_names}")
-                
+
                 # ✅ 状态更新：开始执行 actions
                 if action_names:
                     actions_str = ", ".join(action_names)
-                    self.root_agent.update_status(new_status="WORKING",new_message=f"开始执行: {actions_str}")
+                    self.root_agent.update_status(
+                        new_status="WORKING", new_message=f"开始执行: {actions_str}"
+                    )
 
                 # 3. 记录 assistant 的思考（只记录一次）
-                self._add_message("assistant", raw_reply )
+                self._add_message("assistant", raw_reply)
 
                 # 5. 顺序执行所有 actions
                 execution_results = []
@@ -1366,13 +1410,19 @@ Start generating the Whiteboard now.
 
                 for idx, action_name in enumerate(action_names, start=1):
                     # 🔀 检查点3：每个 action 执行前检查是否暂停
-                    if hasattr(self, 'root_agent') and self.root_agent and hasattr(self.root_agent, '_checkpoint'):
+                    if (
+                        hasattr(self, "root_agent")
+                        and self.root_agent
+                        and hasattr(self.root_agent, "_checkpoint")
+                    ):
                         await self.root_agent._checkpoint()
 
                     # === 处理特殊 actions ===
                     if action_name == "all_finished":
                         # 执行 all_finished
-                        result = await self._execute_action("all_finished", action_thought, idx, action_names)
+                        result = await self._execute_action(
+                            "all_finished", action_thought, idx, action_names
+                        )
                         self.result = result
                         self.return_action_name = "all_finished"
                         should_break_loop = True
@@ -1381,12 +1431,16 @@ Start generating the Whiteboard now.
 
                     elif action_name == "update_memory":
                         # 执行 update_memory（特殊处理：不记录结果，因为它压缩 messages）
-                        await self._execute_action("update_memory", action_thought, idx, action_names)
-                        self.logger.debug(f"✅ {action_name} done (messages compressed)")
-                        #update_memory会触发compress,那么最后一条记录肯定是user message.
-                        #这样编造最后的两个message，让会话圆满
-                        self._add_message("assistant", "[ACTION] 执行update_memory" )
-                        self._add_message("user","[update_memory] DONE SUCCESSFULLY")
+                        await self._execute_action(
+                            "update_memory", action_thought, idx, action_names
+                        )
+                        self.logger.debug(
+                            f"✅ {action_name} done (messages compressed)"
+                        )
+                        # update_memory会触发compress,那么最后一条记录肯定是user message.
+                        # 这样编造最后的两个message，让会话圆满
+                        self._add_message("assistant", "[ACTION] 执行update_memory")
+                        self._add_message("user", "[update_memory] DONE SUCCESSFULLY")
 
                     elif action_name in exit_actions:
                         # rest_n_wait 不需要执行，直接等待
@@ -1397,19 +1451,27 @@ Start generating the Whiteboard now.
                     # === 执行普通 actions ===
                     else:
                         try:
-                            result = await self._execute_action(action_name, action_thought, idx, action_names)
-                            if result!="NOT_TO_RUN":
-                                execution_results.append(f"[{action_name} Done]:\n {result}")
+                            result = await self._execute_action(
+                                action_name, action_thought, idx, action_names
+                            )
+                            if result != "NOT_TO_RUN":
+                                execution_results.append(
+                                    f"[{action_name} Done]:\n {result}"
+                                )
                                 self.logger.debug(f"✅ {action_name} done")
                                 self.logger.debug(result)
-                                
+
                                 # ✅ 状态更新：Action 执行结果
                                 action_status = f"{action_name}: {result[:100] if len(result) > 100 else result}"
-                                self.root_agent.update_status(new_status="WORKING",new_message=action_status)
+                                self.root_agent.update_status(
+                                    new_status="WORKING", new_message=action_status
+                                )
 
                         except Exception as e:
                             error_msg = str(e)
-                            execution_results.append(f"[{action_name} Failed]:\n {error_msg}")
+                            execution_results.append(
+                                f"[{action_name} Failed]:\n {error_msg}"
+                            )
                             self.logger.warning(f"❌ {action_name} failed: {error_msg}")
 
                 # 6. 反馈给 Brain（只有普通 actions 才反馈）
@@ -1418,14 +1480,12 @@ Start generating the Whiteboard now.
 
                     # Hook：子类可重写来增强反馈
                     enhanced_feedback = await self._prepare_feedback_message(
-                        combined_result,
-                        step_count,
-                        start_time
+                        combined_result, step_count, start_time
                     )
 
                     self._add_message("user", enhanced_feedback)
 
-                    self.result = combined_result #有进展就保存一下，最后的结果，下面如果超时或者超轮次退出，就用这个未完成结果。
+                    self.result = combined_result  # 有进展就保存一下，最后的结果，下面如果超时或者超轮次退出，就用这个未完成结果。
 
                 # 7. 检查是否需要退出主循环
                 if should_break_loop:
@@ -1450,11 +1510,15 @@ Start generating the Whiteboard now.
                     continue
 
                 # 服务确实不可用，进入等待模式
-                self.logger.warning("🔄 Service still unavailable, entering wait mode...")
+                self.logger.warning(
+                    "🔄 Service still unavailable, entering wait mode..."
+                )
                 await self._wait_for_llm_recovery()
 
                 # 恢复后重试当前步骤
-                self.logger.info("✅ Service recovered after wait, retrying current step")
+                self.logger.info(
+                    "✅ Service recovered after wait, retrying current step"
+                )
                 step_count -= 1  # 抵消上面的 +=1，重新执行这一步
                 continue
 
@@ -1466,7 +1530,7 @@ Start generating the Whiteboard now.
             bool: 服务是否可用
         """
         # 向后兼容：如果没有 runtime，假设服务可用
-        if not hasattr(self.root_agent, 'runtime') or self.root_agent.runtime is None:
+        if not hasattr(self.root_agent, "runtime") or self.root_agent.runtime is None:
             return True
 
         # 通过 runtime 访问 monitor
@@ -1504,10 +1568,7 @@ Start generating the Whiteboard now.
                 )
 
     async def _prepare_feedback_message(
-        self,
-        combined_result: str,
-        step_count: int,
-        start_time: float
+        self, combined_result: str, step_count: int, start_time: float
     ) -> str:
         """
         准备反馈消息（Hook 方法）
@@ -1524,7 +1585,9 @@ Start generating the Whiteboard now.
         """
         return f"{combined_result}"
 
-    def _parse_actions_from_thought(self, raw_reply: str, action_registry: dict) -> dict:
+    def _parse_actions_from_thought(
+        self, raw_reply: str, action_registry: dict
+    ) -> dict:
         """
         Parser for think_with_retry - 验证 LLM 输出是否包含有效的 action 声明
 
@@ -1553,27 +1616,25 @@ Start generating the Whiteboard now.
         if "[ACTION]" in raw_reply:
             # ✅ 修复：清理 [ACTION] 之前的所有内容，避免干扰解析
             # 有些 LLM 喜欢在 [ACTION] 前加总结性文字，导致解析失败
-            actions_index = raw_reply.find('[ACTION]')
+            actions_index = raw_reply.find("[ACTION]")
             cleaned_reply = raw_reply[actions_index:].strip()
-            
+
             # 提取 [ACTION] 下的内容
             from ..skills.parser_utils import multi_section_parser
 
             result = multi_section_parser(
                 cleaned_reply,  # 使用清理后的内容
                 section_headers=["[ACTION]"],
-                match_mode="ANY"
+                match_mode="ANY",
             )
 
             if result["status"] == "success":
                 actions_text = result["content"]["[ACTION]"]
-                
-                
-
 
                 # 检查是否包含有效的 action（使用正则提取，参照 _extract_mentioned_actions 的方法）
                 import re
-                action_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)'
+
+                action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
                 matches = re.finditer(action_pattern, actions_text)
 
                 detected_actions = set()
@@ -1590,19 +1651,18 @@ Start generating the Whiteboard now.
                     # 验证失败：[ACTION] 下没有有效的 action
                     return {
                         "status": "error",
-                        "feedback": f"[ACTION] 下必须要指明使用什么动作(action 名字)"
+                        "feedback": f"[ACTION] 下必须要指明使用什么动作(action 名字)",
                     }
             else:
                 # multi_section_parser 失败
                 return {
                     "status": "error",
-                    "feedback": "必须在[ACTION] 下指明使用什么动作(action 名字)"
+                    "feedback": "必须在[ACTION] 下指明使用什么动作(action 名字)",
                 }
-        
 
         # 规则2：没有 [ACTION] section，检查全文是否只提到一个 action
         # 正则提取所有 action names
-        action_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)'
+        action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
         matches = re.finditer(action_pattern, raw_reply)
 
         detected_actions = set()
@@ -1614,20 +1674,15 @@ Start generating the Whiteboard now.
         # 检查数量
         if len(detected_actions) == 1:
             # 只有一个 action，验证通过
-            content = {
-                "[ACTION]": raw_reply,
-                "[RAW_REPLY]": raw_reply
-            }
+            content = {"[ACTION]": raw_reply, "[RAW_REPLY]": raw_reply}
             return {"status": "success", "content": content}
-        
+
         else:
             # 多个 actions，但没有用 [ACTION] section
             return {
                 "status": "error",
-                "feedback": "必须使用 [ACTION] section 来明确列出要执行的动作"
+                "feedback": "必须使用 [ACTION] section 来明确列出要执行的动作",
             }
-
-    
 
     def _extract_mentioned_actions(self, thought: str) -> List[str]:
         """
@@ -1649,7 +1704,7 @@ Start generating the Whiteboard now.
         # 正则：匹配连续的字母、下划线、数字（标识符格式）
         # [a-zA-Z_]: 必须以字母或下划线开头
         # [a-zA-Z0-9_]*: 后续可以是字母、数字、下划线
-        action_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)'
+        action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
 
         # 提取所有匹配的字符串
         matches = re.finditer(action_pattern, thought)
@@ -1676,9 +1731,7 @@ Start generating the Whiteboard now.
         return [action for _, action in detected]
 
     def _parse_and_validate_actions(
-        self,
-        raw_reply: str,
-        mentioned_actions: List[str]
+        self, raw_reply: str, mentioned_actions: List[str]
     ) -> Dict[str, Any]:
         """
         Parser: 提取并验证要执行的 actions
@@ -1701,9 +1754,7 @@ Start generating the Whiteboard now.
 
         # 1. 提取 [ACTION] section
         result = multi_section_parser(
-            raw_reply,
-            section_headers=["[ACTION]"],
-            match_mode="ALL"
+            raw_reply, section_headers=["[ACTION]"], match_mode="ALL"
         )
 
         if result["status"] == "error":
@@ -1712,11 +1763,11 @@ Start generating the Whiteboard now.
         # 2. 解析 actions 列表（保留重复，不去重）
         actions_text = result["content"]["[ACTION]"]
         # 先整体清理：去除换行符、回车符、代码块标记、各种引号括号
-        for char in ['\n', '\r', '```', '"', "'", '`', '(', ')', '[', ']', '{', '}']:
-            actions_text = actions_text.replace(char, '')
+        for char in ["\n", "\r", "```", '"', "'", "`", "(", ")", "[", "]", "{", "}"]:
+            actions_text = actions_text.replace(char, "")
         actions_text = actions_text.strip()
         # 再分割
-        actions_list = [a.strip() for a in actions_text.split(',')]
+        actions_list = [a.strip() for a in actions_text.split(",")]
 
         # 3. 验证：防止幻觉（必须在 mentioned_actions 中）
         invalid_actions = [a for a in actions_list if a not in mentioned_actions]
@@ -1727,7 +1778,7 @@ Start generating the Whiteboard now.
                     f"你返回了未被提到的 actions: {invalid_actions}。\n"
                     f"只能从用户提到的 actions 中选择: {mentioned_actions}\n\n"
                     f"请重新判断，只选择用户**真正要执行**的 actions。"
-                )
+                ),
             }
 
         # 4. 不再需要验证是否在 available_actions 中
@@ -1774,7 +1825,7 @@ Start generating the Whiteboard now.
 {thought}
 
 从这段话中，依次提到了这些 actions：
-{', '.join(mentioned_actions)}
+{", ".join(mentioned_actions)}
 
 请判断：这些 actions 中，哪些是**真正要执行**的？
 
@@ -1806,18 +1857,14 @@ write, send_mail, write
             initial_messages=[{"role": "user", "content": prompt}],
             parser=self._parse_and_validate_actions,
             mentioned_actions=mentioned_actions,  # 直接传参给 parser
-            max_retries=3
+            max_retries=3,
         )
 
         self.logger.debug(f"[阶段2] 判断要执行的 actions: {actions_to_execute}")
         return actions_to_execute
 
     async def _execute_action(
-        self,
-        action_name: str,
-        thought: str,
-        action_index: int,
-        action_list: List[str]
+        self, action_name: str, thought: str, action_index: int, action_list: List[str]
     ) -> Any:
         """
         执行 action（新架构：直接调用，无需动态绑定）
@@ -1870,16 +1917,18 @@ write, send_mail, write
             async def brain_clarification(question: str) -> str:
                 temp_msgs = self.messages.copy()
                 temp_msgs.append({"role": "assistant", "content": thought})
-                temp_msgs.append({"role": "user", "content": f"[❓NEED CLARIFICATION] {question}"})
+                temp_msgs.append(
+                    {"role": "user", "content": f"[❓NEED CLARIFICATION] {question}"}
+                )
                 response = await self.brain.think(temp_msgs)
-                return response['reply']
+                return response["reply"]
 
             action_json = await self.cerebellum.parse_action_params(
                 intent=thought,
                 action_name=action_name,
                 param_schema=param_schema,
                 brain_callback=brain_clarification,
-                task_context=task_context  # 新增：传递任务上下文
+                task_context=task_context,  # 新增：传递任务上下文
             )
 
             params = action_json.get("params", {})
@@ -1889,13 +1938,16 @@ write, send_mail, write
             params = {}
 
         # 3. 执行方法（✅ 直接调用，无需动态绑定）
-        self._log(logging.DEBUG, f"[{self.run_label}] Executing {action_name} (task {action_index}/{len(action_list)})")
-        result=""
+        self._log(
+            logging.DEBUG,
+            f"[{self.run_label}] Executing {action_name} (task {action_index}/{len(action_list)})",
+        )
+        result = ""
 
         try:
             # 💬 特殊处理：ask_user action
             if action_name == "ask_user":
-                if not hasattr(self, 'root_agent') or not self.root_agent:
+                if not hasattr(self, "root_agent") or not self.root_agent:
                     raise RuntimeError("ask_user requires root_agent")
 
                 question = params.get("question", "")
@@ -1910,8 +1962,7 @@ write, send_mail, write
         except Exception as e:
             result = f"Error executing {action_name}: {str(e)}"
         finally:
-
-        # 记录最后执行的 action 名字
+            # 记录最后执行的 action 名字
             self.last_action_name = action_name
 
         return result
@@ -1941,7 +1992,4 @@ write, send_mail, write
 
     def _get_log_context(self) -> dict:
         """提供日志上下文变量"""
-        return {
-            "label": self.run_label or "unknown",
-            "name": self.name
-        }
+        return {"label": self.run_label or "unknown", "name": self.name}

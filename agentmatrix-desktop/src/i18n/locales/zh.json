@@ -119,7 +119,9 @@
       "homeFolder": "打开主目录",
       "homeFolderDesc": "浏览 Agent 的主目录",
       "sessionFolder": "打开会话目录",
-      "sessionFolderDesc": "浏览 Agent 的会话文件"
+      "sessionFolderDesc": "浏览 Agent 的会话文件",
+      "skillsFolder": "打开技能目录",
+      "skillsFolderDesc": "浏览 Agent 的扩展技能"
     },
     "log": {
       "autoScroll": "自动滚动",

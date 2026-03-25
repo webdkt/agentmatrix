@@ -199,12 +199,24 @@ class MatrixPaths:
 
     def get_skills_dir(self) -> Path:
         """
-        获取workspace的skills目录
+        获取workspace的skills目录（共享）
 
         Returns:
             Path: workspace/SKILLS/
         """
         return self.workspace_dir / "SKILLS"
+
+    def get_agent_skills_dir(self, agent_name: str) -> Path:
+        """
+        获取Agent私有的Skills目录
+
+        Args:
+            agent_name: Agent名称
+
+        Returns:
+            Path: workspace/agent_files/{agent_name}/home/SKILLS/
+        """
+        return self.get_agent_home_dir(agent_name) / "SKILLS"
 
     def ensure_directories(self) -> None:
         """

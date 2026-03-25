@@ -756,23 +756,52 @@ async def send_email(
     # 处理附件
     attachment_metadata = []
     if attachments:
-        # 获取附件保存目录（通过 runtime.paths）
-        attachments_dir = user_agent.runtime.paths.get_agent_attachments_dir(
+        # 获取 User 的附件目录
+        user_attachments_dir = user_agent.runtime.paths.get_agent_attachments_dir(
             user_agent.name, effective_task_id
         )
+        user_attachments_dir.mkdir(parents=True, exist_ok=True)
 
-        attachments_dir.mkdir(parents=True, exist_ok=True)
+        # 获取收件人 Agent 的附件目录（recipient 是 Agent 名称）
+        recipient_agent_name = recipient
+        # 注意：recipient 可能是 "User"，需要检查是否为有效 Agent
+        if recipient != user_agent_name:
+            # 获取收件人的 attachments 目录
+            try:
+                recipient_attachments_dir = (
+                    user_agent.runtime.paths.get_agent_attachments_dir(
+                        recipient_agent_name, effective_task_id
+                    )
+                )
+                recipient_attachments_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                # 如果收件人路径获取失败（如 Agent 不存在），设为 None
+                recipient_attachments_dir = None
+                print(f"⚠️ 无法获取收件人 {recipient_agent_name} 的附件目录: {e}")
+        else:
+            # 发给 User 自己，不需要复制
+            recipient_attachments_dir = None
 
         for attachment in attachments:
             try:
                 # 读取文件内容
                 content = await attachment.read()
                 filename = attachment.filename or "unnamed"
-                file_path = attachments_dir / filename
 
-                # 保存文件（同名文件直接覆盖）
-                with open(file_path, "wb") as f:
+                # 保存到 User 目录
+                user_file_path = user_attachments_dir / filename
+                with open(user_file_path, "wb") as f:
                     f.write(content)
+
+                # 同时复制到收件人目录（如果是发给 Agent）
+                if recipient_attachments_dir is not None:
+                    import shutil
+
+                    recipient_file_path = recipient_attachments_dir / filename
+                    shutil.copy2(user_file_path, recipient_file_path)
+                    print(
+                        f"✅ Attachment copied to recipient: {filename} -> {recipient_file_path}"
+                    )
 
                 # 添加到附件 metadata
                 attachment_metadata.append(
@@ -783,7 +812,7 @@ async def send_email(
                     }
                 )
                 print(
-                    f"✅ Attachment saved: {filename} ({len(content)} bytes) -> {file_path}"
+                    f"✅ Attachment saved: {filename} ({len(content)} bytes) -> {user_file_path}"
                 )
             except Exception as e:
                 print(f"❌ Failed to save attachment {attachment.filename}: {e}")
@@ -835,7 +864,7 @@ async def send_email(
         "is_from_user": True,  # User sent this email
         "attachments": new_email.attachments or [],
     }
-    
+
     return {
         "success": True,
         "task_id": effective_task_id,
@@ -2037,17 +2066,19 @@ async def get_email_proxy_config():
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
         import yaml
-        result = matrix_runtime.config_service.read_config('email_proxy')
-        
+
+        result = matrix_runtime.config_service.read_config("email_proxy")
+
         if not result.success:
             # Return empty config if file doesn't exist
             return {}
-        
+
         # Parse YAML content and return as dict
         config = yaml.safe_load(result.content) or {}
         return config
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.put("/api/email-proxy/config")
 async def update_email_proxy_config(request: dict):
@@ -2059,20 +2090,22 @@ async def update_email_proxy_config(request: dict):
 
         # Convert dict to YAML and write using ConfigService
         import yaml
-        yaml_content = yaml.dump(request, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        result = await matrix_runtime.config_service.write_config('email_proxy', yaml_content, skip_verification=False)
-        
+
+        yaml_content = yaml.dump(
+            request, allow_unicode=True, default_flow_style=False, sort_keys=False
+        )
+        result = await matrix_runtime.config_service.write_config(
+            "email_proxy", yaml_content, skip_verification=False
+        )
+
         if not result.success:
             raise HTTPException(status_code=400, detail=result.message)
-        
+
         return {"success": True, "message": "Email proxy config updated"}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
 
 
 @app.post("/api/email-proxy/enable")
@@ -2085,23 +2118,25 @@ async def enable_email_proxy():
 
         # Read current config, update enabled field, write back
         import yaml
-        result = matrix_runtime.config_service.read_config('email_proxy')
-        
+
+        result = matrix_runtime.config_service.read_config("email_proxy")
+
         if result.success:
             config = yaml.safe_load(result.content) or {}
         else:
             config = {}
-        
-        config['enabled'] = True
-        yaml_content = yaml.dump(config, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        await matrix_runtime.config_service.write_config('email_proxy', yaml_content, skip_verification=True)
-        
+
+        config["enabled"] = True
+        yaml_content = yaml.dump(
+            config, allow_unicode=True, default_flow_style=False, sort_keys=False
+        )
+        await matrix_runtime.config_service.write_config(
+            "email_proxy", yaml_content, skip_verification=True
+        )
+
         return {"success": True, "message": "Email proxy enabled"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
 
 
 @app.post("/api/email-proxy/disable")
@@ -2114,23 +2149,25 @@ async def disable_email_proxy():
 
         # Read current config, update enabled field, write back
         import yaml
-        result = matrix_runtime.config_service.read_config('email_proxy')
-        
+
+        result = matrix_runtime.config_service.read_config("email_proxy")
+
         if result.success:
             config = yaml.safe_load(result.content) or {}
         else:
             config = {}
-        
-        config['enabled'] = False
-        yaml_content = yaml.dump(config, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        await matrix_runtime.config_service.write_config('email_proxy', yaml_content, skip_verification=True)
-        
+
+        config["enabled"] = False
+        yaml_content = yaml.dump(
+            config, allow_unicode=True, default_flow_style=False, sort_keys=False
+        )
+        await matrix_runtime.config_service.write_config(
+            "email_proxy", yaml_content, skip_verification=True
+        )
+
         return {"success": True, "message": "Email proxy disabled"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
 
 
 @app.post("/api/email-proxy/user-mailbox")

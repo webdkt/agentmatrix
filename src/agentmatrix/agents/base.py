@@ -228,6 +228,15 @@ class BaseAgent(AutoLoggerMixin):
 
             self.logger.info(f"✅ SKILLS 目录已初始化: {skills_dir}")
 
+            # 🆕 初始化 Agent 私有 SKILLS 目录（用于 MD Document Skills）
+            agent_skills_dir = self.runtime.paths.get_agent_skills_dir(self.name)
+            agent_skills_dir.mkdir(parents=True, exist_ok=True)
+
+            # 添加到 SKILL_REGISTRY 搜索路径
+            SKILL_REGISTRY.search_paths.insert(0, str(agent_skills_dir))
+
+            self.logger.info(f"✅ Agent 私有 SKILLS 目录已初始化: {agent_skills_dir}")
+
             # 🐳 初始化 Docker 容器管理器（在 workspace_root 设置后）
             if self.docker_manager is None:
                 self._init_docker_manager()
