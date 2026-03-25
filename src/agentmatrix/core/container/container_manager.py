@@ -353,7 +353,6 @@ class ContainerManager:
 
         except Exception as e:
             raise RuntimeError(f"工作区切换失败: {e}") from e
-
     async def exec_command(
         self,
         command: str,
@@ -364,16 +363,23 @@ class ContainerManager:
 
         所有命令在 /work_files 目录下执行（内部使用 cd 处理符号链接）
 
+        超时策略：
+        - 命令在容器内正常执行，不强制中断
+        - 如果执行超过1小时，返回提示信息，但容器内命令继续运行
+
         Args:
             command: 要执行的命令
-            timeout: 超时时间（秒，默认30秒）
+            timeout: 超时时间（秒，已弃用，保留仅为兼容性）
 
         Returns:
             Tuple[int, str, str]: (退出码, stdout, stderr)
 
         Raises:
-            RuntimeError: 命令执行失败或超时
+            RuntimeError: 命令执行失败
         """
+        import subprocess
+        import time
+
         try:
             self._ensure_container()
 
@@ -381,46 +387,51 @@ class ContainerManager:
             if self.container.status.lower() != "running":
                 self.wakeup()
 
-            # 执行命令（在线程池中执行，避免阻塞事件循环）
-            import asyncio
-            loop = asyncio.get_event_loop()
-
             # 在命令内部 cd，避免符号链接问题
             full_command = f"cd /work_files && {command}"
 
-            # 🔧 添加超时机制
-            try:
-                exit_code, output = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: self.container.exec_run(
-                            ["sh", "-c", full_command],  # 列表形式
-                            demux=True
-                        )
-                    ),
-                    timeout=timeout
-                )
-            except asyncio.TimeoutError:
-                self.logger.error(
-                    f"⏱️ 命令执行超时（{timeout}秒）: {command[:100]}"
-                )
-                raise RuntimeError(f"命令执行超时（{timeout}秒）: {command[:100]}")
+            # 🔧 使用 subprocess 直接调用 podman exec（SDK 的 exec_run 有 bug）
+            import asyncio
+            loop = asyncio.get_event_loop()
 
-            # 解码输出
-            if isinstance(output, tuple):
-                # demux=True 时返回 (stdout, stderr)
-                stdout_data, stderr_data = output
-                stdout = stdout_data.decode('utf-8', errors='ignore') if stdout_data else ""
-                stderr = stderr_data.decode('utf-8', errors='ignore') if stderr_data else ""
-            else:
-                # demux=False 或其他情况
-                stdout = output.decode('utf-8', errors='ignore') if output else ""
-                stderr = ""
+            # 构建完整的 podman exec 命令
+            runtime_cmd = "podman" if self.runtime_type == "podman" else "docker"
+            cmd_list = [runtime_cmd, "exec", self.container_name, "sh", "-c", full_command]
 
-            return exit_code, stdout, stderr
+            self.logger.info(f"[exec_command] 执行命令: {' '.join(cmd_list)}")
+
+            # 在线程池中执行
+            def run_command():
+                start_time = time.time()
+                
+                # 使用 Popen 启动进程
+                process = subprocess.Popen(
+                    cmd_list,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                
+                try:
+                    # 等待最多1小时
+                    stdout, stderr = process.communicate(timeout=3600)
+                    elapsed = time.time() - start_time
+                    self.logger.info(f"[exec_command] 命令完成，耗时: {elapsed:.2f}秒")
+                    return process.returncode, stdout, stderr
+                except subprocess.TimeoutExpired:
+                    elapsed = time.time() - start_time
+                    # 超时1小时，返回提示信息
+                    # 进程继续在后台运行，不中断
+                    msg = f"命令已执行 {elapsed:.0f} 秒，仍在运行中\n命令: {command[:100]}"
+                    self.logger.warning(f"[exec_command] {msg}")
+                    return 0, msg, ""
+
+            result = await loop.run_in_executor(None, run_command)
+            return result
 
         except Exception as e:
             raise RuntimeError(f"命令执行失败: {e}") from e
+
 
     def get_status(self) -> Dict:
         """
