@@ -267,6 +267,91 @@ async fn open_attachment_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn open_folder(path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&path);
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", path.display()));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    println!("✅ Opened folder: {}", path.display());
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_browser_with_profile(profile_path: String) -> Result<(), String> {
+    // Chrome paths by platform
+    #[cfg(target_os = "macos")]
+    let chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+    #[cfg(target_os = "windows")]
+    let chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe";
+
+    #[cfg(target_os = "linux")]
+    let chrome_path = "google-chrome";
+
+    let chrome = std::path::Path::new(chrome_path);
+
+    #[cfg(target_os = "macos")]
+    {
+        if !chrome.exists() {
+            // Fallback: try to open with `open -a`
+            std::process::Command::new("open")
+                .args(["-a", "Google Chrome", "--args", &format!("--user-data-dir={}", profile_path)])
+                .spawn()
+                .map_err(|e| format!("Failed to open Chrome: {}", e))?;
+        } else {
+            std::process::Command::new(chrome)
+                .arg(&format!("--user-data-dir={}", profile_path))
+                .spawn()
+                .map_err(|e| format!("Failed to open Chrome: {}", e))?;
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new(chrome)
+            .arg(&format!("--user-data-dir={}", profile_path))
+            .spawn()
+            .map_err(|e| format!("Failed to open Chrome: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new(chrome)
+            .arg(&format!("--user-data-dir={}", profile_path))
+            .spawn()
+            .map_err(|e| format!("Failed to open Chrome: {}", e))?;
+    }
+
+    println!("✅ Opened Chrome with profile: {}", profile_path);
+    Ok(())
+}
+
 fn main() {
     // Initialize config on first run (don't save, just check)
     match AppConfig::load() {
@@ -296,6 +381,8 @@ fn main() {
             select_directory,
             show_notification,
             open_attachment_path,
+            open_folder,
+            open_browser_with_profile,
             init_matrix_world,
             save_llm_config,
             save_email_proxy_config_cmd,

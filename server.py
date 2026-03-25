@@ -1063,6 +1063,89 @@ async def get_agent_status_history(agent_name: str):
         return []
 
 
+@app.get("/api/agents/{agent_name}/profile")
+async def get_agent_profile(agent_name: str):
+    """获取 Agent 的配置信息"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    # 构建 profile 信息
+    profile = {
+        "name": agent.name,
+        "description": getattr(agent, "description", ""),
+        "class_name": agent.__class__.__module__ + "." + agent.__class__.__name__,
+        "backend_model": getattr(agent, "backend_model", "default_llm"),
+        "skills": getattr(agent, "skills", []),
+        "persona": getattr(agent, "persona", ""),
+    }
+
+    return profile
+
+
+@app.get("/api/agents/{agent_name}/log")
+async def get_agent_log(agent_name: str, lines: int = 200):
+    """获取 Agent 的日志内容"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    # 从 matrix_world 目录读取日志文件
+    log_path = (
+        matrix_runtime.paths.matrix_root / ".matrix" / "logs" / f"{agent_name}.log"
+    )
+
+    if not log_path.exists():
+        return {"content": "", "path": str(log_path)}
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            # 返回最后 N 行
+            content = (
+                "".join(all_lines[-lines:])
+                if len(all_lines) > lines
+                else "".join(all_lines)
+            )
+        return {"content": content, "path": str(log_path)}
+    except Exception as e:
+        return {"content": "", "error": str(e)}
+
+
+@app.get("/api/agents/{agent_name}/sessions")
+async def get_agent_sessions(agent_name: str):
+    """获取 Agent 的 Session 历史"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    try:
+        from agentmatrix.db.agent_matrix_db import get_agent_db
+
+        db = get_agent_db()
+
+        # 获取 Agent 的 sessions
+        sessions = db.get_agent_sessions(agent_name)
+        return {"sessions": sessions}
+    except Exception as e:
+        print(f"Error getting agent sessions: {e}")
+        return {"sessions": [], "error": str(e)}
+
+
 @app.get("/api/files")
 async def get_files(path: str = ""):
     """Get files in workspace"""

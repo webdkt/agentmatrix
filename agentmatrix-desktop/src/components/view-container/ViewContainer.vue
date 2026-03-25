@@ -9,6 +9,7 @@ import { useConfigStore } from '@/stores/config'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
+import MatrixView from '@/components/matrix/MatrixView.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
@@ -107,15 +108,9 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Matrix View (Placeholder) -->
-    <div v-else-if="currentView === 'matrix'" class="view-container__content view-container__content--full">
-      <div class="placeholder-view">
-        <div class="placeholder-view__icon">
-          <MIcon name="grid" />
-        </div>
-        <h2>{{ $t('views.matrix.title') }}</h2>
-        <p>Coming soon...</p>
-      </div>
+    <!-- Matrix View -->
+    <div v-else-if="currentView === 'matrix'" class="view-container__content">
+      <MatrixView />
     </div>
 
     <!-- Magic View (Placeholder) -->

@@ -89,5 +89,46 @@
     "loading": "加载中...",
     "error": "错误",
     "success": "成功"
+  },
+  "matrix": {
+    "searchPlaceholder": "搜索 Agent...",
+    "noResults": "没有匹配的 Agent",
+    "noAgents": "没有运行中的 Agent",
+    "selectAgent": "选择一个 Agent 查看详情",
+    "tabs": {
+      "profile": "配置",
+      "resources": "资源",
+      "log": "日志",
+      "memory": "记忆"
+    },
+    "profile": {
+      "basicInfo": "基本信息",
+      "name": "名称",
+      "description": "描述",
+      "className": "类名",
+      "backendModel": "模型",
+      "skills": "技能",
+      "persona": "角色定义",
+      "noData": "暂无配置数据"
+    },
+    "resources": {
+      "browser": "打开浏览器",
+      "browserDesc": "启动 Agent 的网页浏览器",
+      "computer": "打开终端",
+      "computerDesc": "访问 Agent 的容器终端",
+      "homeFolder": "打开主目录",
+      "homeFolderDesc": "浏览 Agent 的主目录",
+      "sessionFolder": "打开会话目录",
+      "sessionFolderDesc": "浏览 Agent 的会话文件"
+    },
+    "log": {
+      "autoScroll": "自动滚动",
+      "refresh": "刷新",
+      "lines": "行",
+      "noLogs": "暂无日志"
+    },
+    "memory": {
+      "noSessions": "暂无会话历史"
+    }
   }
 }

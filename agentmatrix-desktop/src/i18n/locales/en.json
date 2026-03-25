@@ -89,5 +89,46 @@
     "loading": "Loading...",
     "error": "Error",
     "success": "Success"
+  },
+  "matrix": {
+    "searchPlaceholder": "Search agents...",
+    "noResults": "No matching agents",
+    "noAgents": "No agents running",
+    "selectAgent": "Select an agent to view details",
+    "tabs": {
+      "profile": "Profile",
+      "resources": "Resources",
+      "log": "Log",
+      "memory": "Memory"
+    },
+    "profile": {
+      "basicInfo": "Basic Information",
+      "name": "Name",
+      "description": "Description",
+      "className": "Class",
+      "backendModel": "Model",
+      "skills": "Skills",
+      "persona": "Persona",
+      "noData": "No profile data available"
+    },
+    "resources": {
+      "browser": "Open Browser",
+      "browserDesc": "Launch agent's web browser",
+      "computer": "Open Computer",
+      "computerDesc": "Access agent's container terminal",
+      "homeFolder": "Open Home",
+      "homeFolderDesc": "Browse agent's home directory",
+      "sessionFolder": "Open Session",
+      "sessionFolderDesc": "Browse agent's session files"
+    },
+    "log": {
+      "autoScroll": "Auto-scroll",
+      "refresh": "Refresh",
+      "lines": "lines",
+      "noLogs": "No log entries found"
+    },
+    "memory": {
+      "noSessions": "No session history"
+    }
   }
 }
