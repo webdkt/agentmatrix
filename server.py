@@ -809,7 +809,7 @@ async def send_email(
 
     # Call User agent's speak method
     # 将附件 metadata 传递给 speak 方法
-    await user_agent.speak(
+    new_email = await user_agent.speak(
         session_id=effective_session_id,
         task_id=effective_task_id,
         to=recipient,
@@ -819,11 +819,29 @@ async def send_email(
         attachments=attachment_metadata if attachment_metadata else None,
     )
 
+    # Convert the email object to dict format for JSON response
+    email_dict = {
+        "id": new_email.id,
+        "timestamp": new_email.timestamp.isoformat()
+        if hasattr(new_email.timestamp, "isoformat")
+        else str(new_email.timestamp),
+        "sender": new_email.sender,
+        "recipient": new_email.recipient,
+        "subject": new_email.subject,
+        "body": new_email.body,
+        "in_reply_to": new_email.in_reply_to,
+        "task_id": new_email.task_id,
+        "recipient_session_id": new_email.recipient_session_id,
+        "is_from_user": True,  # User sent this email
+        "attachments": new_email.attachments or [],
+    }
+    
     return {
         "success": True,
         "task_id": effective_task_id,
         "message": "Email sent successfully",
         "attachments_count": len(attachment_metadata),
+        "email": email_dict,  # Include the created email
     }
 
 
@@ -1935,11 +1953,18 @@ async def get_email_proxy_config():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        config = matrix_runtime.config_service.get_email_proxy_config()
+        import yaml
+        result = matrix_runtime.config_service.read_config('email_proxy')
+        
+        if not result.success:
+            # Return empty config if file doesn't exist
+            return {}
+        
+        # Parse YAML content and return as dict
+        config = yaml.safe_load(result.content) or {}
         return config
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.put("/api/email-proxy/config")
 async def update_email_proxy_config(request: dict):
@@ -1949,10 +1974,22 @@ async def update_email_proxy_config(request: dict):
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        path = matrix_runtime.config_service.update_email_proxy_config(request)
-        return {"success": True, "message": "Email proxy config updated", "path": path}
+        # Convert dict to YAML and write using ConfigService
+        import yaml
+        yaml_content = yaml.dump(request, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        result = await matrix_runtime.config_service.write_config('email_proxy', yaml_content, skip_verification=False)
+        
+        if not result.success:
+            raise HTTPException(status_code=400, detail=result.message)
+        
+        return {"success": True, "message": "Email proxy config updated"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 
 @app.post("/api/email-proxy/enable")
@@ -1963,10 +2000,25 @@ async def enable_email_proxy():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        matrix_runtime.config_service.enable_email_proxy()
+        # Read current config, update enabled field, write back
+        import yaml
+        result = matrix_runtime.config_service.read_config('email_proxy')
+        
+        if result.success:
+            config = yaml.safe_load(result.content) or {}
+        else:
+            config = {}
+        
+        config['enabled'] = True
+        yaml_content = yaml.dump(config, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        await matrix_runtime.config_service.write_config('email_proxy', yaml_content, skip_verification=True)
+        
         return {"success": True, "message": "Email proxy enabled"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 
 @app.post("/api/email-proxy/disable")
@@ -1977,10 +2029,25 @@ async def disable_email_proxy():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        matrix_runtime.config_service.disable_email_proxy()
+        # Read current config, update enabled field, write back
+        import yaml
+        result = matrix_runtime.config_service.read_config('email_proxy')
+        
+        if result.success:
+            config = yaml.safe_load(result.content) or {}
+        else:
+            config = {}
+        
+        config['enabled'] = False
+        yaml_content = yaml.dump(config, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        await matrix_runtime.config_service.write_config('email_proxy', yaml_content, skip_verification=True)
+        
         return {"success": True, "message": "Email proxy disabled"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 
 @app.post("/api/email-proxy/user-mailbox")

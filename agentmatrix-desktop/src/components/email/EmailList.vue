@@ -96,6 +96,25 @@ const sessionAgents = computed(() => {
   return agents
 })
 
+const loadEmails = async (sessionId) => {
+  if (!sessionId) return
+
+  isLoading.value = true
+  error.value = null
+
+  try {
+    const result = await sessionAPI.getEmails(sessionId)
+    emails.value = result.emails || result.sessions || []
+
+    await nextTick()
+  } catch (err) {
+    error.value = err.message
+    console.error('Failed to load emails:', err)
+  } finally {
+    isLoading.value = false
+  }
+}
+
 const pendingQuestion = computed(() => {
   if (!currentSession.value) {
     return null
@@ -118,25 +137,6 @@ watch(currentSession, async (newSession) => {
   hideInlineForm.value = false
 }, { immediate: true })
 
-const loadEmails = async (sessionId) => {
-  if (!sessionId) return
-
-  isLoading.value = true
-  error.value = null
-
-  try {
-    const result = await sessionAPI.getEmails(sessionId)
-    emails.value = result.emails || result.sessions || []
-
-    await nextTick()
-  } catch (err) {
-    error.value = err.message
-    console.error('Failed to load emails:', err)
-  } finally {
-    isLoading.value = false
-  }
-}
-
 const scrollToBottom = () => {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
@@ -150,7 +150,19 @@ const refreshEmails = async () => {
 }
 
 const handleReplySent = async () => {
+  // Deprecated: 这个方法保留用于向后兼容，但新的实现使用 handleReplySentWithEmail
   await refreshEmails()
+}
+
+const handleReplySentWithEmail = (email) => {
+  // 新的实现：直接将邮件添加到列表，无需刷新
+  if (email) {
+    emails.value.push(email)
+    // 滚动到底部
+    nextTick(() => {
+      scrollToBottom()
+    })
+  }
 }
 
 const handleMenuAction = async (action) => {
@@ -173,8 +185,14 @@ const cancelInlineReply = () => {
   showInlineReply.value = false
 }
 
-const handleInlineReplySent = async () => {
-  await handleReplySent()
+const handleInlineReplySent = async (response) => {
+  // 如果响应中包含 email 对象，直接添加到列表
+  if (response && response.email) {
+    handleReplySentWithEmail(response.email)
+  } else {
+    // 降级到刷新整个列表（向后兼容）
+    await handleReplySent()
+  }
   inlineReplyEmail.value = null
   showInlineReply.value = false
 }
