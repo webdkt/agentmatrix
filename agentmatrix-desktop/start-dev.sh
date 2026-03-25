@@ -38,6 +38,7 @@ TEMPLATE_SRC="$SCRIPT_DIR/src-tauri/resources/matrix-template"
 TEMPLATE_DST="$SCRIPT_DIR/src-tauri/target/debug/matrix-template"
 if [ -d "$TEMPLATE_SRC" ]; then
     rm -rf "$TEMPLATE_DST"
+    mkdir -p "$(dirname "$TEMPLATE_DST")"
     cp -r "$TEMPLATE_SRC" "$TEMPLATE_DST"
     echo "📦 Synced matrix-template to target/debug/"
 fi
