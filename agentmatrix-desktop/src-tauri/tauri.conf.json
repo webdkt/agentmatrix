@@ -37,12 +37,30 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/matrix-template/**/*"
+      "resources/matrix-template/**/*",
+      "resources/podman/**/*"
+    ],
+    "externalBin": [
+      "binaries/server"
     ]
   },
   "plugins": {
     "shell": {
-      "open": true
+      "open": true,
+      "scope": [
+        {
+          "name": "binaries/server*",
+          "sidecar": true
+        },
+        {
+          "name": "podman*",
+          "sidecar": false
+        },
+        {
+          "name": "open",
+          "args": true
+        }
+      ]
     }
   }
 }

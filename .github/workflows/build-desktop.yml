@@ -5,26 +5,99 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Build variant'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - slim
+          - both
+
+env:
+  PYTHON_VERSION: '3.12'
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        platform:
+        include:
           - os: macos-latest
             target: universal-apple-darwin
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            variant: full
+          - os: macos-latest
+            target: universal-apple-darwin
+            variant: slim
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            variant: full
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            variant: slim
 
-    runs-on: ${{ matrix.platform.os }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ==================== Python Backend Build ====================
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build Python backend with PyInstaller
+        run: |
+          pyinstaller server.spec --distpath dist-server
+
+      - name: Verify server executable
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            ls -la dist-server/server/server.exe
+          else
+            ls -la dist-server/server/server
+          fi
+
+      # ==================== Podman Installer (Full variant only) ====================
+      - name: Download Podman installer
+        if: matrix.variant == 'full'
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            # Download Podman Desktop DMG
+            curl -L -o agentmatrix-desktop/src-tauri/resources/podman/Podman.dmg \
+              "https://github.com/containers/podman-desktop/releases/latest/download/podman-desktop-latest-mac.dmg"
+          else
+            # Download Podman MSI for Windows
+            curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman.msi \
+              "https://github.com/containers/podman/releases/latest/download/podman-v5.0.0-setup-x64.msi"
+          fi
+
+      # ==================== Copy Server to Tauri Sidecar ====================
+      - name: Copy server to sidecar directory
+        shell: bash
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/binaries
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp -r dist-server/server/* agentmatrix-desktop/src-tauri/binaries/
+          else
+            cp dist-server/server/server agentmatrix-desktop/src-tauri/binaries/server-${{ matrix.target }}
+            chmod +x agentmatrix-desktop/src-tauri/binaries/server-${{ matrix.target }}
+          fi
+
+      # ==================== Frontend Build ====================
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -35,10 +108,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.target }}
+          targets: ${{ matrix.target }}
 
-      - name: Install dependencies (Ubuntu)
-        if: matrix.platform.os == 'ubuntu-latest'
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
@@ -47,17 +120,46 @@ jobs:
         working-directory: agentmatrix-desktop
         run: npm install
 
-      - name: Build application
+      # ==================== Tauri Build ====================
+      - name: Build Tauri application
         working-directory: agentmatrix-desktop
         run: npm run tauri build
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
+      # ==================== Rename Artifacts with Variant ====================
+      - name: Rename artifacts with variant
+        shell: bash
+        run: |
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          VARIANT="${{ matrix.variant }}"
+          
+          BUNDLE_DIR="agentmatrix-desktop/src-tauri/target/release/bundle"
+          
+          # macOS
+          if [ -d "$BUNDLE_DIR/macos" ]; then
+            for dmg in $BUNDLE_DIR/macos/*.dmg; do
+              if [ -f "$dmg" ]; then
+                mv "$dmg" "${dmg%.dmg}-${VARIANT}.dmg"
+              fi
+            done
+          fi
+          
+          # Windows
+          if [ -d "$BUNDLE_DIR/msi" ]; then
+            for msi in $BUNDLE_DIR/msi/*.msi; do
+              if [ -f "$msi" ]; then
+                mv "$msi" "${msi%.msi}-${VARIANT}.msi"
+              fi
+            done
+          fi
+
+      # ==================== Upload Artifacts ====================
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform.os }}-build
+          name: ${{ matrix.os }}-${{ matrix.variant }}-build
           path: |
             agentmatrix-desktop/src-tauri/target/release/bundle/
             agentmatrix-desktop/src-tauri/target/*/release/bundle/
@@ -76,11 +178,11 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            **-build/**/*.dmg
-            **-build/**/*.app.tar.gz
-            **-build/**/*.deb
-            **-build/**/*.AppImage
-            **-build/**/*.exe
-            **-build/**/*.msi
+            **/*/*.dmg
+            **/*/*.app.tar.gz
+            **/*/*.deb
+            **/*/*.AppImage
+            **/*/*.msi
+            **/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

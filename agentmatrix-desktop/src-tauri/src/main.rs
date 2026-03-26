@@ -104,8 +104,29 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 // Backend state management
 struct BackendState(Mutex<Option<Child>>);
 
+/// Get the path to the server executable (sidecar or fallback to python)
+fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), String> {
+    // Try to find sidecar server executable
+    let resource_path = app.path().resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    
+    let sidecar_path = resource_path.join("binaries").join("server");
+    
+    #[cfg(target_os = "windows")]
+    let sidecar_path = resource_path.join("binaries").join("server.exe");
+    
+    if sidecar_path.exists() {
+        println!("Using sidecar server: {:?}", sidecar_path);
+        return Ok((sidecar_path.to_string_lossy().to_string(), vec![]));
+    }
+    
+    // Fallback to python
+    println!("Sidecar not found, using python server.py");
+    Ok(("python".to_string(), vec!["server.py".to_string()]))
+}
+
 #[tauri::command]
-async fn start_backend(state: State<'_, BackendState>) -> Result<String, String> {
+async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) -> Result<String, String> {
     println!("Starting Python backend...");
 
     // Load configuration
@@ -122,12 +143,33 @@ async fn start_backend(state: State<'_, BackendState>) -> Result<String, String>
         println!("It will be created automatically.");
     }
 
-    let child = Command::new("python")
-        .arg("server.py")
-        .arg("--matrix-world")
-        .arg(matrix_world.to_string_lossy().to_string())
-        .current_dir("../..")
-        .spawn()
+    // Get server path (sidecar or python fallback)
+    let (server_bin, server_args) = get_server_path(&app)?;
+    
+    let mut cmd = Command::new(&server_bin);
+    
+    // Add server.py if using python fallback
+    for arg in &server_args {
+        cmd.arg(arg);
+    }
+    
+    // Add common arguments
+    cmd.arg("--matrix-world")
+       .arg(matrix_world.to_string_lossy().to_string());
+    
+    // Set working directory only if using python (for server.py to find src/)
+    if !server_args.is_empty() {
+        // Find the project root (relative to the executable)
+        if let Some(resource_dir) = app.path().resource_dir().ok() {
+            // For bundled app, go up from resources/binaries to find project root
+            let project_root = resource_dir.parent()
+                .and_then(|p| p.parent())
+                .unwrap_or(&resource_dir);
+            cmd.current_dir(project_root);
+        }
+    }
+    
+    let child = cmd.spawn()
         .map_err(|e| {
             eprintln!("Failed to start backend: {}", e);
             format!("Failed to start backend: {}", e)
@@ -352,6 +394,103 @@ async fn open_browser_with_profile(profile_path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ─── Container Runtime Detection ───
+
+use std::process::Command as StdCommand;
+
+#[derive(serde::Serialize)]
+struct RuntimeInfo {
+    runtime: String,  // "docker", "podman", or "none"
+    version: Option<String>,
+    install_guide: Option<String>,
+}
+
+#[tauri::command]
+async fn check_container_runtime() -> Result<RuntimeInfo, String> {
+    // Check Podman first (preferred)
+    if let Ok(output) = StdCommand::new("podman").arg("--version").output() {
+        if output.status.success() {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            println!("✅ Found Podman: {}", version);
+            return Ok(RuntimeInfo {
+                runtime: "podman".to_string(),
+                version: Some(version),
+                install_guide: None,
+            });
+        }
+    }
+    
+    // Check Docker as fallback
+    if let Ok(output) = StdCommand::new("docker").arg("--version").output() {
+        if output.status.success() {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            println!("✅ Found Docker: {}", version);
+            return Ok(RuntimeInfo {
+                runtime: "docker".to_string(),
+                version: Some(version),
+                install_guide: None,
+            });
+        }
+    }
+    
+    println!("⚠️ No container runtime found");
+    
+    // Determine platform-specific install guide
+    #[cfg(target_os = "macos")]
+    let install_guide = Some("Podman Desktop installer is included. Click 'Install' to proceed.".to_string());
+    
+    #[cfg(target_os = "windows")]
+    let install_guide = Some("Podman installer is included. Click 'Install' to proceed.".to_string());
+    
+    #[cfg(target_os = "linux")]
+    let install_guide = Some("Please install Podman using your package manager:\n  sudo apt install podman".to_string());
+    
+    Ok(RuntimeInfo {
+        runtime: "none".to_string(),
+        version: None,
+        install_guide,
+    })
+}
+
+#[tauri::command]
+async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    
+    #[cfg(target_os = "macos")]
+    {
+        let dmg_path = resource_dir.join("podman").join("Podman.dmg");
+        if !dmg_path.exists() {
+            return Err("Podman installer not found in bundle".to_string());
+        }
+        // Open the DMG file
+        StdCommand::new("open")
+            .arg(&dmg_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open installer: {}", e))?;
+        Ok("Opened Podman installer. Please follow the installation instructions.".to_string())
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        let msi_path = resource_dir.join("podman").join("podman.msi");
+        if !msi_path.exists() {
+            return Err("Podman installer not found in bundle".to_string());
+        }
+        // Run the MSI installer
+        StdCommand::new("msiexec")
+            .args(["/i", &msi_path.to_string_lossy()])
+            .spawn()
+            .map_err(|e| format!("Failed to start installer: {}", e))?;
+        Ok("Started Podman installer. Please follow the installation instructions.".to_string())
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        Err("Please install Podman manually using your package manager".to_string())
+    }
+}
+
 fn main() {
     // Initialize config on first run (don't save, just check)
     match AppConfig::load() {
@@ -386,6 +525,8 @@ fn main() {
             init_matrix_world,
             save_llm_config,
             save_email_proxy_config_cmd,
+            check_container_runtime,
+            install_podman,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
