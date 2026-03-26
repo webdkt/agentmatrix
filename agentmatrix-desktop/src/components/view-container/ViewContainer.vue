@@ -6,6 +6,7 @@ import { useWebSocket } from '@/composables/useWebSocket'
 import { useBackendStore } from '@/stores/backend'
 import { useNotifications } from '@/composables/useNotifications'
 import { useConfigStore } from '@/stores/config'
+import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
@@ -38,9 +39,22 @@ const showAskUserDialog = computed(() => {
   return sessionStore.shouldShowAskUserDialog(currentSession.value.session_id)
 })
 
+// User agent name (fetched from backend on startup)
+const userAgentName = ref('User')
+
 // Setup WebSocket listeners and email callbacks
 async function setupAppAfterBackend() {
   try {
+    // Fetch user_agent_name from backend
+    try {
+      const config = await configAPI.getFullConfig()
+      if (config?.user_agent_name) {
+        userAgentName.value = config.user_agent_name
+      }
+    } catch (e) {
+      console.warn('Failed to fetch user_agent_name, using default:', e)
+    }
+
     await connect()
 
     // Register email-related WebSocket listeners
@@ -89,7 +103,7 @@ onMounted(async () => {
     <!-- Email View -->
     <div v-if="currentView === 'email'" class="view-container__content">
       <SessionList />
-      <EmailList :user_agent_name="configStore.submitResult?.user_agent_name || 'User'" />
+      <EmailList :user_agent_name="userAgentName" />
     </div>
 
     <!-- Settings View -->
