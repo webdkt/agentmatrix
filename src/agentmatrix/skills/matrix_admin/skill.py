@@ -24,12 +24,7 @@ class Matrix_adminSkillMixin:
     )
     _skill_dependencies = ["base"]
 
-    def _get_config_service(self):
-        """Get ConfigService from runtime."""
-        runtime = self.root_agent.runtime
-        if not runtime:
-            raise RuntimeError("Runtime not available. ConfigService requires runtime.")
-        return runtime.config_service
+
 
     def _format_result(self, result) -> str:
         """Format a result object into LLM-friendly text."""
@@ -67,7 +62,7 @@ class Matrix_adminSkillMixin:
     # ==================== Agent Profile ====================
 
     @register_action(
-        short_desc="读取 Agent Profile",
+        short_desc="读取 Agent Profile，提供Agent名字",
         description=(
             "读取指定 Agent 的配置文件内容（YAML 格式）。\n"
             "参数：agent_name - Agent 的显示名（name 字段的值），如 'SystemAdmin', 'John'\n"
@@ -88,7 +83,7 @@ class Matrix_adminSkillMixin:
     )
     async def read_agent_profile(self, agent_name: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             result = cs.read_agent_config(agent_name)
             if result.success:
                 return result.content
@@ -98,7 +93,7 @@ class Matrix_adminSkillMixin:
             return f"❌ {e}"
 
     @register_action(
-        short_desc="创建 Agent Profile",
+        short_desc="创建 Agent Profile （agent_name, profile_content)",
         description=(
             "创建一个新的 Agent Profile 配置文件。\n"
             "参数：\n"
@@ -123,9 +118,9 @@ class Matrix_adminSkillMixin:
             "content": "Agent Profile 的完整 YAML 内容",
         },
     )
-    async def create_agent_profile(self, file_name: str, content: str) -> str:
+    async def create_agent_profile(self, agent_name: str, content: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             existing = cs.read_config("agent", file_name)
             if existing.success:
                 return f"❌ 配置文件 '{file_name}.yml' 已存在。"
@@ -165,7 +160,7 @@ class Matrix_adminSkillMixin:
     )
     async def update_agent_profile(self, agent_name: str, content: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             result = await cs.write_agent_config(agent_name, content)
             return self._format_result(result.to_dict())
         except Exception as e:
@@ -188,8 +183,7 @@ class Matrix_adminSkillMixin:
     async def delete_agent(self, agent_name: str, delete_config: bool = False) -> str:
         try:
             runtime = self.root_agent.runtime
-            if not runtime:
-                return "❌ runtime not available"
+            
 
             if agent_name not in runtime.agents:
                 return f"❌ Agent '{agent_name}' not found"
@@ -238,7 +232,7 @@ class Matrix_adminSkillMixin:
     )
     async def read_config(self, config_name: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             result = cs.read_config(config_name)
             if result.success:
                 return result.content
@@ -289,7 +283,7 @@ class Matrix_adminSkillMixin:
     )
     async def update_config(self, config_name: str, content: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             result = await cs.write_config(config_name, content)
             return self._format_result(result.to_dict())
         except Exception as e:
@@ -308,7 +302,7 @@ class Matrix_adminSkillMixin:
     )
     async def list_config_history(self, config_name: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             backups = cs.list_backups(config_name)
             if not backups:
                 return f"No history found for {config_name}"
@@ -334,7 +328,7 @@ class Matrix_adminSkillMixin:
     )
     async def list_agent_profile_history(self, agent_name: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             backups = cs.list_agent_backups(agent_name)
             if not backups:
                 return f"No history found for agent '{agent_name}'"
@@ -365,7 +359,7 @@ class Matrix_adminSkillMixin:
     )
     async def read_config_history(self, history_name: str) -> str:
         try:
-            cs = self._get_config_service()
+            cs=self.root_agent.runtime.config_service
             # 尝试从 agent 备份目录读取
             try:
                 content = cs.read_backup("agent", history_name)
@@ -395,8 +389,7 @@ class Matrix_adminSkillMixin:
     async def list_agents(self) -> str:
         try:
             runtime = self.root_agent.runtime
-            if not runtime:
-                return "❌ runtime not available"
+            
 
             if not runtime.agents:
                 return "No agents running"
@@ -430,8 +423,7 @@ class Matrix_adminSkillMixin:
     async def reload_agent(self, agent_name: str) -> str:
         try:
             runtime = self.root_agent.runtime
-            if not runtime:
-                return "❌ runtime not available"
+            
 
             if agent_name not in runtime.agents:
                 return f"❌ Agent '{agent_name}' not found. Available: {list(runtime.agents.keys())}"
