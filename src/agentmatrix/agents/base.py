@@ -589,14 +589,44 @@ class BaseAgent(AutoLoggerMixin):
                 parent=self, name=self.name, available_skills=available_skills
             )
 
-            result = await micro_core.execute(
-                run_label="Process Email",
-                task=task,
-                max_steps=100,
-                yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
-                session_manager=self.session_manager,
-                session=session,
-            )
+            # 执行 MicroAgent（带异常处理，用于错误恢复）
+            result = None
+            try:
+                result = await micro_core.execute(
+                    run_label="Process Email",
+                    task=task,
+                    max_steps=100,
+                    yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
+                    session_manager=self.session_manager,
+                    session=session,
+                )
+            except Exception as e:
+                self.logger.error(f"❌ 邮件处理出错: {e}")
+
+                # 1. 发送错误通知给用户（完整错误信息）
+                user_name = (
+                    self.runtime.get_user_agent_name() if self.runtime else "User"
+                )
+                try:
+                    error_full = f"在处理您的邮件时发生错误：\n\n{str(e)}"
+                    await micro_core.send_email(
+                        to=user_name,
+                        subject=f"⚠️ {self.name} 执行出错",
+                        body=f"{error_full}\n\n请检查后回复「继续」以便继续执行。",
+                    )
+                except Exception as e2:
+                    self.logger.error(f"发送错误通知邮件失败: {e2}")
+
+                # 2. 确保最后一条消息是 assistant（简短版本，用于会话连续性）
+                if session.get("history"):
+                    history = session["history"]
+                    if history and history[-1].get("role") != "assistant":
+                        error_msg = f"执行出错：{str(e)[:100]}...（请检查后回复继续）"
+                        history.append({"role": "assistant", "content": error_msg})
+                        session["history"] = history
+
+                # 不抛出异常，让流程继续（外层finally会休眠容器）
+                result = f"Error: {str(e)[:200]}"
 
             # 5. 更新 session 元数据
             # 注意：session["history"] 已经在 MicroAgent 执行过程中自动保存了
@@ -1095,7 +1125,7 @@ Extract facts now.
     def preview_system_prompt(
         self,
         yellow_pages: Optional[str] = None,
-        available_skills: Optional[List[str]] = None
+        available_skills: Optional[List[str]] = None,
     ) -> str:
         """
         预览 System Prompt（不执行任务）
@@ -1132,9 +1162,7 @@ Extract facts now.
 
         # 创建临时 MicroAgent
         temp_micro = MicroAgent(
-            parent=self,
-            name=self.name,
-            available_skills=available_skills
+            parent=self, name=self.name, available_skills=available_skills
         )
 
         # 设置 yellow_pages（如果提供）
