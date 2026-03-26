@@ -10,6 +10,7 @@ from ..db.agent_matrix_db import AgentMatrixDB
 from ..core.log_util import AutoLoggerMixin
 from ..core.message import Email
 from ..skills.scheduler.time_utils import format_utc_for_display
+from ..core.readable_id_generator import generate_readable_id
 
 
 class TaskScheduler(AutoLoggerMixin):
@@ -68,6 +69,10 @@ class TaskScheduler(AutoLoggerMixin):
         if task['target_agent'] not in self.post_office.yellow_page():
             raise Exception(f"Target agent '{task['target_agent']}' not found")
 
+        # 🆕 生成 readable ID 用于 task_id 和 session_id
+        readable_id = generate_readable_id(task['task_name'])
+        self.logger.info(f"🏷️ Generated readable ID for scheduled task: {readable_id}")
+
         # 将 UTC 时间转换为本地时间显示
         trigger_time_local = format_utc_for_display(datetime.fromisoformat(task['trigger_time']))
 
@@ -87,8 +92,8 @@ class TaskScheduler(AutoLoggerMixin):
                 "scheduled_task_id": task['id'],
                 "original_schedule_time": task['trigger_time']
             },
-            task_id=task['id'],
-            sender_session_id=task['id']
+            task_id=readable_id,
+            sender_session_id=readable_id
         )
 
         await self.post_office.dispatch(email)
@@ -106,6 +111,10 @@ class TaskScheduler(AutoLoggerMixin):
 
     async def _send_missed_task_notification(self, task):
         """发送错过任务的通知"""
+        # 🆕 生成 readable ID 用于 session_id
+        readable_id = generate_readable_id(f"错过-{task['task_name']}")
+        self.logger.info(f"🏷️ Generated readable ID for missed task: {readable_id}")
+
         # 将 UTC 时间转换为本地时间显示
         trigger_time_local = format_utc_for_display(datetime.fromisoformat(task['trigger_time']))
 
@@ -124,7 +133,7 @@ class TaskScheduler(AutoLoggerMixin):
                 "task_type": "missed_task_notification",
                 "original_task_id": task['id']
             },
-            sender_session_id=task['id']
+            sender_session_id=readable_id
         )
 
         await self.post_office.dispatch(email)

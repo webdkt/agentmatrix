@@ -1,8 +1,11 @@
 from ..agents.base import BaseAgent
 from ..core.message import Email
+from ..core.readable_id_generator import generate_readable_id
 from typing import Callable, Awaitable, Optional
 import datetime
 import uuid
+import shutil
+from pathlib import Path
 
 # 定义一个回调函数的类型：接收一封邮件，返回 None (异步)
 OnMailReceived = Callable[[Email], Awaitable[None]]
@@ -18,6 +21,55 @@ class UserProxyAgent(BaseAgent):
     def set_mail_handler(self, on_mail_received: OnMailReceived):
         self.on_mail_received = on_mail_received
 
+    async def _rename_task_and_session_directories(
+        self,
+        old_task_id: str,
+        old_session_id: str,
+        new_task_id: str,
+        new_session_id: str
+    ):
+        """
+        重命名或创建 task 和 session 目录
+
+        如果旧目录存在，移动到新位置
+        如果旧目录不存在，创建新目录
+
+        Args:
+            old_task_id: 旧的 task_id
+            old_session_id: 旧的 session_id
+            new_task_id: 新的 task_id
+            new_session_id: 新的 session_id
+        """
+        try:
+            # 1. 获取目录路径
+            old_work_dir = self.runtime.paths.get_agent_work_files_dir(self.name, old_task_id)
+            old_session_dir = self.runtime.paths.get_agent_session_dir(self.name, old_session_id)
+            new_work_dir = self.runtime.paths.get_agent_work_files_dir(self.name, new_task_id)
+            new_session_dir = self.runtime.paths.get_agent_session_dir(self.name, new_session_id)
+
+            # 2. 处理 work_files 目录
+            if old_work_dir.exists() and old_work_dir != new_work_dir:
+                # 旧目录存在：移动
+                shutil.move(str(old_work_dir), str(new_work_dir))
+                self.logger.info(f"✅ Moved work_files: {old_task_id[:8]} → {new_task_id}")
+            elif not new_work_dir.exists():
+                # 旧目录不存在：创建新目录
+                new_work_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.info(f"✅ Created work_files: {new_task_id}")
+
+            # 3. 处理 session 目录
+            if old_session_dir.exists() and old_session_dir != new_session_dir:
+                # 旧目录存在：移动
+                shutil.move(str(old_session_dir), str(new_session_dir))
+                self.logger.info(f"✅ Moved session: {old_session_id[:8]} → {new_session_id}")
+            elif not new_session_dir.exists():
+                # 旧目录不存在：创建新目录
+                new_session_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.info(f"✅ Created session: {new_session_id}")
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to rename/create directories: {e}", exc_info=True)
+            # 不抛出异常，继续执行（目录操作失败不应该阻塞邮件发送）
 
     async def process_email(self, email: Email):
         """
@@ -86,7 +138,7 @@ class UserProxyAgent(BaseAgent):
             self.logger.info(f"Session {session_id[:8]} not found, creating new session")
             session = await self.session_manager._create_new_session(session_id, self.name, task_id)
             self.session_manager.sessions[session_id] = session
-            await self.session_manager._save_session_to_disk(session)
+            # 🆕 不保存空session，避免后续移动目录时的冗余操作
 
         if not subject:
             self.logger.info(f"🤖 Auto-generating subject for content: {content[:50]}...")
@@ -113,6 +165,41 @@ class UserProxyAgent(BaseAgent):
             self.logger.info(f"📧 Reply to email: {in_reply_to}")
         else:
             self.logger.info(f"📧 New email (no reply_to_id)")
+            # 🆕 新邮件：生成 readable ID 并重命名目录
+            # 1. 生成 readable ID
+            readable_id = generate_readable_id(subject)
+            self.logger.info(f"🏷️ Generated readable ID: {readable_id}")
+
+            # 2. 保存旧的 ID（用于重命名目录）
+            old_task_id = task_id
+            old_session_id = session_id
+
+            # 3. 替换为新的 readable ID
+            new_task_id = readable_id
+            new_session_id = readable_id
+
+            # 4. 重命名目录
+            await self._rename_task_and_session_directories(
+                old_task_id, old_session_id,
+                new_task_id, new_session_id
+            )
+
+            # 5. 更新 session 字典中的 ID
+            session["session_id"] = new_session_id
+            session["task_id"] = new_task_id
+
+            # 6. 从旧 ID 移除，添加到新 ID
+            del self.session_manager.sessions[old_session_id]
+            self.session_manager.sessions[new_session_id] = session
+
+            # 7. 重新保存 session（使用新 ID）
+            await self.session_manager._save_session_to_disk(session)
+
+            # 8. 更新局部变量
+            session_id = new_session_id
+            task_id = new_task_id
+
+            self.logger.info(f"✅ Session ID updated: {old_session_id[:8]} → {new_session_id}")
 
         # 处理附件 metadata
         metadata = {}

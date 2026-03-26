@@ -523,3 +523,74 @@ class AgentMatrixDB(AutoLoggerMixin):
             'per_page': per_page,
             'total_pages': total_pages
         }
+
+    def get_agent_sessions(self, agent_name: str) -> list:
+        """
+        获取 Agent 的所有 sessions（用于 Matrix View Memory Tab）
+        
+        Args:
+            agent_name: Agent 名称
+            
+        Returns:
+            List[dict]: Agent 的所有 sessions
+        """
+        cursor = self.conn.cursor()
+        
+        # 使用索引优化的查询（符合 CONCEPTS.md 的定义）
+        # Agent 的 sessions = 作为发送者的 sessions + 作为接收者的 sessions
+        query = """
+            SELECT 
+                sender_session_id as session_id,
+                MAX(timestamp) as last_email_time
+            FROM emails
+            WHERE sender = ?
+            GROUP BY sender_session_id
+            
+            UNION
+            
+            SELECT 
+                recipient_session_id as session_id,
+                MAX(timestamp) as last_email_time
+            FROM emails
+            WHERE recipient = ?
+            GROUP BY recipient_session_id
+            
+            ORDER BY last_email_time DESC
+        """
+        
+        cursor.execute(query, (agent_name, agent_name))
+        results = cursor.fetchall()
+        
+        sessions = []
+        for row in results:
+            session_id, last_email_time = row
+            
+            # 获取该 session 的第一封邮件的 subject
+            subject_query = """
+                SELECT subject FROM emails
+                WHERE (sender = ? AND sender_session_id = ?)
+                   OR (recipient = ? AND recipient_session_id = ?)
+                ORDER BY timestamp ASC
+                LIMIT 1
+            """
+            cursor.execute(subject_query, (agent_name, session_id, agent_name, session_id))
+            subject_row = cursor.fetchone()
+            first_subject = subject_row[0] if subject_row else ""
+            
+            # 获取该 session 的邮件数量
+            count_query = """
+                SELECT COUNT(*) FROM emails
+                WHERE (sender = ? AND sender_session_id = ?)
+                   OR (recipient = ? AND recipient_session_id = ?)
+            """
+            cursor.execute(count_query, (agent_name, session_id, agent_name, session_id))
+            email_count = cursor.fetchone()[0]
+            
+            sessions.append({
+                'session_id': session_id,
+                'last_email_time': last_email_time,
+                'first_subject': first_subject,
+                'email_count': email_count
+            })
+        
+        return sessions

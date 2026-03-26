@@ -1163,10 +1163,9 @@ async def get_agent_sessions(agent_name: str):
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
 
     try:
-        from agentmatrix.db.agent_matrix_db import get_agent_db
-
-        db = get_agent_db()
-
+        # 直接使用 PostOffice 的数据库实例
+        db = matrix_runtime.post_office.email_db
+        
         # 获取 Agent 的 sessions
         sessions = db.get_agent_sessions(agent_name)
         return {"sessions": sessions}
