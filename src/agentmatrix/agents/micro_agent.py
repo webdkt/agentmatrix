@@ -117,7 +117,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== 🆕 压缩相关（默认开启，无需配置）==========
         self.compression_token_threshold = 32000  # 32K tokens
-        self.last_compression_step = 0  # 上次压缩时的步数
+        #self.last_compression_step = 0  # 上次压缩时的步数
 
         # 🆕 记录自己的 system prompt（构建后自动填充）
         self.system_prompt = None
@@ -762,7 +762,7 @@ Start generating the Whiteboard now.
             self.messages = [{"role": "user", "content": new_user_content}]
 
         # 重置计数器
-        self.last_compression_step = self.current_step
+        #self.last_compression_step = self.current_step
 
         return whiteboard
 

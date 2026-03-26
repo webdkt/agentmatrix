@@ -13,6 +13,7 @@ import json
 import yaml
 import logging
 import re
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -417,6 +418,695 @@ class ConfigService:
 
         return backup_path.read_text(encoding="utf-8")
 
+    # ==================== Agent Profile (parsed dict) ====================
+
+    def get_agent_profile(self, agent_name: str) -> dict:
+        """
+        Read agent config and return parsed dict.
+
+        Args:
+            agent_name: Agent 的显示名
+
+        Returns:
+            dict: Parsed agent profile
+
+        Raises:
+            FileNotFoundError: Agent config not found
+        """
+        file_path = self._find_agent_file_by_name(agent_name)
+        content = file_path.read_text(encoding="utf-8")
+        profile = yaml.safe_load(content)
+        if not profile:
+            raise FileNotFoundError(f"Agent config is empty: {file_path}")
+        return profile
+
+    # ==================== LLM Config Helpers ====================
+
+    def list_llm_models(self) -> Dict[str, dict]:
+        """
+        Get all LLM model configurations as a dict.
+
+        Returns:
+            Dict mapping model name to config dict
+        """
+        llm_path = self.paths.llm_config_path
+        if not llm_path.exists():
+            return {}
+        with open(llm_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def add_llm_model(self, name: str, config: dict) -> None:
+        """
+        Add a new LLM model configuration.
+
+        Args:
+            name: Model name (e.g. "my_gpt4")
+            config: Config dict with url, API_KEY, model_name
+
+        Raises:
+            ValueError: If model name already exists
+        """
+        llm_path = self.paths.llm_config_path
+        if llm_path.exists():
+            with open(llm_path, "r", encoding="utf-8") as f:
+                llm_config = json.load(f)
+        else:
+            llm_config = {}
+
+        if name in llm_config:
+            raise ValueError(f"LLM config '{name}' already exists")
+
+        llm_config[name] = config
+
+        # Backup before write
+        if llm_path.exists():
+            self._backup_file(llm_path, "llm")
+
+        llm_path.write_text(
+            json.dumps(llm_config, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        self._cleanup_old_backups("llm")
+
+    # ==================== LLM Endpoint CRUD (granular) ====================
+
+    def add_llm_endpoint(self, name: str, entry_content: str) -> ConfigWriteResult:
+        """
+        Add a new LLM endpoint entry.
+
+        Args:
+            name: Entry name (e.g. "gpt4_turbo")
+            entry_content: JSON string of the entry config
+
+        Returns:
+            ConfigWriteResult
+        """
+        try:
+            entry = json.loads(entry_content)
+        except json.JSONDecodeError as e:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="entry_content",
+                        value=entry_content[:100],
+                        issue=f"Invalid JSON: {e}",
+                    )
+                ],
+                message="Parse failed",
+            )
+
+        # Validate entry structure
+        try:
+            LLMModelConfig(**entry)
+        except Exception as e:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(field="entry", value=str(entry)[:100], issue=str(e))
+                ],
+                message="Schema validation failed",
+            )
+
+        # Read current config
+        llm_path = self.paths.llm_config_path
+        if llm_path.exists():
+            with open(llm_path, "r", encoding="utf-8") as f:
+                llm_config = json.load(f)
+        else:
+            llm_config = {}
+
+        if name in llm_config:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="name",
+                        value=name,
+                        issue=f"LLM endpoint '{name}' already exists",
+                    )
+                ],
+                message="Entry already exists",
+            )
+
+        # Backup and write
+        if llm_path.exists():
+            backup_path = self._backup_file(llm_path, "llm")
+        else:
+            backup_path = None
+
+        llm_config[name] = entry
+        llm_path.write_text(
+            json.dumps(llm_config, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        self._cleanup_old_backups("llm")
+
+        return ConfigWriteResult(
+            success=True,
+            validation_passed=True,
+            verification_passed=True,
+            backup_path=backup_path,
+            file_path=str(llm_path),
+            message=f"LLM endpoint '{name}' added successfully",
+        )
+
+    def delete_llm_endpoint(self, name: str) -> ConfigWriteResult:
+        """
+        Delete a LLM endpoint entry.
+
+        Cannot delete default_llm or default_slm.
+
+        Args:
+            name: Entry name to delete
+
+        Returns:
+            ConfigWriteResult
+        """
+        if name in ("default_llm", "default_slm"):
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="name",
+                        value=name,
+                        issue=f"Cannot delete required LLM endpoint '{name}'",
+                    )
+                ],
+                message="Cannot delete required endpoint",
+            )
+
+        llm_path = self.paths.llm_config_path
+        if not llm_path.exists():
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="config",
+                        value="llm_config.json",
+                        issue="LLM config file not found",
+                    )
+                ],
+                message="Config not found",
+            )
+
+        with open(llm_path, "r", encoding="utf-8") as f:
+            llm_config = json.load(f)
+
+        if name not in llm_config:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="name",
+                        value=name,
+                        issue=f"LLM endpoint '{name}' not found",
+                    )
+                ],
+                message="Entry not found",
+            )
+
+        # Backup and write
+        backup_path = self._backup_file(llm_path, "llm")
+        del llm_config[name]
+        llm_path.write_text(
+            json.dumps(llm_config, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        self._cleanup_old_backups("llm")
+
+        return ConfigWriteResult(
+            success=True,
+            validation_passed=True,
+            verification_passed=True,
+            backup_path=backup_path,
+            file_path=str(llm_path),
+            message=f"LLM endpoint '{name}' deleted successfully",
+        )
+
+    def update_llm_endpoint(self, name: str, entry_content: str) -> ConfigWriteResult:
+        """
+        Update an existing LLM endpoint entry.
+
+        Args:
+            name: Entry name to update
+            entry_content: JSON string of the new entry config
+
+        Returns:
+            ConfigWriteResult
+        """
+        try:
+            entry = json.loads(entry_content)
+        except json.JSONDecodeError as e:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="entry_content",
+                        value=entry_content[:100],
+                        issue=f"Invalid JSON: {e}",
+                    )
+                ],
+                message="Parse failed",
+            )
+
+        # Validate entry structure
+        try:
+            LLMModelConfig(**entry)
+        except Exception as e:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(field="entry", value=str(entry)[:100], issue=str(e))
+                ],
+                message="Schema validation failed",
+            )
+
+        llm_path = self.paths.llm_config_path
+        if not llm_path.exists():
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="config",
+                        value="llm_config.json",
+                        issue="LLM config file not found",
+                    )
+                ],
+                message="Config not found",
+            )
+
+        with open(llm_path, "r", encoding="utf-8") as f:
+            llm_config = json.load(f)
+
+        if name not in llm_config:
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="name",
+                        value=name,
+                        issue=f"LLM endpoint '{name}' not found",
+                    )
+                ],
+                message="Entry not found",
+            )
+
+        # Backup and write
+        backup_path = self._backup_file(llm_path, "llm")
+        llm_config[name] = entry
+        llm_path.write_text(
+            json.dumps(llm_config, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        self._cleanup_old_backups("llm")
+
+        return ConfigWriteResult(
+            success=True,
+            validation_passed=True,
+            verification_passed=True,
+            backup_path=backup_path,
+            file_path=str(llm_path),
+            message=f"LLM endpoint '{name}' updated successfully",
+        )
+
+    # ==================== Email Proxy User Mailbox ====================
+
+    def add_user_mailbox(self, email: str) -> None:
+        """
+        Add a user mailbox to email proxy config.
+
+        Args:
+            email: Email address to add
+
+        Raises:
+            ValueError: If email already exists or config not found
+        """
+        import re
+
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            raise ValueError(f"Invalid email address: {email}")
+
+        ep_path = self.paths.email_proxy_config_path
+        if not ep_path.exists():
+            raise FileNotFoundError("Email proxy config not found")
+
+        content = ep_path.read_text(encoding="utf-8")
+        config = yaml.safe_load(content) or {}
+
+        # Support both single string and list
+        current = config.get("user_mailbox", [])
+        if isinstance(current, str):
+            mailboxes = [current] if current else []
+        elif isinstance(current, list):
+            mailboxes = current[:]
+        else:
+            mailboxes = []
+
+        if email in mailboxes:
+            raise ValueError(f"Email '{email}' already exists in user_mailbox")
+
+        mailboxes.append(email)
+
+        # Keep as list if multiple, single string if one
+        config["user_mailbox"] = (
+            mailboxes if len(mailboxes) > 1 else (mailboxes[0] if mailboxes else "")
+        )
+
+        # Backup and write
+        self._backup_file(ep_path, "email_proxy")
+        ep_path.write_text(
+            yaml.dump(
+                config, allow_unicode=True, default_flow_style=False, sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+        self._cleanup_old_backups("email_proxy")
+
+    def remove_user_mailbox(self, email: str) -> None:
+        """
+        Remove a user mailbox from email proxy config.
+
+        Args:
+            email: Email address to remove
+
+        Raises:
+            ValueError: If email not found or config not found
+        """
+        ep_path = self.paths.email_proxy_config_path
+        if not ep_path.exists():
+            raise FileNotFoundError("Email proxy config not found")
+
+        content = ep_path.read_text(encoding="utf-8")
+        config = yaml.safe_load(content) or {}
+
+        current = config.get("user_mailbox", [])
+        if isinstance(current, str):
+            mailboxes = [current] if current else []
+        elif isinstance(current, list):
+            mailboxes = current[:]
+        else:
+            mailboxes = []
+
+        if email not in mailboxes:
+            raise ValueError(f"Email '{email}' not found in user_mailbox")
+
+        mailboxes.remove(email)
+
+        # Keep as list if multiple, single string if one
+        config["user_mailbox"] = (
+            mailboxes if len(mailboxes) > 1 else (mailboxes[0] if mailboxes else "")
+        )
+
+        # Backup and write
+        self._backup_file(ep_path, "email_proxy")
+        ep_path.write_text(
+            yaml.dump(
+                config, allow_unicode=True, default_flow_style=False, sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+        self._cleanup_old_backups("email_proxy")
+
+    # ==================== Agent Lifecycle (runtime required) ====================
+
+    def stop_agent(self, runtime, agent_name: str) -> str:
+        """
+        停止 Agent 当前的执行（中断当前 email 处理）。
+
+        Agent 仍然在运行时中，可以继续接收和处理新邮件。
+        只是当前正在执行的 MicroAgent 会被中断。
+
+        Args:
+            runtime: AgentMatrix runtime instance
+            agent_name: Name of agent to stop
+
+        Returns:
+            str: Success/error message
+        """
+        if agent_name not in runtime.agents:
+            return f"❌ Agent '{agent_name}' not found. Available: {list(runtime.agents.keys())}"
+
+        agent = runtime.agents[agent_name]
+
+        # Check if it's a User agent
+        if agent_name == runtime.user_agent_name:
+            return f"❌ Cannot stop User agent '{agent_name}'"
+
+        try:
+            agent.stop()
+            return f"✅ Agent '{agent_name}' 的当前执行已中止"
+        except Exception as e:
+            return f"❌ Failed to stop agent '{agent_name}': {e}"
+
+    async def clone_agent(self, runtime, from_name: str, new_name: str) -> str:
+        """
+        Clone an agent: copy profile, save as new name, load into runtime.
+
+        Args:
+            runtime: AgentMatrix runtime instance
+            from_name: Source agent name
+            new_name: New agent name
+
+        Returns:
+            str: Success/error message
+        """
+        # Check new_name doesn't exist
+        if new_name in runtime.agents:
+            return f"❌ Agent '{new_name}' already exists in runtime"
+
+        if new_name.lower() in ("user", "用户"):
+            return f"❌ Agent name cannot be '{new_name}'"
+
+        try:
+            # Read source profile
+            source_profile = self.get_agent_profile(from_name)
+
+            # Create new profile with new name
+            new_profile = source_profile.copy()
+            new_profile["name"] = new_name
+
+            # Write new profile
+            new_file_path = self.paths.agent_config_dir / f"{new_name}.yml"
+            new_file_path.write_text(
+                yaml.dump(
+                    new_profile,
+                    allow_unicode=True,
+                    default_flow_style=False,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+
+            # Load into runtime
+            try:
+                await runtime.load_and_register_agent(new_name)
+                return f"✅ Agent '{new_name}' cloned from '{from_name}' and loaded into runtime"
+            except Exception as e:
+                return f"✅ Agent profile '{new_name}' cloned from '{from_name}', but runtime loading failed: {e}"
+        except FileNotFoundError:
+            return f"❌ Source agent '{from_name}' not found"
+        except Exception as e:
+            return f"❌ Clone failed: {e}"
+
+    async def reload_agent(self, runtime, agent_name: str) -> str:
+        """
+        Reload an agent from its config file.
+
+        Args:
+            runtime: AgentMatrix runtime instance
+            agent_name: Name of agent to reload
+
+        Returns:
+            str: Success/error message
+        """
+        if agent_name not in runtime.agents:
+            return f"❌ Agent '{agent_name}' not found. Available: {list(runtime.agents.keys())}"
+
+        try:
+            import asyncio
+
+            agent = runtime.agents[agent_name]
+
+            # Pause and cancel workers
+            await agent.pause()
+
+            if hasattr(agent, "email_worker_task") and agent.email_worker_task:
+                agent.email_worker_task.cancel()
+            if hasattr(agent, "history_worker_task") and agent.history_worker_task:
+                agent.history_worker_task.cancel()
+
+            # Find config file
+            agent_yml_path = runtime.paths.agent_config_dir / f"{agent_name}.yml"
+            if not agent_yml_path.exists():
+                return f"❌ Config file not found: {agent_yml_path}"
+
+            # Load new agent
+            new_agent = runtime.loader.load_from_file(str(agent_yml_path))
+            new_agent.async_event_callback = runtime.async_event_callback
+            new_agent.runtime = runtime
+
+            # Replace in runtime
+            runtime.agents[agent_name] = new_agent
+            runtime.post_office.register(new_agent)
+
+            # Start new agent
+            agent_task = asyncio.create_task(new_agent.run())
+            runtime.running_agent_tasks.append(agent_task)
+            await new_agent.resume()
+
+            return f"✅ Agent '{agent_name}' reloaded successfully"
+        except Exception as e:
+            return f"❌ Reload failed: {e}"
+
+    def list_agents(self, runtime) -> str:
+        """
+        List all running agents (excluding User agent).
+
+        Args:
+            runtime: AgentMatrix runtime instance
+
+        Returns:
+            str: Formatted agent list
+        """
+        if not runtime.agents:
+            return "No agents running"
+
+        lines = [f"Running agents ({len(runtime.agents)}):\n"]
+        for agent_name, agent in runtime.agents.items():
+            # Skip user agent
+            if agent_name == runtime.user_agent_name:
+                continue
+
+            status = "running" if not agent.is_paused else "paused"
+            lines.append(f"  ** {agent_name} **")
+            lines.append(f"     description: {getattr(agent, 'description', 'N/A')}")
+            lines.append(f"     status: {status}")
+            lines.append(f"     model: {getattr(agent, 'backend_model', 'N/A')}")
+            skills = getattr(agent, "skills", [])
+            lines.append(f"     skills: {', '.join(skills) if skills else 'none'}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    # ==================== Email Proxy Control (runtime required) ====================
+
+    async def enable_email_proxy(self, runtime) -> str:
+        """
+        Enable email proxy service.
+
+        Args:
+            runtime: AgentMatrix runtime instance
+
+        Returns:
+            str: Success/error message
+        """
+        import yaml
+
+        # Update config
+        result = self.read_config("email_proxy")
+        if result.success:
+            config = yaml.safe_load(result.content) or {}
+        else:
+            config = {}
+
+        config["enabled"] = True
+        yaml_content = yaml.dump(
+            config, allow_unicode=True, default_flow_style=False, sort_keys=False
+        )
+        write_result = await self.write_config(
+            "email_proxy", yaml_content, skip_verification=True
+        )
+
+        if not write_result.success:
+            return f"❌ Failed to update config: {write_result.message}"
+
+        # Start service if runtime has email proxy
+        if runtime.email_proxy:
+            try:
+                runtime.email_proxy_task = asyncio.ensure_future(
+                    runtime.email_proxy.start()
+                )
+                return "✅ Email proxy enabled and started"
+            except Exception as e:
+                return f"✅ Email proxy config updated (enabled=true), but service start failed: {e}"
+        else:
+            # Re-initialize email proxy
+            try:
+                runtime._init_email_proxy()
+                return "✅ Email proxy enabled and initialized"
+            except Exception as e:
+                return f"✅ Email proxy config updated (enabled=true), but initialization failed: {e}"
+
+    async def disable_email_proxy(self, runtime) -> str:
+        """
+        Disable email proxy service.
+
+        Args:
+            runtime: AgentMatrix runtime instance
+
+        Returns:
+            str: Success/error message
+        """
+        import yaml
+
+        # Stop service first
+        if runtime.email_proxy:
+            try:
+                await runtime.email_proxy.stop()
+            except Exception as e:
+                logger.warning(f"Email proxy stop error: {e}")
+
+        # Update config
+        result = self.read_config("email_proxy")
+        if result.success:
+            config = yaml.safe_load(result.content) or {}
+        else:
+            config = {}
+
+        config["enabled"] = False
+        yaml_content = yaml.dump(
+            config, allow_unicode=True, default_flow_style=False, sort_keys=False
+        )
+        write_result = await self.write_config(
+            "email_proxy", yaml_content, skip_verification=True
+        )
+
+        if not write_result.success:
+            return f"❌ Failed to update config: {write_result.message}"
+
+        return "✅ Email proxy disabled and stopped"
+
+    # ==================== System Restart (placeholder) ====================
+
+    async def restart_system(self, runtime) -> str:
+        """
+        Restart the system (placeholder - not yet implemented).
+
+        Args:
+            runtime: AgentMatrix runtime instance
+
+        Returns:
+            str: Status message
+        """
+        return "⚠️ System restart is not yet implemented. Please restart the server manually."
+
     # ==================== Agent-specific helpers ====================
 
     def list_agent_profiles(self) -> List[str]:
@@ -547,6 +1237,79 @@ class ConfigService:
                 verification_passed=False,
                 errors=[ConfigError(field="agent_name", issue=str(e))],
             )
+
+    async def create_agent_config(
+        self,
+        agent_name: str,
+        content: str,
+        skip_verification: bool = False,
+    ) -> ConfigWriteResult:
+        """
+        创建新的 Agent 配置文件。
+
+        Args:
+            agent_name: Agent 名称（用作文件名）
+            content: 完整的 YAML 配置内容
+            skip_verification: 是否跳过连接测试
+
+        Returns:
+            ConfigWriteResult - 如果文件已存在则返回错误
+        """
+        # 检查文件是否已存在
+        file_path = self.paths.agent_config_dir / f"{agent_name}.yml"
+        if file_path.exists():
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="agent_name",
+                        value=agent_name,
+                        issue=f"配置文件 '{agent_name}.yml' 已存在",
+                        suggestion="请使用 update_agent_profile 更新已有配置，或使用其他名称",
+                    )
+                ],
+                message="Agent config already exists",
+            )
+
+        # 检查 name 是否是保留名
+        if agent_name.lower() in ("user", "用户"):
+            return ConfigWriteResult(
+                success=False,
+                validation_passed=False,
+                verification_passed=False,
+                errors=[
+                    ConfigError(
+                        field="agent_name",
+                        value=agent_name,
+                        issue=f"'{agent_name}' 是保留名称，不能使用",
+                    )
+                ],
+                message="Reserved name",
+            )
+
+        # 使用 write_config 的验证和备份逻辑
+        return await self.write_config("agent", content, agent_name, skip_verification)
+
+    def delete_agent_config(self, agent_name: str) -> str:
+        """
+        删除 Agent 配置文件。
+
+        Args:
+            agent_name: Agent 名称
+
+        Returns:
+            str: 成功/失败消息
+        """
+        import os
+
+        file_path = self.paths.agent_config_dir / f"{agent_name}.yml"
+        if not file_path.exists():
+            return f"配置文件 '{agent_name}.yml' 不存在"
+
+        os.remove(file_path)
+        return f"配置文件 '{agent_name}.yml' 已删除"
 
     # ==================== Internal helpers ====================
 

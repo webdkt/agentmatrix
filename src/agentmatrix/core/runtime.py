@@ -26,13 +26,18 @@ from ..core.message import Email
 # Event Payload
 
 
-
 async def default_event_printer(event):
     pass
-    #self.echo(event)
+    # self.echo(event)
+
 
 class AgentMatrix(AutoLoggerMixin):
-    def __init__(self, matrix_root: str, async_event_callback = default_event_printer, user_agent_name: str = None):
+    def __init__(
+        self,
+        matrix_root: str,
+        async_event_callback=default_event_printer,
+        user_agent_name: str = None,
+    ):
         """
         初始化AgentMatrix
 
@@ -43,6 +48,7 @@ class AgentMatrix(AutoLoggerMixin):
         """
         # === 初始化路径管理器 ===
         from ..core.paths import MatrixPaths
+
         self.paths = MatrixPaths(matrix_root)
 
         # 确保所有必需的目录存在
@@ -51,15 +57,13 @@ class AgentMatrix(AutoLoggerMixin):
         # === 全局实例 ===
         # ⚠️ 重要：必须在创建任何 logger 之前设置日志目录
         from ..core.log_util import LogFactory
+
         LogFactory.set_log_dir(str(self.paths.logs_dir))
 
         # === 初始化配置管理器 ===
         from ..core.config import MatrixConfig
-        self.config = MatrixConfig(self.paths)
 
-        # === 初始化配置服务 ===
-        from ..services.config_service import ConfigService
-        self._config_service = ConfigService(self.paths)
+        self.config = MatrixConfig(self.paths)
 
         # 从配置获取user_agent_name（如果未提供）
         if user_agent_name is None:
@@ -80,7 +84,7 @@ class AgentMatrix(AutoLoggerMixin):
         # 🆕 系统配置（向后兼容）
         self.system_config = None
         self.email_proxy = None
-        
+
         # 🆕 后台服务任务引用（用于关闭时取消）
         self.scheduler_task = None
         self.email_proxy_task = None
@@ -109,11 +113,6 @@ class AgentMatrix(AutoLoggerMixin):
         """Get the configured user agent name"""
         return self.user_agent_name
 
-
-    @property
-    def config_service(self) -> 'ConfigService':
-        """获取配置服务"""
-        return self._config_service
     def set_broadcast_callback(self, callback):
         """设置广播消息的回调（由 server 注入）"""
         self._broadcast_message_callback = callback
@@ -123,24 +122,28 @@ class AgentMatrix(AutoLoggerMixin):
         """获取广播回调（给 BaseAgent 使用）"""
         return self._broadcast_message_callback
 
-    def json_serializer(self,obj):
+    def json_serializer(self, obj):
         """JSON serializer for objects not serializable by default json code"""
         try:
             if isinstance(obj, (datetime,)):
                 return obj.isoformat()
             # 尝试获取对象的详细信息
             obj_info = f"Type: {type(obj)}, Value: {str(obj)[:100]}, Dir: {[attr for attr in dir(obj) if not attr.startswith('_')][:5]}"
-            raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable\nObject info: {obj_info}")
+            raise TypeError(
+                f"Object of type {obj.__class__.__name__} is not JSON serializable\nObject info: {obj_info}"
+            )
         except Exception as e:
-            raise TypeError(f"Error serializing object: {str(e)}\nObject info: {obj_info}")
+            raise TypeError(
+                f"Error serializing object: {str(e)}\nObject info: {obj_info}"
+            )
 
-
-    #准备世界资源，如向量数据库等
+    # 准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
 
         # 🐳 确保 Docker 运行（全局资源初始化）
         self.echo(">>> 检查 Docker 状态...")
         from ..core.docker_manager import ensure_docker_running
+
         if not ensure_docker_running(logger=self.logger):
             raise RuntimeError(
                 "Docker 启动失败。AgentMatrix 依赖 Docker 运行，请确保 Docker Desktop 已安装并可以启动。\n"
@@ -155,16 +158,19 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 🆕 初始化 TaskScheduler（全局服务）
         from ..core.scheduler_service import TaskScheduler
+
         self.task_scheduler = TaskScheduler(
             db_path=str(self.paths.database_path),
             post_office=self.post_office,
-            logger=self.logger
+            logger=self.logger,
         )
         self.echo(">>> TaskScheduler Loaded.")
 
     def _prepare_agents(self):
         # 使用新的agent配置目录
-        loader = AgentLoader(str(self.paths.agent_config_dir), str(self.paths.llm_config_path))
+        loader = AgentLoader(
+            str(self.paths.agent_config_dir), str(self.paths.llm_config_path)
+        )
 
         # 3. 自动加载所有 Agent
         self.agents = loader.load_all()
@@ -187,7 +193,7 @@ class AgentMatrix(AutoLoggerMixin):
         self.llm_monitor = LLMServiceMonitor(
             llm_config=llm_config,
             check_interval=60,  # 每分钟检查一次
-            parent_logger=self.logger
+            parent_logger=self.logger,
         )
 
         # 启动监控任务
@@ -267,32 +273,34 @@ class AgentMatrix(AutoLoggerMixin):
             self.logger.info("⚠️ EmailProxy配置为空")
             return
 
-        email_proxy_inner = email_config.get('email_proxy', {})
+        email_proxy_inner = email_config.get("email_proxy", {})
         if not email_proxy_inner:
             self.logger.info("⚠️ EmailProxy内层配置为空")
             return
 
-        if not email_proxy_inner.get('enabled', False):
-            self.logger.info(f"⚠️ EmailProxy未启用 (enabled={email_proxy_inner.get('enabled')})")
+        if not email_proxy_inner.get("enabled", False):
+            self.logger.info(
+                f"⚠️ EmailProxy未启用 (enabled={email_proxy_inner.get('enabled')})"
+            )
             return
 
-        self.logger.info(f"✅ 初始化EmailProxy: {email_proxy_inner.get('matrix_mailbox')} → {email_proxy_inner.get('user_mailbox')}")
+        self.logger.info(
+            f"✅ 初始化EmailProxy: {email_proxy_inner.get('matrix_mailbox')} → {email_proxy_inner.get('user_mailbox')}"
+        )
         self.email_proxy = EmailProxyService(
             paths=self.paths,
             config=email_proxy_inner,
             post_office=self.post_office,
             db_path=str(self.paths.database_path),
-            parent_logger=self.logger
+            parent_logger=self.logger,
         )
 
         # 注入到UserProxyAgent
         user_agent = self.agents.get(self.user_agent_name)
-        if user_agent and hasattr(user_agent, 'set_email_proxy'):
+        if user_agent and hasattr(user_agent, "set_email_proxy"):
             user_agent.set_email_proxy(self.email_proxy)
 
         self.echo(">>> EmailProxy服务已初始化")
-
-
 
     async def save_matrix(self):
         """一键休眠 - 修复了任务等待和异常处理问题"""
@@ -329,7 +337,7 @@ class AgentMatrix(AutoLoggerMixin):
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
             self.echo(">>> TaskScheduler task cancelled")
-        
+
         if self.email_proxy_task and not self.email_proxy_task.done():
             self.email_proxy_task.cancel()
             try:
@@ -337,7 +345,7 @@ class AgentMatrix(AutoLoggerMixin):
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
             self.echo(">>> EmailProxy task cancelled")
-        
+
         # 🆕 停止服务
         if self.email_proxy:
             try:
@@ -348,20 +356,20 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 🔧 事件驱动模式：无需停止广播任务
 
-        if hasattr(self, 'task_scheduler'):
+        if hasattr(self, "task_scheduler"):
             await self.task_scheduler.stop()
-        
+
         # 3. 取消所有正在运行的agent任务
         if self.running_agent_tasks:
             for task in self.running_agent_tasks:
                 if not task.done():
                     task.cancel()
-            
+
             # 等待所有任务完成（带超时）
             try:
                 await asyncio.wait_for(
                     asyncio.gather(*self.running_agent_tasks, return_exceptions=True),
-                    timeout=5.0
+                    timeout=5.0,
                 )
             except asyncio.TimeoutError:
                 self.echo(">>> Some agent tasks did not complete in time")
@@ -377,15 +385,15 @@ class AgentMatrix(AutoLoggerMixin):
             except asyncio.CancelledError:
                 pass
             self.post_office_task = None
-        
+
         # 5. 关闭 PostOffice 数据库连接
         if self.post_office:
             self.post_office.close()
-        
+
         world_state = {
             "timestamp": str(datetime.now()),
             "agents": {},
-            "post_office": []
+            "post_office": [],
         }
 
         # 1. 冻结所有 Agent
@@ -403,15 +411,21 @@ class AgentMatrix(AutoLoggerMixin):
         filepath = str(self.paths.snapshot_path)
         # 3. 写入磁盘
         try:
-            with open(filepath, "w", encoding='utf-8') as f:
-                json.dump(world_state, f, indent=2, ensure_ascii=False, default=self.json_serializer)
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(
+                    world_state,
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                    default=self.json_serializer,
+                )
         except TypeError as e:
             self.logger.error(f"JSON序列化错误: {str(e)}")
             # 打印world_state的结构，帮助定位问题
             self.logger.debug("World state structure:")
             self.logger.debug(world_state)
             raise
-            
+
         self.echo(f">>> 世界已保存至 {filepath}")
         # 9. 清理资源
         self.running = False
@@ -432,43 +446,40 @@ class AgentMatrix(AutoLoggerMixin):
             self.echo(f">>> Cleanup error: {e}")
 
     def load_matrix(self):
-
         """一键复活"""
         self.echo(f">>> 正在从 {self.matrix_path} 恢复世界...")
 
         matrix_snapshot_path = str(self.paths.snapshot_path)
         os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
-        #加载向量数据库
-        
+        # 加载向量数据库
+
         try:
-            with open(matrix_snapshot_path, "r", encoding='utf-8') as f:
+            with open(matrix_snapshot_path, "r", encoding="utf-8") as f:
                 content = f.read().strip()
                 if not content:  # 文件为空
                     self.echo(f">>> {matrix_snapshot_path} 为空，创建新的世界状态...")
                     world_state = {}
-                    with open(matrix_snapshot_path, "w", encoding='utf-8') as f:
+                    with open(matrix_snapshot_path, "w", encoding="utf-8") as f:
                         json.dump(world_state, f, ensure_ascii=False, indent=2)
                 else:
-                    world_state = json.loads(content)  # 使用 json.loads 而不是 json.load
+                    world_state = json.loads(
+                        content
+                    )  # 使用 json.loads 而不是 json.load
         except FileNotFoundError:
             self.echo(f">>> 未找到 {matrix_snapshot_path}，创建新的世界状态...")
             world_state = {}
-            with open(matrix_snapshot_path, "w", encoding='utf-8') as f:
+            with open(matrix_snapshot_path, "w", encoding="utf-8") as f:
                 json.dump(world_state, f, ensure_ascii=False, indent=2)
 
         # 1. 恢复 Agent 状态
         if world_state and "agents" in world_state:
-
             for agent in self.agents.values():
                 if agent.name in world_state["agents"]:
                     agent_data = world_state["agents"][agent.name]
                     agent.load_state(agent_data)
-                    self.echo(f">>> 恢复 Agent {agent.name} 状态成功！" )
-        
+                    self.echo(f">>> 恢复 Agent {agent.name} 状态成功！")
 
-        
-
-        self.running_agent_tasks =[]
+        self.running_agent_tasks = []
         # 3. 注册到邮局
         for agent in self.agents.values():
             # 注入 runtime 引用（setter 会自动初始化 SessionManager 等资源）
@@ -477,18 +488,15 @@ class AgentMatrix(AutoLoggerMixin):
 
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
             self.echo(f">>> Agent {agent.name} 已注册到邮局！")
-            
-        
-    
+
         # 4. 恢复投递
         self.post_office.resume()
-        if world_state and 'post_office' in world_state:
+        if world_state and "post_office" in world_state:
             for email_dict in world_state["post_office"]:
                 self.post_office.queue.put_nowait(Email(**email_dict))
-        
-        
+
         # 🆕 启动TaskScheduler
-        if hasattr(self, 'task_scheduler'):
+        if hasattr(self, "task_scheduler"):
             self.scheduler_task = asyncio.ensure_future(self.task_scheduler.start())
 
         # 🆕 启动EmailProxy

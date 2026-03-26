@@ -105,6 +105,10 @@ class BaseAgent(AutoLoggerMixin):
         self.email_worker_task = None  # email worker 引用
         self.history_worker_task = None  # history worker 引用
 
+        # 🆕 Stop 机制
+        self._execute_task = None  # 当前正在运行的 execute task
+        self._is_stopping = False  # 是否正在停止
+
         # 🐳 Docker 容器管理器（延迟初始化，在 workspace_root setter 中初始化）
         self.docker_manager = None
 
@@ -262,6 +266,21 @@ class BaseAgent(AutoLoggerMixin):
     def is_paused(self) -> bool:
         """返回 Agent 是否暂停"""
         return self._paused
+
+    # ========== Stop 机制 ==========
+
+    def stop(self):
+        """
+        停止当前正在执行的 MicroAgent。
+
+        只中断当前 email 的处理，不影响 email_worker 继续等待新邮件。
+        """
+        if self._execute_task and not self._execute_task.done():
+            self._is_stopping = True
+            self._execute_task.cancel()
+            self.logger.info(f"🛑 Agent {self.name} 已停止当前执行")
+        else:
+            self.logger.info(f"ℹ️ Agent {self.name} 没有正在执行的任务")
 
     # ========== ask_user 机制 ==========
 
@@ -592,14 +611,60 @@ class BaseAgent(AutoLoggerMixin):
             # 执行 MicroAgent（带异常处理，用于错误恢复）
             result = None
             try:
-                result = await micro_core.execute(
-                    run_label="Process Email",
-                    task=task,
-                    max_steps=100,
-                    yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
-                    session_manager=self.session_manager,
-                    session=session,
+                # 创建 execute task（可被 stop() 中断）
+                execute_task = asyncio.create_task(
+                    micro_core.execute(
+                        run_label="Process Email",
+                        task=task,
+                        max_steps=100,
+                        yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
+                        session_manager=self.session_manager,
+                        session=session,
+                    )
                 )
+                self._execute_task = execute_task
+                result = await execute_task
+
+            except asyncio.CancelledError:
+                # 检查是我们的 stop() 还是系统 Ctrl-C
+                if self._is_stopping:
+                    # ===== 我们的 stop() 导致的中断 =====
+                    self.logger.info(f"🛑 Agent {self.name} 执行中止")
+
+                    # 1. 确保最后一条消息是 assistant
+                    if session.get("history"):
+                        history = session["history"]
+                        if history:
+                            last = history[-1]
+                            if last.get("role") == "assistant":
+                                # append 到现有 assistant 消息
+                                last["content"] = (
+                                    last.get("content", "").strip()
+                                    + "\n\n**执行中，用户要求中止**"
+                                )
+                            else:
+                                # 添加新的 assistant 消息
+                                history.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": "**执行中，用户要求中止**",
+                                    }
+                                )
+
+                    # 2. 保存 session
+                    try:
+                        await self.session_manager.save_session(session)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to save session on stop: {e}")
+
+                    # 3. 设置结果
+                    result = "Stopped by user"
+                    self._is_stopping = False
+                else:
+                    # ===== 系统 Ctrl-C 或其他中断 =====
+                    self.logger.info(f"🛑 Agent {self.name} 收到系统中断")
+                    raise  # 重新抛出，让 run() 正常退出
+
             except Exception as e:
                 self.logger.error(f"❌ 邮件处理出错: {e}")
 
@@ -653,6 +718,9 @@ class BaseAgent(AutoLoggerMixin):
             )
 
         finally:
+            # 清理 execute task 引用
+            self._execute_task = None
+
             # 🐳 容器模式：休眠容器
             self.update_status(new_status=AgentStatus.IDLE)
             self.docker_manager.hibernate()
@@ -777,11 +845,19 @@ class BaseAgent(AutoLoggerMixin):
         - 来邮件时取消 history_worker
         - 处理邮件
         - 邮件处理完成后恢复 history_worker
+
+        注意：如果 Agent 处于 pause 状态，会在取邮件前等待 resume
         """
         self.logger.info("📧 Email worker 已启动")
 
         try:
             while True:
+                # 如果处于暂停状态，等待 resume
+                if self._paused:
+                    self.logger.info("⏸️ Email worker 已暂停，等待恢复...")
+                    await self._pause_event.wait()
+                    self.logger.info("▶️ Email worker 已恢复")
+
                 try:
                     # 阻塞等待邮件
                     email = await self.inbox.get()

@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 # Import AgentMatrix
 from agentmatrix import AgentMatrix
+from agentmatrix.services.config_service import ConfigService
 
 
 # === Parse Command-Line Arguments at Module Level ===
@@ -1426,7 +1427,7 @@ async def get_agent_profile(agent_name: str):
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        profile = matrix_runtime.config_service.get_agent_profile(agent_name)
+        profile = ConfigService(matrix_runtime.paths).get_agent_profile(agent_name)
         return agent_profile_to_response(profile)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
@@ -1655,7 +1656,7 @@ def load_llm_configs():
     if matrix_runtime is None:
         return {}
     try:
-        return matrix_runtime.config_service.list_llm_models()
+        return ConfigService(matrix_runtime.paths).list_llm_models()
     except Exception as e:
         print(f"Error loading LLM configs: {e}")
         return {}
@@ -1709,7 +1710,7 @@ async def get_llm_config(config_name: str):
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        configs = matrix_runtime.config_service.list_llm_models()
+        configs = ConfigService(matrix_runtime.paths).list_llm_models()
 
         if config_name not in configs:
             raise HTTPException(
@@ -1753,7 +1754,7 @@ async def create_llm_config(request: LLMConfigCreateRequest):
             "model_name": request.model_name,
         }
 
-        matrix_runtime.config_service.add_llm_model(request.name, config)
+        ConfigService(matrix_runtime.paths).add_llm_model(request.name, config)
 
         return {
             "success": True,
@@ -2084,7 +2085,7 @@ async def get_email_proxy_config():
 
         import yaml
 
-        result = matrix_runtime.config_service.read_config("email_proxy")
+        result = ConfigService(matrix_runtime.paths).read_config("email_proxy")
 
         if not result.success:
             # Return empty config if file doesn't exist
@@ -2111,7 +2112,7 @@ async def update_email_proxy_config(request: dict):
         yaml_content = yaml.dump(
             request, allow_unicode=True, default_flow_style=False, sort_keys=False
         )
-        result = await matrix_runtime.config_service.write_config(
+        result = await ConfigService(matrix_runtime.paths).write_config(
             "email_proxy", yaml_content, skip_verification=False
         )
 
@@ -2136,7 +2137,7 @@ async def enable_email_proxy():
         # Read current config, update enabled field, write back
         import yaml
 
-        result = matrix_runtime.config_service.read_config("email_proxy")
+        result = ConfigService(matrix_runtime.paths).read_config("email_proxy")
 
         if result.success:
             config = yaml.safe_load(result.content) or {}
@@ -2147,7 +2148,7 @@ async def enable_email_proxy():
         yaml_content = yaml.dump(
             config, allow_unicode=True, default_flow_style=False, sort_keys=False
         )
-        await matrix_runtime.config_service.write_config(
+        await ConfigService(matrix_runtime.paths).write_config(
             "email_proxy", yaml_content, skip_verification=True
         )
 
@@ -2167,7 +2168,7 @@ async def disable_email_proxy():
         # Read current config, update enabled field, write back
         import yaml
 
-        result = matrix_runtime.config_service.read_config("email_proxy")
+        result = ConfigService(matrix_runtime.paths).read_config("email_proxy")
 
         if result.success:
             config = yaml.safe_load(result.content) or {}
@@ -2178,7 +2179,7 @@ async def disable_email_proxy():
         yaml_content = yaml.dump(
             config, allow_unicode=True, default_flow_style=False, sort_keys=False
         )
-        await matrix_runtime.config_service.write_config(
+        await ConfigService(matrix_runtime.paths).write_config(
             "email_proxy", yaml_content, skip_verification=True
         )
 
@@ -2199,7 +2200,7 @@ async def add_user_mailbox(request: dict):
         if not email:
             raise HTTPException(status_code=400, detail="Email is required")
 
-        matrix_runtime.config_service.add_user_mailbox(email)
+        ConfigService(matrix_runtime.paths).add_user_mailbox(email)
         return {"success": True, "message": f"Added user mailbox: {email}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2217,7 +2218,7 @@ async def remove_user_mailbox(request: dict):
         if not email:
             raise HTTPException(status_code=400, detail="Email is required")
 
-        matrix_runtime.config_service.remove_user_mailbox(email)
+        ConfigService(matrix_runtime.paths).remove_user_mailbox(email)
         return {"success": True, "message": f"Removed user mailbox: {email}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

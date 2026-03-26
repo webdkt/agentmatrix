@@ -6,7 +6,8 @@ class_name: agentmatrix.agents.base.BaseAgent
 skills:
   - base
   - email
-  - matrix_admin  # 系统管理技能
+  - agent_admin   # Agent 管理技能
+  - system_admin  # 系统配置管理技能
   - file          # 文件操作（用于备份和配置管理）
 
 # Persona 配置（直接是字符串，不再有二层结构）

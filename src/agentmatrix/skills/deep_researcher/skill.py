@@ -48,8 +48,8 @@ class Deep_researcherSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="执行规划",
-        description="执行研究规划阶段。制定研究计划、章节大纲。完成后自动进入 research 阶段。",
+        short_desc="规划研究（写清楚研究的标题，和研究目的需求描述）",
+        description="执行研究规划阶段。制定研究计划、章节大纲。完成后进入 research 阶段。",
         param_infos={
             "research_title": "研究的标题（简短描述）",
             "research_purpose": "研究的目的和需求"
@@ -239,7 +239,7 @@ class Deep_researcherSkillMixin:
             ResearchPrompts.DIRECTOR_PERSONA_DESIGNER,
             {"research_title": title, "research_purpose": purpose}
         )
-        director_persona = await self.root_agent.cerebellum.think_with_retry(
+        director_persona = await self.root_agent.brain.think_with_retry(
             director_prompt,
             persona_parser,
             header="[正式文稿]"
@@ -250,7 +250,7 @@ class Deep_researcherSkillMixin:
             {"research_title": title, "research_purpose": purpose},
             director_persona=director_persona
         )
-        researcher_persona = await self.root_agent.cerebellum.think_with_retry(
+        researcher_persona = await self.root_agent.brain.think_with_retry(
             researcher_prompt,
             persona_parser,
             header="[正式文稿]"
