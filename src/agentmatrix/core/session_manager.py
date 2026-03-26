@@ -205,10 +205,11 @@ class SessionManager(AutoLoggerMixin):
         Returns:
             dict: 新创建的 session 对象
         """
-        # 如果没有提供session_id，生成新的（使用IDGenerator）
+        # 🆕 如果没有提供session_id，直接使用 task_id
+        # 这样 Agent 的 session_id 和 task_id 保持一致
         if not session_id:
-            session_id = IDGenerator.generate_session_id()
-            self.logger.debug(f"🆕 Generated new session_id: {session_id}")
+            session_id = task_id
+            self.logger.debug(f"🆕 Session ID = Task ID: {session_id[:20]}...")
 
         now = datetime.now().isoformat()
         session = {
@@ -225,7 +226,7 @@ class SessionManager(AutoLoggerMixin):
 
         # 创建 session 目录并保存初始文件
         await self._save_session_history(session)
-        
+
 
         return session
 
