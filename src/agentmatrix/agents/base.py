@@ -241,6 +241,9 @@ class BaseAgent(AutoLoggerMixin):
         self._pause_event.clear()  # 清除事件，导致 await 会阻塞
         self.logger.info(f"⏸️ Agent {self.name} 已暂停")
 
+        # 🔧 更新状态并推送
+        self.update_status(new_status=AgentStatus.PAUSED, new_message="⏸️ Agent已暂停")
+
     async def resume(self):
         """恢复 Agent 执行"""
         if not self._paused:
@@ -250,6 +253,9 @@ class BaseAgent(AutoLoggerMixin):
         self._paused = False
         self._pause_event.set()  # 设置事件，唤醒所有等待的协程
         self.logger.info(f"▶️ Agent {self.name} 已恢复")
+
+        # 🔧 更新状态并推送
+        self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已恢复")
 
     async def _checkpoint(self):
         """
@@ -279,6 +285,9 @@ class BaseAgent(AutoLoggerMixin):
             self._is_stopping = True
             self._execute_task.cancel()
             self.logger.info(f"🛑 Agent {self.name} 已停止当前执行")
+
+            # 🔧 更新状态并推送
+            self.update_status(new_status=AgentStatus.IDLE, new_message="🛑 执行已停止")
         else:
             self.logger.info(f"ℹ️ Agent {self.name} 没有正在执行的任务")
 

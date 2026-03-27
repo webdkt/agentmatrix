@@ -105,6 +105,8 @@
       "actions": "操作",
       "viewPrompt": "查看 Prompt",
       "stop": "停止",
+      "pause": "暂停",
+      "resume": "恢复",
       "reload": "重新加载",
       "clone": "克隆",
       "mailTo": "发邮件",
@@ -113,6 +115,7 @@
       "description": "描述",
       "className": "类名",
       "backendModel": "模型",
+      "status": "状态",
       "skills": "技能",
       "persona": "角色定义",
       "noData": "暂无配置数据"

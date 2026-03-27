@@ -1175,6 +1175,72 @@ async def get_agent_sessions(agent_name: str):
         return {"sessions": [], "error": str(e)}
 
 
+@app.post("/api/agents/{agent_name}/stop")
+async def stop_agent(agent_name: str):
+    """停止 Agent 当前正在执行的任务"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    try:
+        # 调用 BaseAgent.stop() 方法
+        agent.stop()
+        return {"success": True, "message": f"Agent '{agent_name}' stopped"}
+    except Exception as e:
+        print(f"Error stopping agent '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{agent_name}/pause")
+async def pause_agent(agent_name: str):
+    """暂停 Agent 执行"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    try:
+        # 调用 BaseAgent.pause() 方法
+        await agent.pause()
+        return {"success": True, "message": f"Agent '{agent_name}' paused"}
+    except Exception as e:
+        print(f"Error pausing agent '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{agent_name}/resume")
+async def resume_agent(agent_name: str):
+    """恢复 Agent 执行"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    try:
+        # 调用 BaseAgent.resume() 方法
+        await agent.resume()
+        return {"success": True, "message": f"Agent '{agent_name}' resumed"}
+    except Exception as e:
+        print(f"Error resuming agent '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/files")
 async def get_files(path: str = ""):
     """Get files in workspace"""
