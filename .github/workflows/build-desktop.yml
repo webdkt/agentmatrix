@@ -96,12 +96,23 @@ jobs:
         if: matrix.variant == 'full'
         shell: bash
         run: |
+          # Detect runtime (Podman on macOS, Docker on Windows)
+          if command -v podman &> /dev/null; then
+            RUNTIME="podman"
+          elif command -v docker &> /dev/null; then
+            RUNTIME="docker"
+          else
+            echo "Error: Neither Docker nor Podman found"
+            exit 1
+          fi
+          echo "Using runtime: $RUNTIME"
+          
           # Build image
-          docker build -t agentmatrix:latest .
+          $RUNTIME build -t agentmatrix:latest .
           
           # Export to tar (Podman compatible)
           mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          docker save agentmatrix:latest | gzip > agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          $RUNTIME save agentmatrix:latest | gzip > agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
           
           # Verify
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
