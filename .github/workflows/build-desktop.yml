@@ -26,10 +26,16 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            target: universal-apple-darwin
+            target: aarch64-apple-darwin
             variant: full
           - os: macos-latest
-            target: universal-apple-darwin
+            target: aarch64-apple-darwin
+            variant: slim
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            variant: full
+          - os: macos-latest
+            target: x86_64-apple-darwin
             variant: slim
           - os: windows-latest
             target: x86_64-pc-windows-msvc
