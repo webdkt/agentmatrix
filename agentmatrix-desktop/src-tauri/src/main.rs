@@ -509,6 +509,83 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+// ─── XQuartz Detection & Installation (macOS) ───
+
+#[derive(serde::Serialize)]
+struct XQuartzInfo {
+    installed: bool,
+    version: Option<String>,
+    running: bool,
+}
+
+#[tauri::command]
+async fn check_xquartz() -> Result<XQuartzInfo, String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Check if XQuartz is installed
+        let xquartz_path = std::path::Path::new("/Applications/Utilities/XQuartz.app");
+        let installed = xquartz_path.exists();
+
+        let mut version = None;
+        let mut running = false;
+
+        if installed {
+            // Get version from plist
+            if let Ok(output) = StdCommand::new("defaults")
+                .args(["read", "/Applications/Utilities/XQuartz.app/Contents/Info.plist", "CFBundleShortVersionString"])
+                .output()
+            {
+                if output.status.success() {
+                    version = Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+                }
+            }
+
+            // Check if XQuartz is running
+            if let Ok(output) = StdCommand::new("pgrep")
+                .arg("-x", "X11.bin")
+                .output()
+            {
+                running = output.status.success();
+            }
+        }
+
+        println!("XQuartz installed: {}, version: {:?}, running: {}", installed, version, running);
+        Ok(XQuartzInfo { installed, version, running })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(XQuartzInfo { installed: false, version: None, running: false })
+    }
+}
+
+#[tauri::command]
+async fn install_xquartz(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let resource_dir = app.path().resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+        let pkg_path = resource_dir.join("xquartz").join("XQuartz-2.8.5.pkg");
+        if !pkg_path.exists() {
+            return Err("XQuartz installer not found in bundle".to_string());
+        }
+
+        // Open the PKG installer
+        StdCommand::new("open")
+            .arg(&pkg_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open installer: {}", e))?;
+
+        Ok("Opened XQuartz installer. Please follow the installation instructions.".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("XQuartz is only available on macOS".to_string())
+    }
+}
+
 fn main() {
     // Initialize config on first run (don't save, just check)
     match AppConfig::load() {
@@ -545,6 +622,8 @@ fn main() {
             save_email_proxy_config_cmd,
             check_container_runtime,
             install_podman,
+            check_xquartz,
+            install_xquartz,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

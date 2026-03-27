@@ -85,6 +85,14 @@ jobs:
               "https://github.com/containers/podman/releases/latest/download/podman-v5.0.0-setup-x64.msi"
           fi
 
+      # ==================== XQuartz Installer (macOS Full variant only) ====================
+      - name: Download XQuartz installer
+        if: matrix.variant == 'full' && matrix.os == 'macos-latest'
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/resources/xquartz
+          curl -L -o agentmatrix-desktop/src-tauri/resources/xquartz/XQuartz-2.8.5.pkg \
+            "https://github.com/XQuartz/XQuartz/releases/download/XQuartz-2.8.5/XQuartz-2.8.5.pkg"
+
       # ==================== Copy Server to Tauri Sidecar ====================
       - name: Copy server to sidecar directory
         shell: bash

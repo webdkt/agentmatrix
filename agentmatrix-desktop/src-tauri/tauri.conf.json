@@ -38,7 +38,8 @@
     ],
     "resources": [
       "resources/matrix-template/**/*",
-      "resources/podman/**/*"
+      "resources/podman/**/*",
+      "resources/xquartz/**/*"
     ],
     "externalBin": [
       "binaries/server"

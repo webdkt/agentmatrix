@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Tuple, Dict, Optional
 import hashlib
 import logging
+import os
+import platform
+import subprocess
 from datetime import datetime
 
 from .runtime_factory import ContainerRuntimeFactory
 from .runtime_adapter import ContainerAdapter, ContainerHandle
 from .compat import ContainerCompat
-
 
 
 def sanitize_container_name(agent_name: str) -> str:
@@ -35,7 +37,7 @@ def sanitize_container_name(agent_name: str) -> str:
         str: 符合规范的容器名称（格式：agent_xxxxxxxxxxxx）
     """
     # SHA256 哈希，取前 8 位
-    hash_obj = hashlib.sha256(agent_name.encode('utf-8'))
+    hash_obj = hashlib.sha256(agent_name.encode("utf-8"))
     short_hash = hash_obj.hexdigest()[:8]
     return f"agent_{short_hash}"
 
@@ -62,7 +64,7 @@ class ContainerManager:
         workspace_root: Path,
         image_name: str = "agentmatrix:latest",
         runtime_type: str = None,
-        parent_logger: Optional[logging.Logger] = None
+        parent_logger: Optional[logging.Logger] = None,
     ):
         """
         初始化容器管理器
@@ -90,8 +92,7 @@ class ContainerManager:
 
         # 初始化容器运行时适配器
         self.adapter: ContainerAdapter = ContainerRuntimeFactory.create(
-            runtime_type=runtime_type,
-            logger=self.logger
+            runtime_type=runtime_type, logger=self.logger
         )
 
         # 检测运行时类型
@@ -146,30 +147,68 @@ class ContainerManager:
         - /home -> agent_files/{agent_name}/home (rw)
         - /work_files_base -> agent_files/{agent_name}/work_files (rw)
 
+        X11 转发（通过 AGENTMATRIX_X11=true 启用）：
+        - Linux: 挂载 /tmp/.X11-unix, DISPLAY=:0, ipc_mode=host
+        - macOS: xhost +localhost, DISPLAY=host.docker.internal:0
+
         Raises:
             RuntimeError: 容器创建失败
         """
         try:
             # 准备挂载配置
             volumes = {
-                str(self.skills_dir): {'bind': '/SKILLS', 'mode': 'ro'},
-                str(self.agent_home): {'bind': '/home', 'mode': 'rw'},
-                str(self.work_files_base): {'bind': '/work_files_base', 'mode': 'rw'},
+                str(self.skills_dir): {"bind": "/SKILLS", "mode": "ro"},
+                str(self.agent_home): {"bind": "/home", "mode": "rw"},
+                str(self.work_files_base): {"bind": "/work_files_base", "mode": "rw"},
             }
 
+            # 环境变量
+            environment = {}
+
+            # X11 转发支持
+            enable_x11 = os.environ.get("AGENTMATRIX_X11", "").lower() == "true"
+            ipc_mode = None
+
+            if enable_x11:
+                system = platform.system()
+                if system == "Linux":
+                    # Linux: 挂载 X11 socket，使用 host IPC
+                    x11_socket = "/tmp/.X11-unix"
+                    if os.path.exists(x11_socket):
+                        volumes[x11_socket] = {"bind": x11_socket, "mode": "rw"}
+                    environment["DISPLAY"] = os.environ.get("DISPLAY", ":0")
+                    ipc_mode = "host"
+                    self.logger.info("🖥️ X11 转发已启用 (Linux)")
+
+                elif system == "Darwin":
+                    # macOS: 授权 localhost 访问，通过 TCP 转发
+                    try:
+                        subprocess.run(
+                            ["xhost", "+localhost"], capture_output=True, timeout=5
+                        )
+                        self.logger.info("✅ xhost +localhost 授权成功")
+                    except Exception as e:
+                        self.logger.warning(f"xhost 授权失败: {e}")
+                    environment["DISPLAY"] = "host.docker.internal:0"
+                    self.logger.info("🖥️ X11 转发已启用 (macOS)")
+
             # 创建容器
-            self.container = self.adapter.create_container(
-                name=self.container_name,
-                image=self.image_name,
-                volumes=volumes,
-                detach=True,
-                tty=True,  # 保持容器运行
-                auto_remove=False,  # 不自动删除，便于调试
-            )
+            create_kwargs = {
+                "name": self.container_name,
+                "image": self.image_name,
+                "volumes": volumes,
+                "environment": environment,
+                "detach": True,
+                "tty": True,  # 保持容器运行
+                "auto_remove": False,  # 不自动删除，便于调试
+            }
+            if ipc_mode:
+                create_kwargs["ipc_mode"] = ipc_mode
+
+            self.container = self.adapter.create_container(**create_kwargs)
 
             self.logger.info(
-                f"✅ 容器创建成功: {self.container_name} "
-                f"({self.container.short_id})"
+                f"✅ 容器创建成功: {self.container_name} ({self.container.short_id})"
             )
 
         except Exception as e:
@@ -196,12 +235,11 @@ class ContainerManager:
             exit_code, output = self.container.exec_run(cmd, workdir="/")
 
             if exit_code != 0:
-                error_msg = output.decode('utf-8', errors='ignore').strip()
+                error_msg = output.decode("utf-8", errors="ignore").strip()
                 raise RuntimeError(f"创建默认符号链接失败: {error_msg}")
 
             self.logger.info(
-                "✅ 默认工作区符号链接已创建: "
-                "/work_files -> /work_files_base/default"
+                "✅ 默认工作区符号链接已创建: /work_files -> /work_files_base/default"
             )
 
         except Exception as e:
@@ -342,7 +380,7 @@ class ContainerManager:
             exit_code, output = self.container.exec_run(ln_cmd, workdir="/")
 
             if exit_code != 0:
-                error_msg = output.decode('utf-8', errors='ignore').strip()
+                error_msg = output.decode("utf-8", errors="ignore").strip()
                 raise RuntimeError(f"符号链接创建失败: {error_msg}")
 
             self.logger.info(
@@ -353,10 +391,9 @@ class ContainerManager:
 
         except Exception as e:
             raise RuntimeError(f"工作区切换失败: {e}") from e
+
     async def exec_command(
-        self,
-        command: str,
-        timeout: int = 30
+        self, command: str, timeout: int = 30
     ) -> Tuple[int, str, str]:
         """
         在容器内执行命令（async 版本）
@@ -392,26 +429,31 @@ class ContainerManager:
 
             # 🔧 使用 subprocess 直接调用 podman exec（SDK 的 exec_run 有 bug）
             import asyncio
+
             loop = asyncio.get_event_loop()
 
             # 构建完整的 podman exec 命令
             runtime_cmd = "podman" if self.runtime_type == "podman" else "docker"
-            cmd_list = [runtime_cmd, "exec", self.container_name, "sh", "-c", full_command]
+            cmd_list = [
+                runtime_cmd,
+                "exec",
+                self.container_name,
+                "sh",
+                "-c",
+                full_command,
+            ]
 
             self.logger.info(f"[exec_command] 执行命令: {' '.join(cmd_list)}")
 
             # 在线程池中执行
             def run_command():
                 start_time = time.time()
-                
+
                 # 使用 Popen 启动进程
                 process = subprocess.Popen(
-                    cmd_list,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
+                    cmd_list, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                 )
-                
+
                 try:
                     # 等待最多1小时
                     stdout, stderr = process.communicate(timeout=3600)
@@ -431,7 +473,6 @@ class ContainerManager:
 
         except Exception as e:
             raise RuntimeError(f"命令执行失败: {e}") from e
-
 
     def get_status(self) -> Dict:
         """
@@ -456,7 +497,7 @@ class ContainerManager:
                 "status": self.container.status,
                 "image": self.image_name,
                 "runtime": self.runtime_type,
-                "created": self.container.get_attribute('Created'),
+                "created": self.container.get_attribute("Created"),
             }
 
         except Exception as e:
@@ -464,7 +505,7 @@ class ContainerManager:
                 "name": self.container_name,
                 "status": "error",
                 "runtime": self.runtime_type,
-                "error": str(e)
+                "error": str(e),
             }
 
     def stop(self) -> bool:
@@ -525,7 +566,7 @@ class ContainerManager:
     def __del__(self):
         """析构函数：清理资源"""
         try:
-            if hasattr(self, 'adapter') and self.adapter:
+            if hasattr(self, "adapter") and self.adapter:
                 self.adapter.close()
         except Exception:
             pass
