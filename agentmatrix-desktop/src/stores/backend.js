@@ -171,9 +171,10 @@ export const useBackendStore = defineStore('backend', {
     async initializeBackend() {
       console.log('🚀 Initializing backend...')
 
-      // Reset state in case previous startup left isStarting = true (e.g. app crash)
+      // Reset state in case previous startup left stale state (e.g. app crash)
       this.isStarting = false
       this.isStopping = false
+      this.isRunning = false
 
       // Check if backend is already running
       const isRunning = await this.checkBackendInternal()
