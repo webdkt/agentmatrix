@@ -542,7 +542,7 @@ async fn check_xquartz() -> Result<XQuartzInfo, String> {
 
             // Check if XQuartz is running
             if let Ok(output) = StdCommand::new("pgrep")
-                .arg("-x", "X11.bin")
+                .args(["-x", "X11.bin"])
                 .output()
             {
                 running = output.status.success();
