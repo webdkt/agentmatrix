@@ -179,18 +179,8 @@ class ContainerManager:
                     environment["DISPLAY"] = os.environ.get("DISPLAY", ":0")
                     ipc_mode = "host"
                     self.logger.info("🖥️ X11 转发已启用 (Linux)")
-
-                elif system == "Darwin":
-                    # macOS: 授权 localhost 访问，通过 TCP 转发
-                    try:
-                        subprocess.run(
-                            ["xhost", "+localhost"], capture_output=True, timeout=5
-                        )
-                        self.logger.info("✅ xhost +localhost 授权成功")
-                    except Exception as e:
-                        self.logger.warning(f"xhost 授权失败: {e}")
-                    environment["DISPLAY"] = "host.docker.internal:0"
-                    self.logger.info("🖥️ X11 转发已启用 (macOS)")
+                else:
+                    self.logger.warning("⚠️ X11 转发仅在 Linux 上支持")
 
             # 创建容器
             create_kwargs = {
