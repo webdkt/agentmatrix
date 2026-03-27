@@ -141,6 +141,51 @@ export const useMatrixStore = defineStore('matrix', () => {
     }
   }
 
+  /**
+   * 停止 Agent 当前正在执行的任务
+   * @param {string} agentName - Agent 名称
+   */
+  async function stopAgent(agentName) {
+    try {
+      const result = await matrixAPI.stopAgent(agentName)
+      console.log('✅ Agent stopped:', result.message)
+      return result
+    } catch (error) {
+      console.error('Failed to stop agent:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 暂停 Agent 执行
+   * @param {string} agentName - Agent 名称
+   */
+  async function pauseAgent(agentName) {
+    try {
+      const result = await matrixAPI.pauseAgent(agentName)
+      console.log('✅ Agent paused:', result.message)
+      return result
+    } catch (error) {
+      console.error('Failed to pause agent:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 恢复 Agent 执行
+   * @param {string} agentName - Agent 名称
+   */
+  async function resumeAgent(agentName) {
+    try {
+      const result = await matrixAPI.resumeAgent(agentName)
+      console.log('✅ Agent resumed:', result.message)
+      return result
+    } catch (error) {
+      console.error('Failed to resume agent:', error)
+      throw error
+    }
+  }
+
   return {
     // State
     agents,
@@ -165,6 +210,9 @@ export const useMatrixStore = defineStore('matrix', () => {
     loadLog,
     loadSessions,
     refreshLog,
-    loadAgentPrompt
+    loadAgentPrompt,
+    stopAgent,
+    pauseAgent,
+    resumeAgent
   }
 })

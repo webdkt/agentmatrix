@@ -50,5 +50,29 @@ export const matrixAPI = {
    */
   async getStatus(agentName) {
     return API.get(`/api/agents/${agentName}/status`)
+  },
+
+  /**
+   * 停止 Agent 当前正在执行的任务
+   * @param {string} agentName - Agent 名称
+   */
+  async stopAgent(agentName) {
+    return API.post(`/api/agents/${agentName}/stop`)
+  },
+
+  /**
+   * 暂停 Agent 执行
+   * @param {string} agentName - Agent 名称
+   */
+  async pauseAgent(agentName) {
+    return API.post(`/api/agents/${agentName}/pause`)
+  },
+
+  /**
+   * 恢复 Agent 执行
+   * @param {string} agentName - Agent 名称
+   */
+  async resumeAgent(agentName) {
+    return API.post(`/api/agents/${agentName}/resume`)
   }
 }

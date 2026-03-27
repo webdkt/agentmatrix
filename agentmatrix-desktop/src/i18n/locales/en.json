@@ -105,6 +105,8 @@
       "actions": "Actions",
       "viewPrompt": "View Prompt",
       "stop": "Stop",
+      "pause": "Pause",
+      "resume": "Resume",
       "reload": "Reload",
       "clone": "Clone",
       "mailTo": "Mail To",
@@ -113,6 +115,7 @@
       "description": "Description",
       "className": "Class",
       "backendModel": "Model",
+      "status": "Status",
       "skills": "Skills",
       "persona": "Persona",
       "noData": "No profile data available"
