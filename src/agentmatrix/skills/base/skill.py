@@ -76,39 +76,52 @@ class BaseSkillMixin:
             "ask_user should be handled by MicroAgent._execute_action, check root_agent"
         )
 
+    
+
     @register_action(
-        short_desc="列出扩展技能",
-        description="扫描 /home/SKILLS/ 目录，返回可用扩展技能的概要列表。每个子目录是一个技能，包含 skill.md 描述文件。",
+        short_desc="将重要信息临时pin到本次会话记忆中，必须先unpin清空才能pin新的。如果需要合并就自己整理好新的全量内容。",
+        description="将重要信息临时pin到本次会话记忆中，以便在后续步骤中持续访问。注意：必须先使用 unpin_memory 清空之前的固定记忆才能使用此功能。",
+        param_infos={"content": "要固定的信息内容"},
+    )
+    async def pin_memory(self, content: str) -> str:
+        """
+        固定信息到记忆中
+
+        将重要信息保存到 pinned_memory，以便在后续步骤中持续访问。
+        如果已经有固定记忆，需要先使用 unpin_memory 清空。
+
+        Args:
+            content: 要固定的信息内容
+
+        Returns:
+            str: 操作结果
+
+        Raises:
+            RuntimeError: 如果已有固定记忆且未清空
+        """
+        if self.pinned_memory is not None:
+            raise RuntimeError(
+                "已有固定记忆存在，请先使用 unpin_memory 清空后再使用 pin_memory"
+            )
+
+        self.pinned_memory = content
+        return f"Done"
+
+    @register_action(
+        short_desc="清空固定的记忆",
+        description="清空 pinned_memory 中的固定记忆，释放内存空间。",
         param_infos={},
     )
-    async def list_additional_skills(self) -> str:
+    async def unpin_memory(self) -> str:
         """
-        列出 Agent 私有的 MD Skills
+        清空固定的记忆
 
-        扫描 /home/SKILLS/ 目录，发现用户添加的扩展技能。
+        将 pinned_memory 设置为 None，释放内存空间。
+
+        Returns:
+            str: 操作结果
         """
-        from ...skills.md_parser import MDSkillParser
+    
+        self.pinned_memory = None
+        return f"已unpin记忆"
 
-        skills_dir = Path("/home/SKILLS")
-        if not skills_dir.exists():
-            return "暂无扩展技能（/home/SKILLS/ 目录不存在）"
-
-        result_lines = []
-        for skill_dir in sorted(skills_dir.iterdir()):
-            if not skill_dir.is_dir():
-                continue
-            skill_md = skill_dir / "skill.md"
-            if not skill_md.exists():
-                continue
-
-            metadata = MDSkillParser.parse(skill_md)
-            if metadata:
-                result_lines.append(f"## {metadata.name}")
-                result_lines.append(f"描述: {metadata.description}")
-                result_lines.append(f"完整文档: /home/SKILLS/{skill_dir.name}/skill.md")
-                if metadata.actions:
-                    actions_list = ", ".join(a.name for a in metadata.actions)
-                    result_lines.append(f"包含操作: {actions_list}")
-                result_lines.append("")
-
-        return "\n".join(result_lines) if result_lines else "暂无扩展技能"

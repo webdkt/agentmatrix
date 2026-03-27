@@ -114,6 +114,7 @@ class MicroAgent(AutoLoggerMixin):
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
         self.max_steps = 1024
+        self.pinned_memory: Optional[str] = None  # 固定记忆（用于跨步骤保持重要信息）
 
         # ========== 🆕 压缩相关（默认开启，无需配置）==========
         self.compression_token_threshold = 32000  # 32K tokens
@@ -1108,14 +1109,17 @@ Start generating the Whiteboard now.
 *   **避免歧义**：如果有多个 skill 都有同名 action，请使用完全限定名称 `skill_name.action_name`
 *   通过 help(skill_name.action_name) 来查看 action 的详细说明和参数列表
 """
-
+        
+        #TODO: 更换逻辑
         # 🆕 动态发现的扩展技能库
-        prompt += """#### B. 扩展技能库 (Procedural Skills)
-你的扩展技能存放在 /home/SKILLS/ 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。
-
-发现技能：使用 `base.list_additional_skills()` 可以列出当前可用的扩展技能，包括技能描述和包含的操作。
-
-"""
+        md_skill_count = self._get_md_skill_count()
+        if md_skill_count>0 and self._is_top_level_microagent():
+            prompt += f"""#### B. 扩展技能库 (Procedural Skills)
+            你有{md_skill_count}个额外扩展技能存放在 /home/SKILLS/ 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
+            如果需要使用额外技能，先列目录，看有什么技能（目录名代表了技能的名字）
+            如果名字看上去可能是你需要的，就继续读里面的SKILL.md 的开头，判断是否真的是你需要的技能
+            如果是需要的技能，就继续阅读，理解如何使用
+        """
 
         # 如果提供了黄页信息，添加黄页部分
         if self.yellow_pages:
@@ -1133,10 +1137,10 @@ Start generating the Whiteboard now.
 
 **1. 思考块**
 使用 `[THOUGHTS]` 标签开始。
-在这里尽情思考，分析 Whiteboard，拆解任务。这是你的草稿纸，不需要拘泥于格式。
+在这里尽情思考，分析 Whiteboard，拆解任务。这是你的草稿纸，不需要拘泥于格式。这里的内容是给自己看的
 
 **2. 行动块**
-使用 `[ACTION]` 标签开始。
+使用 `[ACTION]` 标签开始。这里的内容是给工具执行器看的
 
 #### ⚠️ 执行原则
 *   **每次只执行一个 action**（99% 的情况）
@@ -1149,7 +1153,8 @@ Start generating the Whiteboard now.
 你的想法和意图，这是给你自己的，工具看不到，不需要担心格式，只要清晰表达思考过程和下一步计划即可
 
 [ACTION]
-为实现意图而立刻要做的动作（只能从可用动作里选择），并提供完成该动作需要的全部信息。
+为实现意图而立刻要做的动作（只能从可用动作里选择），并提供完成该动作需要的全部信息。注意，THOUGHTS和ACTION里面的信息没有必要重复，例如你打算写入文件，具体要写的内容当然必须在ACTION里明确提供，这样就不需要在THOUGHTS里再
+念叨一遍了。
 
 示例格式：
 • base.get_current_datetime()
@@ -1204,6 +1209,40 @@ Start generating the Whiteboard now.
             lines.append("")  # 空行分隔
 
         return "\n".join(lines)
+
+    def _get_md_skill_count(self) -> int:
+        """
+        获取 root_agent 的 MD skill 数量
+
+        扫描 root_agent 的 skill 目录，统计有多少个直接子目录
+        且这些子目录下直接有 SKILL.md 文件（不区分大小写）
+
+        Returns:
+            int: skill 数量，没有则返回 0
+        """
+        try:
+            # 获取 root_agent 的 skill 目录
+            skills_dir = self.root_agent.runtime.paths.get_agent_skills_dir(self.root_agent.name)
+
+            # 如果目录不存在，返回 0
+            if not skills_dir.exists():
+                return 0
+
+            # 扫描直接子目录
+            count = 0
+            for item in skills_dir.iterdir():
+                # 只处理目录
+                if item.is_dir():
+                    # 检查目录下是否有 SKILL.md 文件（不区分大小写）
+                    for file in item.iterdir():
+                        if file.is_file() and file.name.upper() == "SKILL.MD":
+                            count += 1
+                            break
+
+            return count
+        except Exception as e:
+            self.logger.warning(f"Failed to get MD skill count: {e}")
+            return 0
 
     def _get_skill_description(self, skill_name: str) -> str:
         """
@@ -1317,9 +1356,28 @@ Start generating the Whiteboard now.
                 self.root_agent.update_status(
                     new_status="THINKING", new_message="Thinking..."
                 )
+                #Inject pinned memory
+                msg_copy = None
+                if self.pinned_memory:
+                    msg_copy = self.messages.copy()
+                    if msg_copy and msg_copy[0]["role"] == "system":
+                        old_system_msg = msg_copy[0]["content"]
+                        msg_copy[0] = {
+                            "role": "system",
+                            "content": old_system_msg + f"\n\n====PINNED MEMORY===\n{self.pinned_memory}\n===========",
+                        }
+                    else:
+                        msg_copy.insert(0,{
+                            "role": "system",
+                            "content": f"\n\n====PINNED MEMORY===\n{self.pinned_memory}\n===========",
+                        })
+
+                # 添加新的任务输入（只在恢复已有会话时）
+                self._add_message("user", self._format_task_message())
+                
 
                 thought = await self.brain.think_with_retry(
-                    initial_messages=self.messages,
+                    initial_messages=msg_copy or self.messages,
                     parser=self._parse_actions_from_thought,
                     action_registry=self.action_registry["_flat"],
                     max_retries=3,

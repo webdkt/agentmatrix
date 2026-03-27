@@ -793,7 +793,7 @@ class BaseAgent(AutoLoggerMixin):
             self.status_history.append(entry)
             if len(self.status_history) > self._max_status_history:
                 self.status_history.pop(0)
-            self.logger.debug(f"📊 Status history: {new_message[:50]}")
+            self.logger.debug(f"📊 Status history: {new_message}")
 
         # 🔧 3. 立即收集状态快照（同步），然后异步发送
         # 这样确保发送的是调用 update_status 时的状态，而不是稍后任务执行时的状态
