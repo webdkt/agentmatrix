@@ -27,9 +27,6 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-            variant: full
-          - os: macos-latest
-            target: aarch64-apple-darwin
             variant: slim
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -90,38 +87,24 @@ jobs:
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman.msi \
             "https://github.com/containers/podman/releases/latest/download/podman-v5.0.0-setup-x64.msi"
-      # ==================== Docker Image (Full variant only) ====================
-      - name: Install Podman (macOS)
-        if: matrix.variant == 'full' && matrix.os == 'macos-latest'
+      # ==================== Docker Image (Full variant only, Linux x86_64 only) ====================
+      - name: Build and export Docker image
+        if: matrix.variant == 'full' && matrix.os == 'macos-latest' && matrix.target == 'x86_64-apple-darwin'
         run: |
-          brew install podman
-          podman machine init
-          podman machine start
-          echo "✓ Podman installed and started"
+          # Build on macOS x86_64 (has Docker Desktop pre-installed)
+          docker build -t agentmatrix:latest .
+          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
+          docker save agentmatrix:latest | gzip > agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
       - name: Build and export Docker image
-        if: matrix.variant == 'full'
+        if: matrix.variant == 'full' && matrix.os == 'windows-latest'
         shell: bash
         run: |
-          # Detect runtime (Podman on macOS, Docker on Windows)
-          if command -v podman &> /dev/null; then
-            RUNTIME="podman"
-          elif command -v docker &> /dev/null; then
-            RUNTIME="docker"
-          else
-            echo "Error: Neither Docker nor Podman found"
-            exit 1
-          fi
-          echo "Using runtime: $RUNTIME"
-          
-          # Build image
-          $RUNTIME build -t agentmatrix:latest .
-          
-          # Export to tar (Podman compatible)
+          # Windows has Docker pre-installed
+          docker build -t agentmatrix:latest .
           mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          $RUNTIME save agentmatrix:latest | gzip > agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-          
-          # Verify
+          docker save agentmatrix:latest | gzip > agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
       # ==================== Copy Server to Tauri Sidecar ====================
