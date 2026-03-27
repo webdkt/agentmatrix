@@ -70,7 +70,7 @@ class AgentMatrix(AutoLoggerMixin):
             user_agent_name = self.config.matrix.user_agent_name
 
         self.async_event_callback = async_event_callback
-        self.matrix_path = matrix_root  # 保留向后兼容
+        #self.matrix_path = matrix_root  # 保留向后兼容
 
         # Store user agent name
         self.user_agent_name = user_agent_name
@@ -447,7 +447,7 @@ class AgentMatrix(AutoLoggerMixin):
 
     def load_matrix(self):
         """一键复活"""
-        self.echo(f">>> 正在从 {self.matrix_path} 恢复世界...")
+        self.echo(f">>> 正在从 {self.paths.snapshot_path} 恢复世界...")
 
         matrix_snapshot_path = str(self.paths.snapshot_path)
         os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
