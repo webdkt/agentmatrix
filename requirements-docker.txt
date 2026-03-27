@@ -43,7 +43,6 @@ pdfplumber>=0.10.0     # PDF 解析
 
 # === 浏览器自动化 ===
 playwright>=1.40.0       # 浏览器自动化
-playwright-stealth>=1.0.6 # 反爬检测绕过
 
 # === 其他实用工具 ===
 pydantic>=2.0.0        # 数据验证

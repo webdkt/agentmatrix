@@ -12,7 +12,7 @@
 
 ### 2. requirements-docker.txt — 加 Python 依赖
 
-加 `playwright` 和 `playwright-stealth`（不加 browser-use）。
+只加 `playwright`（不加 browser-use）。
 
 ### 3. 容器环境变量
 
