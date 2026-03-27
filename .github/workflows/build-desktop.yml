@@ -99,6 +99,21 @@ jobs:
           curl -L -o agentmatrix-desktop/src-tauri/resources/xquartz/XQuartz-2.8.5.pkg \
             "https://github.com/XQuartz/XQuartz/releases/download/XQuartz-2.8.5/XQuartz-2.8.5.pkg"
 
+      # ==================== Docker Image (Full variant only) ====================
+      - name: Build and export Docker image
+        if: matrix.variant == 'full'
+        shell: bash
+        run: |
+          # Build image
+          docker build -t agentmatrix:latest .
+          
+          # Export to tar (Podman compatible)
+          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
+          docker save agentmatrix:latest | gzip > agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          
+          # Verify
+          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+
       # ==================== Copy Server to Tauri Sidecar ====================
       - name: Copy server to sidecar directory
         shell: bash

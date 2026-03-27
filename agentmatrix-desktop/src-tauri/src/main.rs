@@ -586,6 +586,74 @@ async fn install_xquartz(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+// ─── Docker Image Management ───
+
+#[derive(serde::Serialize)]
+struct ImageInfo {
+    exists: bool,
+    size: Option<String>,
+}
+
+#[tauri::command]
+async fn check_image() -> Result<ImageInfo, String> {
+    // Check if agentmatrix:latest image exists
+    if let Ok(output) = StdCommand::new("podman")
+        .args(["images", "--format", "{{.Size}}", "agentmatrix:latest"])
+        .output()
+    {
+        if output.status.success() {
+            let size_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !size_str.is_empty() {
+                return Ok(ImageInfo {
+                    exists: true,
+                    size: Some(size_str),
+                });
+            }
+        }
+    }
+    
+    Ok(ImageInfo {
+        exists: false,
+        size: None,
+    })
+}
+
+#[tauri::command]
+async fn load_image(app: tauri::AppHandle) -> Result<String, String> {
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    
+    let image_path = resource_dir.join("docker").join("image.tar.gz");
+    if !image_path.exists() {
+        return Err("Docker image not found in bundle".to_string());
+    }
+    
+    println!("Loading Docker image from: {:?}", image_path);
+    
+    // Load image: gunzip | podman load
+    let output = if cfg!(target_os = "windows") {
+        StdCommand::new("cmd")
+            .args(["/c", "type", &image_path.to_string_lossy(), "|", "gzip", "-d", "|", "podman", "load"])
+            .output()
+            .map_err(|e| format!("Failed to load image: {}", e))?
+    } else {
+        StdCommand::new("sh")
+            .args(["-c", &format!("gunzip -c '{}' | podman load", image_path.to_string_lossy())])
+            .output()
+            .map_err(|e| format!("Failed to load image: {}", e))?
+    };
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to load image: {}", stderr));
+    }
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    println!("✅ Image loaded: {}", stdout);
+    
+    Ok("Image loaded successfully".to_string())
+}
+
 fn main() {
     // Initialize config on first run (don't save, just check)
     match AppConfig::load() {
@@ -624,6 +692,8 @@ fn main() {
             install_podman,
             check_xquartz,
             install_xquartz,
+            check_image,
+            load_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
