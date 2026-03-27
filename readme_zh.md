@@ -1,415 +1,287 @@
 # AgentMatrix
 
-一个让 LLM 专注于**推理**而不是格式合规的智能多 Agent 框架。让Agent系统开发变得更自然。
-实现：
-- 自然语言函数：不再是简单的大模型API调用，而是自然语言函数：输入自然语言意图，得到意图执行结果，无需特别关注格式。不再需要花费力气去定义JSON格式，只需要关注意图本身。
-- 自然的Sub Agent上下文管理：Agent的可以递归嵌套的调用skill(实质是sub agent，本项目中用micro agent这个名字），使得Agent可以处理更复杂的任务。这些micro agent工作任务的上下文自然自动的隔离，无需担心上下文污染。可以支持长周期的任务而无需进行复杂的手动上下文管理
+[English](readme.md) | 中文
 
-[**English**](readme.md) | [**中文文档**](readme_zh.md)
+**让 LLM 专注于思考，而不是格式。**
 
-## 🎯 AgentMatrix 是什么？
+我们一直在思考一个问题：为什么让一个强大的语言模型做点事情，非要先教会它写 JSON？
 
-AgentMatrix 是一个多 Agent 框架，特点是：
+你让 GPT 帮你做研究，它得先理解你的意图，然后还得小心翼翼地输出 `{"action": "search", "parameters": {"query": "..."}}`。推理能力和格式能力，两种完全不同的能力被硬塞进了同一个输出通道。这就像让一个人一边解数学题一边同时写书法——两个任务互相干扰，哪个都做不好。
 
-- **Agent** 像拥有特定技能的数字员工
-- Agent 通过**自然语言**（类似邮件）协作，而不是僵硬的 API 调用
-- LLM 可以自然推理，不会把"脑力"浪费在 JSON 语法上
+AgentMatrix 的核心理念就是把这两件事分开。让大模型专心思考，让小模型处理格式。就这么简单。
 
-## 📦 项目组织
+---
 
-AgentMatrix 仓库包含三个主要部分：
+## 它是什么
 
-### 1. 核心框架 (`src/agentmatrix/`)
-AgentMatrix 的核心 - 用于构建智能 Agent 的 Python 库。
-- **安装**: `pip install matrix-for-agents`
-- **用途**: 作为库在你自己的项目中使用
-- **包含**: Agent 运行时、技能系统、LLM 集成、消息路由
+AgentMatrix 是一个多 Agent 框架 + 原生桌面应用。
 
-### 2. 桌面应用 (`agentmatrix-desktop/`)
-AgentMatrix 的官方桌面应用，具有原生功能。
-- **安装**: `cd agentmatrix-desktop && npm install`
-- **启动**: `cd agentmatrix-desktop && npm run tauri:dev`
-- **构建**: `cd agentmatrix-desktop && npm run tauri:build`
-- **特性**: 可视化 Agent 交互界面、邮件式消息系统、会话管理、系统托盘、原生通知
-- **技术**: Vue 3 + Vite + Tauri (Rust 后端)
-- **文档**: 参见 [agentmatrix-desktop/README.md](agentmatrix-desktop/README.md)
+它不只是又一个 "AI Agent SDK"。它重新定义了 Agent 之间、Agent 与人之间的协作方式。
 
-### 3. 示例 (`examples/`)
-帮助您快速上手的示例配置和教程。
-- **MyWorld**: 包含多个 Agent 的完整示例世界
-- **文档**: 参见 [examples/README.md](examples/README.md)
+### 三个核心创新
 
-**快速开始路径**:
-- 🖥️ **想要可视化界面？** → 启动 Web 应用: `python server.py`
-- 🐍 **想要编程使用？** → 作为库安装: `pip install matrix-for-agents`
-- 📚 **想要通过示例学习？** → 探索 `examples/MyWorld`
-
-## 🧠 为什么这很重要？
-
-### 问题所在
-
-大多数 Agent 框架强迫强大的 LLM 在僵硬的格式（如 JSON）里思考。这会导致：
-
-- ❌ LLM 的注意力被语法占用，而不是推理
-- ❌ 频繁的解析错误和脆弱的工作流
-- ❌ 降低了 LLM 处理复杂任务的能力
-
-**我们的理论**：要求 LLM 在做复杂推理的同时还要完美格式化 JSON，就像让人在杂耍的同时解微积分。你在增加不必要的认知负担。
-
-### 我们的解决方案
-
-AgentMatrix 使用 **大脑 + 小脑 + 身体**架构：
+**1. 大脑 + 小脑：让思考和执行分离**
 
 ```
-┌─────────────────────────────────────────────────┐
-│  🧠 大脑 (LLM)                                  │
-│  - 用自然语言推理                              │
-│  - 决定"要做什么"                              │
-│  - 无格式约束 → 更好的推理                     │
-└─────────────────────────────────────────────────┘
-                      ↓
-┌─────────────────────────────────────────────────┐
-│  🧠 小脑 (SLM)                                  │
-│  - 将意图翻译成结构化数据                      │
-│  - 处理参数协商                                │
-│  - 澄清不清楚的请求                            │
-└─────────────────────────────────────────────────┘
-                      ↓
-┌─────────────────────────────────────────────────┐
-│  💪 身体 (Python 代码)                          │
-│  - 执行函数                                    │
-│  - 提供反馈                                    │
-│  - 管理资源                                    │
-└─────────────────────────────────────────────────┘
+大脑 (LLM)          →  用自然语言思考，决定"做什么"
+小脑 (SLM)          →  把意图翻译成结构化参数
+身体 (Python 代码)   →  实际执行
 ```
 
-**核心洞察**：让 LLM 用自然语言思考，然后用更小的模型把那个意图翻译成机器可执行的命令。
+大脑不需要知道什么是 JSON。它只管思考。小脑负责把"我觉得应该搜索一下这个话题"翻译成 `web_search(query="...")`。如果意图不明确，小脑会反问大脑。两个模型各司其职。
 
-## ✨ 核心特性
+**2. 邮件系统：Agent 之间的沟通方式**
 
-### 1. 双层 Agent 架构 (v0.1.5+)
-
-**BaseAgent = 会话层**
-- 管理多次用户交互的对话状态
-- 可以同时维护多个独立的会话
-- 拥有技能、动作和能力
-
-**MicroAgent = 执行层**
-- 单个任务的临时执行器
-- 继承 BaseAgent 的所有能力
-- 有独立的执行上下文
-- 任务完成时终止
-
-**🔥 核心特性：递归嵌套与 "LLM 函数"**
-
-MicroAgent 调用可以**递归嵌套** - 这是一个革命性的特性：
-
-```
-MicroAgent 第 1 层
-  ├─ 调用: web_search() 动作
-  │   └─ 这个动作内部运行:
-  │       └─ MicroAgent 第 2 层 (处理搜索结果)
-  │           ├─ 调用: analyze_content() 动作
-  │           │   └─ 这个动作内部运行:
-  │           │       └─ MicroAgent 第 3 层 (提取关键信息)
-  │           │           └─ 返回结构化数据给第 2 层
-  │           └─ 返回分析结果给第 1 层
-  └─ 返回最终结果给用户
-```
-
-**为什么这很重要**：
-
-- ✅ **完美状态隔离**：每一层的执行历史都保持隔离。第 3 层的复杂推理不会污染第 2 层的上下文。第 2 层的中间步骤不会干扰第 1 层的会话。
-
-- ✅ **MicroAgent 作为 "LLM 函数"**：把 `micro_agent.execute()` 看作**自然语言函数**：
-  - **输入**：自然语言任务描述
-  - **处理**：LLM 推理 + 多步执行
-  - **输出**：自然语言结果 或 结构化数据（通过 `expected_schema`）
-
-  ```python
-  # 定义一个 "LLM 函数"
-  async def research_topic(topic: str) -> Dict:
-      """LLM 函数 - 不是普通的 Python 函数"""
-      result = await micro_agent.execute(
-          persona="你是一个研究员",
-          task=f"研究关于 {topic} 的内容",
-          result_params={
-              "expected_schema": {
-                  "summary": "摘要",
-                  "key_findings": ["关键发现"],
-                  "sources": ["来源"]
-              }
-          }
-      )
-      return result  # 返回结构化数据
-
-  # 在另一个 MicroAgent 中调用这个 "LLM 函数"
-  @register_action(description="研究多个主题")
-  async def research_multiple_topics(topics: List[str]) -> Dict:
-      results = {}
-      for topic in topics:
-          # 递归调用 MicroAgent
-          results[topic] = await research_topic(topic)
-      return results
-  ```
-
-- ✅ **简单构建复杂任务**：将复杂工作流分解为可组合的 LLM 函数调用，每个都有独立的上下文。
-
-- ✅ **自然递归**：实现递归任务分解，每一层都是独立的 MicroAgent。
-
-**对比**：
-- **Python 函数**：确定性逻辑，固定流程
-- **LLM 函数 (MicroAgent)**：概率性推理，灵活思考，自然语言接口
-
-### 2. Think-With-Retry 模式
-
-**挑战**：从 LLM 输出中提取结构化数据，同时不伤害推理质量
-
-**我们的解决方案**：
-- 使用**松散的格式要求**（例如用 `[章节名]` 而不是严格的 JSON）
-- **智能重试**，提供具体、可操作的反馈
-- **对话式流程** - 重试感觉像自然的澄清
-
-**示例**：
-```python
-result = await llm_client.think_with_retry(
-    initial_messages="创建一个项目计划，包含以下部分：[计划]、[时间线]、[预算]",
-    parser=multi_section_parser,
-    section_headers=['[计划]', '[时间线]', '[预算]'],
-    max_retries=3
-)
-```
-
-如果 LLM 忘记了 `[时间线]` 部分：
-1. 解析器检测到缺失的部分
-2. 系统自动请求：*"你的回答很有帮助，但缺少 [时间线] 部分。请添加它。"*
-3. LLM 自然地纠正输出
-4. 没有僵硬的约束，只是对话式反馈
-
-### 3. 自然语言协调
-
-Agent 通过**邮件**（自然语言消息）通信，而不是 API 调用：
+Agent 之间不直接调用 API。它们发邮件。
 
 ```python
 email = Email(
-    sender="Researcher",
-    recipient="Writer",
+    sender="研究员",
+    recipient="写手",
     subject="研究报告请求",
-    body="请根据研究内容编写摘要...",
-    task_id="session_123"
+    body="请根据我整理的要点撰写摘要...",
 )
 await post_office.send_email(email)
 ```
 
-**好处**：
-- 📝 更可解释和可调试
-- 🔄 通过 `in_reply_to` 实现线程对话
-- 🤝 Agent 解释它们在做什么，不只是返回代码
+为什么是邮件？因为自然语言比 API 更好调试。你能看懂 Agent 之间在说什么，能追踪对话线程，能理解 Agent 为什么要这么做。它不只返回一个状态码——它解释自己的推理过程。
 
-### 4. 动态技能组合
+**3. MicroAgent：自然语言函数**
 
-技能是**mixins**，通过 YAML 配置在运行时加载：
+传统框架里，你写 Python 函数调用另一个 Python 函数。在 AgentMatrix 里，你写"自然语言函数"调用另一个"自然语言函数"：
 
-```yaml
-# profiles/researcher.yml
-name: Researcher
-description: 研和信息收集专家
+```python
+async def 研究话题(话题: str) -> dict:
+    """这是一个 LLM 函数，不是普通 Python 函数"""
+    return await micro_agent.execute(
+        persona="你是一个研究员",
+        task=f"深入研究 {话题}",
+        result_params={
+            "expected_schema": {
+                "summary": "一句话摘要",
+                "findings": ["关键发现"],
+            }
+        }
+    )
 
-mixins:
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
-  - agentmatrix.skills.notebook.NotebookMixin
+# 在另一个 Agent 里调用
+@register_action(description="对比研究多个话题")
+async def 对比研究(话题列表: list) -> dict:
+    results = {}
+    for 话题 in 话题列表:
+        results[话题] = await 研究话题(话题)  # 递归嵌套，上下文完全隔离
+    return results
 ```
 
-**好处**：
-- 🔧 可组合的能力
-- 📦 添加技能无需修改代码
-- 🎯 技能可以在 Agent 之间共享
+每个 MicroAgent 有独立的执行上下文。你可以在里面嵌套调用更多 MicroAgent，每一层都不会污染其他层的上下文。复杂任务被自然地拆解成可组合的"语言函数"。
 
-## 🚀 快速开始
+---
 
-### 安装
+## 架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   桌面应用 (Tauri + Vue 3)                   │
+│          MERIDIAN 设计语言 · Matrix 风格初始化向导            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ WebSocket + REST API
+┌──────────────────────────┴──────────────────────────────────┐
+│                    FastAPI Server                            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────┴──────────────────────────────────┐
+│                   AgentMatrix 运行时                         │
+│                                                             │
+│  ┌──────────────┐  ┌────────────────┐  ┌─────────────────┐  │
+│  │  PostOffice  │  │   ConfigService │  │  TaskScheduler  │  │
+│  │  (消息路由)   │  │   (配置管理)     │  │  (任务调度)      │  │
+│  └──────┬───────┘  └────────────────┘  └─────────────────┘  │
+│         │                                                   │
+│  ┌──────┴───────────────────────────────────────────────┐   │
+│  │                     Agents                            │   │
+│  │  ┌──────────────┐  ┌─────────────────────────────┐   │   │
+│  │  │  BaseAgent   │  │  MicroAgent (可递归嵌套)      │   │   │
+│  │  │  持久会话层   │  │  临时执行层                   │   │   │
+│  │  │  管理对话状态 │  │  继承 BaseAgent 的技能        │   │   │
+│  │  └──────────────┘  └─────────────────────────────┘   │   │
+│  └──────────────────────────────────────────────────────┘   │
+│         │                                                   │
+│  ┌──────┴──────────────────────────────────────────────┐    │
+│  │               Docker 容器 (每个 Agent 独立隔离)       │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 核心特性
+
+### Think-With-Retry：自然语言格式提取
+
+不要求 LLM 输出严格 JSON。用松散的格式标记（比如 `[章节名]`），如果输出不完整，系统用对话式反馈让 LLM 自我修正：
+
+```python
+result = await llm.think_with_retry(
+    initial_messages="创建计划，包含：[方案]、[时间线]、[预算]",
+    parser=section_parser,
+    max_retries=3
+)
+# LLM 漏了 [时间线]？系统会说："你的回复很好，但缺少 [时间线] 部分，请补充。"
+# 不是报错，是对话。
+```
+
+### 动态技能组合
+
+技能是 Python Mixin，在运行时动态组合到 Agent 类上：
+
+```yaml
+# Agent 配置 (YAML)
+name: Researcher
+description: 深度研究专家
+skills:
+  - web_search
+  - crawler
+  - memory
+  - deep_researcher
+```
+
+写一个新的 `skill.py`，放进 skills 目录，Agent 自动拥有新能力。不需要改任何已有代码。
+
+### 容器级隔离
+
+每个 Agent 运行在自己的 Docker 容器里。文件操作在容器内执行，Agent 之间互不干扰。容器按需唤醒和休眠。
+
+### 内容优先的配置管理
+
+配置以原始文本形式在 Agent 之间传递。因为 LLM 天然能读懂 YAML/JSON，配置错误可以用自然语言反馈给 Agent，让它自己修正。ConfigService 负责验证、备份和安全写入。
+
+---
+
+## 桌面应用
+
+原生桌面应用，基于 Tauri (Rust) + Vue 3 构建。
+
+### MERIDIAN 设计语言
+
+我们把设计风格称为 **MERIDIAN**——"情报档案室"美学。
+
+- 编辑优先，零装饰。层级用边框和留白区分，不用阴影和渐变。
+- 衬线体承载思考，无衬线体驱动行动。
+- 朱红色（#C23B22）只在关键位置出现：选中边框、焦点状态、思考进度条。
+- 中英文同等对待，各有专用字体栈。
+
+### Matrix 风格初始化向导
+
+首次启动时，你会看到一个全屏的 Matrix 主题引导：打字机效果、字符雨动画、逐步完成配置——用户名、工作目录、大脑模型、小脑模型。不是冰冷的 CLI 提示，是仪式感。
+
+### 实时状态同步
+
+通过 WebSocket 实时推送 Agent 状态。每个 Agent 的 `update_status()` 都会触发一次推送，不需要轮询。你能实时看到 Agent 在思考、在工作、在等待你的输入。
+
+---
+
+## 快速开始
+
+### 桌面应用（推荐）
+
+```bash
+cd agentmatrix-desktop
+npm install
+npm run tauri:dev
+```
+
+首次启动会进入初始化向导，按提示完成配置即可。
+
+### 作为 Python 库
 
 ```bash
 pip install matrix-for-agents
 ```
 
-### 基本用法
-
 ```python
 from agentmatrix import AgentMatrix
 
-# 初始化框架
 matrix = AgentMatrix(
     agent_profile_path="path/to/profiles",
     matrix_path="path/to/matrix"
 )
 
-# 启动运行时
 await matrix.run()
 ```
 
-### 向 Agent 发送任务
+---
 
-```python
-# 给 Agent 发邮件
-email = Email(
-    sender="user@example.com",
-    recipient="Researcher",
-    subject="研究任务",
-    body="帮我研究 AI 安全最佳实践",
-    task_id="my-session"
-)
+## 内置技能
 
-await matrix.post_office.send_email(email)
-```
+| 技能 | 说明 |
+|------|------|
+| `base` | 基础能力：获取时间、询问用户、列出额外技能 |
+| `file` | 文件操作：读写、搜索、目录管理、bash 命令（容器内执行） |
+| `browser` | 浏览器自动化 |
+| `web_search` | 网络搜索 |
+| `email` | 邮件收发（支持附件） |
+| `memory` | 知识/记忆管理 |
+| `deep_researcher` | 深度研究（多 Agent 协作） |
+| `system_admin` | 系统管理 |
+| `agent_admin` | Agent 生命周期管理 |
+| `scheduler` | 任务调度 |
 
-### 构建容器镜像
-
-如果你使用容器的 Agent 功能，需要先构建镜像：
-
-```bash
-# 使用构建脚本（自动检测 Docker 或 Podman）
-./build_image.sh
-
-# 或手动构建
-docker build -t agentmatrix:latest .
-# 或
-podman build -t agentmatrix:latest .
-```
-
-详见：[容器镜像构建指南](docs/container-image.md)
-
-## 📚 架构概览
-
-### 核心组件
-
-```
-AgentMatrix 运行时
-├── PostOffice        # 消息路由和服务发现
-├── VectorDB          # 邮件/笔记本的语义搜索
-├── AgentLoader       # 从 YAML 动态加载 Agent
-└── Agents
-    ├── BaseAgent     # 会话层 - 管理对话
-    └── MicroAgent    # 执行层 - 运行任务
-```
-
-### 执行流程
-
-```
-用户发送邮件
-    ↓
-BaseAgent 收到邮件
-    ↓
-恢复/创建会话
-    ↓
-委托给 MicroAgent
-    ↓
-MicroAgent 执行:
-  1. 思考：下一步该做什么？
-  2. 从 LLM 输出检测动作
-  3. 协商参数（通过 Cerebellum）
-  4. 执行动作
-  5. 重复直到 all_finished 或达到步数上限
-    ↓
-MicroAgent 返回结果
-    ↓
-BaseAgent 更新会话
-    ↓
-BaseAgent 发送回复邮件
-```
-
-## 📖 文档
-
-全面的双语文档（英文 & 中文）：
-
-### 核心架构
-- **[Agent 和 Micro Agent 设计](docs/architecture/agent-and-micro-agent-design-cn.md)**
-  - 双层架构设计哲学
-  - 会话 vs. 执行分离
-  - 技能系统和通信机制
-
-- **[Matrix World 架构](docs/matrix-world-cn.md)**
-  - 项目结构和组件
-  - 初始化和运行时流程
-  - 配置文件格式
-
-### 核心模式
-- **[Think-With-Retry 模式](docs/architecture/think-with-retry-pattern-cn.md)**
-  - 自然语言 → 结构化数据
-  - 解析器设计和实现
-  - 自定义解析器创建指南
-
-### 容器运行时
-- **[容器镜像构建指南](docs/container-image.md)**
-  - 镜像包含的 Python 包
-  - 构建 Docker/Podman 镜像
-  - 镜像使用和更新
-
-- **[容器运行时抽象层](docs/container-runtime.md)**
-  - Docker 和 Podman 支持
-  - 运行时自动检测
-  - 配置和最佳实践
-
-## 🛠️ 内置技能
-
-- **Filesystem** - 文件操作和目录管理
-- **WebSearcher** - 多搜索引擎的网络搜索
-- **CrawlerHelpers** - 网页爬取和内容提取
-- **Notebook** - 笔记本创建和管理
-- **ProjectManagement** - 项目规划和任务分解
-
-## 🧪 示例：创建自定义 Agent
-
-```yaml
-# profiles/my-agent.yml
-name: MyAgent
-description: 用于我的用例的自定义 Agent
-module: agentmatrix.agents.base
-class_name: BaseAgent
-
-# 加载所需的技能
-mixins:
-  - agentmatrix.skills.filesystem.FileSkillMixin
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-
-# 定义 Agent 的人格
-system_prompt: |
-  你是一个专注于研究和分析的
-  有用助手。
-
-# 配置后端
-backend_model: gpt-4
-cerebellum_model: gpt-3.5-turbo
-```
-
-## 🤝 贡献
-
-欢迎贡献！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 了解指南。
-
-## 📝 许可证
-
-Apache License 2.0 - 详见 [LICENSE](LICENSE) 文件
-
-## 🙏 致谢
-
-构建于：
-- [FastAPI](https://fastapi.tiangolo.com/) - API 框架
-- [DrissionPage](https://drissionpage.cn/) - 浏览器自动化
-- [ChromaDB](https://www.trychroma.com/) - 向量数据库
-
-## 📅 路线图
-
-- [ ] 增强的多 Agent 协作模式
-- [ ] 更多内置技能
-- [ ] 性能优化
-- [ ] 额外的后端集成
-- [ ] 增强的监控和调试工具
+你也可以写自己的技能。一个 `skill.py` 文件就够了。
 
 ---
 
-**当前版本**: v0.1.5  
-**状态**: Alpha（API 可能会演进）  
-**文档**: [docs/](docs/) | [English Documentation](docs/)
+## 项目结构
 
-详细信息请访问：https://github.com/webdkt/agentmatrix
+```
+agentmatrix/
+├── src/agentmatrix/          # 核心框架
+│   ├── agents/               # BaseAgent + MicroAgent
+│   ├── core/                 # 运行时、小脑、动作系统
+│   ├── skills/               # 内置技能
+│   ├── services/             # ConfigService 等
+│   └── backends/             # LLM 后端适配
+├── agentmatrix-desktop/      # 原生桌面应用
+│   ├── src/                  # Vue 3 前端
+│   └── src-tauri/            # Tauri (Rust) 后端
+├── server.py                 # FastAPI 服务
+├── examples/                 # 示例
+└── docs/                     # 文档
+```
+
+---
+
+## 这不是什么
+
+- 这不是一个 wrapper。我们不封装 LLM API，我们重新定义了 Agent 的思考方式。
+- 这不是一个 no-code 工具。你写 Python、写 YAML、写自然语言。
+- 这不是一个 toy project。Docker 隔离、会话管理、持久化、实时同步——都是认真实现的。
+
+---
+
+## 文档
+
+- [Agent 与 MicroAgent 设计](docs/architecture/agent-and-micro-agent-design-cn.md)
+- [Matrix World 架构](docs/matrix-world-cn.md)
+- [Think-With-Retry 模式](docs/architecture/think-with-retry-pattern-cn.md)
+- [配置服务与管理技能](docs/core/config-service-and-admin-skill.md)
+
+---
+
+## 许可证
+
+Apache License 2.0 — 详见 [LICENSE](LICENSE)
+
+---
+
+## 路线图
+
+- [ ] 增强多 Agent 协作模式
+- [ ] 更多内置技能
+- [ ] 更多 LLM 后端支持
+- [ ] 增强的监控与调试工具
+- [ ] 插件市场
+
+---
+
+**版本**: v0.3.0 | **状态**: Alpha  
+**仓库**: https://github.com/webdkt/agentmatrix

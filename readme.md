@@ -1,390 +1,288 @@
 # AgentMatrix
 
-An intelligent multi-agent framework that lets LLMs focus on **reasoning**, not format compliance. Making agent development more natural.
+[English](readme.md) | [中文](readme_zh.md)
 
-**What we enable**:
-- **Natural Language Functions**: It is no longer just a simple LLM API call, but a natural language function. You input a natural language intent and get the execution result without worrying about specific formats. There is no more need to expend effort defining JSON structures; you only need to focus on the intent itself.
+**Let LLMs think. Don't make them write JSON.**
 
-- Natural **Sub-Agent Context Management**: Agents can recursively and nestably call skills (essentially sub-agents, referred to as "micro-agents" in this project), enabling them to handle more complex tasks. The execution contexts of these micro-agents are naturally and automatically isolated, eliminating concerns about context pollution. This supports long-cycle tasks without the need for complex manual context management.
+Here's a question we kept asking ourselves: why does getting a powerful language model to do anything require first teaching it JSON syntax?
 
-[**English**](readme.md) | [**中文文档**](readme_zh.md)
+You ask GPT to research a topic. It has to understand your intent, then carefully format `{"action": "search", "parameters": {"query": "..."}}`. Two completely different skills—reasoning and formatting—forced into a single output channel. It's like asking someone to solve calculus while simultaneously writing calligraphy. Both tasks suffer.
 
-## 🎯 What is AgentMatrix?
+AgentMatrix separates these two concerns. Let the large model think. Let the small model handle the format. That's it.
 
-AgentMatrix is a multi-agent framework where:
+---
 
-- **Agents** act as digital employees with specific skills
-- Agents collaborate through **natural language** (like email), not rigid APIs
-- LLMs can reason naturally without wasting "mental energy" on JSON syntax
+## What It Is
 
-## 📦 Project Organization
+AgentMatrix is a multi-agent framework with a native desktop app.
 
-AgentMatrix repository consists of three main parts:
+It's not just another "AI Agent SDK." It redefines how agents collaborate with each other and with humans.
 
-### 1. Core Framework (`src/agentmatrix/`)
-The heart of AgentMatrix - a Python library for building intelligent agents.
-- **Install**: `pip install matrix-for-agents`
-- **Use as**: Library in your own projects
-- **Contains**: Agent runtime, skill system, LLM integration, message routing
+### Three Core Innovations
 
-### 2. Desktop Application (`agentmatrix-desktop/`)
-Official desktop application for AgentMatrix with native features.
-- **Install**: `cd agentmatrix-desktop && npm install`
-- **Start**: `cd agentmatrix-desktop && npm run tauri:dev`
-- **Build**: `cd agentmatrix-desktop && npm run tauri:build`
-- **Features**: Visual UI for agent interaction, email-style messaging, session management, system tray, native notifications
-- **Tech**: Vue 3 + Vite + Tauri (Rust backend)
-- **Documentation**: See [agentmatrix-desktop/README.md](agentmatrix-desktop/README.md)
-
-### 3. Examples (`examples/`)
-Sample configurations and tutorials to help you get started.
-- **MyWorld**: Complete example world with multiple agents
-- **Documentation**: See [examples/README.md](examples/README.md)
-
-**Quick Start Paths**:
-- 🖥️ **Want a visual interface?** → Use Desktop app: `cd agentmatrix-desktop && npm run tauri:dev`
-- 🐍 **Want to build programmatically?** → Use as library: `pip install matrix-for-agents`
-- 📚 **Want to learn by example?** → Explore `examples/MyWorld`
-
-## 🧠 Why This Matters?
-
-### The Problem
-
-Most agent frameworks force powerful LLMs to think inside rigid formats like JSON. This:
-
-- ❌ Wastes LLM attention on syntax instead of reasoning
-- ❌ Causes frequent parsing errors and brittle workflows
-- ❌ Reduces the LLM's ability to handle complex tasks
-
-**Our theory**: Asking an LLM to perfectly format JSON while doing complex reasoning is like asking a human to solve calculus problems while juggling. You're adding unnecessary cognitive load.
-
-### Our Solution
-
-AgentMatrix uses a **Brain + Cerebellum + Body** architecture:
+**1. Brain + Cerebellum: Separate Thinking from Execution**
 
 ```
-┌─────────────────────────────────────────────────┐
-│  🧠 Brain (LLM)                                 │
-│  - Reasons in natural language                 │
-│  - Decides "what to do"                        │
-│  - No format constraints → better reasoning    │
-└─────────────────────────────────────────────────┘
-                      ↓
-┌─────────────────────────────────────────────────┐
-│  🧠 Cerebellum (SLM)                            │
-│  - Translates intent to structured data        │
-│  - Handles parameter negotiation               │
-│  - Clarifies unclear requests                 │
-└─────────────────────────────────────────────────┘
-                      ↓
-┌─────────────────────────────────────────────────┐
-│  💪 Body (Python Code)                          │
-│  - Executes functions                          │
-│  - Provides feedback                           │
-│  - Manages resources                           │
-└─────────────────────────────────────────────────┘
+Brain (LLM)         →  Thinks in natural language, decides "what to do"
+Cerebellum (SLM)    →  Translates intent into structured parameters  
+Body (Python Code)  →  Actually executes
 ```
 
-**Key Insight**: Let the LLM think in natural language, then use a smaller model to translate that intent into machine-executable commands.
+The Brain doesn't need to know what JSON is. It just thinks. The Cerebellum takes "I think we should search for this topic" and turns it into `web_search(query="...")`. If the intent is ambiguous, the Cerebellum asks the Brain for clarification. Two models, each doing what they're best at.
 
-## ✨ Key Features
+**2. Email System: How Agents Talk to Each Other**
 
-### 1. Dual-Layer Agent Architecture (v0.1.5+)
-
-**BaseAgent = Session Layer**
-- Manages conversation state across multiple user interactions
-- Can maintain multiple independent sessions simultaneously
-- Owns skills, actions, and capabilities
-
-**MicroAgent = Execution Layer**
-- Temporary executor for single tasks
-- Inherits BaseAgent's capabilities
-- Has isolated execution context
-- Terminates when task completes
-
-**🔥 Key Feature: Recursive Nesting & "LLM Functions"**
-
-MicroAgent calls can be **recursively nested** - this is a game-changer:
-
-```
-MicroAgent Layer 1
-  ├─ Calls: web_search() action
-  │   └─ This action internally runs:
-  │       └─ MicroAgent Layer 2 (processes search results)
-  │           ├─ Calls: analyze_content() action
-  │           │   └─ This action internally runs:
-  │           │       └─ MicroAgent Layer 3 (extracts key info)
-  │           │           └─ Returns structured data to Layer 2
-  │           └─ Returns analysis to Layer 1
-  └─ Returns final result to user
-```
-
-**Why This Matters**:
-
-- ✅ **Perfect State Isolation**: Each layer's execution history stays isolated. Layer 3's complex reasoning doesn't pollute Layer 2's context. Layer 2's intermediate steps don't clutter Layer 1's session.
-
-- ✅ **MicroAgent as "LLM Function"**: Think of `micro_agent.execute()` as a **natural language function**:
-  - **Input**: Natural language task description
-  - **Processing**: LLM reasoning + multi-step execution
-  - **Output**: Natural language result OR structured data (via `expected_schema`)
-
-  ```python
-  # Define an "LLM function"
-  async def research_topic(topic: str) -> Dict:
-      """LLM function - not a regular Python function"""
-      result = await micro_agent.execute(
-          persona="You are a researcher",
-          task=f"Research about {topic}",
-          result_params={
-              "expected_schema": {
-                  "summary": "string",
-                  "key_findings": ["string"],
-                  "sources": ["string"]
-              }
-          }
-      )
-      return result  # Returns structured data
-
-  # Call it from another MicroAgent
-  @register_action(description="Research multiple topics")
-  async def research_multiple_topics(topics: List[str]) -> Dict:
-      results = {}
-      for topic in topics:
-          # Recursive MicroAgent call
-          results[topic] = await research_topic(topic)
-      return results
-  ```
-
-- ✅ **Build Complex Tasks Simply**: Break down complex workflows into composable LLM function calls, each with isolated context.
-
-- ✅ **Natural Recursion**: Implement recursive task decomposition where each level is an independent MicroAgent.
-
-**Comparison**:
-- **Python Functions**: Deterministic logic, fixed flow
-- **LLM Functions (MicroAgent)**: Probabilistic reasoning, flexible thinking, natural language interface
-
-### 2. Think-With-Retry Pattern
-
-**The Challenge**: Extract structured data from LLM outputs without hurting reasoning quality
-
-**Our Solution**:
-- Use **loose format requirements** (e.g., `[Section Name]` instead of strict JSON)
-- **Intelligent retry** with specific, actionable feedback
-- **Conversational flow** - retries feel like natural clarification
-
-**Example**:
-```python
-result = await llm_client.think_with_retry(
-    initial_messages="Create a project plan with sections: [Plan], [Timeline], [Budget]",
-    parser=multi_section_parser,
-    section_headers=['[Plan]', '[Timeline]', '[Budget]'],
-    max_retries=3
-)
-```
-
-If the LLM forgets the `[Timeline]` section:
-1. Parser detects missing section
-2. System automatically requests: *"Your response was helpful, but missing the [Timeline] section. Please add it."*
-3. LLM corrects output naturally
-4. No rigid constraints, just conversational feedback
-
-### 3. Natural Language Coordination
-
-Agents communicate through **Email** (natural language messages), not API calls:
+Agents don't call each other's APIs. They send emails.
 
 ```python
 email = Email(
     sender="Researcher",
     recipient="Writer",
     subject="Research Report Request",
-    body="Please compile a summary based on the research...",
-    task_id="session_123"
+    body="Please compile a summary based on the key points I've gathered...",
 )
 await post_office.send_email(email)
 ```
 
-**Benefits**:
-- 📝 More interpretable and debuggable
-- 🔄 Threaded conversations via `in_reply_to`
-- 🤝 Agents explain what they're doing, not just return codes
+Why email? Because natural language is easier to debug than APIs. You can read what agents are saying to each other. You can trace conversation threads. You can understand *why* an agent did something. It doesn't just return a status code—it explains its reasoning.
 
-### 4. Dynamic Skill Composition
+**3. MicroAgent: Natural Language Functions**
 
-Skills are **mixins** loaded at runtime via YAML configuration:
+In traditional frameworks, you write Python functions that call other Python functions. In AgentMatrix, you write "natural language functions" that call other "natural language functions":
 
-```yaml
-# profiles/researcher.yml
-name: Researcher
-description: Research and information gathering specialist
+```python
+async def research_topic(topic: str) -> dict:
+    """This is an LLM function, not a regular Python function"""
+    return await micro_agent.execute(
+        persona="You are a researcher",
+        task=f"Do deep research on {topic}",
+        result_params={
+            "expected_schema": {
+                "summary": "One-line summary",
+                "findings": ["Key findings"],
+            }
+        }
+    )
 
-mixins:
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-  - agentmatrix.skills.crawler_helpers.CrawlerHelpersMixin
-  - agentmatrix.skills.notebook.NotebookMixin
+# Called from another Agent
+@register_action(description="Compare research across topics")
+async def compare_topics(topics: list) -> dict:
+    results = {}
+    for topic in topics:
+        results[topic] = await research_topic(topic)  # Recursive, isolated
+    return results
 ```
 
-**Benefits**:
-- 🔧 Composable capabilities
-- 📦 No code changes to add skills
-- 🎯 Skills can be shared across agents
+Each MicroAgent has its own isolated execution context. You can nest MicroAgent calls recursively—each layer stays clean. Complex tasks naturally decompose into composable "language functions."
 
-## 🚀 Quick Start
+---
 
-### Installation
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 Desktop App (Tauri + Vue 3)                  │
+│         MERIDIAN Design · Matrix-themed Init Wizard          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ WebSocket + REST API
+┌──────────────────────────┴──────────────────────────────────┐
+│                    FastAPI Server                            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────┴──────────────────────────────────┐
+│                  AgentMatrix Runtime                         │
+│                                                             │
+│  ┌──────────────┐  ┌────────────────┐  ┌─────────────────┐  │
+│  │  PostOffice  │  │  ConfigService │  │  TaskScheduler  │  │
+│  │  (Messaging) │  │  (Config Mgmt) │  │  (Scheduling)   │  │
+│  └──────┬───────┘  └────────────────┘  └─────────────────┘  │
+│         │                                                   │
+│  ┌──────┴───────────────────────────────────────────────┐   │
+│  │                     Agents                            │   │
+│  │  ┌──────────────┐  ┌─────────────────────────────┐   │   │
+│  │  │  BaseAgent   │  │  MicroAgent (recursively     │   │   │
+│  │  │  Persistent  │  │  nestable)                    │   │   │
+│  │  │  Session     │  │  Ephemeral Execution          │   │   │
+│  │  └──────────────┘  └─────────────────────────────┘   │   │
+│  └──────────────────────────────────────────────────────┘   │
+│         │                                                   │
+│  ┌──────┴──────────────────────────────────────────────┐    │
+│  │           Docker Containers (per-agent isolation)    │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Features
+
+### Think-With-Retry: Natural Language Structured Extraction
+
+Don't require strict JSON from LLMs. Use loose format markers (like `[Section Name]`), and if the output is incomplete, the system provides conversational feedback for self-correction:
+
+```python
+result = await llm.think_with_retry(
+    initial_messages="Create a plan with sections: [Approach], [Timeline], [Budget]",
+    parser=section_parser,
+    max_retries=3
+)
+# LLM forgot [Timeline]? The system says: "Great response, but missing the 
+# [Timeline] section. Please add it."
+# Not an error. A conversation.
+```
+
+### Dynamic Skill Composition
+
+Skills are Python Mixins, dynamically composed onto Agent classes at runtime:
+
+```yaml
+# Agent configuration (YAML)
+name: Researcher
+description: Deep research specialist
+skills:
+  - web_search
+  - crawler
+  - memory
+  - deep_researcher
+```
+
+Write a new `skill.py`, drop it in the skills directory, and the Agent automatically gains new capabilities. No existing code changes required.
+
+### Container-Level Isolation
+
+Each Agent runs in its own Docker container. File operations execute inside containers. Agents can't interfere with each other. Containers wake and hibernate on demand.
+
+### Content-First Configuration
+
+Configuration passes between agents as raw text. Because LLMs naturally read YAML/JSON, config errors are fed back to the agent in natural language for self-correction. ConfigService handles validation, backup, and safe writes.
+
+---
+
+## Desktop App
+
+Native desktop application built on Tauri (Rust) + Vue 3.
+
+### MERIDIAN Design Language
+
+We call our design style **MERIDIAN**—an "intelligence archive room" aesthetic.
+
+- Edit-first, zero decoration. Hierarchy through borders and whitespace, not shadows and gradients.
+- Serif carries thought. Sans-serif drives action.
+- Vermillion (#C23B22) appears only where it matters: selected borders, focus states, the thinking progress bar.
+- Chinese and English treated equally, each with dedicated font stacks.
+
+### Matrix-Themed Init Wizard
+
+First launch takes you through a full-screen Matrix-themed setup: typewriter effects, character rain animation, step-by-step configuration—user name, workspace, Brain model, Cerebellum model. Not cold CLI prompts. A ritual.
+
+### Real-Time Status Sync
+
+Agent status pushes to the desktop app via WebSocket in real-time. Every `update_status()` triggers a push—no polling. You see agents thinking, working, waiting for your input, as it happens.
+
+---
+
+## Quick Start
+
+### Desktop App (Recommended)
+
+```bash
+cd agentmatrix-desktop
+npm install
+npm run tauri:dev
+```
+
+The init wizard launches on first run. Follow the prompts.
+
+### As a Python Library
 
 ```bash
 pip install matrix-for-agents
 ```
 
-### Basic Usage
-
 ```python
 from agentmatrix import AgentMatrix
 
-# Initialize the framework
 matrix = AgentMatrix(
     agent_profile_path="path/to/profiles",
     matrix_path="path/to/matrix"
 )
 
-# Start the runtime
 await matrix.run()
 ```
 
-### Sending Tasks to Agents
+---
 
-```python
-# Send an email to an agent
-email = Email(
-    sender="user@example.com",
-    recipient="Researcher",
-    subject="Research Task",
-    body="Help me research AI safety best practices",
-    task_id="my-session"
-)
+## Built-in Skills
 
-await matrix.post_office.send_email(email)
-```
+| Skill | Description |
+|-------|-------------|
+| `base` | Core: get time, ask user, list additional skills |
+| `file` | File operations: read, write, search, bash (executes in container) |
+| `browser` | Browser automation |
+| `web_search` | Web search |
+| `email` | Email send/receive (with attachments) |
+| `memory` | Knowledge / memory management |
+| `deep_researcher` | Deep research (multi-agent collaboration) |
+| `system_admin` | System management |
+| `agent_admin` | Agent lifecycle management |
+| `scheduler` | Task scheduling |
 
-## 📚 Architecture Overview
-
-### Core Components
-
-```
-AgentMatrix Runtime
-├── PostOffice        # Message routing and service discovery
-├── VectorDB          # Semantic search for emails/notebooks
-├── AgentLoader       # Dynamically loads agents from YAML
-└── Agents
-    ├── BaseAgent     # Session layer - manages conversations
-    └── MicroAgent    # Execution layer - runs tasks
-```
-
-### Execution Flow
-
-```
-User sends email
-    ↓
-BaseAgent receives email
-    ↓
-Restore/creates session
-    ↓
-Delegates to MicroAgent
-    ↓
-MicroAgent executes:
-  1. Think: What should I do next?
-  2. Detect action from LLM output
-  3. Negotiate parameters (via Cerebellum)
-  4. Execute action
-  5. Repeat until all_finished or max_steps
-    ↓
-MicroAgent returns result
-    ↓
-BaseAgent updates session
-    ↓
-BaseAgent sends reply email
-```
-
-## 📖 Documentation
-
-Comprehensive bilingual documentation (English & Chinese):
-
-### Core Architecture
-- **[Agent and Micro Agent Design](docs/architecture/agent-and-micro-agent-design.md)**
-  - Dual-layer architecture philosophy
-  - Session vs. execution separation
-  - Skill system and communication
-
-- **[Matrix World Architecture](docs/matrix-world.md)**
-  - Project structure and components
-  - Initialization and runtime flow
-  - Configuration format
-
-### Key Patterns
-- **[Think-With-Retry Pattern](docs/architecture/think-with-retry-pattern.md)**
-  - Natural language → structured data
-  - Parser design and implementation
-  - Custom parser creation guide
-
-## 🛠️ Built-in Skills
-
-- **Filesystem** - File operations and directory management
-- **WebSearcher** - Web search with multiple search engines
-- **CrawlerHelpers** - Web scraping and content extraction
-- **Notebook** - Notebook creation and management
-- **ProjectManagement** - Project planning and task breakdown
-
-## 🧪 Example: Creating a Custom Agent
-
-```yaml
-# profiles/my-agent.yml
-name: MyAgent
-description: A custom agent for my use case
-module: agentmatrix.agents.base
-class_name: BaseAgent
-
-# Load required skills
-mixins:
-  - agentmatrix.skills.filesystem.FileSkillMixin
-  - agentmatrix.skills.web_searcher.WebSearcherMixin
-
-# Define the agent's persona
-system_prompt: |
-  You are a helpful assistant specializing in
-  research and analysis.
-
-# Configure backends
-backend_model: gpt-4
-cerebellum_model: gpt-3.5-turbo
-```
-
-## 🤝 Contributing
-
-Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## 📝 License
-
-Apache License 2.0 - see [LICENSE](LICENSE) file for details
-
-## 🙏 Acknowledgments
-
-Built with:
-- [FastAPI](https://fastapi.tiangolo.com/) - API framework
-- [DrissionPage](https://drissionpage.cn/) - Browser automation
-- [ChromaDB](https://www.trychroma.com/) - Vector database
-
-## 📅 Roadmap
-
-- [ ] Enhanced multi-agent collaboration patterns
-- [ ] More built-in skills
-- [ ] Performance optimizations
-- [ ] Additional backend integrations
-- [ ] Enhanced monitoring and debugging tools
+You can also write your own skills. One `skill.py` file is all it takes.
 
 ---
 
-**Current Version**: v0.1.5
-**Status**: Alpha (APIs may evolve)
-**Documentation**: [docs/](docs/) | [中文文档](readme_zh.md)
+## Project Structure
 
-For detailed information, visit: https://github.com/webdkt/agentmatrix
+```
+agentmatrix/
+├── src/agentmatrix/          # Core framework
+│   ├── agents/               # BaseAgent + MicroAgent
+│   ├── core/                 # Runtime, Cerebellum, Action system
+│   ├── skills/               # Built-in skills
+│   ├── services/             # ConfigService, etc.
+│   └── backends/             # LLM backend adapters
+├── agentmatrix-desktop/      # Native desktop app
+│   ├── src/                  # Vue 3 frontend
+│   └── src-tauri/            # Tauri (Rust) backend
+├── server.py                 # FastAPI server
+├── examples/                 # Examples
+└── docs/                     # Documentation
+```
+
+---
+
+## What This Is Not
+
+- Not a wrapper. We don't wrap LLM APIs. We rethink how agents think.
+- Not a no-code tool. You write Python, YAML, and natural language.
+- Not a toy project. Docker isolation, session management, persistence, real-time sync—all seriously implemented.
+
+---
+
+## Documentation
+
+- [Agent and MicroAgent Design](docs/architecture/agent-and-micro-agent-design.md)
+- [Matrix World Architecture](docs/matrix-world.md)
+- [Think-With-Retry Pattern](docs/architecture/think-with-retry-pattern.md)
+- [Config Service and Admin Skills](docs/core/config-service-and-admin-skill.md)
+
+---
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE)
+
+---
+
+## Roadmap
+
+- [ ] Enhanced multi-agent collaboration patterns
+- [ ] More built-in skills
+- [ ] Additional LLM backend support
+- [ ] Enhanced monitoring and debugging tools
+- [ ] Plugin marketplace
+
+---
+
+**Version**: v0.3.0 | **Status**: Alpha  
+**Repository**: https://github.com/webdkt/agentmatrix

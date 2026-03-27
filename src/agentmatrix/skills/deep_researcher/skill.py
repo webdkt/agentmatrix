@@ -28,7 +28,7 @@ _FILESYSTEM_SPEC = _FS_SPEC_PATH.read_text(encoding="utf-8")
 class Deep_researcherSkillMixin:
     """Deep Researcher 深度研究协调者"""
 
-    _skill_description = "深度研究技能，对指定主题进行深度研究并生成完整报告"
+    _skill_description = "深度研究技能，对指定主题进行深度研究并生成完整报告, 先执行规划，然后研究，最后写作"
     _skill_dependencies = ["simple_web_search"]
 
     def _get_work_dir(self) -> str:
@@ -86,7 +86,7 @@ class Deep_researcherSkillMixin:
         planner = MicroAgent(
             parent=self.root_agent,
             name="ResearchPlanner",
-            available_skills=["simple_web_search"]
+            available_skills=["simple_web_search","file","deep_researcher_helper"]
         )
 
         planning_task = f"""
@@ -144,7 +144,7 @@ class Deep_researcherSkillMixin:
         researcher = MicroAgent(
             parent=self.root_agent,
             name="Researcher",
-            available_skills=["simple_web_search", "deep_researcher_helper"]
+            available_skills=["simple_web_search", "deep_researcher_helper","file"]
         )
 
         research_task = f"""
@@ -201,7 +201,7 @@ class Deep_researcherSkillMixin:
         writer = MicroAgent(
             parent=self.root_agent,
             name="ReportWriter",
-            available_skills=["deep_researcher_helper"]
+            available_skills=["deep_researcher_helper","file"]
         )
 
         writing_task = f"""
@@ -216,7 +216,7 @@ class Deep_researcherSkillMixin:
 
 工作流程：
 1. 用 read 读取章节大纲，了解需要撰写的章节（格式：每行一个 # 章节标题）
-2. 逐章撰写草稿（write_chapter_draft），草稿保存到 drafts/{chapter_name}.md
+2. 逐章撰写草稿（write_chapter_draft），草稿保存到 drafts/{{chapter_name}}.md
 3. 逐章润色（polish_chapter）
 4. 所有章节完成后，调用 assemble_report 组装最终报告，报告保存为 final_report.md
 """
