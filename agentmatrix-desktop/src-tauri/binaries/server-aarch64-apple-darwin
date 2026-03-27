@@ -1,0 +1,5 @@
+#!/bin/bash
+# Placeholder for Tauri sidecar binary (local development only)
+# CI/CD will replace this with the real PyInstaller-built binary
+# The Rust code detects this and falls back to 'python server.py'
+echo "Placeholder: using python server.py instead"

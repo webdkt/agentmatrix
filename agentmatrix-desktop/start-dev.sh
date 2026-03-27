@@ -33,6 +33,10 @@ export PYTHONPATH="$PROJECT_DIR/src:$PYTHONPATH"
 echo "🐍 PYTHONPATH set to: $PROJECT_DIR/src"
 echo "📁 PROJECT_DIR: $PROJECT_DIR"
 
+# Ensure resource directories exist (CI downloads installers, dev mode needs placeholders)
+mkdir -p "$SCRIPT_DIR/src-tauri/resources/podman"
+touch "$SCRIPT_DIR/src-tauri/resources/podman/.gitkeep" 2>/dev/null || true
+
 # Copy template to where Tauri expects it in dev mode
 TEMPLATE_SRC="$SCRIPT_DIR/src-tauri/resources/matrix-template"
 TEMPLATE_DST="$SCRIPT_DIR/src-tauri/target/debug/matrix-template"
@@ -71,5 +75,27 @@ fi
 echo ""
 
 cd src-tauri
+
+# Create placeholder sidecar binary for local development
+# This is needed because Tauri's externalBin requires the binary to exist during compilation
+# The Rust code will detect this is a placeholder and fall back to using 'python server.py'
+TAURI_TARGET="${TAURI_TARGET:-$(rustc -vV | grep ^host: | cut -d' ' -f2)}"
+BINARY_DIR="binaries"
+SIDECAR_BINARY="$BINARY_DIR/server-$TAURI_TARGET"
+
+if [ ! -f "$SIDECAR_BINARY" ]; then
+    echo "📦 Creating placeholder sidecar for local development..."
+    mkdir -p "$BINARY_DIR"
+    cat > "$SIDECAR_BINARY" << 'EOF'
+#!/bin/bash
+# Placeholder for Tauri sidecar binary (local development only)
+# CI/CD will replace this with the real PyInstaller-built binary
+# The Rust code detects this and falls back to 'python server.py'
+echo "Placeholder: using python server.py instead"
+EOF
+    chmod +x "$SIDECAR_BINARY"
+    echo "   ✅ Created placeholder: $SIDECAR_BINARY"
+fi
+
 source /Users/dkt/.cargo/env
 cargo run

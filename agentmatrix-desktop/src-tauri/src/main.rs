@@ -106,7 +106,14 @@ struct BackendState(Mutex<Option<Child>>);
 
 /// Get the path to the server executable (sidecar or fallback to python)
 fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), String> {
-    // Try to find sidecar server executable
+    // In dev mode, always use python server.py
+    // The sidecar placeholder in binaries/ exists only for Tauri compilation
+    if cfg!(dev) {
+        println!("Dev mode: using python server.py");
+        return Ok(("python".to_string(), vec!["server.py".to_string()]));
+    }
+
+    // Try to find sidecar server executable (production)
     let resource_path = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
     
@@ -161,11 +168,22 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
     if !server_args.is_empty() {
         // Find the project root (relative to the executable)
         if let Some(resource_dir) = app.path().resource_dir().ok() {
-            // For bundled app, go up from resources/binaries to find project root
-            let project_root = resource_dir.parent()
-                .and_then(|p| p.parent())
-                .unwrap_or(&resource_dir);
+            let project_root = if cfg!(dev) {
+                // Dev mode: resource_dir is src-tauri/target/debug/
+                // Go up 4 levels to reach project root (where server.py lives)
+                resource_dir.parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                    .unwrap_or(&resource_dir)
+            } else {
+                // Production: go up 2 levels from resources/binaries
+                resource_dir.parent()
+                    .and_then(|p| p.parent())
+                    .unwrap_or(&resource_dir)
+            };
             cmd.current_dir(project_root);
+            println!("Working directory: {:?}", project_root);
         }
     }
     
