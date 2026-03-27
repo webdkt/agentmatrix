@@ -77,21 +77,28 @@ jobs:
           fi
 
       # ==================== Podman Installer (Full variant only) ====================
-      - name: Download Podman installer
-        if: matrix.variant == 'full'
+      - name: Download Podman installer (macOS)
+        if: matrix.variant == 'full' && matrix.os == 'macos-latest'
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            # Download Podman Desktop DMG
-            curl -L -o agentmatrix-desktop/src-tauri/resources/podman/Podman.dmg \
-              "https://github.com/containers/podman-desktop/releases/latest/download/podman-desktop-latest-mac.dmg"
-          else
-            # Download Podman MSI for Windows
-            curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman.msi \
-              "https://github.com/containers/podman/releases/latest/download/podman-v5.0.0-setup-x64.msi"
-          fi
+          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/Podman.dmg \
+            "https://github.com/containers/podman-desktop/releases/latest/download/podman-desktop-latest-mac.dmg"
 
+      - name: Download Podman installer (Windows)
+        if: matrix.variant == 'full' && matrix.os == 'windows-latest'
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
+          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman.msi \
+            "https://github.com/containers/podman/releases/latest/download/podman-v5.0.0-setup-x64.msi"
       # ==================== Docker Image (Full variant only) ====================
+      - name: Install Podman (macOS)
+        if: matrix.variant == 'full' && matrix.os == 'macos-latest'
+        run: |
+          brew install podman
+          podman machine init
+          podman machine start
+          echo "✓ Podman installed and started"
+
       - name: Build and export Docker image
         if: matrix.variant == 'full'
         shell: bash
@@ -155,7 +162,7 @@ jobs:
       # ==================== Tauri Build ====================
       - name: Build Tauri application
         working-directory: agentmatrix-desktop
-        run: npm run tauri build
+        run: npm run tauri:build
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
