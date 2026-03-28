@@ -474,13 +474,14 @@ async fn check_container_runtime() -> Result<RuntimeInfo, String> {
 async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
     let resource_dir = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-    
+
     #[cfg(target_os = "macos")]
     {
-        let dmg_path = resource_dir.join("podman").join("Podman.dmg");
+        let dmg_path = resource_dir.join("resources").join("podman").join("Podman.dmg");
         if !dmg_path.exists() {
-            return Err("Podman installer not found in bundle".to_string());
+            return Err(format!("Podman installer not found in bundle. Looking for: {:?}", dmg_path));
         }
+        println!("Opening Podman installer: {:?}", dmg_path);
         // Open the DMG file
         StdCommand::new("open")
             .arg(&dmg_path)
@@ -488,13 +489,14 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
             .map_err(|e| format!("Failed to open installer: {}", e))?;
         Ok("Opened Podman installer. Please follow the installation instructions.".to_string())
     }
-    
+
     #[cfg(target_os = "windows")]
     {
-        let msi_path = resource_dir.join("podman").join("podman.msi");
+        let msi_path = resource_dir.join("resources").join("podman").join("podman.msi");
         if !msi_path.exists() {
-            return Err("Podman installer not found in bundle".to_string());
+            return Err(format!("Podman installer not found in bundle. Looking for: {:?}", msi_path));
         }
+        println!("Starting Podman installer: {:?}", msi_path);
         // Run the MSI installer
         StdCommand::new("msiexec")
             .args(["/i", &msi_path.to_string_lossy()])
@@ -502,10 +504,42 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
             .map_err(|e| format!("Failed to start installer: {}", e))?;
         Ok("Started Podman installer. Please follow the installation instructions.".to_string())
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         Err("Please install Podman manually using your package manager".to_string())
+    }
+}
+
+// ─── Auto Setup Container Runtime ───
+
+async fn auto_setup_container_runtime(app: tauri::AppHandle) {
+    println!("🔍 Checking container runtime...");
+
+    // Check if Docker or Podman is already installed
+    let runtime_info = check_container_runtime().await;
+
+    match runtime_info {
+        Ok(info) if info.runtime != "none" => {
+            println!("✅ Container runtime found: {} {}", info.runtime, info.version.unwrap_or_default());
+        }
+        Ok(_) => {
+            println!("⚠️  No container runtime found. Attempting to install Podman...");
+
+            // Try to auto-install Podman
+            match install_podman(app).await {
+                Ok(msg) => {
+                    println!("📦 Podman installation initiated: {}", msg);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to install Podman: {}", e);
+                    eprintln!("⚠️  Please install Podman manually to use container features.");
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error checking container runtime: {}", e);
+        }
     }
 }
 
@@ -545,14 +579,14 @@ async fn check_image() -> Result<ImageInfo, String> {
 async fn load_image(app: tauri::AppHandle) -> Result<String, String> {
     let resource_dir = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-    
-    let image_path = resource_dir.join("docker").join("image.tar.gz");
+
+    let image_path = resource_dir.join("resources").join("docker").join("image.tar.gz");
     if !image_path.exists() {
-        return Err("Docker image not found in bundle".to_string());
+        return Err(format!("Docker image not found in bundle. Looking for: {:?}", image_path));
     }
-    
+
     println!("Loading Docker image from: {:?}", image_path);
-    
+
     // Load image: gunzip | podman load
     let output = if cfg!(target_os = "windows") {
         StdCommand::new("cmd")
@@ -565,15 +599,15 @@ async fn load_image(app: tauri::AppHandle) -> Result<String, String> {
             .output()
             .map_err(|e| format!("Failed to load image: {}", e))?
     };
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Failed to load image: {}", stderr));
     }
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     println!("✅ Image loaded: {}", stdout);
-    
+
     Ok("Image loaded successfully".to_string())
 }
 
@@ -595,6 +629,14 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(BackendState(Mutex::new(None)))
+        .setup(|app| {
+            // Auto-setup container runtime on app start
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                auto_setup_container_runtime(app_handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_backend,
             stop_backend,

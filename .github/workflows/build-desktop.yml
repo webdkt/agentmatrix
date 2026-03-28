@@ -6,27 +6,13 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      variant:
-        description: 'Build variant'
-        required: true
-        default: 'slim'
-        type: choice
-        options:
-          - slim
-          - full
-          - both
 
 env:
   PYTHON_VERSION: '3.12'
 
 jobs:
-  # Job 1: Build Docker image (only for full or both variants)
+  # Job 1: Build Docker image
   build-docker:
-    if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (inputs.variant == 'full') ||
-      (inputs.variant == 'both')
     runs-on: ubuntu-latest
 
     steps:
@@ -51,12 +37,8 @@ jobs:
           retention-days: 7
           compression-level: 6
 
-  # Job 2: Build macOS ARM slim (skips full variant entirely)
-  build-macos-arm-slim:
-    if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (inputs.variant == 'slim') ||
-      (inputs.variant == 'both')
+  # Job 2: Build macOS ARM
+  build-macos-arm:
     needs: build-docker
     runs-on: macos-latest
 
@@ -84,6 +66,26 @@ jobs:
       - name: Verify server executable
         run: |
           ls -la dist-server/server/server
+
+      # ==================== Download Docker Image ====================
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-x86_64
+          path: artifacts
+
+      - name: Copy Docker image to resources
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
+          cp artifacts/docker-image-x86_64.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+
+      # ==================== Download Podman Installer ====================
+      - name: Download Podman installer (macOS)
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
+          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/Podman.dmg \
+            "https://github.com/containers/podman-desktop/releases/latest/download/podman-desktop-latest-mac.dmg"
 
       # ==================== Copy Server to Tauri Sidecar ====================
       - name: Copy server to sidecar directory
@@ -117,132 +119,18 @@ jobs:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
-      # ==================== Rename Artifacts with Variant ====================
-      - name: Rename artifacts with variant
-        run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          VARIANT="slim"
-
-          BUNDLE_DIR="agentmatrix-desktop/src-tauri/target/release/bundle"
-
-          # macOS
-          if [ -d "$BUNDLE_DIR/macos" ]; then
-            for dmg in $BUNDLE_DIR/macos/*.dmg; do
-              if [ -f "$dmg" ]; then
-                mv "$dmg" "${dmg%.dmg}-${VARIANT}.dmg"
-              fi
-            done
-          fi
-
       # ==================== Upload Artifacts ====================
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: aarch64-apple-darwin-slim-build
+          name: aarch64-apple-darwin-build
           path: |
             agentmatrix-desktop/src-tauri/target/release/bundle/
             agentmatrix-desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/
           retention-days: 7
 
-  # Job 3: Build macOS x64 slim
-  build-macos-x64-slim:
-    if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (inputs.variant == 'slim') ||
-      (inputs.variant == 'both')
-    needs: build-docker
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ==================== Python Backend Build ====================
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r requirements.txt
-
-      - name: Build Python backend with PyInstaller
-        run: |
-          pyinstaller server.spec --distpath dist-server
-
-      - name: Verify server executable
-        run: |
-          ls -la dist-server/server/server
-
-      # ==================== Copy Server to Tauri Sidecar ====================
-      - name: Copy server to sidecar directory
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/binaries
-          cp dist-server/server/server agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
-
-      # ==================== Frontend Build ====================
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'agentmatrix-desktop/package-lock.json'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Install frontend dependencies
-        working-directory: agentmatrix-desktop
-        run: npm install
-
-      # ==================== Tauri Build ====================
-      - name: Build Tauri application
-        working-directory: agentmatrix-desktop
-        run: npm run tauri:build
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-
-      # ==================== Rename Artifacts with Variant ====================
-      - name: Rename artifacts with variant
-        run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          VARIANT="slim"
-
-          BUNDLE_DIR="agentmatrix-desktop/src-tauri/target/release/bundle"
-
-          # macOS
-          if [ -d "$BUNDLE_DIR/macos" ]; then
-            for dmg in $BUNDLE_DIR/macos/*.dmg; do
-              if [ -f "$dmg" ]; then
-                mv "$dmg" "${dmg%.dmg}-${VARIANT}.dmg"
-              fi
-            done
-          fi
-
-      # ==================== Upload Artifacts ====================
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-apple-darwin-slim-build
-          path: |
-            agentmatrix-desktop/src-tauri/target/release/bundle/
-            agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/
-          retention-days: 7
-
-  # Job 4: Build macOS x64 full (downloads Docker image)
-  build-macos-x64-full:
-    if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (inputs.variant == 'full') ||
-      (inputs.variant == 'both')
+  # Job 3: Build macOS x64
+  build-macos-x64:
     needs: build-docker
     runs-on: macos-latest
 
@@ -323,135 +211,18 @@ jobs:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
-      # ==================== Rename Artifacts with Variant ====================
-      - name: Rename artifacts with variant
-        run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          VARIANT="full"
-
-          BUNDLE_DIR="agentmatrix-desktop/src-tauri/target/release/bundle"
-
-          # macOS
-          if [ -d "$BUNDLE_DIR/macos" ]; then
-            for dmg in $BUNDLE_DIR/macos/*.dmg; do
-              if [ -f "$dmg" ]; then
-                mv "$dmg" "${dmg%.dmg}-${VARIANT}.dmg"
-              fi
-            done
-          fi
-
       # ==================== Upload Artifacts ====================
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: x86_64-apple-darwin-full-build
+          name: x86_64-apple-darwin-build
           path: |
             agentmatrix-desktop/src-tauri/target/release/bundle/
             agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/
           retention-days: 7
 
-  # Job 5: Build Windows slim
-  build-windows-slim:
-    if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (inputs.variant == 'slim') ||
-      (inputs.variant == 'both')
-    needs: build-docker
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ==================== Python Backend Build ====================
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r requirements.txt
-
-      - name: Build Python backend with PyInstaller
-        run: |
-          pyinstaller server.spec --distpath dist-server
-
-      - name: Verify server executable
-        shell: bash
-        run: |
-          ls -la dist-server/server/server.exe
-
-      # ==================== Copy Server to Tauri Sidecar ====================
-      - name: Copy server to sidecar directory
-        shell: bash
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # Copy entire directory content including server.exe
-          cp dist-server/server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
-
-      # ==================== Frontend Build ====================
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'agentmatrix-desktop/package-lock.json'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Install frontend dependencies
-        working-directory: agentmatrix-desktop
-        run: npm install
-
-      # ==================== Tauri Build ====================
-      - name: Build Tauri application
-        working-directory: agentmatrix-desktop
-        run: npm run tauri:build
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-
-      # ==================== Rename Artifacts with Variant ====================
-      - name: Rename artifacts with variant
-        shell: bash
-        run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          VARIANT="slim"
-
-          BUNDLE_DIR="agentmatrix-desktop/src-tauri/target/release/bundle"
-
-          # Windows
-          if [ -d "$BUNDLE_DIR/msi" ]; then
-            for msi in $BUNDLE_DIR/msi/*.msi; do
-              if [ -f "$msi" ]; then
-                mv "$msi" "${msi%.msi}-${VARIANT}.msi"
-              fi
-            done
-          fi
-
-      # ==================== Upload Artifacts ====================
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-pc-windows-msvc-slim-build
-          path: |
-            agentmatrix-desktop/src-tauri/target/release/bundle/
-            agentmatrix-desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/
-          retention-days: 7
-
-  # Job 6: Build Windows full (downloads Docker image)
-  build-windows-full:
-    if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (inputs.variant == 'full') ||
-      (inputs.variant == 'both')
+  # Job 4: Build Windows
+  build-windows:
     needs: build-docker
     runs-on: windows-latest
 
@@ -508,7 +279,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # Copy entire directory content including server.exe
           cp dist-server/server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
 
       # ==================== Frontend Build ====================
@@ -536,37 +306,19 @@ jobs:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
-      # ==================== Rename Artifacts with Variant ====================
-      - name: Rename artifacts with variant
-        shell: bash
-        run: |
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          VARIANT="full"
-
-          BUNDLE_DIR="agentmatrix-desktop/src-tauri/target/release/bundle"
-
-          # Windows
-          if [ -d "$BUNDLE_DIR/msi" ]; then
-            for msi in $BUNDLE_DIR/msi/*.msi; do
-              if [ -f "$msi" ]; then
-                mv "$msi" "${msi%.msi}-${VARIANT}.msi"
-              fi
-            done
-          fi
-
       # ==================== Upload Artifacts ====================
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: x86_64-pc-windows-msvc-full-build
+          name: x86_64-pc-windows-msvc-build
           path: |
             agentmatrix-desktop/src-tauri/target/release/bundle/
             agentmatrix-desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/
           retention-days: 7
 
-  # Job 7: Release (only on tag push)
+  # Job 5: Release (only on tag push)
   release:
-    needs: [build-macos-arm-slim, build-macos-x64-slim, build-macos-x64-full, build-windows-slim, build-windows-full]
+    needs: [build-macos-arm, build-macos-x64, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
