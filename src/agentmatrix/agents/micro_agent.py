@@ -1383,8 +1383,7 @@ Start generating the Whiteboard now.
                             },
                         )
 
-                # 添加新的任务输入（只在恢复已有会话时）
-                self._add_message("user", self._format_task_message())
+                
 
                 thought = await self.brain.think_with_retry(
                     initial_messages=msg_copy or self.messages,

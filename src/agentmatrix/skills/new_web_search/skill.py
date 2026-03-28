@@ -57,6 +57,7 @@ class New_web_searchSkillMixin:
                 "search_state": {},
                 "page_cache": {},
                 "last_search_query": None,
+                "link_map": {},
             }
         return self.skill_context["new_web_search"]
 
@@ -160,6 +161,17 @@ class New_web_searchSkillMixin:
                 search_fun = search_google if search_engine == "google" else search_bing
                 await search_fun(adapter=ns["browser"], tab=tab, query=query)
 
+            # 检查搜索页面是否加载成功
+            page_type = await ns["browser"].analyze_page_type(tab)
+            if page_type == PageType.ERRO_PAGE:
+                other = (
+                    "search_with_bing"
+                    if search_engine == "google"
+                    else "search_with_google"
+                )
+                engine_name = "Google" if search_engine == "google" else "Bing"
+                return f'{engine_name} 无法访问（页面加载失败或网络不通）。建议尝试 {other}("{query}")。'
+
             # 提取搜索结果
             from ...core.browser.bing import extract_search_results as extract_bing
             from ...core.browser.google import extract_search_results as extract_google
@@ -173,6 +185,12 @@ class New_web_searchSkillMixin:
             # 检测 visited 状态
             urls = [r["url"] for r in raw_results if r.get("url")]
             visited_map = await detect_visited_links(tab, ns["browser"], urls)
+
+            # 建立 link_to_resultN → 实际 URL 的映射
+            link_map = {}
+            for i, r in enumerate(raw_results, start=1):
+                link_map[f"link_to_result{i}"] = r.get("url", "")
+            ns["link_map"] = link_map
 
             # 估算总页数（从页面底部的分页控件获取）
             total_pages = await self._get_total_pages(tab)
@@ -197,7 +215,7 @@ class New_web_searchSkillMixin:
                 lines.append(f"   {domain}")
                 if snippet and snippet != "No description available":
                     lines.append(f"   {snippet}")
-                lines.append(f"   {url}")
+                lines.append(f"   link_to_result{i}")
                 lines.append("")
 
             self.logger.info(
@@ -206,8 +224,19 @@ class New_web_searchSkillMixin:
             return "\n".join(lines)
 
         except Exception as e:
-            self.logger.error(f"Search failed: {e}")
-            return f'搜索 "{query}" 失败: {str(e)[:200]}'
+            err = str(e)
+            self.logger.error(f"Search ({search_engine}) failed: {err}")
+
+            # 提供有用的错误提示
+            if (
+                "search box" in err
+                or "navigate" in err.lower()
+                or "timeout" in err.lower()
+            ):
+                hint = f"无法访问 {search_engine.capitalize()}，可能是网络问题或页面未加载。"
+
+                return f"搜索失败: {hint}"
+            return f'搜索 "{query}" 失败: {err[:200]}'
 
     async def _click_next_page(self, tab) -> bool:
         """点击搜索结果页的"下一页"按钮，成功返回 True，没有下一页返回 False"""
@@ -254,18 +283,30 @@ class New_web_searchSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="[url] 访问网页，返回页面内容摘要",
-        description="""访问一个网页，返回页面摘要，包含：页面类型、文档结构、内容预览。
+        short_desc="[url] 访问网页（支持 link_to_resultN 或完整 URL）",
+        description="""访问一个网页，返回页面内容摘要。
 
-同时会缓存页面内容，后续调用 deep_read 时可直接使用（无需重新获取）。
+接受两种参数：
+- 搜索结果中的引用：如 link_to_result1、link_to_result2（来自搜索结果）
+- 完整 URL：如 https://nature.com/articles/...
 
-根据摘要判断是否值得深入阅读：
+返回摘要后判断：
 - 如果预览已包含所需信息，可直接使用
 - 如果需要更深入的内容，调用 deep_read() 进行详细阅读
-- 如果页面类型是导航页或不相关，跳过即可""",
-        param_infos={"url": "要访问的网页 URL"},
+- 如果页面不相关，跳过即可""",
+        param_infos={"url": "网页 URL 或搜索结果引用（link_to_resultN）"},
     )
     async def visit(self, url: str) -> str:
+        # 解析 link_to_resultN 引用
+        if url.startswith("link_to_result"):
+            ns = self._ns()
+            link_map = ns.get("link_map", {})
+            actual_url = link_map.get(url)
+            if not actual_url:
+                return f"未知的链接引用: {url}。请先搜索，然后使用搜索结果中的 link_to_resultN。"
+            self.logger.info(f"Resolved {url} -> {actual_url[:80]}...")
+            url = actual_url
+
         await self._ensure_browser()
         tab = await self._get_tab()
         ns = self._ns()
