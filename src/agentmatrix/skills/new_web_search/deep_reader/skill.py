@@ -39,7 +39,7 @@ class Deep_readerSkillMixin:
         return f"已记录笔记（共{len(self.notes)}条）"
 
     @register_action(
-        short_desc="[content] 提供最终总结并完成阅读",
+        short_desc="[content] 提供最终总结，完成阅读",
         description="""提供最终总结。当你已收集到足够的信息来回答目标问题时调用。
 这是最终答案，调用后阅读会结束。
 请确保总结包含了所有重要发现。""",
@@ -58,7 +58,7 @@ class Deep_readerSkillMixin:
         return "Moving to next section"
 
     @register_action(
-        short_desc="没有继续阅读的必要",
+        short_desc="文章剩余内容和要求的目的没有太大关系，没有继续阅读的必要",
         description="整篇文章没有继续阅读的价值。调用前请至少用 take_note 记录你发现了什么（即使很少）。",
         param_infos={},
     )

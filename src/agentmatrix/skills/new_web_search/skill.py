@@ -28,7 +28,6 @@ from ...utils.token_utils import estimate_tokens
 from .utils import detect_visited_links, extract_domain
 from .page_processor import (
     extract_markdown,
-    analyze_page_structure,
     generate_preview,
     split_into_batches,
 )
@@ -48,15 +47,18 @@ class New_web_searchSkillMixin:
     search → visit → deep_read
     """
 
-    _skill_description = "网络搜索：搜索、访问页面、深度阅读"
+    _skill_description = "网络搜索：搜索、访问页面、提取信息"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # 内部状态
-        self._search_state: Dict[str, int] = {}  # {query: current_page_number}
-        self._page_cache: Dict[str, str] = {}  # {url: markdown}
-        self._last_search_query: Optional[str] = None  # 上一次搜索的关键词
-        self.browser = None  # 浏览器实例（懒初始化）
+    def _ns(self):
+        """获取本 skill 在 skill_context 中的名字空间"""
+        if "new_web_search" not in self.skill_context:
+            self.skill_context["new_web_search"] = {
+                "browser": None,
+                "search_state": {},
+                "page_cache": {},
+                "last_search_query": None,
+            }
+        return self.skill_context["new_web_search"]
 
     # ==========================================
     # 浏览器初始化
@@ -64,7 +66,8 @@ class New_web_searchSkillMixin:
 
     async def _ensure_browser(self):
         """懒初始化浏览器"""
-        if self.browser is not None:
+        ns = self._ns()
+        if ns["browser"] is not None:
             return
 
         agent_name = self.root_agent.name
@@ -78,16 +81,16 @@ class New_web_searchSkillMixin:
         )
         download_path = str(work_files_dir / "downloads")
 
-        self.browser = DrissionPageAdapter(
+        ns["browser"] = DrissionPageAdapter(
             profile_path=profile_path, download_path=download_path
         )
-        await self.browser.start(headless=False)
+        await ns["browser"].start(headless=False)
         self.logger.info("Browser initialized")
 
     async def _get_tab(self):
         """获取浏览器标签页"""
         await self._ensure_browser()
-        return await self.browser.get_tab()
+        return await self._ns()["browser"].get_tab()
 
     # ==========================================
     # Action: search_with_google / search_with_bing
@@ -123,11 +126,12 @@ class New_web_searchSkillMixin:
         """搜索的公共实现，被 search_with_google 和 search_with_bing 调用"""
         await self._ensure_browser()
         tab = await self._get_tab()
+        ns = self._ns()
 
         try:
             # 判断是否翻页
             is_next_page = (
-                self._last_search_query == query and query in self._search_state
+                ns["last_search_query"] == query and query in ns["search_state"]
             )
 
             if is_next_page:
@@ -138,14 +142,14 @@ class New_web_searchSkillMixin:
                 if not has_next:
                     return f'搜索 "{query}" 没有下一页了（已到末尾）。'
 
-                self._search_state[query] += 1
-                current_page = self._search_state[query]
+                ns["search_state"][query] += 1
+                current_page = ns["search_state"][query]
                 self.logger.info(f"Search page {current_page} for: {query}")
-                await self.browser.stabilize(tab)
+                await ns["browser"].stabilize(tab)
             else:
                 # 新搜索
-                self._search_state[query] = 1
-                self._last_search_query = query
+                ns["search_state"][query] = 1
+                ns["last_search_query"] = query
                 current_page = 1
                 self.logger.info(f"New search ({search_engine}): {query}")
 
@@ -154,25 +158,25 @@ class New_web_searchSkillMixin:
                 from ...core.browser.google import search_google
 
                 search_fun = search_google if search_engine == "google" else search_bing
-                await search_fun(adapter=self.browser, tab=tab, query=query)
+                await search_fun(adapter=ns["browser"], tab=tab, query=query)
 
             # 提取搜索结果
             from ...core.browser.bing import extract_search_results as extract_bing
             from ...core.browser.google import extract_search_results as extract_google
 
             extract_fun = extract_google if search_engine == "google" else extract_bing
-            raw_results = await extract_fun(self.browser, tab)
+            raw_results = await extract_fun(ns["browser"], tab)
 
             if not raw_results:
                 return f'搜索 "{query}" 未找到任何结果。'
 
             # 检测 visited 状态
             urls = [r["url"] for r in raw_results if r.get("url")]
-            visited_map = await detect_visited_links(tab, self.browser, urls)
+            visited_map = await detect_visited_links(tab, ns["browser"], urls)
 
             # 估算总页数（从页面底部的分页控件获取）
             total_pages = await self._get_total_pages(tab)
-            search_number = self._search_state.get(query, 1)
+            search_number = ns["search_state"].get(query, 1)
 
             # 格式化为可读文本
             total_str = f"/共{total_pages}页" if total_pages > 0 else ""
@@ -250,7 +254,7 @@ class New_web_searchSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="[url] 访问网页，返回页面内容",
+        short_desc="[url] 访问网页，返回页面内容摘要",
         description="""访问一个网页，返回页面摘要，包含：页面类型、文档结构、内容预览。
 
 同时会缓存页面内容，后续调用 deep_read 时可直接使用（无需重新获取）。
@@ -264,35 +268,35 @@ class New_web_searchSkillMixin:
     async def visit(self, url: str) -> str:
         await self._ensure_browser()
         tab = await self._get_tab()
+        ns = self._ns()
 
         self.logger.info(f"Visiting: {url}")
 
         # 导航
         try:
-            await self.browser.navigate(tab, url)
-            await self.browser.stabilize(tab)
+            await ns["browser"].navigate(tab, url)
+            await ns["browser"].stabilize(tab)
         except Exception as e:
             self.logger.error(f"Navigation failed for {url}: {e}")
             return f"无法访问 {url}: {str(e)[:200]}"
 
-        final_url = self.browser.get_tab_url(tab)
+        final_url = ns["browser"].get_tab_url(tab)
 
         # 检查错误页
-        page_type = await self.browser.analyze_page_type(tab)
+        page_type = await ns["browser"].analyze_page_type(tab)
         if page_type == PageType.ERRO_PAGE:
             return f"无法访问 {url}: 页面返回错误（404、超时或连接失败）。"
 
         # 提取 markdown
         is_pdf = page_type == PageType.STATIC_ASSET
         try:
-            markdown = await extract_markdown(tab, self.browser, url)
+            markdown = await extract_markdown(tab, ns["browser"], url)
         except Exception as e:
             self.logger.error(f"Failed to extract markdown: {e}")
             markdown = ""
 
         # 无法转换
         if not markdown or len(markdown.strip()) < 10:
-            # 尝试收集一些辅助信息
             aux_info = []
             try:
                 title = tab.title if hasattr(tab, "title") else ""
@@ -309,7 +313,7 @@ class New_web_searchSkillMixin:
             return "页面无法转换为可阅读markdown\n" + "\n".join(aux_info)
 
         # 缓存 markdown（供 deep_read 使用）
-        self._page_cache[final_url] = markdown
+        ns["page_cache"][final_url] = markdown
 
         # 分析结构（精简）
         total_chars = len(markdown)
@@ -342,7 +346,7 @@ class New_web_searchSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="[instruction] 深度阅读当前页面提取特定信息",
+        short_desc="[instruction] 启用深度阅读Agent阅读当前页面并提取信息，Agent不了解前因后果，需要对Agent提供明确的指引和要求，以及你期望得到的内容包括格式",
         description="""对当前浏览器中打开的页面进行深度阅读，流式分批处理，提取特定信息。
 
 使用前提：先用 visit() 获取页面摘要，确认值得深入阅读后再调用此方法。
@@ -357,19 +361,20 @@ instruction 参数要求：明确说明要提取什么，越具体越好。如"�
 
         await self._ensure_browser()
         tab = await self._get_tab()
+        ns = self._ns()
 
-        url = self.browser.get_tab_url(tab)
+        url = ns["browser"].get_tab_url(tab)
         self.logger.info(f"Deep reading: {url}")
         self.logger.info(f"Instruction: {instruction}")
 
         # 获取 markdown（优先用缓存）
-        if url in self._page_cache:
-            markdown = self._page_cache[url]
+        if url in ns["page_cache"]:
+            markdown = ns["page_cache"][url]
             self.logger.info(f"Using cached markdown ({len(markdown)} chars)")
         else:
             self.logger.info("No cache, extracting markdown...")
-            markdown = await extract_markdown(tab, self.browser, url)
-            self._page_cache[url] = markdown
+            markdown = await extract_markdown(tab, ns["browser"], url)
+            ns["page_cache"][url] = markdown
 
         if not markdown or len(markdown.strip()) < 50:
             return "页面内容为空或过短，无法进行深度阅读。"
@@ -400,9 +405,12 @@ instruction 参数要求：明确说明要提取什么，越具体越好。如"�
                 else "(空，尚未收集到笔记)"
             )
 
-            task = f"""你需要阅读以下文章内容，提取与目标相关的信息。
+            task = f"""你需要按照要求阅读以下文章内容，并按要求查找记录信息或总结。阅读的时候带着思考：
+            1. 本次阅读的目的是什么
+            2. 阅读的内容和目的相关吗？
+            3. 需要留意和记录的是什么
 
-[目标]
+[要求]
 {instruction}
 
 [文章信息]
@@ -413,14 +421,9 @@ URL: {url}
 [已有笔记]
 {notebook_text}
 
-[当前内容]
+[当前阅读内容]
 {batch_text}
 
-[可用操作]
-- take_note(note): 记录有价值的发现（事实、数据、关键信息）
-- provide_final_summary(content): 提供最终总结。调用后阅读结束。
-- goto_next_section: 跳到下一个章节继续阅读
-- no_need_to_read_further: 没有继续阅读的必要
 
 重要：
 - 先用 take_note 积累发现，确认足够后再用 provide_final_summary

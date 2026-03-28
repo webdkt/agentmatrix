@@ -120,8 +120,13 @@ class MicroAgent(AutoLoggerMixin):
         self.compression_token_threshold = 32000  # 32K tokens
         # self.last_compression_step = 0  # 上次压缩时的步数
 
-        # 🆕 记录自己的 system prompt（构建后自动填充）
+        # ========== 🆕 记录自己的 system prompt（构建后自动填充）==========
         self.system_prompt = None
+
+        # ========== Skill 上下文 ==========
+        # 供 skill 存取自己的属性，避免 mixin __init__ 的 MRO 问题
+        # skill 按名字空间存取: self.skill_context.setdefault("skill_name", {})["key"] = value
+        self.skill_context: dict = {}
 
         # 日志
         self.logger.info(
