@@ -1,0 +1,47 @@
+name: Build Docker Image
+
+on:
+  push:
+    branches: [main, feature/*]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Build variant'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - slim
+
+jobs:
+  build:
+    if: |
+      (github.event_name != 'workflow_dispatch') ||
+      (inputs.variant == 'full')
+    
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Build Docker image
+        run: |
+          docker build -t agentmatrix:latest .
+      
+      - name: Export Docker image
+        run: |
+          mkdir -p artifacts
+          docker save agentmatrix:latest | gzip > artifacts/docker-image-x86_64.tar.gz
+          ls -lh artifacts/docker-image-x86_64.tar.gz
+      
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-x86_64
+          path: artifacts/docker-image-x86_64.tar.gz
+          retention-days: 7
+          compression-level: 6

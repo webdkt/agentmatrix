@@ -32,6 +32,9 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
+            variant: full
+          - os: macos-latest
+            target: aarch64-apple-darwin
             variant: slim
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -92,16 +95,10 @@ jobs:
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman.msi \
             "https://github.com/containers/podman/releases/latest/download/podman-v5.0.0-setup-x64.msi"
-      # ==================== Docker Image (Full variant only, Linux x86_64 only) ====================
-      - name: Build and export Docker image
-        if: matrix.variant == 'full' && matrix.os == 'macos-latest' && matrix.target == 'x86_64-apple-darwin'
-        run: |
-          # Build on macOS x86_64 (has Docker Desktop pre-installed)
-          docker build -t agentmatrix:latest .
-          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          docker save agentmatrix:latest | gzip > agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-
+      # ==================== Docker Image (Full variant only) ====================
+      # NOTE: Docker image build skipped on macOS (runners don't have Docker)
+      # Windows builds the x86_64 Docker image for all platforms
+      
       - name: Build and export Docker image
         if: matrix.variant == 'full' && matrix.os == 'windows-latest'
         shell: bash

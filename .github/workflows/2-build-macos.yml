@@ -1,0 +1,158 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [main, feature/*]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Build variant'
+        required: true
+        default: 'slim'
+        type: choice
+        options:
+          - full
+          - slim
+          - both
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  build:
+    if: |
+      (github.event_name != 'workflow_dispatch') ||
+      (inputs.variant == 'both') ||
+      (inputs.variant == 'full' && matrix.variant == 'full') ||
+      (inputs.variant == 'slim' && matrix.variant == 'slim')
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            variant: slim
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            variant: full
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            variant: slim
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            variant: full
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      # ==================== Python Backend Build ====================
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+      
+      - name: Build Python backend with PyInstaller
+        run: |
+          pyinstaller server.spec --distpath dist-server
+      
+      - name: Verify server executable
+        shell: bash
+        run: |
+          ls -la dist-server/server/server
+      
+      # ==================== Download Docker Image (Full variant only) ====================
+      - name: Download Docker image
+        if: matrix.variant == 'full'
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-x86_64
+          path: artifacts
+      
+      - name: Copy Docker image to resources
+        if: matrix.variant == 'full'
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
+          cp artifacts/docker-image-x86_64.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+      
+      # ==================== Download Podman Installer (Full variant only) ====================
+      - name: Download Podman installer (macOS)
+        if: matrix.variant == 'full'
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
+          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/Podman.dmg \
+            "https://github.com/containers/podman-desktop/releases/latest/download/podman-desktop-latest-mac.dmg"
+      
+      # ==================== Copy Server to Tauri Sidecar ====================
+      - name: Copy server to sidecar directory
+        shell: bash
+        run: |
+          mkdir -p agentmatrix-desktop/src-tauri/binaries
+          cp dist-server/server/server agentmatrix-desktop/src-tauri/binaries/server-${{ matrix.target }}
+          chmod +x agentmatrix-desktop/src-tauri/binaries/server-${{ matrix.target }}
+      
+      # ==================== Frontend Build ====================
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'agentmatrix-desktop/package-lock.json'
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      
+      - name: Install frontend dependencies
+        working-directory: agentmatrix-desktop
+        run: npm install
+      
+      # ==================== Tauri Build ====================
+      - name: Build Tauri application
+        working-directory: agentmatrix-desktop
+        run: npm run tauri:build
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+      
+      # ==================== Rename Artifacts with Variant ====================
+      - name: Rename artifacts with variant
+        shell: bash
+        run: |
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          VARIANT="${{ matrix.variant }}"
+          
+          BUNDLE_DIR="agentmatrix-desktop/src-tauri/target/release/bundle"
+          
+          # macOS
+          if [ -d "$BUNDLE_DIR/macos" ]; then
+            for dmg in $BUNDLE_DIR/macos/*.dmg; do
+              if [ -f "$dmg" ]; then
+                mv "$dmg" "${dmg%.dmg}-${VARIANT}.dmg"
+              fi
+            done
+          fi
+      
+      # ==================== Upload Artifacts ====================
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-${{ matrix.variant }}-build
+          path: |
+            agentmatrix-desktop/src-tauri/target/release/bundle/
+            agentmatrix-desktop/src-tauri/target/*/release/bundle/
+          retention-days: 7
