@@ -702,8 +702,7 @@ Start generating the Whiteboard now.
                 # 获取 session 所有邮件
                 emails = self.root_agent.post_office.get_emails_by_session(
                     session_id=self.session["session_id"],
-                    agent_name=self.root_agent.name,
-                    task_id=self.session["task_id"],
+                    agent_name=self.root_agent.name
                 )
                 self.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
 
