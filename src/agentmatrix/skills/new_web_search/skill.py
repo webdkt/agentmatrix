@@ -207,7 +207,7 @@ class New_web_searchSkillMixin:
                 title = r.get("title", "").strip()
                 url = r.get("url", "")
                 snippet = r.get("snippet", "").strip()
-                domain = extract_domain(url)
+                domain = r.get("domain", "") or extract_domain(url)
                 visited = visited_map.get(url, False)
 
                 tag = " [已访问]" if visited else ""
