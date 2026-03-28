@@ -391,7 +391,7 @@ jobs:
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
           # Copy entire directory content including server.exe
-          cp -r dist-server/server/* agentmatrix-desktop/src-tauri/binaries/
+          cp dist-server/server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -509,7 +509,7 @@ jobs:
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
           # Copy entire directory content including server.exe
-          cp -r dist-server/server/* agentmatrix-desktop/src-tauri/binaries/
+          cp dist-server/server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
