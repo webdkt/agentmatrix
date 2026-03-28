@@ -22,12 +22,6 @@ env:
 
 jobs:
   build:
-    if: |
-      (github.event_name != 'workflow_dispatch') ||
-      (inputs.variant == 'both') ||
-      (inputs.variant == 'full' && matrix.variant == 'full') ||
-      (inputs.variant == 'slim' && matrix.variant == 'slim')
-    
     strategy:
       fail-fast: false
       matrix:
