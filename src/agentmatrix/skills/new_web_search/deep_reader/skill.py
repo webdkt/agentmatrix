@@ -12,7 +12,7 @@ Deep Reader Skill — 深度阅读辅助工具
   sub_agent.answer = None
 """
 
-from ...core.action import register_action
+from ....core.action import register_action
 
 
 class Deep_readerSkillMixin:

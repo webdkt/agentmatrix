@@ -29,8 +29,10 @@ class SkillLoadResult:
         self.failed_skills: List[str] = []
 
     def __repr__(self):
-        return (f"SkillLoadResult(mixins={[m.__name__ for m in self.python_mixins]}, "
-                f"failed={self.failed_skills})")
+        return (
+            f"SkillLoadResult(mixins={[m.__name__ for m in self.python_mixins]}, "
+            f"failed={self.failed_skills})"
+        )
 
 
 class SkillRegistry:
@@ -94,8 +96,8 @@ class SkillRegistry:
         result = SkillLoadResult()
 
         # 双队列用于循环依赖检测和去重
-        loaded = set()      # 已成功加载的 skills
-        loading = set()     # 正在加载中的 skills（用于循环检测）
+        loaded = set()  # 已成功加载的 skills
+        loading = set()  # 正在加载中的 skills（用于循环检测）
 
         # 递归加载函数
         def load_skill_recursive(name: str) -> bool:
@@ -134,7 +136,9 @@ class SkillRegistry:
                 loaded.add(name)
                 if name in self._python_mixins:
                     result.python_mixins.append(self._python_mixins[name])
-                    logger.info(f"  ✅ 加载成功: {name} -> {self._python_mixins[name].__name__}")
+                    logger.info(
+                        f"  ✅ 加载成功: {name} -> {self._python_mixins[name].__name__}"
+                    )
                 loading.remove(name)
                 return True
             else:
@@ -150,9 +154,13 @@ class SkillRegistry:
 
         # 日志汇总
         if result.python_mixins:
-            logger.info(f"✅ 成功加载 {len(result.python_mixins)} 个 skills: {[m.__name__ for m in result.python_mixins]}")
+            logger.info(
+                f"✅ 成功加载 {len(result.python_mixins)} 个 skills: {[m.__name__ for m in result.python_mixins]}"
+            )
         if result.failed_skills:
-            logger.warning(f"⚠️  {len(result.failed_skills)} 个 skills 加载失败: {result.failed_skills}")
+            logger.warning(
+                f"⚠️  {len(result.failed_skills)} 个 skills 加载失败: {result.failed_skills}"
+            )
 
         return result
 
@@ -179,9 +187,11 @@ class SkillRegistry:
         """
         if name in self._python_mixins:
             mixin_class = self._python_mixins[name]
-            deps = getattr(mixin_class, '_skill_dependencies', [])
+            deps = getattr(mixin_class, "_skill_dependencies", [])
             if not isinstance(deps, list):
-                logger.warning(f"  ⚠️  Skill '{name}' 的 _skill_dependencies 不是列表，已忽略: {deps}")
+                logger.warning(
+                    f"  ⚠️  Skill '{name}' 的 _skill_dependencies 不是列表，已忽略: {deps}"
+                )
                 return []
             logger.debug(f"  🔗 Skill '{name}' (Python) 声明的依赖: {deps}")
             return deps
@@ -189,9 +199,11 @@ class SkillRegistry:
         # 未加载，先尝试加载
         if self._load_skill(name) and name in self._python_mixins:
             mixin_class = self._python_mixins[name]
-            deps = getattr(mixin_class, '_skill_dependencies', [])
+            deps = getattr(mixin_class, "_skill_dependencies", [])
             if not isinstance(deps, list):
-                logger.warning(f"  ⚠️  Skill '{name}' 的 _skill_dependencies 不是列表，已忽略: {deps}")
+                logger.warning(
+                    f"  ⚠️  Skill '{name}' 的 _skill_dependencies 不是列表，已忽略: {deps}"
+                )
                 return []
             logger.debug(f"  🔗 Skill '{name}' (Python) 声明的依赖: {deps}")
             return deps
@@ -199,7 +211,9 @@ class SkillRegistry:
         # 加载失败
         return []
 
-    def _load_from_file_location(self, skill_file: Path, name: str, base_module: str = None) -> bool:
+    def _load_from_file_location(
+        self, skill_file: Path, name: str, base_module: str = None
+    ) -> bool:
         """
         使用 spec_from_file_location 直接加载文件
 
@@ -233,7 +247,7 @@ class SkillRegistry:
             # 创建模块规范
             spec = importlib.util.spec_from_file_location(
                 module_name,  # 模块名
-                skill_file
+                skill_file,
             )
 
             if spec is None or spec.loader is None:
@@ -244,8 +258,10 @@ class SkillRegistry:
             module = importlib.util.module_from_spec(spec)
 
             # 🔑 关键：设置模块属性以支持相对导入
-            module.__package__ = package_name        # 包名（用于相对导入）
-            module.__path__ = [str(skill_file.parent)] # 包路径（指向 skill.py 所在目录）
+            module.__package__ = package_name  # 包名（用于相对导入）
+            module.__path__ = [
+                str(skill_file.parent)
+            ]  # 包路径（指向 skill.py 所在目录）
 
             # 🔑 将模块添加到 sys.modules（关键！）
             # 这样相对导入 `from .utils import xxx` 才能找到
@@ -257,6 +273,7 @@ class SkillRegistry:
                 if package_key not in sys.modules:
                     # 创建一个虚拟的包模块
                     import types
+
                     package_module = types.ModuleType(package_key)
                     package_module.__path__ = [str(skill_file.parent)]
                     sys.modules[package_key] = package_module
@@ -305,7 +322,7 @@ class SkillRegistry:
         # 🔥 处理 Python 模块路径（如 "agentmatrix.skills"）
         # 需要转换为文件系统路径
         base_module = None  # 用于支持相对导入
-        if '.' in base_path:
+        if "." in base_path:
             try:
                 # 尝试导入模块以获取实际路径
                 module = importlib.import_module(base_path)
@@ -361,7 +378,9 @@ class SkillRegistry:
 
             # 缓存
             self._python_mixins[name] = mixin_class
-            logger.info(f"  ✅ 从文件加载 Skill: {name} -> {class_name} (来自 {base_path})")
+            logger.info(
+                f"  ✅ 从文件加载 Skill: {name} -> {class_name} (来自 {base_path})"
+            )
             return True
 
         except ImportError:
@@ -396,7 +415,7 @@ class SkillRegistry:
 
     def _try_load_python_mixin(self, name: str) -> bool:
         """
-        尝试加载 Python Mixin（支持多路径 + 两种结构）
+        尝试加载 Python Mixin（支持多路径 + 两种结构 + 嵌套 skill）
 
         按优先级尝试所有搜索路径：
         1. 用户配置的路径（最优先）
@@ -406,13 +425,20 @@ class SkillRegistry:
         a) 目录结构: {path}/{name}/skill.py（用户 skills）
         b) 扁平文件: {path}/{name}_skill.py（内置 skills）
 
+        对于 dotted name（如 "new_web_search.deep_reader"）：
+        c) 嵌套目录: {path}/new_web_search/deep_reader/skill.py
+
         Args:
-            name: 技能名称（如 "browser", "my_custom_skill"）
+            name: 技能名称（如 "browser", "my_custom_skill", "a.b.c"）
 
         Returns:
             bool: 是否加载成功
         """
         logger.debug(f"  🔍 搜索 Skill: {name}")
+
+        # dotted name → 嵌套 skill
+        if "." in name:
+            return self._load_nested_skill(name)
 
         # 按优先级尝试所有搜索路径
         for base_path in self.search_paths:
@@ -428,6 +454,158 @@ class SkillRegistry:
 
         # 所有路径都失败
         return False
+
+    def _load_nested_skill(self, dotted_name: str) -> bool:
+        """
+        加载嵌套 skill（如 "new_web_search.deep_reader"）
+
+        目录结构: {base_path}/new_web_search/deep_reader/skill.py
+        类名: Deep_readerSkillMixin（取 dotted name 最后一段 capitalize）
+
+        Args:
+            dotted_name: 点分隔的 skill 名称，如 "new_web_search.deep_reader"
+
+        Returns:
+            bool: 是否加载成功
+        """
+        import sys
+        import types
+        import importlib.util
+
+        # 检查缓存
+        if dotted_name in self._python_mixins:
+            return True
+
+        parts = dotted_name.split(".")
+        parent_name = ".".join(parts[:-1])  # "new_web_search"
+        child_name = parts[-1]  # "deep_reader"
+
+        for base_path in self.search_paths:
+            # 解析基础目录
+            if "." in base_path:
+                try:
+                    mod = importlib.import_module(base_path)
+                    base_dir = Path(mod.__file__).parent
+                except (ImportError, AttributeError):
+                    continue
+            else:
+                base_dir = Path(base_path)
+                if not base_dir.exists():
+                    continue
+
+            # 确保 parent 已加载（注册到 sys.modules）
+            if parent_name not in self._python_mixins:
+                self._load_skill(parent_name)
+
+            # 从 sys.modules 找 parent 的目录
+            parent_package_key = f"{base_path}.{parent_name}"
+            parent_mod = sys.modules.get(parent_package_key)
+
+            if parent_mod and hasattr(parent_mod, "__path__"):
+                parent_dir = Path(parent_mod.__path__[0])
+            else:
+                # parent 没有找到，尝试从文件系统推断
+                # 逐层解析 dotted parent_name
+                current_dir = base_dir
+                found = True
+                for part in parent_name.split("."):
+                    candidate = current_dir / part
+                    if candidate.is_dir() and (candidate / "skill.py").exists():
+                        current_dir = candidate
+                    else:
+                        found = False
+                        break
+                if not found:
+                    continue
+                parent_dir = current_dir
+
+            # 检查 child 目录下的 skill.py
+            child_dir = parent_dir / child_name
+            skill_file = child_dir / "skill.py"
+            if not skill_file.exists():
+                continue
+
+            # 加载 child skill
+            return self._load_child_skill(skill_file, dotted_name, base_path, child_dir)
+
+        logger.warning(f"  ⚠️  嵌套 Skill 未找到: {dotted_name}")
+        return False
+
+    def _load_child_skill(
+        self, skill_file: Path, dotted_name: str, base_module: str, child_dir: Path
+    ) -> bool:
+        """
+        加载嵌套 child skill，正确设置 sys.modules 层级以支持相对导入
+
+        Args:
+            skill_file: child 的 skill.py 路径
+            dotted_name: 完整名称，如 "new_web_search.deep_reader"
+            base_module: 基础模块名，如 "agentmatrix.skills"
+            child_dir: child 的目录路径
+
+        Returns:
+            bool: 是否加载成功
+        """
+        import sys
+        import types
+        import importlib.util
+
+        parts = dotted_name.split(".")
+        package_name = f"{base_module}.{dotted_name}"
+        module_name = f"{package_name}.skill"
+
+        try:
+            # 创建模块规范
+            spec = importlib.util.spec_from_file_location(module_name, skill_file)
+            if spec is None or spec.loader is None:
+                logger.debug(f"  ⚠️  无法创建模块规范: {skill_file}")
+                return False
+
+            # 创建模块
+            module = importlib.util.module_from_spec(spec)
+
+            # 设置模块属性以支持相对导入
+            module.__package__ = package_name
+            module.__path__ = [str(child_dir)]
+            sys.modules[module_name] = module
+
+            # 注册所有中间层级的虚拟包（支持相对导入）
+            # 例如 dotted_name = "a.b.c"，需要注册:
+            #   agentmatrix.skills.a (with __path__)
+            #   agentmatrix.skills.a.b (with __path__)
+            #   agentmatrix.skills.a.b.c (with __path__)
+            pkg = base_module
+            for i, part in enumerate(parts):
+                pkg = f"{pkg}.{part}"
+                if pkg not in sys.modules:
+                    # 计算该层级对应的目录
+                    level_dir = child_dir.parents[len(parts) - i - 1]
+                    pm = types.ModuleType(pkg)
+                    pm.__path__ = [str(level_dir)]
+                    sys.modules[pkg] = pm
+                elif not hasattr(sys.modules[pkg], "__path__"):
+                    sys.modules[pkg].__path__ = [str(child_dir)]
+
+            # 执行模块
+            spec.loader.exec_module(module)
+
+            # 获取 Mixin 类（取 dotted name 最后一段）
+            class_name = f"{parts[-1].capitalize()}SkillMixin"
+            mixin_class = getattr(module, class_name)
+
+            # 缓存
+            self._python_mixins[dotted_name] = mixin_class
+            logger.info(
+                f"  ✅ 加载嵌套 Skill: {dotted_name} -> {class_name} ({skill_file})"
+            )
+            return True
+
+        except AttributeError as e:
+            logger.warning(f"  ⚠️  未找到类 {parts[-1].capitalize()}SkillMixin: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"  ⚠️  加载嵌套 Skill {dotted_name} 失败: {e}")
+            return False
 
 
 # 全局单例
@@ -446,7 +624,9 @@ def register_skill(name: str):
     Args:
         name: Skill 名称
     """
+
     def decorator(mixin_class):
         SKILL_REGISTRY.register_python_mixin(name, mixin_class)
         return mixin_class
+
     return decorator

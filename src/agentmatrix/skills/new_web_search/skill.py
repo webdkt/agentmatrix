@@ -443,7 +443,7 @@ URL: {url}
                     run_label=f"deep_read_batch_{i}",
                     task=task,
                     persona=getattr(self, "persona", None),
-                    available_skills=["deep_reader", "file"],
+                    available_skills=["new_web_search.deep_reader", "file"],
                     simple_mode=True,
                     exit_actions=[
                         "provide_final_summary",
