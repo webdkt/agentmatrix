@@ -78,7 +78,7 @@ agents_dir = configs_dir / "agents"
 llm_config_path = agents_dir / "llm_config.json"
 system_config_path = configs_dir / "system_config.yml"
 email_proxy_config_path = configs_dir / "email_proxy_config.yml"
-matrix_config_path = configs_dir / "matrix_config.yml"  # 向后兼容
+
 
 active_websockets = []
 matrix_runtime = None
@@ -436,7 +436,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AgentMatrix",
     description="An intelligent agent framework with pluggable skills and LLM integrations",
-    version="0.1.5",
+    version="0.5.0",
     lifespan=lifespan,
 )
 
@@ -450,7 +450,6 @@ app.state.config = {
     "llm_config_path": llm_config_path,
     "system_config_path": system_config_path,
     "email_proxy_config_path": email_proxy_config_path,
-    "matrix_config_path": matrix_config_path,
     "host": args.host,
     "port": args.port,
     "reload": args.reload,
@@ -634,9 +633,7 @@ async def init_runtime_api(request: dict):
         config["email_proxy_config_path"] = (
             matrix_world_dir / ".matrix" / "configs" / "email_proxy_config.yml"
         )
-        config["matrix_config_path"] = (
-            matrix_world_dir / ".matrix" / "configs" / "matrix_config.yml"
-        )
+        
         config["agents_dir"] = matrix_world_dir / ".matrix" / "configs" / "agents"
 
         # Initialize runtime (reads existing files)

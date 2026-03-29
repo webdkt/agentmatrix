@@ -78,10 +78,7 @@ class MatrixPaths:
         """Agent备份目录：.matrix/configs/backups/agents/"""
         return self.backup_dir / "agents"
 
-    @property
-    def matrix_config_path(self) -> Path:
-        """Matrix配置文件：.matrix/configs/matrix_config.yml"""
-        return self.config_dir / "matrix_config.yml"
+    
 
     @property
     def database_dir(self) -> Path:

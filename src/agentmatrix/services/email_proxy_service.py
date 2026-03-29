@@ -95,6 +95,14 @@ class EmailProxyService(AutoLoggerMixin):
         """停止EmailProxy服务"""
         self._running = False
 
+        # 🔧 修复：移除 PostOffice hook（防止停止后仍被调用）
+        try:
+            self.post_office.on_email_sent.remove(self._on_email_sent_handler)
+            self.logger.debug("✅ PostOffice hook 已移除")
+        except ValueError:
+            # hook 已经被移除（防御性编程）
+            self.logger.debug("⚠️ PostOffice hook 已经被移除")
+
         if self._fetch_task:
             self._fetch_task.cancel()
             try:
@@ -776,6 +784,11 @@ AgentMatrix 自动回复
 
     async def _on_email_sent_handler(self, email: Email):
         """PostOffice hook：处理内部邮件发送"""
+        # 🔧 防御性检查：如果服务已停止，不处理邮件
+        if not self._running:
+            self.logger.debug(f"⚠️ EmailProxy服务已停止，跳过邮件处理")
+            return
+
         self.logger.debug(f"🔔 hook 触发: {email.sender} → {email.recipient}")
 
         # 只处理发给User的邮件

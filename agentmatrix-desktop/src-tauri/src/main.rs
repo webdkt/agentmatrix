@@ -166,15 +166,27 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
     
     // Set working directory only if using python (for server.py to find src/)
     if !server_args.is_empty() {
-        // Find the project root (relative to the executable)
-            if let Some(resource_dir) = app.path().resource_dir().ok() {
-            let project_root = if cfg!(dev) {
-                // Dev mode: walk up from resource_dir to find server.py
-                let mut dir = resource_dir.as_path();
+        let project_root = if cfg!(dev) {
+            // Dev mode: use CARGO_MANIFEST_DIR to find project root
+            // This works correctly in Git worktrees because it's not affected by symlinks
+            let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            
+            // CARGO_MANIFEST_DIR is src-tauri/, go up 2 levels to reach project root
+            let project_root = manifest_dir.parent()
+                .and_then(|p| p.parent())
+                .unwrap_or(&manifest_dir);
+            
+            // Verify server.py exists at expected location
+            if !project_root.join("server.py").exists() {
+                eprintln!("Warning: server.py not found at {:?}", project_root.join("server.py"));
+                eprintln!("Searching from parent directories...");
+                
+                // Fallback: search from parent directories
+                let mut dir = manifest_dir.as_path();
                 let mut found = None;
                 for _ in 0..10 {
                     if dir.join("server.py").exists() {
-                        found = Some(dir);
+                        found = Some(dir.to_path_buf());
                         break;
                     }
                     match dir.parent() {
@@ -182,16 +194,25 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
                         None => break,
                     }
                 }
-                found.unwrap_or(&resource_dir)
+                found.unwrap_or_else(|| project_root.to_path_buf())
             } else {
-                // Production: go up 2 levels from resources/binaries
+                project_root.to_path_buf()
+            }
+        } else {
+            // Production: use resource_dir (requires resources to be packaged)
+            if let Some(resource_dir) = app.path().resource_dir().ok() {
                 resource_dir.parent()
                     .and_then(|p| p.parent())
-                    .unwrap_or(&resource_dir)
-            };
-            cmd.current_dir(project_root);
-            println!("Working directory: {:?}", project_root);
-        }
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| resource_dir.clone())
+            } else {
+                // Fallback if resource_dir is not available
+                eprintln!("Warning: resource_dir not available in production mode");
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            }
+        };
+        cmd.current_dir(&project_root);
+        println!("Working directory: {:?}", project_root);
     }
     
     let child = cmd.spawn()
