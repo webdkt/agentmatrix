@@ -1121,8 +1121,7 @@ Start generating the Working Notes now.
             # 打印完整 traceback 以便调试
             import traceback
 
-            self._log(logging.ERROR, f"Traceback:
-{traceback.format_exc()}")
+            self._log(logging.ERROR, f"Traceback:{traceback.format_exc()}")
 
             # 顶层 MicroAgent 向上传播异常，让 BaseAgent 的错误处理生效（如发邮件通知）
             if self._is_top_level_microagent():
@@ -1168,6 +1167,7 @@ Start generating the Working Notes now.
 
         # 计算动态变量
         actions_list = self._format_actions_list()
+        user_name = self.root_agent.runtime.user_agent_name
 
         md_skill_count = self._get_md_skill_count()
         md_skill_section = ""
@@ -1194,6 +1194,8 @@ Start generating the Working Notes now.
             actions_list=actions_list,
             md_skill_section=md_skill_section,
             yellow_pages_section=yellow_pages_section,
+            user_name = user_name,
+            agent_name = self.root_agent.name
         )
 
         self.system_prompt = prompt

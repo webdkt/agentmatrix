@@ -186,12 +186,8 @@ ehthumbs.db
 Thumbs.db
 
 # AgentMatrix specific
-# Workspace data (sessions, vector DB, browser profiles, etc.)
-.matrix/
-**/workspace/.matrix/
-**/workspace/sessions/
-**/workspace/browser_*/
-**/workspace/chroma_db/
+# Example worlds (user-specific data)
+examples/
 
 # Desktop app (Vue 3 + Vite)
 agentmatrix-desktop/node_modules/
@@ -207,11 +203,6 @@ agentmatrix-desktop/preview-icons.html
 *.backup
 *.backup[0-9]
 *.bak
-
-# Example worlds (user-specific data)
-MyWorld/
-examples/MyWorld/
-examples/MyWorld/.matrix/
 
 # Test files and temporary data
 Samples/
