@@ -167,15 +167,22 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
     // Set working directory only if using python (for server.py to find src/)
     if !server_args.is_empty() {
         // Find the project root (relative to the executable)
-        if let Some(resource_dir) = app.path().resource_dir().ok() {
+            if let Some(resource_dir) = app.path().resource_dir().ok() {
             let project_root = if cfg!(dev) {
-                // Dev mode: resource_dir is src-tauri/target/debug/
-                // Go up 4 levels to reach project root (where server.py lives)
-                resource_dir.parent()
-                    .and_then(|p| p.parent())
-                    .and_then(|p| p.parent())
-                    .and_then(|p| p.parent())
-                    .unwrap_or(&resource_dir)
+                // Dev mode: walk up from resource_dir to find server.py
+                let mut dir = resource_dir.as_path();
+                let mut found = None;
+                for _ in 0..10 {
+                    if dir.join("server.py").exists() {
+                        found = Some(dir);
+                        break;
+                    }
+                    match dir.parent() {
+                        Some(p) => dir = p,
+                        None => break,
+                    }
+                }
+                found.unwrap_or(&resource_dir)
             } else {
                 // Production: go up 2 levels from resources/binaries
                 resource_dir.parent()

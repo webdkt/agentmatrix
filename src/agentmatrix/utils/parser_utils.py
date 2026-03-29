@@ -8,9 +8,9 @@ import json
 import re
 
 
-def whiteboard_parser(raw_reply: str) -> dict:
+def working_notes_parser(raw_reply: str) -> dict:
     """
-    解析 whiteboard 生成结果（提取 Markdown 内容）
+    解析 working notes 生成结果（提取 Markdown 内容）
 
     期望格式：
     - 纯 Markdown 文本
@@ -26,7 +26,7 @@ def whiteboard_parser(raw_reply: str) -> dict:
     Returns:
         {
             "status": "success" | "error",
-            "content": str (Markdown 格式的 whiteboard),
+            "content": str (Markdown 格式的 working notes),
             "feedback": str (仅错误时)
         }
     """
@@ -34,37 +34,34 @@ def whiteboard_parser(raw_reply: str) -> dict:
     content = raw_reply.strip()
 
     if "```markdown" in content:
-        match = re.search(r'```markdown\s*(.*?)\s*```', content, re.DOTALL)
+        match = re.search(r"```markdown\s*(.*?)\s*```", content, re.DOTALL)
         if match:
             content = match.group(1)
     elif "```" in content:
-        match = re.search(r'```\s*(.*?)\s*```', content, re.DOTALL)
+        match = re.search(r"```\s*(.*?)\s*```", content, re.DOTALL)
         if match:
             content = match.group(1)
 
     # 2. 验证是否包含二级标题
-    if '##' not in content:
+    if "##" not in content:
         return {
             "status": "error",
-            "feedback": "Whiteboard 必须包含至少一个二级标题 (## ...) 用于组织信息结构"
+            "feedback": "Working Notes 必须包含至少一个二级标题 (## ...) 用于组织信息结构",
         }
 
     # 3. 验证是否包含兜底区域
     # 支持多种可能的写法：## 🧠 关键上下文, ## 关键上下文, ## Context 等
     has_context_section = bool(
-        re.search(r'##\s*[🧠\s]*关键上下文', content) or
-        re.search(r'##\s*Context', content, re.IGNORECASE) or
-        re.search(r'##\s*全局上下文', content)
+        re.search(r"##\s*[🧠\s]*关键上下文", content)
+        or re.search(r"##\s*Context", content, re.IGNORECASE)
+        or re.search(r"##\s*全局上下文", content)
     )
 
     if not has_context_section:
         return {
             "status": "error",
-            "feedback": "Whiteboard 必须包含一个兜底区域，建议使用 '## 🧠 关键上下文' 或 '## 关键上下文'"
+            "feedback": "Working Notes 必须包含一个兜底区域，建议使用 '## 🧠 关键上下文' 或 '## 关键上下文'",
         }
 
     # 4. 成功，返回 Markdown 内容
-    return {
-        "status": "success",
-        "content": content.strip()
-    }
+    return {"status": "success", "content": content.strip()}

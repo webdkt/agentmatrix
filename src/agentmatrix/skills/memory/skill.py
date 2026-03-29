@@ -10,7 +10,7 @@ Memory Skill - 核心实现
 - update_memory: 主动触发压缩 + 持久化
 
 注意：
-- Whiteboard 生成由 MicroAgent 内置提供
+- Working Notes 生成由 MicroAgent 内置提供
 - Memory Skill 只负责持久化和查询
 """
 
@@ -20,7 +20,7 @@ from typing import List, Dict, Any
 from ...core.action import register_action
 from .storage import search_entities_merged, append_timeline_events
 from .utils import (
-    save_whiteboard,
+    save_working_notes,
 )
 
 
@@ -31,7 +31,7 @@ class MemorySkillMixin:
     提供实体记忆功能，包括回忆（recall）和更新记忆（update_memory）。
 
     注意：
-    - _compress_messages() 和 _generate_whiteboard_summary() 由 MicroAgent 提供
+    - _compress_messages() 和 _generate_working_notes() 由 MicroAgent 提供
     - 本类只负责持久化和查询功能
     """
 
@@ -165,8 +165,8 @@ JSON 格式示例：
         更新记忆（主动触发）
 
         流程：
-        1. 调用 MicroAgent 内置的 _compress_messages()（生成 whiteboard 并压缩 messages）
-        2. 持久化 whiteboard（如果是 top-level）
+        1. 调用 MicroAgent 内置的 _compress_messages()（生成 working notes 并压缩 messages）
+        2. 持久化 working notes（如果是 top-level）
         3. 持久化 timeline（如果是 top-level）
 
         Args:
@@ -175,7 +175,7 @@ JSON 格式示例：
         Returns:
             str: "记忆已更新"
         """
-        # 1. 调用内置压缩方法（生成 whiteboard 并压缩 messages）
+        # 1. 调用内置压缩方法（生成 working notes 并压缩 messages）
         # 注意：_compress_messages() 由 MicroAgent 提供
         uncompressed_msg = None
         if self._is_top_level():
@@ -184,12 +184,12 @@ JSON 格式示例：
             print(uncompressed_msg)
             print("=======END OF UNCOMPRESSSED")
 
-        whiteboard = await self._compress_messages()
+        working_notes = await self._compress_messages()
 
         # 2. Top-Level: 持久化（仅 top-level 需要持久化）
         if self._is_top_level():
-            # 保存 whiteboard（直接调用 utils）
-            await self._persist_whiteboard(whiteboard)
+            # 保存 working notes（直接调用 utils）
+            await self._persist_working_notes(working_notes)
             # ✅ TODO 1: 过滤邮件历史（避免重复保存）
             messages_for_events = self._filter_email_history(uncompressed_msg)
 
@@ -296,11 +296,11 @@ JSON 格式示例：
         except json.JSONDecodeError:
             return []
 
-    async def _persist_whiteboard(self, content: str):
-        """持久化 whiteboard 到文件"""
+    async def _persist_working_notes(self, content: str):
+        """持久化 working notes 到文件"""
         if self.root_agent.runtime is None:
             return
-        save_whiteboard(
+        save_working_notes(
             content,
             str(self.root_agent.runtime.paths.workspace_dir),
             self.root_agent.name,

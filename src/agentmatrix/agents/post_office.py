@@ -181,8 +181,7 @@ class PostOffice(AutoLoggerMixin):
     def get_emails_by_session(
         self,
         session_id: str,
-        agent_name: str,
-        task_id: str
+        agent_name: str
     ):
         """
         获取某个 session 的所有邮件（发出去的 + 收到的）
@@ -196,7 +195,7 @@ class PostOffice(AutoLoggerMixin):
             Email对象列表
         """
         email_records = self.email_db.get_emails_by_session(
-            session_id, agent_name, task_id
+            session_id, agent_name
         )
         emails = []
         for record in email_records:

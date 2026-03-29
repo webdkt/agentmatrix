@@ -65,12 +65,17 @@ class AgentMatrix(AutoLoggerMixin):
 
         self.config = MatrixConfig(self.paths)
 
+        # === 初始化 Prompt 注册中心 ===
+        from ..services.prompt_registry import PromptRegistry
+
+        self.prompt_registry = PromptRegistry(self.paths.prompts_dir)
+
         # 从配置获取user_agent_name（如果未提供）
         if user_agent_name is None:
             user_agent_name = self.config.matrix.user_agent_name
 
         self.async_event_callback = async_event_callback
-        #self.matrix_path = matrix_root  # 保留向后兼容
+        # self.matrix_path = matrix_root  # 保留向后兼容
 
         # Store user agent name
         self.user_agent_name = user_agent_name
