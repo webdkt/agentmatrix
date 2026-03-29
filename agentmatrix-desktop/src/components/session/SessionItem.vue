@@ -112,6 +112,11 @@ const hasPending = computed(() => {
   const sessionId = props.session.session_id
   return sessionStore.hasPendingQuestion(sessionId)
 })
+
+// 检查是否有未读邮件
+const isUnread = computed(() => {
+  return props.session.is_unread
+})
 </script>
 
 <template>
@@ -151,6 +156,7 @@ const hasPending = computed(() => {
 
       <!-- Subject -->
       <p class="session-item__subject">
+        <span v-if="isUnread" class="session-item__unread-dot"></span>
         {{ session.subject || 'No Subject' }}
       </p>
     </div>
@@ -271,5 +277,17 @@ const hasPending = computed(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Unread dot */
+.session-item__unread-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--fault);
+  border-radius: 50%;
 }
 </style>

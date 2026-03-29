@@ -170,6 +170,16 @@ export const useSessionStore = defineStore('session', {
     },
 
     /**
+     * 标记会话为已读（本地更新，用于即时反馈）
+     */
+    markSessionRead(sessionId) {
+      const index = this.sessions.findIndex(s => s.session_id === sessionId)
+      if (index !== -1) {
+        this.sessions[index] = { ...this.sessions[index], is_unread: false }
+      }
+    },
+
+    /**
      * 清除当前会话
      */
     clearCurrentSession() {

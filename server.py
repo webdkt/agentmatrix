@@ -633,7 +633,7 @@ async def init_runtime_api(request: dict):
         config["email_proxy_config_path"] = (
             matrix_world_dir / ".matrix" / "configs" / "email_proxy_config.yml"
         )
-        
+
         config["agents_dir"] = matrix_world_dir / ".matrix" / "configs" / "agents"
 
         # Initialize runtime (reads existing files)
@@ -687,6 +687,7 @@ async def get_sessions(page: int = 1, per_page: int = 20):
                 "subject": conv["subject"],
                 "last_email_time": conv["last_email_time"],
                 "participants": conv["participants"],
+                "is_unread": conv.get("is_unread", False),
             }
         )
 
@@ -904,6 +905,9 @@ async def get_session_emails(session_id: str):
                     "attachments": email.attachments,
                 }
             )
+
+        # 标记会话为已读（用户查看了这个 session）
+        matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
 
         return {"success": True, "emails": emails_data, "total_count": len(emails_data)}
     except Exception as e:
@@ -1163,7 +1167,7 @@ async def get_agent_sessions(agent_name: str):
     try:
         # 直接使用 PostOffice 的数据库实例
         db = matrix_runtime.post_office.email_db
-        
+
         # 获取 Agent 的 sessions
         sessions = db.get_agent_sessions(agent_name)
         return {"sessions": sessions}

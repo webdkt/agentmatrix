@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from ..core.log_util import AutoLoggerMixin
 
+
 class AgentMatrixDB(AutoLoggerMixin):
     def __init__(self, db_path):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -12,7 +13,7 @@ class AgentMatrixDB(AutoLoggerMixin):
     def create_tables(self):
         cursor = self.conn.cursor()
         # 1. 邮件归档表 (The Global Mailbox)
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS emails (
                 id TEXT PRIMARY KEY,
                 timestamp TEXT,
@@ -26,10 +27,10 @@ class AgentMatrixDB(AutoLoggerMixin):
                 recipient_session_id TEXT,
                 metadata TEXT -- 存 JSON 格式的附件或其他信息
             )
-        ''')
+        """)
 
         # 2. 定时任务表 (Scheduled Tasks)
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS scheduled_tasks (
                 id TEXT PRIMARY KEY,
                 task_name TEXT NOT NULL,
@@ -44,10 +45,10 @@ class AgentMatrixDB(AutoLoggerMixin):
                 last_triggered_at TEXT,
                 failure_reason TEXT
             )
-        ''')
+        """)
 
         # 3. 外部邮件 Message-ID ↔ 内部 Email ID 映射表（enriched: 包含 session 全量信息）
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS external_email_map (
                 external_message_id TEXT PRIMARY KEY,
                 internal_email_id TEXT NOT NULL,
@@ -56,7 +57,26 @@ class AgentMatrixDB(AutoLoggerMixin):
                 user_session_id TEXT,
                 agent_session_id TEXT
             )
-        ''')
+        """)
+
+        # 4. 用户会话表（session 元数据物化视图，每个 session 只保留最后一封邮件）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                user_session_id TEXT PRIMARY KEY,
+                agent_name TEXT,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                timestamp TEXT,
+                sender TEXT,
+                recipient TEXT,
+                subject TEXT,
+                body TEXT,
+                in_reply_to TEXT,
+                task_id TEXT,
+                sender_session_id TEXT,
+                recipient_session_id TEXT,
+                metadata TEXT
+            )
+        """)
 
         self.conn.commit()
 
@@ -68,82 +88,88 @@ class AgentMatrixDB(AutoLoggerMixin):
         cursor = self.conn.cursor()
 
         # sender_session_id 索引（查询发出的邮件）
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_sender_session
             ON emails(sender_session_id, sender, task_id)
-        ''')
+        """)
 
         # recipient_session_id 索引（查询收到的邮件）
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_receiver_session
             ON emails(recipient_session_id, recipient, task_id)
-        ''')
+        """)
 
         # in_reply_to 索引（用于 reply_mapping 查询）
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_in_reply_to
             ON emails(in_reply_to)
-        ''')
+        """)
 
         # scheduled_tasks 表索引
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_status
             ON scheduled_tasks(status)
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_trigger_time
             ON scheduled_tasks(trigger_time)
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_next_trigger
             ON scheduled_tasks(status, trigger_time)
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_target_agent
             ON scheduled_tasks(target_agent)
-        ''')
+        """)
 
         # external_email_map 索引（反向查询：internal_email_id → external_message_id）
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_external_map_internal
             ON external_email_map(internal_email_id)
-        ''')
+        """)
 
         self.conn.commit()
 
     def log_email(self, email):
         """记录每一封信"""
         cursor = self.conn.cursor()
-        cursor.execute('''
+        cursor.execute(
+            """
             INSERT OR IGNORE INTO emails
             (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            email.id,
-            email.timestamp.isoformat(),
-            email.sender,
-            email.recipient,
-            email.subject,
-            email.body,
-            email.in_reply_to,
-            email.task_id,
-            email.sender_session_id,
-            email.recipient_session_id,
-            json.dumps(email.metadata) if email.metadata else None
-        ))
+        """,
+            (
+                email.id,
+                email.timestamp.isoformat(),
+                email.sender,
+                email.recipient,
+                email.subject,
+                email.body,
+                email.in_reply_to,
+                email.task_id,
+                email.sender_session_id,
+                email.recipient_session_id,
+                json.dumps(email.metadata) if email.metadata else None,
+            ),
+        )
         self.conn.commit()
 
     def get_mailbox(self, agent_name, limit=50):
         """查询某个 Agent 的收件箱历史"""
         cursor = self.conn.cursor()
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT * FROM emails
             WHERE recipient = ? OR sender = ?
             ORDER BY timestamp DESC LIMIT ?
-        ''', (agent_name, agent_name, limit))
+        """,
+            (agent_name, agent_name, limit),
+        )
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
@@ -157,16 +183,19 @@ class AgentMatrixDB(AutoLoggerMixin):
             指定范围内的邮件列表
         """
         cursor = self.conn.cursor()
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT * FROM emails
             WHERE task_id = ? and (recipient = ? OR sender = ?)
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
-        ''', (task_id, agent_name, agent_name, end - start + 1, start))
+        """,
+            (task_id, agent_name, agent_name, end - start + 1, start),
+        )
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def get_user_session_emails(self, task_id, user_agent_name='User'):
+    def get_user_session_emails(self, task_id, user_agent_name="User"):
         """查询某个用户会话中所有与User相关的邮件
         Args:
             task_id: 用户会话ID
@@ -175,15 +204,20 @@ class AgentMatrixDB(AutoLoggerMixin):
             该会话中所有与User相关的邮件列表（按时间升序）
         """
         cursor = self.conn.cursor()
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT * FROM emails
             WHERE task_id = ? AND (sender = ? OR recipient = ?)
             ORDER BY timestamp ASC
-        ''', (task_id, user_agent_name, user_agent_name))
+        """,
+            (task_id, user_agent_name, user_agent_name),
+        )
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def update_receiver_session(self, email_id: str, recipient_session_id: str, receiver_name: str):
+    def update_receiver_session(
+        self, email_id: str, recipient_session_id: str, receiver_name: str
+    ):
         """
         更新邮件的 recipient_session_id
 
@@ -196,11 +230,14 @@ class AgentMatrixDB(AutoLoggerMixin):
             RuntimeError: 如果更新失败（邮件不存在或收件人不匹配）
         """
         cursor = self.conn.cursor()
-        cursor.execute('''
+        cursor.execute(
+            """
             UPDATE emails
             SET recipient_session_id = ?
             WHERE id = ? AND recipient = ?
-        ''', (recipient_session_id, email_id, receiver_name))
+        """,
+            (recipient_session_id, email_id, receiver_name),
+        )
 
         if cursor.rowcount == 0:
             raise RuntimeError(
@@ -226,7 +263,8 @@ class AgentMatrixDB(AutoLoggerMixin):
             该 session 的所有邮件列表（按时间升序）
         """
         cursor = self.conn.cursor()
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT * FROM emails
             WHERE (
                 -- 发出去的邮件（View A）
@@ -236,7 +274,9 @@ class AgentMatrixDB(AutoLoggerMixin):
                 (recipient_session_id = ? AND recipient = ?)
             )
             ORDER BY timestamp ASC
-        ''', (session_id, agent_name, session_id, agent_name))
+        """,
+            (session_id, agent_name, session_id, agent_name),
+        )
 
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
@@ -252,23 +292,36 @@ class AgentMatrixDB(AutoLoggerMixin):
             dict: 邮件记录，如果不存在返回 None
         """
         cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM emails WHERE id = ?', (email_id,))
+        cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
         columns = [col[0] for col in cursor.description]
         row = cursor.fetchone()
         return dict(zip(columns, row)) if row else None
 
     # ===== External Email Map 相关方法 =====
 
-    def save_external_email_mapping(self, external_message_id: str, internal_email_id: str,
-                                     agent_name: str = None, task_id: str = None,
-                                     user_session_id: str = None, agent_session_id: str = None):
+    def save_external_email_mapping(
+        self,
+        external_message_id: str,
+        internal_email_id: str,
+        agent_name: str = None,
+        task_id: str = None,
+        user_session_id: str = None,
+        agent_session_id: str = None,
+    ):
         """保存外部 Message-ID 到内部 Email ID 的映射（enriched: 包含 session 全量信息）"""
         cursor = self.conn.cursor()
         cursor.execute(
-            '''INSERT OR REPLACE INTO external_email_map
+            """INSERT OR REPLACE INTO external_email_map
                (external_message_id, internal_email_id, agent_name, task_id, user_session_id, agent_session_id)
-               VALUES (?, ?, ?, ?, ?, ?)''',
-            (external_message_id, internal_email_id, agent_name, task_id, user_session_id, agent_session_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                external_message_id,
+                internal_email_id,
+                agent_name,
+                task_id,
+                user_session_id,
+                agent_session_id,
+            ),
         )
         self.conn.commit()
 
@@ -276,8 +329,8 @@ class AgentMatrixDB(AutoLoggerMixin):
         """通过外部 Message-ID 查询内部 Email ID"""
         cursor = self.conn.cursor()
         cursor.execute(
-            'SELECT internal_email_id FROM external_email_map WHERE external_message_id = ?',
-            (external_message_id,)
+            "SELECT internal_email_id FROM external_email_map WHERE external_message_id = ?",
+            (external_message_id,),
         )
         row = cursor.fetchone()
         return row[0] if row else None
@@ -286,8 +339,8 @@ class AgentMatrixDB(AutoLoggerMixin):
         """通过外部 Message-ID 查询完整 mapping（含 session 信息）"""
         cursor = self.conn.cursor()
         cursor.execute(
-            'SELECT * FROM external_email_map WHERE external_message_id = ?',
-            (external_message_id,)
+            "SELECT * FROM external_email_map WHERE external_message_id = ?",
+            (external_message_id,),
         )
         row = cursor.fetchone()
         if row:
@@ -299,130 +352,66 @@ class AgentMatrixDB(AutoLoggerMixin):
         """通过内部 Email ID 查询外部 Message-ID"""
         cursor = self.conn.cursor()
         cursor.execute(
-            'SELECT external_message_id FROM external_email_map WHERE internal_email_id = ?',
-            (internal_email_id,)
+            "SELECT external_message_id FROM external_email_map WHERE internal_email_id = ?",
+            (internal_email_id,),
         )
         row = cursor.fetchone()
         return row[0] if row else None
-    # ===== Scheduled Task相关方法 =====
 
-    def create_task(self, task_dict):
-        """创建定时任务"""
+    # ===== User Sessions 相关方法 =====
+
+    def upsert_user_session(
+        self, email, user_session_id: str, agent_name: str, is_read: int
+    ):
+        """
+        更新或插入用户会话记录（每次用户相关的邮件 dispatch 后调用）
+
+        Args:
+            email: Email 对象
+            user_session_id: 用户视角的 session_id
+            agent_name: 对方名称（收件=sender，发件=recipient）
+            is_read: 0 未读，1 已读
+        """
         cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO scheduled_tasks
-            (id, task_name, target_agent, trigger_time, recurrence_rule,
-             task_description, task_metadata, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            task_dict['id'], task_dict['task_name'], task_dict['target_agent'],
-            task_dict['trigger_time'], task_dict.get('recurrence_rule'),
-            task_dict.get('task_description'),
-            json.dumps(task_dict.get('task_metadata')) if task_dict.get('task_metadata') else None,
-            task_dict['status'], task_dict['created_at'], task_dict['updated_at']
-        ))
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO user_sessions
+                (user_session_id, agent_name, is_read, timestamp, sender, recipient,
+                 subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                user_session_id,
+                agent_name,
+                is_read,
+                email.timestamp.isoformat()
+                if hasattr(email.timestamp, "isoformat")
+                else str(email.timestamp),
+                email.sender,
+                email.recipient,
+                email.subject,
+                email.body,
+                email.in_reply_to,
+                email.task_id,
+                email.sender_session_id,
+                email.recipient_session_id,
+                json.dumps(email.metadata) if email.metadata else None,
+            ),
+        )
         self.conn.commit()
 
-    def get_task(self, task_id):
-        """获取单个任务"""
+    def mark_session_as_read(self, user_session_id: str):
+        """标记用户会话为已读"""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM scheduled_tasks WHERE id = ?', (task_id,))
-        columns = [col[0] for col in cursor.description]
-        row = cursor.fetchone()
-        return dict(zip(columns, row)) if row else None
-
-    def list_tasks(self, status=None, agent=None):
-        """列出任务"""
-        cursor = self.conn.cursor()
-        query = 'SELECT * FROM scheduled_tasks WHERE 1=1'
-        params = []
-
-        if status:
-            query += ' AND status = ?'
-            params.append(status)
-        if agent:
-            query += ' AND target_agent = ?'
-            params.append(agent)
-
-        query += ' ORDER BY created_at DESC'
-        cursor.execute(query, params)
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
-
-    def update_task(self, task_id, updates):
-        """更新任务"""
-        set_clause = ', '.join([f'{k} = ?' for k in updates.keys()])
-        query = f'UPDATE scheduled_tasks SET {set_clause}, updated_at = ? WHERE id = ?'
-        params = list(updates.values()) + [datetime.now(timezone.utc).isoformat(), task_id]
-
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
+        cursor.execute(
+            "UPDATE user_sessions SET is_read = 1 WHERE user_session_id = ?",
+            (user_session_id,),
+        )
         self.conn.commit()
 
-    def delete_task(self, task_id):
-        """删除任务"""
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM scheduled_tasks WHERE id = ?', (task_id,))
-        self.conn.commit()
-
-    def get_pending_tasks(self):
-        """获取应该触发的任务（status='active' 且 trigger_time <= now）"""
-        cursor = self.conn.cursor()
-        now = datetime.now(timezone.utc).isoformat()
-        cursor.execute('''
-            SELECT * FROM scheduled_tasks
-            WHERE status = 'active' AND trigger_time <= ?
-            ORDER BY trigger_time ASC
-        ''', (now,))
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
-
-    def mark_triggered(self, task_id):
-        """标记任务已触发"""
-        task = self.get_task(task_id)
-        if not task:
-            return
-
-        # 如果是周期性任务，计算下次触发时间并保持active
-        if task.get('recurrence_rule'):
-            next_time = self._calculate_next_trigger(task['trigger_time'], task['recurrence_rule'])
-            self.update_task(task_id, {
-                'last_triggered_at': datetime.now(timezone.utc).isoformat(),
-                'trigger_time': next_time
-            })
-        else:
-            # 一次性任务，标记为completed
-            self.update_task(task_id, {
-                'last_triggered_at': datetime.now(timezone.utc).isoformat(),
-                'status': 'completed'
-            })
-
-    def mark_failed(self, task_id, reason):
-        """标记任务失败"""
-        self.update_task(task_id, {
-            'status': 'failed',
-            'failure_reason': reason
-        })
-
-    def _calculate_next_trigger(self, current_time, recurrence_rule):
-        """计算下次触发时间"""
-        from datetime import timedelta
-        current = datetime.fromisoformat(current_time)
-
-        if recurrence_rule == 'daily':
-            next_time = current + timedelta(days=1)
-        elif recurrence_rule == 'weekly':
-            next_time = current + timedelta(weeks=1)
-        elif recurrence_rule == 'monthly':
-            # 简化处理：加30天
-            next_time = current + timedelta(days=30)
-        else:
-            next_time = current
-
-        return next_time.isoformat()
-
-
-    def get_user_sessions(self, user_agent_name: str, page: int = 1, per_page: int = 20):
+    def get_user_sessions(
+        self, user_agent_name: str, page: int = 1, per_page: int = 20
+    ):
         """
         获取用户的所有邮件会话（分页）
 
@@ -442,100 +431,191 @@ class AgentMatrixDB(AutoLoggerMixin):
         """
         cursor = self.conn.cursor()
 
-        # 第一步：获取所有唯一的 session_id 和它们的最后邮件时间（两个 view 的 UNION）
-        cursor.execute('''
-            SELECT
-                session_id,
-                MAX(timestamp) as last_timestamp
-            FROM (
-                -- View A: 发出的邮件
-                SELECT sender_session_id as session_id, timestamp
-                FROM emails
-                WHERE sender = ? AND sender_session_id IS NOT NULL
-
-                UNION
-
-                -- View B: 收到的邮件
-                SELECT recipient_session_id as session_id, timestamp
-                FROM emails
-                WHERE recipient = ? AND recipient_session_id IS NOT NULL
-            )
-            GROUP BY session_id
-            ORDER BY last_timestamp DESC
-        ''', (user_agent_name, user_agent_name))
-
-        all_sessions = cursor.fetchall()
-        total = len(all_sessions)
+        # 获取总数
+        cursor.execute("SELECT COUNT(*) FROM user_sessions")
+        total = cursor.fetchone()[0]
         total_pages = (total + per_page - 1) // per_page if total > 0 else 0
 
-        # 第二步：分页处理
+        # 分页查询
         offset = (page - 1) * per_page
-        paged_sessions = all_sessions[offset:offset + per_page]
+        cursor.execute(
+            """
+            SELECT user_session_id AS session_id, agent_name, subject,
+                   timestamp AS last_email_time, is_read
+            FROM user_sessions
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+        """,
+            (per_page, offset),
+        )
 
-        # 第三步：为每个 session 查询详细信息
+        columns = [col[0] for col in cursor.description]
         sessions = []
-        for session_id, last_timestamp in paged_sessions:
-            # 查询该 session 的第一封邮件的 subject
-            cursor.execute('''
-                SELECT subject
-                FROM emails
-                WHERE (
-                    (sender_session_id = ? AND sender = ?)
-                    OR
-                    (recipient_session_id = ? AND recipient = ?)
-                )
-                ORDER BY timestamp ASC
-                LIMIT 1
-            ''', (session_id, user_agent_name, session_id, user_agent_name))
-
-            result = cursor.fetchone()
-            first_subject = result[0] if result else 'No Subject'
-
-            # 查询该 session 的所有参与者（排除用户自己）
-            cursor.execute('''
-                SELECT DISTINCT sender
-                FROM emails
-                WHERE (sender_session_id = ? AND sender = ? AND sender != ?)
-                   OR (recipient_session_id = ? AND recipient = ? AND sender != ?)
-                UNION
-                SELECT DISTINCT recipient
-                FROM emails
-                WHERE (sender_session_id = ? AND sender = ? AND recipient != ?)
-                   OR (recipient_session_id = ? AND recipient = ? AND recipient != ?)
-            ''', (session_id, user_agent_name, user_agent_name,
-                  session_id, user_agent_name, user_agent_name,
-                  session_id, user_agent_name, user_agent_name,
-                  session_id, user_agent_name, user_agent_name))
-
-            participants = list(set([row[0] for row in cursor.fetchall() if row[0] and row[0] != user_agent_name]))
-
-            sessions.append({
-                'session_id': session_id,
-                'subject': first_subject,
-                'last_email_time': last_timestamp,
-                'participants': participants
-            })
+        for row in cursor.fetchall():
+            d = dict(zip(columns, row))
+            d["is_unread"] = d.pop("is_read", 0) == 0
+            d["participants"] = [d["agent_name"]] if d.get("agent_name") else []
+            sessions.append(d)
 
         return {
-            'sessions': sessions,
-            'total': total,
-            'page': page,
-            'per_page': per_page,
-            'total_pages': total_pages
+            "sessions": sessions,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
         }
+
+    # ===== Scheduled Task相关方法 =====
+
+    def create_task(self, task_dict):
+        """创建定时任务"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO scheduled_tasks
+            (id, task_name, target_agent, trigger_time, recurrence_rule,
+             task_description, task_metadata, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                task_dict["id"],
+                task_dict["task_name"],
+                task_dict["target_agent"],
+                task_dict["trigger_time"],
+                task_dict.get("recurrence_rule"),
+                task_dict.get("task_description"),
+                json.dumps(task_dict.get("task_metadata"))
+                if task_dict.get("task_metadata")
+                else None,
+                task_dict["status"],
+                task_dict["created_at"],
+                task_dict["updated_at"],
+            ),
+        )
+        self.conn.commit()
+
+    def get_task(self, task_id):
+        """获取单个任务"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,))
+        columns = [col[0] for col in cursor.description]
+        row = cursor.fetchone()
+        return dict(zip(columns, row)) if row else None
+
+    def list_tasks(self, status=None, agent=None):
+        """列出任务"""
+        cursor = self.conn.cursor()
+        query = "SELECT * FROM scheduled_tasks WHERE 1=1"
+        params = []
+
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if agent:
+            query += " AND target_agent = ?"
+            params.append(agent)
+
+        query += " ORDER BY created_at DESC"
+        cursor.execute(query, params)
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def update_task(self, task_id, updates):
+        """更新任务"""
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        query = f"UPDATE scheduled_tasks SET {set_clause}, updated_at = ? WHERE id = ?"
+        params = list(updates.values()) + [
+            datetime.now(timezone.utc).isoformat(),
+            task_id,
+        ]
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        self.conn.commit()
+
+    def delete_task(self, task_id):
+        """删除任务"""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+        self.conn.commit()
+
+    def get_pending_tasks(self):
+        """获取应该触发的任务（status='active' 且 trigger_time <= now）"""
+        cursor = self.conn.cursor()
+        now = datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            SELECT * FROM scheduled_tasks
+            WHERE status = 'active' AND trigger_time <= ?
+            ORDER BY trigger_time ASC
+        """,
+            (now,),
+        )
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def mark_triggered(self, task_id):
+        """标记任务已触发"""
+        task = self.get_task(task_id)
+        if not task:
+            return
+
+        # 如果是周期性任务，计算下次触发时间并保持active
+        if task.get("recurrence_rule"):
+            next_time = self._calculate_next_trigger(
+                task["trigger_time"], task["recurrence_rule"]
+            )
+            self.update_task(
+                task_id,
+                {
+                    "last_triggered_at": datetime.now(timezone.utc).isoformat(),
+                    "trigger_time": next_time,
+                },
+            )
+        else:
+            # 一次性任务，标记为completed
+            self.update_task(
+                task_id,
+                {
+                    "last_triggered_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "completed",
+                },
+            )
+
+    def mark_failed(self, task_id, reason):
+        """标记任务失败"""
+        self.update_task(task_id, {"status": "failed", "failure_reason": reason})
+
+    def _calculate_next_trigger(self, current_time, recurrence_rule):
+        """计算下次触发时间"""
+        from datetime import timedelta
+
+        current = datetime.fromisoformat(current_time)
+
+        if recurrence_rule == "daily":
+            next_time = current + timedelta(days=1)
+        elif recurrence_rule == "weekly":
+            next_time = current + timedelta(weeks=1)
+        elif recurrence_rule == "monthly":
+            # 简化处理：加30天
+            next_time = current + timedelta(days=30)
+        else:
+            next_time = current
+
+        return next_time.isoformat()
 
     def get_agent_sessions(self, agent_name: str) -> list:
         """
         获取 Agent 的所有 sessions（用于 Matrix View Memory Tab）
-        
+
         Args:
             agent_name: Agent 名称
-            
+
         Returns:
             List[dict]: Agent 的所有 sessions
         """
         cursor = self.conn.cursor()
-        
+
         # 使用索引优化的查询（符合 CONCEPTS.md 的定义）
         # Agent 的 sessions = 作为发送者的 sessions + 作为接收者的 sessions
         query = """
@@ -557,14 +637,14 @@ class AgentMatrixDB(AutoLoggerMixin):
             
             ORDER BY last_email_time DESC
         """
-        
+
         cursor.execute(query, (agent_name, agent_name))
         results = cursor.fetchall()
-        
+
         sessions = []
         for row in results:
             session_id, last_email_time = row
-            
+
             # 获取该 session 的第一封邮件的 subject
             subject_query = """
                 SELECT subject FROM emails
@@ -573,24 +653,30 @@ class AgentMatrixDB(AutoLoggerMixin):
                 ORDER BY timestamp ASC
                 LIMIT 1
             """
-            cursor.execute(subject_query, (agent_name, session_id, agent_name, session_id))
+            cursor.execute(
+                subject_query, (agent_name, session_id, agent_name, session_id)
+            )
             subject_row = cursor.fetchone()
             first_subject = subject_row[0] if subject_row else ""
-            
+
             # 获取该 session 的邮件数量
             count_query = """
                 SELECT COUNT(*) FROM emails
                 WHERE (sender = ? AND sender_session_id = ?)
                    OR (recipient = ? AND recipient_session_id = ?)
             """
-            cursor.execute(count_query, (agent_name, session_id, agent_name, session_id))
+            cursor.execute(
+                count_query, (agent_name, session_id, agent_name, session_id)
+            )
             email_count = cursor.fetchone()[0]
-            
-            sessions.append({
-                'session_id': session_id,
-                'last_email_time': last_email_time,
-                'first_subject': first_subject,
-                'email_count': email_count
-            })
-        
+
+            sessions.append(
+                {
+                    "session_id": session_id,
+                    "last_email_time": last_email_time,
+                    "first_subject": first_subject,
+                    "email_count": email_count,
+                }
+            )
+
         return sessions

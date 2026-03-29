@@ -10,6 +10,7 @@ from pathlib import Path
 # 定义一个回调函数的类型：接收一封邮件，返回 None (异步)
 OnMailReceived = Callable[[Email], Awaitable[None]]
 
+
 class UserProxyAgent(BaseAgent):
     def __init__(self, profile, profile_path: str = None):
         super().__init__(profile, profile_path=profile_path)
@@ -26,7 +27,7 @@ class UserProxyAgent(BaseAgent):
         old_task_id: str,
         old_session_id: str,
         new_task_id: str,
-        new_session_id: str
+        new_session_id: str,
     ):
         """
         重命名或创建 task 和 session 目录
@@ -42,16 +43,26 @@ class UserProxyAgent(BaseAgent):
         """
         try:
             # 1. 获取目录路径
-            old_work_dir = self.runtime.paths.get_agent_work_files_dir(self.name, old_task_id)
-            old_session_dir = self.runtime.paths.get_agent_session_dir(self.name, old_session_id)
-            new_work_dir = self.runtime.paths.get_agent_work_files_dir(self.name, new_task_id)
-            new_session_dir = self.runtime.paths.get_agent_session_dir(self.name, new_session_id)
+            old_work_dir = self.runtime.paths.get_agent_work_files_dir(
+                self.name, old_task_id
+            )
+            old_session_dir = self.runtime.paths.get_agent_session_dir(
+                self.name, old_session_id
+            )
+            new_work_dir = self.runtime.paths.get_agent_work_files_dir(
+                self.name, new_task_id
+            )
+            new_session_dir = self.runtime.paths.get_agent_session_dir(
+                self.name, new_session_id
+            )
 
             # 2. 处理 work_files 目录
             if old_work_dir.exists() and old_work_dir != new_work_dir:
                 # 旧目录存在：移动
                 shutil.move(str(old_work_dir), str(new_work_dir))
-                self.logger.info(f"✅ Moved work_files: {old_task_id[:8]} → {new_task_id}")
+                self.logger.info(
+                    f"✅ Moved work_files: {old_task_id[:8]} → {new_task_id}"
+                )
             elif not new_work_dir.exists():
                 # 旧目录不存在：创建新目录
                 new_work_dir.mkdir(parents=True, exist_ok=True)
@@ -61,14 +72,18 @@ class UserProxyAgent(BaseAgent):
             if old_session_dir.exists() and old_session_dir != new_session_dir:
                 # 旧目录存在：移动
                 shutil.move(str(old_session_dir), str(new_session_dir))
-                self.logger.info(f"✅ Moved session: {old_session_id[:8]} → {new_session_id}")
+                self.logger.info(
+                    f"✅ Moved session: {old_session_id[:8]} → {new_session_id}"
+                )
             elif not new_session_dir.exists():
                 # 旧目录不存在：创建新目录
                 new_session_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.info(f"✅ Created session: {new_session_id}")
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to rename/create directories: {e}", exc_info=True)
+            self.logger.error(
+                f"❌ Failed to rename/create directories: {e}", exc_info=True
+            )
             # 不抛出异常，继续执行（目录操作失败不应该阻塞邮件发送）
 
     async def process_email(self, email: Email):
@@ -85,23 +100,37 @@ class UserProxyAgent(BaseAgent):
             await self.post_office.update_email_receiver_session(
                 email_id=email.id,
                 recipient_session_id=session["session_id"],
-                receiver_name=self.name
+                receiver_name=self.name,
             )
             # 🔑 关键修复：同步更新内存对象，否则 WebSocket 回调拿到的还是 null
             email.recipient_session_id = session["session_id"]
 
+        # 维护 user_sessions（用户收件：is_read=0，对方是发件人）
+        self.post_office.email_db.upsert_user_session(
+            email=email,
+            user_session_id=session["session_id"],
+            agent_name=email.sender,
+            is_read=0,
+        )
+
         # 3. 记录日志（保持原有逻辑）
         print(f"[{self.name}] 收到邮件: {email.subject}")
-        await self.emit("USER_INTERACTION", f"收到来自 {email.sender} 的消息", payload={
-            "type": "MAIL_RECEIVED",
-            "mail_id": email.id,
-            "sender": email.sender,
-            "subject": email.subject,
-            "body": email.body,
-            "in_reply_to": email.in_reply_to,
-            "recipient_session_id": session["session_id"],  # 关键：前端需要知道放到哪个会话
-            "task_id": session["task_id"]  # 前端也需要 task_id
-        })
+        await self.emit(
+            "USER_INTERACTION",
+            f"收到来自 {email.sender} 的消息",
+            payload={
+                "type": "MAIL_RECEIVED",
+                "mail_id": email.id,
+                "sender": email.sender,
+                "subject": email.subject,
+                "body": email.body,
+                "in_reply_to": email.in_reply_to,
+                "recipient_session_id": session[
+                    "session_id"
+                ],  # 关键：前端需要知道放到哪个会话
+                "task_id": session["task_id"],  # 前端也需要 task_id
+            },
+        )
 
         # 4. 触发外部钩子（保持原有逻辑）
         if self.on_mail_received:
@@ -109,9 +138,20 @@ class UserProxyAgent(BaseAgent):
             await self.on_mail_received(email)
         else:
             # 默认行为：简单的打印到控制台，防止没有任何反应
-            print(f"\n[UserProxy 收到邮件] From: {email.sender}\nSubject: {email.subject}\nBody: {email.body}\n")
+            print(
+                f"\n[UserProxy 收到邮件] From: {email.sender}\nSubject: {email.subject}\nBody: {email.body}\n"
+            )
 
-    async def speak(self, session_id, task_id, to: str, subject, content: str = None, reply_to_id: str = None, attachments=None):
+    async def speak(
+        self,
+        session_id,
+        task_id,
+        to: str,
+        subject,
+        content: str = None,
+        reply_to_id: str = None,
+        attachments=None,
+    ):
         """
         [Public API]
         这是给宿主程序调用的方法。
@@ -135,13 +175,19 @@ class UserProxyAgent(BaseAgent):
             session = await self.session_manager.get_session_by_id(session_id)
         except ValueError:
             # Session 不存在，创建新的
-            self.logger.info(f"Session {session_id[:8]} not found, creating new session")
-            session = await self.session_manager._create_new_session(session_id, self.name, task_id)
+            self.logger.info(
+                f"Session {session_id[:8]} not found, creating new session"
+            )
+            session = await self.session_manager._create_new_session(
+                session_id, self.name, task_id
+            )
             self.session_manager.sessions[session_id] = session
             # 🆕 不保存空session，避免后续移动目录时的冗余操作
 
         if not subject:
-            self.logger.info(f"🤖 Auto-generating subject for content: {content[:50]}...")
+            self.logger.info(
+                f"🤖 Auto-generating subject for content: {content[:50]}..."
+            )
             resp = await self.cerebellum.think(f"""
             请你根据以下邮件内容生成一个高度扼要的邮件主题。明了的说明事情本质就行，不需要具体细节内容，例如"一个问题"，"下载任务" 等等
 
@@ -151,8 +197,8 @@ class UserProxyAgent(BaseAgent):
             [输出要求]
             你可以尽量简短的说明思路，但输出的最后一行必须是、也只能是邮件主题本身。例如如果邮件主题是ABC，那么最后一行就是ABC。不多不少，不要增加任何标点符号
             """)
-            subject = resp['reply'] or ""
-            #取subject 最后一行
+            subject = resp["reply"] or ""
+            # 取subject 最后一行
             subject = subject.split("\n")[-1]
             self.logger.info(f"✅ Generated subject: {subject}")
 
@@ -180,8 +226,7 @@ class UserProxyAgent(BaseAgent):
 
             # 4. 重命名目录
             await self._rename_task_and_session_directories(
-                old_task_id, old_session_id,
-                new_task_id, new_session_id
+                old_task_id, old_session_id, new_task_id, new_session_id
             )
 
             # 5. 更新 session 字典中的 ID
@@ -199,12 +244,14 @@ class UserProxyAgent(BaseAgent):
             session_id = new_session_id
             task_id = new_task_id
 
-            self.logger.info(f"✅ Session ID updated: {old_session_id[:8]} → {new_session_id}")
+            self.logger.info(
+                f"✅ Session ID updated: {old_session_id[:8]} → {new_session_id}"
+            )
 
         # 处理附件 metadata
         metadata = {}
         if attachments:
-            metadata['attachments'] = attachments
+            metadata["attachments"] = attachments
             self.logger.info(f"📎 Email includes {len(attachments)} attachment(s)")
 
         email = Email(
@@ -216,15 +263,20 @@ class UserProxyAgent(BaseAgent):
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 关键：设置发件人的 session
             recipient_session_id=None,  # 收件人的 session（由收件人收到后更新）
-            metadata=metadata
+            metadata=metadata,
         )
         await self.post_office.dispatch(email)
+
+        # 维护 user_sessions（用户发件：is_read=1，对方是收件人）
+        self.post_office.email_db.upsert_user_session(
+            email=email, user_session_id=session["session_id"], agent_name=to, is_read=1
+        )
 
         # 更新 reply_mapping
         await self.session_manager.update_reply_mapping(
             msg_id=email.id,
             session_id=session["session_id"],
-            task_id=session["task_id"]
+            task_id=session["task_id"],
         )
 
         return email

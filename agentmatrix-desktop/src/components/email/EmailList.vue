@@ -106,6 +106,9 @@ const loadEmails = async (sessionId) => {
     const result = await sessionAPI.getEmails(sessionId)
     emails.value = result.emails || result.sessions || []
 
+    // 标记会话为已读（后端已处理，前端同步更新本地状态）
+    sessionStore.markSessionRead(sessionId)
+
     await nextTick()
   } catch (err) {
     error.value = err.message
