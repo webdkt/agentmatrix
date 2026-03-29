@@ -18,8 +18,25 @@ import os
 import threading
 
 
+def get_default_session_name():
+    """
+    生成默认的 tmux session 名称
+    - 使用当前目录名（避免不同目录冲突）
+    - 目录名中的空格和特殊字符替换为下划线
+    """
+    # 获取当前目录名
+    dir_name = os.path.basename(os.getcwd())
+    # 替换特殊字符为下划线
+    clean_name = re.sub(r'[^\w\-]', '_', dir_name)
+    # 添加前缀避免冲突
+    return f"auto_{clean_name}"
+
+
 class TmuxAutoConfirm:
-    def __init__(self, session_name="auto_confirm"):
+    def __init__(self, session_name=None):
+        # 如果没有指定 session_name，使用目录名
+        if session_name is None:
+            session_name = get_default_session_name()
         self.session_name = session_name
         self.last_content = None
         self.check_interval = 60  # 60 seconds
@@ -268,19 +285,22 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  %(prog)s                          # 创建空的tmux会话并监控
+  %(prog)s                          # 创建空的tmux会话并监控 (session名: auto_<当前目录名>)
   %(prog)s -c "npm init"            # 在tmux中运行npm init并监控
   %(prog)s -s mysession -c "yarn"   # 指定会话名并运行yarn
   %(prog)s --no-attach              # 只监控，不打开新窗口
 
-注意: 需要安装 tmux
+注意:
+  - 需要安装 tmux
+  - 默认使用当前目录名作为 session 名，不同目录不会冲突
+  - 在同一目录多次运行会复用同一个 session
         """
     )
     
     parser.add_argument(
         '-s', '--session',
-        default='auto_confirm',
-        help='tmux 会话名称 (默认: auto_confirm)'
+        default=None,
+        help=f'tmux 会话名称 (默认: auto_<目录名>)'
     )
     
     parser.add_argument(
