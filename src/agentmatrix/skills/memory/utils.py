@@ -17,6 +17,7 @@ from ...utils.token_utils import estimate_tokens, format_session_messages
 
 # ==================== Profile 格式化 ====================
 
+
 def format_profile_card(profile: Dict[str, Any]) -> str:
     """
     格式化单个 profile 为档案卡片
@@ -45,23 +46,23 @@ def format_profile_card(profile: Dict[str, Any]) -> str:
 
     lines = []
 
-    canonical_name = profile['canonical_name']
-    session_p = profile.get('session_profile')
-    longterm_p = profile.get('longterm_profile')
+    canonical_name = profile["canonical_name"]
+    session_p = profile.get("session_profile")
+    longterm_p = profile.get("longterm_profile")
 
     # 标题
     lines.append(f"## 档案卡片：{canonical_name}")
 
     # 合并别名（从 session 和 global）
     aliases = set()
-    if session_p and session_p.get('aliases'):
+    if session_p and session_p.get("aliases"):
         try:
-            aliases.update(json.loads(session_p['aliases']))
+            aliases.update(json.loads(session_p["aliases"]))
         except:
             pass
-    if longterm_p and longterm_p.get('aliases'):
+    if longterm_p and longterm_p.get("aliases"):
         try:
-            aliases.update(json.loads(longterm_p['aliases']))
+            aliases.update(json.loads(longterm_p["aliases"]))
         except:
             pass
 
@@ -74,18 +75,18 @@ def format_profile_card(profile: Dict[str, Any]) -> str:
     latest_date = None
 
     if longterm_p:
-        profile_texts.append(longterm_p['profile_text'])
-        updated_at = longterm_p.get('updated_at', '')
+        profile_texts.append(longterm_p["profile_text"])
+        updated_at = longterm_p.get("updated_at", "")
         if updated_at:
-            date_str = updated_at.split(' ')[0]
+            date_str = updated_at.split(" ")[0]
             if not latest_date or date_str > latest_date:
                 latest_date = date_str
 
     if session_p:
-        profile_texts.append(session_p['profile_text'])
-        updated_at = session_p.get('updated_at', '')
+        profile_texts.append(session_p["profile_text"])
+        updated_at = session_p.get("updated_at", "")
         if updated_at:
-            date_str = updated_at.split(' ')[0]
+            date_str = updated_at.split(" ")[0]
             if not latest_date or date_str > latest_date:
                 latest_date = date_str
 
@@ -120,10 +121,11 @@ def format_profiles_batch(profiles: List[Dict[str, Any]]) -> str:
 
 # ==================== Profile 分批算法 ====================
 
+
 def split_profiles_by_tokens(
     profiles: List[Dict[str, Any]],
     token_limit: int,
-    format_func: Callable[[Dict[str, Any]], str] = format_profile_card
+    format_func: Callable[[Dict[str, Any]], str] = format_profile_card,
 ) -> List[List[Dict[str, Any]]]:
     """
     按 token 预估算分批
@@ -171,12 +173,12 @@ def split_profiles_by_tokens(
     return batches
 
 
-# ==================== Whiteboard 文件管理 ====================
+# ==================== Working Notes 文件管理 ====================
 
-def get_whiteboard_path(workspace_root: str, agent_name: str,
-                        task_id: str) -> str:
+
+def get_working_notes_path(workspace_root: str, agent_name: str, task_id: str) -> str:
     """
-    获取 whiteboard.md 文件路径
+    获取 working_notes.md 文件路径
 
     Args:
         workspace_root: 工作区根目录
@@ -184,22 +186,16 @@ def get_whiteboard_path(workspace_root: str, agent_name: str,
         task_id: 用户会话 ID
 
     Returns:
-        str: whiteboard.md 文件的完整路径
+        str: working_notes.md 文件的完整路径
     """
     return os.path.join(
-        workspace_root,
-        ".matrix",
-        agent_name,
-        "memory",
-        task_id,
-        "whiteboard.md"
+        workspace_root, ".matrix", agent_name, "memory", task_id, "working_notes.md"
     )
 
 
-def load_whiteboard(workspace_root: str, agent_name: str,
-                   task_id: str) -> str:
+def load_working_notes(workspace_root: str, agent_name: str, task_id: str) -> str:
     """
-    加载 whiteboard 内容
+    加载 working notes 内容
 
     Args:
         workspace_root: 工作区根目录
@@ -207,9 +203,9 @@ def load_whiteboard(workspace_root: str, agent_name: str,
         task_id: 用户会话 ID
 
     Returns:
-        str: whiteboard 内容（如果文件不存在则返回空字符串）
+        str: working notes 内容（如果文件不存在则返回空字符串）
     """
-    path = get_whiteboard_path(workspace_root, agent_name, task_id)
+    path = get_working_notes_path(workspace_root, agent_name, task_id)
 
     if not os.path.exists(path):
         return ""
@@ -218,13 +214,14 @@ def load_whiteboard(workspace_root: str, agent_name: str,
         return f.read()
 
 
-def save_whiteboard(content: str, workspace_root: str, agent_name: str,
-                   task_id: str) -> bool:
+def save_working_notes(
+    content: str, workspace_root: str, agent_name: str, task_id: str
+) -> bool:
     """
-    保存 whiteboard 内容
+    保存 working notes 内容
 
     Args:
-        content: whiteboard 内容（Markdown 格式）
+        content: working notes 内容（Markdown 格式）
         workspace_root: 工作区根目录
         agent_name: Agent 名称
         task_id: 用户会话 ID
@@ -232,7 +229,7 @@ def save_whiteboard(content: str, workspace_root: str, agent_name: str,
     Returns:
         bool: 是否保存成功
     """
-    path = get_whiteboard_path(workspace_root, agent_name, task_id)
+    path = get_working_notes_path(workspace_root, agent_name, task_id)
 
     # 确保目录存在
     Path(path).parent.mkdir(parents=True, exist_ok=True)
