@@ -104,6 +104,13 @@ class AgentMatrix(AutoLoggerMixin):
 
         self.echo(">>> 初始化系统配置...")
         self._init_system_config()
+        self.echo(">>> 广播回调接口已初始化（事件驱动模式）")
+
+        # 🆕 电源管理器（防止系统休眠，默认启用）
+        from ..core.power_manager import PowerManager
+        self.power_manager = PowerManager(enabled=True, parent_logger=self.logger)
+        self.echo(">>> PowerManager initialized (防止系统休眠已启用)")
+
         self.echo(">>> 加载世界状态...")
         self.load_matrix()
         self.echo(">>> 启动 LLM 服务监控...")
@@ -112,7 +119,6 @@ class AgentMatrix(AutoLoggerMixin):
         # 🆕 系统状态收集器
         self.status_collector = SystemStatusCollector(self)
         self.echo(">>> 系统状态收集器已初始化")
-        self.echo(">>> 广播回调接口已初始化（事件驱动模式）")
 
     def get_user_agent_name(self) -> str:
         """Get the configured user agent name"""
@@ -311,6 +317,9 @@ class AgentMatrix(AutoLoggerMixin):
         """一键休眠 - 修复了任务等待和异常处理问题"""
         self.echo(">>> 正在冻结世界...")
 
+        # 0. 停止电源管理（最先停止，恢复系统默认行为）
+        await self.power_manager.stop()
+
         # 1. 先停止 LLM 监控器
         if self.llm_monitor:
             try:
@@ -453,6 +462,10 @@ class AgentMatrix(AutoLoggerMixin):
     def load_matrix(self):
         """一键复活"""
         self.echo(f">>> 正在从 {self.paths.snapshot_path} 恢复世界...")
+
+        # 启动电源管理（防止系统休眠）
+        # 启动电源管理（防止系统休眠）
+        self.power_manager.start_sync()
 
         matrix_snapshot_path = str(self.paths.snapshot_path)
         os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
