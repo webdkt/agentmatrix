@@ -1136,8 +1136,9 @@ Start generating the Working Notes now.
 
     def _build_system_prompt(self) -> str:
         """构建 System Prompt"""
+        from string import Template
 
-        # 简化模式：只保留 persona + 可用工具 + 黄页
+        # 简化模式：只保留 persona + 可用工具 + 黄页（不使用模板）
         if getattr(self, "simple_mode", False):
             prompt = f""" {self.persona}
 
@@ -1151,103 +1152,44 @@ Start generating the Working Notes now.
 
 {self.yellow_pages}
 """
-            # 🆕 同步 prompt 到属性
             self.system_prompt = prompt
             if self._is_top_level_microagent():
                 self.root_agent.last_system_prompt = prompt
             return prompt
 
-        # 完整模式（默认）：包含操作环境说明
-        prompt = f"""{self.persona}
+        # 完整模式：从 PromptRegistry 加载模板
+        template_str = self.root_agent.runtime.prompt_registry.SYSTEM_PROMPT
 
-### 运行时环境 (Runtime Environment)
+        # 计算动态变量
+        actions_list = self._format_actions_list()
 
-你是一个运行在 **AgentMatrix 架构** 中的 **智能体 (Autonomous Agent)**。
-你的思维存在于一个持续的 **循环 (Loop)** 中：`感知 (Observe) -> 思考 (Think) -> 行动 (Act)`。
-
-#### 1. 认知与记忆 (Cognition & Memory)
-*   **上下文 (Context)**: 你拥有完整的对话历史和 **Whiteboard (状态白板)**。这是你的短期记忆。
-*   **无状态工具 (Stateless Tools)**: 你的工具（Actions）是**无状态**的函数。它们**看不到**你的对话历史或 Whiteboard。
-    *   ❌ 错误调用: `search_web("extact the budget from above")` (工具不知道 "above" 是什么)
-    *   ✅ 正确调用: `search_web("Alpha Project budget 2024")` (显式传递完整参数)
-
-#### 2. 交互协议 (Interaction Protocol)
-*   **显式意图**: 不要含糊其辞。你的每一个 Action 都必须有明确的目的。
-*   **参数完备**: 调用 Action 时，必须自行从上下文中提取所有必要参数。如果参数缺失，**先向用户提问**，不要瞎编。
-*   **⚠️ 单次执行原则 (CRITICAL)**:
-    *   **默认规则**: 每次 `[ACTION]` 块中**只执行一个 action**。
-    *   **任务拆解**: 如果任务复杂，拆解为多个步骤，然后**逐个执行**。执行完一个后，根据结果再决定下一步。
-    *   **例外情况**: 只有在极端明确的场景下（多个操作完全独立、无任何依赖关系）才考虑并行执行。99% 的情况下，请遵循单次执行原则。
-
----
-### 🧰 可用工具箱 (Toolbox)
-
-#### A. 核心指令 (Native Actions)
-这些是可用能力，按 **Skill** 分组：
-
-{self._format_actions_list()}
-
-**📌 如何引用 Actions：**
-*   **推荐方式**：使用 `skill_name.action_name` 格式（如 `file.read`, `base.get_current_datetime`）
-*   **简化方式**：也可以直接使用 action 名称（如 `get_current_datetime`）
-*   **避免歧义**：如果有多个 skill 都有同名 action，请使用完全限定名称 `skill_name.action_name`
-*   通过 help(skill_name.action_name) 来查看 action 的详细说明和参数列表
+        md_skill_count = self._get_md_skill_count()
+        md_skill_section = ""
+        if md_skill_count > 0 and self._is_top_level_microagent():
+            md_skill_section = f"""#### B. 扩展技能库 (Procedural Skills)
+你有{md_skill_count}个额外扩展技能存放在 /home/SKILLS/ 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
+如果需要使用额外技能，先列目录，看有什么技能（目录名代表了技能的名字）
+如果名字看上去可能是你需要的，就继续读里面的SKILL.md 的开头，判断是否真的是你需要的技能
+如果是需要的技能，就继续阅读，理解如何使用
 """
 
-        # TODO: 更换逻辑
-        # 🆕 动态发现的扩展技能库
-        md_skill_count = self._get_md_skill_count()
-        if md_skill_count > 0 and self._is_top_level_microagent():
-            prompt += f"""#### B. 扩展技能库 (Procedural Skills)
-            你有{md_skill_count}个额外扩展技能存放在 /home/SKILLS/ 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
-            如果需要使用额外技能，先列目录，看有什么技能（目录名代表了技能的名字）
-            如果名字看上去可能是你需要的，就继续读里面的SKILL.md 的开头，判断是否真的是你需要的技能
-            如果是需要的技能，就继续阅读，理解如何使用
-        """
-
-        # 如果提供了黄页信息，添加黄页部分
+        yellow_pages_section = ""
         if self.yellow_pages:
-            prompt += f"""#### C. 协作网络 (Collaborators)
-如果你无法独立完成任务，可以联系以下 Agent。请使用 `send_email` 
+            yellow_pages_section = f"""#### C. 协作网络 (Collaborators)
+如果你无法独立完成任务，可以联系以下 Agent。请使用 `send_email`
 
 {self.yellow_pages}
 """
 
-        prompt += """
-        ---
-### 响应协议 (Response Protocol)
+        # 模板替换
+        template = Template(template_str)
+        prompt = template.safe_substitute(
+            persona=self.persona,
+            actions_list=actions_list,
+            md_skill_section=md_skill_section,
+            yellow_pages_section=yellow_pages_section,
+        )
 
-请按照以下自然分块格式进行回复。
-
-**1. 思考块**
-使用 `[THOUGHTS]` 标签开始。
-在这里尽情思考，分析 Whiteboard，拆解任务。这是你的草稿纸，不需要拘泥于格式。这里的内容是给自己看的
-
-**2. 行动块**
-使用 `[ACTION]` 标签开始。这里的内容是给工具执行器看的
-
-#### ⚠️ 执行原则
-*   **每次只执行一个 action**（99% 的情况）
-*   执行完成后，根据结果再决定下一步行动
-*   避免一次性执行多个 action，除非你 100% 确定它们完全独立
-
-#### 输出样例
-```
-[THOUGHTS]
-你的想法和意图，这是给你自己的，工具看不到，不需要担心格式，只要清晰表达思考过程和下一步计划即可
-
-[ACTION]
-为实现意图而立刻要做的动作（只能从可用动作里选择），并提供完成该动作需要的全部信息。注意，THOUGHTS和ACTION里面的信息没有必要重复，例如你打算写入文件，具体要写的内容当然必须在ACTION里明确提供，这样就不需要在THOUGHTS里再
-念叨一遍了。
-
-示例格式：
-• base.get_current_datetime()
-• file.read(path="/path/to/file.txt")
-• send_email(to="alice@example.com", subject="项目更新", content="...")
-```
-"""
-
-        # 🆕 同步 prompt 到属性
         self.system_prompt = prompt
         if self._is_top_level_microagent():
             self.root_agent.last_system_prompt = prompt

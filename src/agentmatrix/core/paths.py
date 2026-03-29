@@ -64,6 +64,11 @@ class MatrixPaths:
         return self.config_dir / "email_proxy_config.yml"
 
     @property
+    def prompts_dir(self) -> Path:
+        """Prompt 目录：.matrix/configs/prompts"""
+        return self.config_dir / "prompts"
+
+    @property
     def backup_dir(self) -> Path:
         """备份目录：.matrix/configs/backups/"""
         return self.config_dir / "backups"
