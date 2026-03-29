@@ -6,6 +6,7 @@ Podman Runtime Adapter - Podman 运行时适配器
 
 import io
 import logging
+import os
 import platform
 import subprocess
 import time
@@ -152,8 +153,29 @@ class PodmanAdapter(ContainerAdapter):
         self._logger = logger or logging.getLogger(__name__)
 
         try:
-            # Podman 使用与 Docker 相同的连接方式
-            self.client = PodmanClient()
+            # 根据平台确定连接方式
+            base_url = None
+            system = platform.system()
+
+            if system == "Darwin":
+                # macOS: Podman 运行在虚拟机中，需要指定 socket 路径
+                socket_link = os.path.expanduser("~/.local/share/containers/podman/machine/podman.sock")
+                if os.path.exists(socket_link):
+                    base_url = f"unix://{socket_link}"
+                    self._logger.debug(f"🔗 使用 Podman socket: {base_url}")
+                else:
+                    self._logger.warning(f"⚠️ Podman socket 不存在: {socket_link}")
+            elif system == "Linux":
+                # Linux: Podman SDK 会自动检测 socket 路径
+                # 通常是 /run/podman/podman.sock 或 /run/user/UID/podman/podman.sock
+                self._logger.debug("🔍 使用默认 Podman 连接（Linux）")
+            elif system == "Windows":
+                # Windows: Podman SDK 会自动检测连接方式
+                # 可能通过 WSL2 SSH 或 Windows named pipe
+                self._logger.debug("🔍 使用默认 Podman 连接（Windows）")
+
+            # 创建客户端
+            self.client = PodmanClient(base_url=base_url)
             self._logger.info("✅ Podman 客户端初始化成功")
         except Exception as e:
             raise RuntimeError(f"Podman 连接失败: {e}") from e
