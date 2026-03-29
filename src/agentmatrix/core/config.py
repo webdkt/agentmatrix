@@ -56,12 +56,14 @@ class MatrixConfig(AutoLoggerMixin):
             with open(llm_config_path, "r", encoding="utf-8") as f:
                 self._llm_config = json.load(f)
         else:
-            self.logger.warning(f"⚠️ LLM配置文件不存在: {llm_config_path}")
-            self._llm_config = self._get_default_llm_config()
+            self.logger.error(f"⚠️ LLM配置文件不存在: {llm_config_path}")
+            raise ValueError("LLM Config 缺失")
 
         # 验证必需的配置
         if "default_slm" not in self._llm_config:
             raise ValueError("llm_config.json 中必须包含 'default_slm' 配置")
+        if "default_llm" not in self._llm_config:
+            raise ValueError("llm_config.json 中必须包含 'default_llm' 配置")
 
     def _load_email_proxy_config(self):
         """加载Email Proxy配置 - 从 email_proxy_config.yml 中读取"""
@@ -74,22 +76,8 @@ class MatrixConfig(AutoLoggerMixin):
             self._email_proxy_config = {"email_proxy": ep_data}
             self._email_proxy_config = self._resolve_env_vars(self._email_proxy_config)
         else:
-            # 向后兼容：尝试从 matrix_config.yml 读取
-            matrix_config_path = self.paths.matrix_config_path
-            if matrix_config_path.exists():
-                self.logger.info(
-                    f"📄 向后兼容：从 matrix_config.yml 加载 Email Proxy 配置"
-                )
-                with open(matrix_config_path, "r", encoding="utf-8") as f:
-                    full_config = yaml.safe_load(f) or {}
-                self._email_proxy_config = {
-                    "email_proxy": full_config.get("email_proxy", {})
-                }
-                self._email_proxy_config = self._resolve_env_vars(
-                    self._email_proxy_config
-                )
-            else:
-                self._email_proxy_config = self._get_default_email_proxy_config()
+            return {}
+        
 
     def _load_matrix_config(self):
         """加载系统配置 - 从 system_config.yml 中读取"""
@@ -100,21 +88,7 @@ class MatrixConfig(AutoLoggerMixin):
             with open(system_config_path, "r", encoding="utf-8") as f:
                 self._matrix_config = yaml.safe_load(f) or {}
         else:
-            # 向后兼容：尝试从 matrix_config.yml 读取
-            matrix_config_path = self.paths.matrix_config_path
-            if matrix_config_path.exists():
-                self.logger.info(f"📄 向后兼容：从 matrix_config.yml 加载系统配置")
-                with open(matrix_config_path, "r", encoding="utf-8") as f:
-                    full_config = yaml.safe_load(f) or {}
-                # 只提取系统配置字段，排除 email_proxy 和 container
-                self._matrix_config = {
-                    k: v
-                    for k, v in full_config.items()
-                    if k not in ("email_proxy", "container")
-                }
-            else:
-                self.logger.info(f"📄 使用默认系统配置")
-                self._matrix_config = self._get_default_matrix_config()
+            return {}
 
     def _load_container_config(self):
         """加载容器运行时配置"""
@@ -125,7 +99,11 @@ class MatrixConfig(AutoLoggerMixin):
         # 如果配置为空，使用默认值
         if not container_config:
             self.logger.info("📄 使用默认容器运行时配置")
-            container_config = self._get_default_container_config()
+            container_config =  {
+                "runtime": "auto",  # 自动检测（Podman 优先）
+                "auto_start": True,
+                "fallback_strategy": "fallback",
+            }
 
         self._container_config = container_config
 
@@ -144,44 +122,9 @@ class MatrixConfig(AutoLoggerMixin):
             },
         }
 
-    def _get_default_email_proxy_config(self) -> Dict[str, Any]:
-        """获取默认Email Proxy配置"""
-        return {
-            "email_proxy": {
-                "enabled": False,
-                "matrix_mailbox": "",
-                "user_mailbox": "",
-                "imap": {
-                    "host": "imap.gmail.com",
-                    "port": 993,
-                    "user": "",
-                    "password": "",
-                },
-                "smtp": {
-                    "host": "smtp.gmail.com",
-                    "port": 587,
-                    "user": "",
-                    "password": "",
-                },
-            }
-        }
+    
 
-    def _get_default_matrix_config(self) -> Dict[str, Any]:
-        """获取默认Matrix配置"""
-        return {
-            "user_agent_name": "User",
-            "matrix_version": "1.0.0",
-            "description": "AgentMatrix World",
-            "timezone": "UTC",
-        }
-
-    def _get_default_container_config(self) -> Dict[str, Any]:
-        """获取默认容器运行时配置"""
-        return {
-            "runtime": "auto",  # 自动检测（Podman 优先）
-            "auto_start": True,
-            "fallback_strategy": "fallback",
-        }
+    
 
     def _resolve_env_vars(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
