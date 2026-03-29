@@ -118,7 +118,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== 🆕 压缩相关（默认开启，无需配置）==========
         self.compression_token_threshold = 32000  # 32K tokens
-        #self.last_compression_step = 0  # 上次压缩时的步数
+        # self.last_compression_step = 0  # 上次压缩时的步数
 
         # 🆕 记录自己的 system prompt（构建后自动填充）
         self.system_prompt = None
@@ -763,7 +763,7 @@ Start generating the Whiteboard now.
             self.messages = [{"role": "user", "content": new_user_content}]
 
         # 重置计数器
-        #self.last_compression_step = self.current_step
+        # self.last_compression_step = self.current_step
 
         return whiteboard
 
@@ -1038,6 +1038,11 @@ Start generating the Whiteboard now.
             import traceback
 
             self._log(logging.ERROR, f"Traceback:\n{traceback.format_exc()}")
+
+            # 顶层 MicroAgent 向上传播异常，让 BaseAgent 的错误处理生效（如发邮件通知）
+            if self._is_top_level_microagent():
+                raise
+
             return {"error": str(e)}
 
     def _initialize_session(self):
@@ -1109,11 +1114,11 @@ Start generating the Whiteboard now.
 *   **避免歧义**：如果有多个 skill 都有同名 action，请使用完全限定名称 `skill_name.action_name`
 *   通过 help(skill_name.action_name) 来查看 action 的详细说明和参数列表
 """
-        
-        #TODO: 更换逻辑
+
+        # TODO: 更换逻辑
         # 🆕 动态发现的扩展技能库
         md_skill_count = self._get_md_skill_count()
-        if md_skill_count>0 and self._is_top_level_microagent():
+        if md_skill_count > 0 and self._is_top_level_microagent():
             prompt += f"""#### B. 扩展技能库 (Procedural Skills)
             你有{md_skill_count}个额外扩展技能存放在 /home/SKILLS/ 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
             如果需要使用额外技能，先列目录，看有什么技能（目录名代表了技能的名字）
@@ -1222,7 +1227,9 @@ Start generating the Whiteboard now.
         """
         try:
             # 获取 root_agent 的 skill 目录
-            skills_dir = self.root_agent.runtime.paths.get_agent_skills_dir(self.root_agent.name)
+            skills_dir = self.root_agent.runtime.paths.get_agent_skills_dir(
+                self.root_agent.name
+            )
 
             # 如果目录不存在，返回 0
             if not skills_dir.exists():
@@ -1356,7 +1363,7 @@ Start generating the Whiteboard now.
                 self.root_agent.update_status(
                     new_status="THINKING", new_message="Thinking..."
                 )
-                #Inject pinned memory
+                # Inject pinned memory
                 msg_copy = None
                 if self.pinned_memory:
                     msg_copy = self.messages.copy()
@@ -1364,17 +1371,20 @@ Start generating the Whiteboard now.
                         old_system_msg = msg_copy[0]["content"]
                         msg_copy[0] = {
                             "role": "system",
-                            "content": old_system_msg + f"\n\n====PINNED MEMORY===\n{self.pinned_memory}\n===========",
+                            "content": old_system_msg
+                            + f"\n\n====PINNED MEMORY===\n{self.pinned_memory}\n===========",
                         }
                     else:
-                        msg_copy.insert(0,{
-                            "role": "system",
-                            "content": f"\n\n====PINNED MEMORY===\n{self.pinned_memory}\n===========",
-                        })
+                        msg_copy.insert(
+                            0,
+                            {
+                                "role": "system",
+                                "content": f"\n\n====PINNED MEMORY===\n{self.pinned_memory}\n===========",
+                            },
+                        )
 
                 # 添加新的任务输入（只在恢复已有会话时）
                 self._add_message("user", self._format_task_message())
-                
 
                 thought = await self.brain.think_with_retry(
                     initial_messages=msg_copy or self.messages,
