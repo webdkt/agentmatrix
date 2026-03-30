@@ -17,7 +17,7 @@ const { t } = useI18n()
 const views = [
   { id: 'dashboard', icon: 'layout-dashboard', label: 'views.dashboard.title' },
   { id: 'email', icon: 'mail', label: 'views.email.title' },
-  { id: 'agents', icon: 'agent', label: 'views.agents.title' },
+  { id: 'agents', icon: 'grid', label: 'views.agents.title' },
   { id: 'magic', icon: 'wand', label: 'views.magic.title' },
   { id: 'settings', icon: 'settings', label: 'views.settings.title' }
 ]
