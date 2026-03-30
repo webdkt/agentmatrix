@@ -555,46 +555,7 @@ onUnmounted(() => {
     0 0 16px rgba(212, 168, 67, 0.5);
 }
 
-/* Scanlines overlay - only on welcome step */
-.me-step:first-child .me-title--welcome::after {
-  content: '';
-  position: absolute;
-  inset: -20% -10%;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(253, 252, 249, 0.12) 2px,
-    rgba(253, 252, 249, 0.12) 4px
-  );
-  pointer-events: none;
-  opacity: 0.6;
-}
-
-/* Grid/dot matrix overlay - only on welcome step */
-.me-step:first-child .step-inner::before {
-  content: '';
-  position: absolute;
-  inset: -20% -10%;
-  background-image: radial-gradient(
-    circle,
-    rgba(253, 252, 249, 0.08) 1px,
-    transparent 1px
-  );
-  background-size: 4px 4px;
-  pointer-events: none;
-  opacity: 0.5;
-}
-
-/* Vignette - edge shadow - only on welcome step */
-.me-step:first-child .step-inner::after {
-  content: '';
-  position: absolute;
-  inset: -20% -10%;
-  box-shadow: inset 0 0 80px rgba(253, 252, 249, 0.5);
-  pointer-events: none;
-}
-
+/* Keep only the glitch animations */
 @keyframes me-g1 {
   0%,100%{transform:translate(0)}20%{transform:translate(-1px,1px)}40%{transform:translate(1px,-1px)}60%{transform:translate(-1px,0)}80%{transform:translate(1px,0)}
 }
