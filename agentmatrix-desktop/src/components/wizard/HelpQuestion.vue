@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { open } from '@tauri-apps/api/shell'
 
 const props = defineProps({
   type: {
@@ -90,6 +91,21 @@ const currentContent = computed(() => {
   return helpContent[props.type][currentLang.value]
 })
 
+// Handle link clicks to open in external browser
+async function handleLinkClick(e) {
+  const target = e.target;
+  if (target.tagName === 'A' && target.href) {
+    e.preventDefault();
+    try {
+      await open(target.href);
+    } catch (error) {
+      console.error('Failed to open URL:', error);
+      // Fallback: open in new tab
+      window.open(target.href, '_blank');
+    }
+  }
+}
+
 function onClick() {
   showModal.value = true
 }
@@ -134,7 +150,7 @@ function closeModal() {
 
             <!-- Modal Body -->
             <div class="modal-body">
-              <div class="modal-content" v-html="currentContent.html"></div>
+              <div class="modal-content" v-html="currentContent.html" @click="handleLinkClick"></div>
             </div>
 
             <!-- Modal Footer -->
