@@ -5,7 +5,9 @@ class_name: agentmatrix.agents.base.BaseAgent
 # Skills 配置（🆕 新架构）
 skills:
   - file  # 文件操作技能
-  - new_web_search  # 网络搜索技能
+  - new_web_search
+  - scheduler
+  - memory
 
 # Persona 配置
 persona: |

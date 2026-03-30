@@ -37,7 +37,7 @@ class FileSkillMixin:
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = "文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令。默认当前路径是`/work_files`，你的私人长期目录是`/home`"
+    _skill_description = """文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令。注意你的工作环境位于容器中，和宿主机环境是隔离的。你和用户以及其他Agent不能直接共享文件，向用户传递文件需要通过附件。当前会话的工作路径是`/work_files`，你的私人长期目录是`/home`"""
 
     _skill_usage_guide = """
 使用场景：

@@ -42,7 +42,7 @@ class EmailSkillMixin:
 """
 
     @register_action(
-            short_desc="",
+            short_desc="发邮件给用户和其他Agent，名字即地址",
         description="发邮件给同事，这是和其他人沟通的唯一方式。可以附带附件文件。",
         param_infos={
             "to": "收件人 (e.g. 'User')",
@@ -51,7 +51,7 @@ class EmailSkillMixin:
             "attachments": "附件文件列表（容器内路径，例如 ['/work_files/report.pdf']，可选）"
         }
     )
-    async def send_email(
+    async def send_internal_mail(
         self,
         to: str,
         body: str,
