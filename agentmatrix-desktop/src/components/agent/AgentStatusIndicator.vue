@@ -35,7 +35,7 @@ const recentStatusHistory = computed(() => {
 // 状态对应的样式和图标
 const statusConfig = {
   IDLE: {
-    icon: 'ti-player-pause',
+    icon: null,
     color: 'text-slate-400',
     text: 'IDLE'
   },
@@ -66,10 +66,10 @@ const currentStatusConfig = computed(() => {
     <!-- IDLE 状态 -->
     <div
       v-if="agentStatus === 'IDLE'"
-      class="flex items-center gap-2 text-sm text-slate-400"
+      class="flex items-center gap-2"
     >
-      <MIcon :name="currentStatusConfig.icon.replace('ti-', '')" />
-      <span>{{ agentName }}</span>
+      <span class="status-badge status-badge--idle">IDLE</span>
+      <span class="text-sm text-slate-500">{{ agentName }}</span>
     </div>
 
     <!-- WORKING/THINKING/WAITING_FOR_USER 状态 -->
@@ -105,6 +105,22 @@ const currentStatusConfig = computed(() => {
 <style scoped>
 .agent-status-natural {
   width: 100%;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.status-badge--idle {
+  background: var(--parchment-200, #e8e4de);
+  color: var(--ink-500, #6b6560);
 }
 
 :deep(.text-slate-400) {

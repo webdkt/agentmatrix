@@ -11,6 +11,7 @@ import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import MatrixView from '@/components/matrix/MatrixView.vue'
+import AgentsView from '@/components/agents/AgentsView.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
@@ -120,6 +121,11 @@ onMounted(async () => {
         <h2>{{ $t('views.dashboard.title') }}</h2>
         <p>Coming soon...</p>
       </div>
+    </div>
+
+    <!-- Agents View -->
+    <div v-else-if="currentView === 'agents'" class="view-container__content">
+      <AgentsView />
     </div>
 
     <!-- Matrix View -->

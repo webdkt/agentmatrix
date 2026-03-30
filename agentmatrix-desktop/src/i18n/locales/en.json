@@ -16,6 +16,10 @@
       "title": "Matrix",
       "icon": "ti-grid"
     },
+    "agents": {
+      "title": "Agents",
+      "icon": "ti-agent"
+    },
     "magic": {
       "title": "Magic",
       "icon": "ti-wand"
@@ -145,5 +149,19 @@
     "memory": {
       "noSessions": "No session history"
     }
+  },
+  "agents": {
+    "searchPlaceholder": "Search agents...",
+    "noAgentsFound": "No agents found",
+    "tryDifferentSearch": "Try a different search term",
+    "noAgentsAvailable": "No agents available",
+    "backToAgents": "Back to Agents",
+    "selectAgent": "Select an agent to view details",
+    "stop": "Stop Agent",
+    "pause": "Pause Agent",
+    "resume": "Resume Agent",
+    "reload": "Reload Agent",
+    "viewPrompt": "View Prompt",
+    "newMessage": "New Message"
   }
 }

@@ -16,6 +16,10 @@
       "title": "矩阵",
       "icon": "ti-grid"
     },
+    "agents": {
+      "title": "智能体",
+      "icon": "ti-agent"
+    },
     "magic": {
       "title": "魔法",
       "icon": "ti-wand"
@@ -145,5 +149,19 @@
     "memory": {
       "noSessions": "暂无会话历史"
     }
+  },
+  "agents": {
+    "searchPlaceholder": "搜索智能体...",
+    "noAgentsFound": "未找到智能体",
+    "tryDifferentSearch": "尝试不同的搜索词",
+    "noAgentsAvailable": "暂无可用智能体",
+    "backToAgents": "返回智能体列表",
+    "selectAgent": "选择一个智能体查看详情",
+    "stop": "停止",
+    "pause": "暂停",
+    "resume": "恢复",
+    "reload": "重新加载",
+    "viewPrompt": "查看提示词",
+    "newMessage": "发送新消息"
   }
 }

@@ -6,7 +6,7 @@ import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
 import EmailItem from './EmailItem.vue'
 import EmailReply from './EmailReply.vue'
-import AgentStatusIndicator from '../agent/AgentStatusIndicator.vue'
+import AgentStatusIcon from '../agent/AgentStatusIcon.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -313,11 +313,12 @@ const handleAgentQuestionSubmit = async () => {
 
         <!-- Agent Status - 在滚动容器内 -->
         <div class="email-list__agent-status">
-          <AgentStatusIndicator
+          <AgentStatusIcon
             v-for="agentName in sessionAgents"
             :key="agentName"
             :agent-name="agentName"
             :current-session-id="currentSession.session_id"
+            :show-name="true"
           />
         </div>
 

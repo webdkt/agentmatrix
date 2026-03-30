@@ -253,7 +253,22 @@ export const iconRegistry = {
   file: `<path d="M14 2H6C5 2 4 3 4 4V20C4 21 5 22 6 22H18C19 22 20 21 20 20V8L14 2Z"/>
          <polyline points="14 2 14 8 20 8"/>`,
 
+  // ─── Status ───
+  square: `<rect x="6" y="6" width="12" height="12" rx="1"/>`,
+
+  terminal: `<polyline points="4 17 10 11 4 5"/>
+             <line x1="12" y1="19" x2="20" y2="19"/>`,
+
   // ─── Loading ───
+  moon: `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`,
+  
+  bed: `<path d="M3 7v11"/>
+        <path d="M7 7v11"/>
+        <path d="M3 18h18"/>
+        <path d="M3 11h18"/>
+        <path d="M18 11v7"/>
+        <path d="M3 11a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4H3v-4z"/>`,
+
   loader: `<line x1="12" y1="2" x2="12" y2="6"/>
            <line x1="12" y1="18" x2="12" y2="22"/>
            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/>
