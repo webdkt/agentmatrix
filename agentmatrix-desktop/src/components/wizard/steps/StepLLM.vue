@@ -117,12 +117,15 @@ function togEye(btn) {
 
 .me-fg {
   margin-bottom: 0;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 
 .me-pw {
   position: relative;
-  max-width: 480px;
-  margin: 0 auto;
+  width: 100%;
 }
 
 .me-inp {
@@ -182,8 +185,6 @@ function togEye(btn) {
 .me-url {
   display: block;
   width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
   background: transparent;
   border: none;
   border-bottom: 2px solid var(--parchment-300);
