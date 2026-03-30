@@ -452,28 +452,29 @@ onUnmounted(() => {
   color: var(--ink-900);
 }
 
-/* Single character CRT effect - like question mark HOVERED state */
+/* Single character CRT effect - like question mark */
 .crt-char {
   position: relative;
   display: inline-block;
-  color: transparent;
+  color: #D4A843;  /* The key: solid gold color like question mark */
   user-select: none;
   
-  /* Vertical striping texture - clearer like hovered question mark */
+  /* Vertical striping texture - overlays on the solid text */
   background: repeating-linear-gradient(
     90deg,
     transparent,
     transparent 1px,
-    rgba(255, 255, 255, 0.15) 1px,
-    rgba(255, 255, 255, 0.15) 2px
+    rgba(255, 255, 255, 0.12) 1px,
+    rgba(255, 255, 255, 0.12) 2px
   );
   -webkit-background-clip: text;
   background-clip: text;
   
-  /* Sharp golden glow - fewer layers for clarity */
+  /* Golden glow around the text */
   text-shadow:
-    0 0 8px rgba(240, 200, 96, 0.9),
-    0 0 16px rgba(240, 200, 96, 0.5);
+    0 0 8px rgba(212, 168, 67, 0.8),
+    0 0 16px rgba(212, 168, 67, 0.6),
+    0 0 32px rgba(212, 168, 67, 0.4);
   
   /* CRT flicker */
   animation: crt-flicker 0.12s infinite;
