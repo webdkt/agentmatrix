@@ -442,69 +442,76 @@ onUnmounted(() => {
   color: var(--ink-900);
 }
 
-/* Single character CRT effect - like question mark */
-:deep(.crt-char) {
+/* CRT effect container - like question mark structure */
+.me-title--welcome {
   position: relative;
   display: inline-block;
-  color: #5C1800 !important;  /* Dark blood red body - almost black */
-  user-select: none;
-  
-  /* Stronger vertical striping texture - more CRT feel */
-  background: repeating-linear-gradient(
-    90deg,
-    transparent,
-    transparent 1px,
-    rgba(194, 59, 34, 0.25) 1px,  /* Dark red striping */
-    rgba(194, 59, 34, 0.25) 2px
-  ) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  
-  /* Subtle glow - just one layer for depth */
-  text-shadow:
-    0 0 4px rgba(194, 59, 34, 0.6) !important;
-  
-  /* Stronger CRT flicker */
-  animation: crt-flicker 0.1s infinite;
+  z-index: 1;
 }
 
-/* Strong horizontal scanlines - more visible CRT effect */
-:deep(.crt-char)::after {
-  content: '';
-  position: absolute;
-  top: -10%;
-  left: -10%;
-  right: -10%;
-  bottom: -10%;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 1px,
-    rgba(194, 59, 34, 0.15) 1px,
-    rgba(194, 59, 34, 0.15) 3px
-  );
-  pointer-events: none;
-  mix-blend-mode: overlay;
-}
-
-/* Subtle dark red glow behind character */
-:deep(.crt-char)::before {
+/* 1. Glow background - behind text (like question mark __glow) */
+.me-title--welcome::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 110%;
-  height: 110%;
+  width: 120%;
+  height: 150%;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(194, 59, 34, 0.15) 0%,
-    transparent 60%
+    rgba(194, 59, 34, 0.2) 0%,
+    rgba(194, 59, 34, 0.1) 40%,
+    transparent 70%
   );
   pointer-events: none;
   animation: glow-pulse 3s ease-in-out infinite;
   z-index: -1;
+}
+
+/* 2. Scanlines overlay - ON TOP of text (like question mark __scanlines) */
+.me-title--welcome::after {
+  content: '';
+  position: absolute;
+  inset: -20% -10%;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(253, 252, 249, 0.15) 2px,
+    rgba(253, 252, 249, 0.15) 4px
+  );
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.6;
+}
+
+/* Single character effect - text itself (like question mark __mark) */
+:deep(.crt-char) {
+  position: relative;
+  display: inline-block;
+  color: #5C1800 !important;
+  user-select: none;
+  z-index: 1;
+  
+  /* Vertical striping - on the text itself */
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 1px,
+    rgba(194, 59, 34, 0.2) 1px,
+    rgba(194, 59, 34, 0.2) 2px
+  ) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  
+  /* Subtle glow */
+  text-shadow:
+    0 0 4px rgba(194, 59, 34, 0.5) !important;
+  
+  /* CRT flicker */
+  animation: crt-flicker 0.12s infinite;
 }
 
 /* No phosphor afterglow - keep text sharp */
