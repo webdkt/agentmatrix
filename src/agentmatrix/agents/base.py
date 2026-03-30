@@ -683,7 +683,7 @@ class BaseAgent(AutoLoggerMixin):
                 )
                 try:
                     error_full = f"在处理您的邮件时发生错误：\n\n{str(e)}"
-                    await micro_core.send_email(
+                    await micro_core.send_internal_mail(
                         to=user_name,
                         subject=f"⚠️ {self.name} 执行出错",
                         body=f"{error_full}\n\n请检查后回复「继续」以便继续执行。",

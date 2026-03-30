@@ -172,8 +172,8 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
         let dst_str = dst.to_string_lossy();
         // robocopy source destination /E /COPY:DT /R:0 /W:0 /NP
         let status = Command::new("robocopy")
-            .arg(&src_str)
-            .arg(dst_str.as_ref())
+            .arg(&*src_str)
+            .arg(&*dst_str)
             .arg("/E")          // copy subdirectories, including empty ones
             .arg("/COPY:DT")    // copy data and timestamps
             .arg("/R:0")        // no retries
@@ -225,8 +225,9 @@ fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), Stri
     let resource_path = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
     
+    #[cfg(not(target_os = "windows"))]
     let sidecar_path = resource_path.join("binaries").join("server");
-    
+
     #[cfg(target_os = "windows")]
     let sidecar_path = resource_path.join("binaries").join("server.exe");
     
