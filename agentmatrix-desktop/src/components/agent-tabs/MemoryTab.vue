@@ -39,7 +39,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import { useMatrixStore } from '../../../stores/matrix'
+import { useMatrixStore } from '@/stores/matrix'
 import { storeToRefs } from 'pinia'
 
 const props = defineProps({

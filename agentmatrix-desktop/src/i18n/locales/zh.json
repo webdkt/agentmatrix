@@ -12,10 +12,6 @@
       "title": "邮件",
       "icon": "ti-mail"
     },
-    "matrix": {
-      "title": "矩阵",
-      "icon": "ti-grid"
-    },
     "agents": {
       "title": "智能体",
       "icon": "ti-agent"

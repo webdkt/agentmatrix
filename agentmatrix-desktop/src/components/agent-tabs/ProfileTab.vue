@@ -120,7 +120,7 @@
 
 <script setup>
 import { ref, watch, computed } from 'vue'
-import { useMatrixStore } from '../../../stores/matrix'
+import { useMatrixStore } from '@/stores/matrix'
 import { useAgentStore } from '@/stores/agent'
 import { storeToRefs } from 'pinia'
 import MIcon from '@/components/icons/MIcon.vue'

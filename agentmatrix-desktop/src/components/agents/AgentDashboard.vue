@@ -39,10 +39,10 @@
 <script setup>
 import { ref } from 'vue'
 import MIcon from '@/components/icons/MIcon.vue'
-import ProfileTab from '@/components/matrix/tabs/ProfileTab.vue'
-import ResourcesTab from '@/components/matrix/tabs/ResourcesTab.vue'
-import LogTab from '@/components/matrix/tabs/LogTab.vue'
-import MemoryTab from '@/components/matrix/tabs/MemoryTab.vue'
+import ProfileTab from '@/components/agent-tabs/ProfileTab.vue'
+import ResourcesTab from '@/components/agent-tabs/ResourcesTab.vue'
+import LogTab from '@/components/agent-tabs/LogTab.vue'
+import MemoryTab from '@/components/agent-tabs/MemoryTab.vue'
 
 const props = defineProps({
   agentName: {

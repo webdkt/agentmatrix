@@ -12,10 +12,6 @@
       "title": "Email",
       "icon": "ti-mail"
     },
-    "matrix": {
-      "title": "Matrix",
-      "icon": "ti-grid"
-    },
     "agents": {
       "title": "Agents",
       "icon": "ti-agent"

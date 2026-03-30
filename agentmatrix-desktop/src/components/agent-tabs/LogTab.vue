@@ -45,7 +45,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { useMatrixStore } from '../../../stores/matrix'
+import { useMatrixStore } from '@/stores/matrix'
 import { storeToRefs } from 'pinia'
 
 const props = defineProps({

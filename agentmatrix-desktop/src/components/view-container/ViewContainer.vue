@@ -10,7 +10,6 @@ import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
-import MatrixView from '@/components/matrix/MatrixView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -126,11 +125,6 @@ onMounted(async () => {
     <!-- Agents View -->
     <div v-else-if="currentView === 'agents'" class="view-container__content">
       <AgentsView />
-    </div>
-
-    <!-- Matrix View -->
-    <div v-else-if="currentView === 'matrix'" class="view-container__content">
-      <MatrixView />
     </div>
 
     <!-- Magic View (Placeholder) -->
