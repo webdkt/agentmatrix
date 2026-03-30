@@ -281,7 +281,9 @@ onUnmounted(() => {
     <!-- STEP 0: Welcome -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 0 }" v-show="currentStep === 0">
       <div class="step-inner visible">
-        <div class="me-title me-title--welcome"><span class="me-glitch" ref="glitchText"></span></div>
+        <div class="me-title me-title--welcome">
+          <span class="crt-char" data-char="W">W</span>elcome to the Matrix
+        </div>
       </div>
     </div>
 
@@ -447,58 +449,17 @@ onUnmounted(() => {
   cursor: pointer;
   position: relative;
   display: inline-block;
+  color: var(--ink-900);
 }
 
-/* CRT Glow - circular radial gradient behind text */
-.me-title--welcome::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 140%;
-  height: 180%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(212, 168, 67, 0.25) 0%,
-    rgba(212, 168, 67, 0.15) 30%,
-    rgba(212, 168, 67, 0.05) 50%,
-    transparent 70%
-  );
-  pointer-events: none;
-  animation: glow-pulse 2.5s ease-in-out infinite;
-  z-index: -1;
-}
-
-@keyframes glow-pulse {
-  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.1); }
-}
-
-.me-glitch {
+/* Single character CRT effect - like the question mark */
+.crt-char {
   position: relative;
   display: inline-block;
-}
-
-.me-glitch::before,
-.me-glitch::after {
-  content: attr(data-text);
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-}
-
-/* CRT text effect - main text with vertical striping (like question mark) */
-.me-glitch.done {
-  position: relative;
   color: transparent;
   user-select: none;
   
-  /* Vertical striping texture - key for CRT look */
+  /* Vertical striping texture */
   background: repeating-linear-gradient(
     90deg,
     transparent,
@@ -509,31 +470,43 @@ onUnmounted(() => {
   -webkit-background-clip: text;
   background-clip: text;
   
-  /* Golden glow - the actual color comes from text-shadow */
+  /* Golden glow */
   text-shadow:
     0 0 8px rgba(212, 168, 67, 0.9),
     0 0 16px rgba(212, 168, 67, 0.7),
-    0 0 32px rgba(212, 168, 67, 0.5),
-    0 0 48px rgba(180, 140, 50, 0.3);
+    0 0 32px rgba(212, 168, 67, 0.5);
   
   /* CRT flicker */
   animation: crt-flicker 0.12s infinite;
 }
 
-/* CRT flicker animation */
-@keyframes crt-flicker {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.97; }
+/* Circular glow behind the character - sized to match character */
+.crt-char::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140%;
+  height: 140%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(212, 168, 67, 0.3) 0%,
+    rgba(212, 168, 67, 0.15) 40%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: glow-pulse 2.5s ease-in-out infinite;
+  z-index: -1;
 }
 
-/* Phosphor afterglow - blurred duplicate behind */
-.me-glitch.done::before {
-  content: attr(data-text);
+/* Phosphor afterglow - blurred duplicate */
+.crt-char::after {
+  content: attr(data-char);
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
   color: transparent;
   filter: blur(0.5px);
   opacity: 0.4;
@@ -554,6 +527,17 @@ onUnmounted(() => {
     0 0 8px rgba(212, 168, 67, 0.8),
     0 0 16px rgba(212, 168, 67, 0.5);
 }
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.15); }
+}
+
+@keyframes crt-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.97; }
+}
+
 
 /* Keep only the glitch animations */
 @keyframes me-g1 {
