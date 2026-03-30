@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import LLMConfigList from './llm/LLMConfigList.vue'
 import EmailProxyConfig from './email-proxy/EmailProxyConfig.vue'
+import ProxyConfig from './proxy/ProxyConfig.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -30,6 +31,9 @@ const loadCategoryData = async (category) => {
       case 'email-proxy':
         // Will be implemented when Email Proxy API is ready
         break
+      case 'proxy':
+        await settingsStore.loadProxyConfig()
+        break
     }
   } catch (err) {
     error.value = err.message
@@ -43,7 +47,8 @@ const loadCategoryData = async (category) => {
 const currentCategoryComponent = computed(() => {
   const components = {
     'llm': LLMConfigList,
-    'email-proxy': EmailProxyConfig
+    'email-proxy': EmailProxyConfig,
+    'proxy': ProxyConfig
   }
   return components[props.currentCategory] || null
 })
@@ -51,7 +56,8 @@ const currentCategoryComponent = computed(() => {
 const categoryTitle = computed(() => {
   const titles = {
     'llm': 'LLM Configuration',
-    'email-proxy': 'Email Proxy'
+    'email-proxy': 'Email Proxy',
+    'proxy': 'HTTP Proxy'
   }
   return titles[props.currentCategory] || 'Settings'
 })
@@ -59,7 +65,8 @@ const categoryTitle = computed(() => {
 const categoryDescription = computed(() => {
   const descriptions = {
     'llm': 'Manage your language model providers and API configurations',
-    'email-proxy': 'Configure email proxy service settings'
+    'email-proxy': 'Configure email proxy service settings',
+    'proxy': 'Configure HTTP proxy for LLM API calls and container network access'
   }
   return descriptions[props.currentCategory] || ''
 })

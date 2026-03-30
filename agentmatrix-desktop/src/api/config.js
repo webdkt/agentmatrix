@@ -116,4 +116,40 @@ export const configAPI = {
   async testEmailProxyConnection() {
     return API.post('/api/email-proxy/test')
   },
+
+  /**
+   * 获取 HTTP Proxy 配置
+   */
+  async getProxyConfig() {
+    return API.get('/api/proxy/config')
+  },
+
+  /**
+   * 更新 HTTP Proxy 配置
+   * @param {object} config - Proxy 配置 {enabled, host, port}
+   */
+  async updateProxyConfig(config) {
+    return API.put('/api/proxy/config', config)
+  },
+
+  /**
+   * 启用 HTTP Proxy
+   */
+  async enableProxy() {
+    return API.post('/api/proxy/enable')
+  },
+
+  /**
+   * 禁用 HTTP Proxy
+   */
+  async disableProxy() {
+    return API.post('/api/proxy/disable')
+  },
+
+  /**
+   * 测试 HTTP Proxy 连接
+   */
+  async testProxyConnection() {
+    return API.post('/api/proxy/test')
+  },
 }

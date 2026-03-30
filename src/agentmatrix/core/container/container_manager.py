@@ -6,7 +6,7 @@ Container Manager - 容器管理器（使用新的抽象层）
 """
 
 from pathlib import Path
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, Any
 import hashlib
 import logging
 import os
@@ -65,6 +65,7 @@ class ContainerManager:
         image_name: str = "agentmatrix:latest",
         runtime_type: str = None,
         parent_logger: Optional[logging.Logger] = None,
+        proxy_config: Optional[Dict[str, Any]] = None,
     ):
         """
         初始化容器管理器
@@ -110,6 +111,9 @@ class ContainerManager:
 
         # 容器句柄（延迟创建）
         self.container: Optional[ContainerHandle] = None
+
+        # HTTP Proxy 配置
+        self.proxy_config = proxy_config
 
     def initialize_directories(self) -> None:
         """
@@ -181,6 +185,52 @@ class ContainerManager:
                     self.logger.info("🖥️ X11 转发已启用 (Linux)")
                 else:
                     self.logger.warning("⚠️ X11 转发仅在 Linux 上支持")
+
+            # HTTP Proxy 支持
+            # 优先级：app proxy config > 系统环境变量 HTTP_PROXY/HTTPS_PROXY
+            proxy_url = None
+            if self.proxy_config and self.proxy_config.get("enabled"):
+                proxy_port = self.proxy_config.get("port")
+                if proxy_port:
+                    if self.runtime_type == "podman":
+                        proxy_host = "host.containers.internal"
+                    else:
+                        proxy_host = "host.docker.internal"
+                    proxy_url = f"http://{proxy_host}:{proxy_port}"
+                    self.logger.info(
+                        f"🔗 HTTP Proxy 已注入容器 (app config): {proxy_url}"
+                    )
+            else:
+                # 继承系统环境变量中的代理
+                system_proxy = os.environ.get("HTTP_PROXY") or os.environ.get(
+                    "HTTPS_PROXY"
+                )
+                if system_proxy:
+                    # 如果代理指向 localhost/127.0.0.1，需要改写为容器可达的主机地址
+                    import re
+
+                    if re.search(r"://(127\.0\.0\.1|localhost)", system_proxy):
+                        if self.runtime_type == "podman":
+                            container_host = "host.containers.internal"
+                        else:
+                            container_host = "host.docker.internal"
+                        proxy_url = re.sub(
+                            r"://(127\.0\.0\.1|localhost)",
+                            f"://{container_host}",
+                            system_proxy,
+                        )
+                        self.logger.info(
+                            f"🔗 HTTP Proxy 已注入容器 (系统代理，改写 localhost): {proxy_url}"
+                        )
+                    else:
+                        proxy_url = system_proxy
+                        self.logger.info(
+                            f"🔗 HTTP Proxy 已注入容器 (系统代理): {proxy_url}"
+                        )
+
+            if proxy_url:
+                environment["HTTP_PROXY"] = proxy_url
+                environment["HTTPS_PROXY"] = proxy_url
 
             # 创建容器
             create_kwargs = {

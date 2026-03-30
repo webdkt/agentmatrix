@@ -27,6 +27,12 @@ const categories = computed(() => [
     label: 'Email Proxy',
     icon: 'ti-mail',
     description: 'Configure email proxy service'
+  },
+  {
+    id: 'proxy',
+    label: 'HTTP Proxy',
+    icon: 'ti-shield',
+    description: 'Configure HTTP proxy for network access'
   }
 ])
 

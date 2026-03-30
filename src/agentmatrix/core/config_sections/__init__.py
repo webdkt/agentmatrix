@@ -149,3 +149,55 @@ class MatrixConfigSection:
 
     def __repr__(self) -> str:
         return f"MatrixConfigSection(user_agent='{self.user_agent_name}', version='{self.matrix_version}')"
+
+
+class ProxyConfigSection:
+    """
+    HTTP Proxy 配置节
+    提供 HTTP Proxy 配置的访问接口
+    """
+
+    def __init__(self, proxy_config: Dict[str, Any]):
+        self._config = proxy_config or {}
+
+    @property
+    def enabled(self) -> bool:
+        return self._config.get("enabled", False)
+
+    @property
+    def host(self) -> str:
+        return self._config.get("host", "")
+
+    @property
+    def port(self) -> int:
+        return self._config.get("port", 0)
+
+    @property
+    def http_proxy_url(self) -> str:
+        if not self.enabled or not self.host or not self.port:
+            return ""
+        return f"http://{self.host}:{self.port}"
+
+    def is_configured(self) -> bool:
+        if not self.enabled:
+            return False
+        return bool(self.host and self.port)
+
+    def get_container_proxy_url(self, runtime_type: str) -> str:
+        if not self.enabled or not self.port:
+            return ""
+        if runtime_type == "podman":
+            proxy_host = "host.containers.internal"
+        else:
+            proxy_host = "host.docker.internal"
+        return f"http://{proxy_host}:{self.port}"
+
+    def get_full_config(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "host": self.host,
+            "port": self.port,
+        }
+
+    def __repr__(self) -> str:
+        return f"ProxyConfigSection(enabled={self.enabled}, host='{self.host}', port={self.port})"
