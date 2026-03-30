@@ -5,9 +5,9 @@ smtp:
   host: "smtp.gmail.com"
   port: 587
   user: ""
-  password: ""
+  password: "${SMTP_PASSWORD}"
 imap:
   host: "imap.gmail.com"
   port: 993
   user: ""
-  password: ""
+  password: "${IMAP_PASSWORD}"

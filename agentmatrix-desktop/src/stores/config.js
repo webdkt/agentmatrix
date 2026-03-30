@@ -190,22 +190,29 @@ export const useConfigStore = defineStore('config', {
         // 1. 创建目录和模板（Tauri，不需要后端）
         await invoke('init_matrix_world', { matrixWorldPath: path, userName: name })
 
-        // 2. 保存 LLM 配置
+        // 2. 保存 .env（存放真实的 API key）
+        const envVars = {
+          LLM_API_KEY: this.wizardData.default_llm.api_key,
+          SLM_API_KEY: this.wizardData.default_slm.api_key,
+        }
+        await invoke('save_env_file', { matrixWorldPath: path, envVars })
+
+        // 3. 保存 LLM 配置（API key 位置固定为环境变量名）
         const llmConfig = {
           default_llm: {
             url: this.wizardData.default_llm.url,
-            API_KEY: this.wizardData.default_llm.api_key,
+            API_KEY: 'LLM_API_KEY',
             model_name: this.wizardData.default_llm.model_name,
           },
           default_slm: {
             url: this.wizardData.default_slm.url,
-            API_KEY: this.wizardData.default_slm.api_key,
+            API_KEY: 'SLM_API_KEY',
             model_name: this.wizardData.default_slm.model_name,
           },
         }
         await invoke('save_llm_config', { matrixWorldPath: path, llmConfig })
 
-        // 3. 保存 Email Proxy 配置（如果有）
+        // 4. 保存 Email Proxy 配置（如果有）
         if (this.wizardData.email_proxy.enabled) {
           await invoke('save_email_proxy_config_cmd', {
             matrixWorldPath: path,
@@ -213,7 +220,7 @@ export const useConfigStore = defineStore('config', {
           })
         }
 
-        // 4. 启动后端（此时目录和文件已存在）
+        // 5. 启动后端（此时目录和文件已存在）
         await invoke('start_backend')
 
         // 等待后端启动
@@ -227,7 +234,7 @@ export const useConfigStore = defineStore('config', {
           await new Promise(resolve => setTimeout(resolve, 2000))
         }
 
-        // 5. 通知后端初始化 runtime（读取已有文件）
+        // 6. 通知后端初始化 runtime（读取已有文件）
         const result = await configAPI.initRuntime({ matrix_world_path: path })
 
         if (!result.success) {
@@ -236,7 +243,7 @@ export const useConfigStore = defineStore('config', {
 
         this.submitResult = result
 
-        // 6. 标记已配置
+        // 7. 标记已配置
         await invoke('mark_configured', { matrixWorldPath: path })
 
         this.isFirstRun = false

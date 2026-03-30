@@ -99,7 +99,12 @@ const sessionAgents = computed(() => {
 const loadEmails = async (sessionId) => {
   if (!sessionId) return
 
-  isLoading.value = true
+  // 仅在初次加载（列表为空）时显示 loading spinner
+  // 后台刷新时不显示，避免 EmailReply 被 v-if 销毁导致用户输入丢失
+  const isInitialLoad = emails.value.length === 0
+  if (isInitialLoad) {
+    isLoading.value = true
+  }
   error.value = null
 
   try {

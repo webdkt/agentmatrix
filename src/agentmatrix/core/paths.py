@@ -59,6 +59,11 @@ class MatrixPaths:
         return self.config_dir / "system_config.yml"
 
     @property
+    def env_path(self) -> Path:
+        """环境变量文件：.matrix/configs/.env"""
+        return self.config_dir / ".env"
+
+    @property
     def email_proxy_config_path(self) -> Path:
         """Email Proxy配置文件：.matrix/configs/email_proxy_config.yml"""
         return self.config_dir / "email_proxy_config.yml"
@@ -77,8 +82,6 @@ class MatrixPaths:
     def agent_backup_dir(self) -> Path:
         """Agent备份目录：.matrix/configs/backups/agents/"""
         return self.backup_dir / "agents"
-
-    
 
     @property
     def database_dir(self) -> Path:

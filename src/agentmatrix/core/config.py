@@ -13,6 +13,7 @@ import yaml
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
 from .log_util import AutoLoggerMixin
 from .paths import MatrixPaths
 from .config_sections import (
@@ -43,12 +44,26 @@ class MatrixConfig(AutoLoggerMixin):
 
     def _load_configs(self):
         """加载所有配置"""
+        self._load_dotenv()
         self._load_llm_config()
         self._load_email_proxy_config()
         self._load_matrix_config()
         self._load_container_config()
         self._load_proxy_config()
         self._apply_proxy_env_vars()
+
+    def _load_dotenv(self):
+        """加载 .env 文件中的环境变量
+
+        优先级：Shell 环境变量 > .env 文件 > 配置文件原始值
+        使用 override=False 确保不会覆盖已有的 shell 环境变量
+        """
+        env_path = self.paths.env_path
+        if env_path.exists():
+            self.logger.info(f"📄 加载环境变量文件: {env_path}")
+            load_dotenv(env_path, override=False)
+        else:
+            self.logger.debug(f"📄 环境变量文件不存在，跳过: {env_path}")
 
     def _load_llm_config(self):
         """加载LLM配置"""

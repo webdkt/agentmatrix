@@ -67,8 +67,10 @@ async function initializeWebSocket() {
     const isCurrentSession = sessionId === currentSession.value?.session_id
 
     if (isCurrentSession) {
-      await sessionStore.selectSession(currentSession.value, true)
+      // 立即弹窗（不等待 API 刷新）
       uiStore.openModal('emailNotify', emailData)
+      // 后台刷新邮件列表（不 await，与弹窗同时进行）
+      sessionStore.selectSession(currentSession.value, true)
     } else {
       await sessionStore.loadSessions()
       uiStore.emailToast = {
