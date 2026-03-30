@@ -143,7 +143,7 @@ const handleBack = () => {
 
 .agent-dashboard__content {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .agent-dashboard__empty {
