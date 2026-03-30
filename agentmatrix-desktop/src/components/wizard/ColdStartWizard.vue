@@ -446,67 +446,64 @@ onUnmounted(() => {
 :deep(.crt-char) {
   position: relative;
   display: inline-block;
-  color: #1A1A1A !important;  /* Black body - danger style */
+  color: #5C1800 !important;  /* Dark blood red body - almost black */
   user-select: none;
   
-  /* Vertical striping texture - overlays on the solid text */
+  /* Stronger vertical striping texture - more CRT feel */
   background: repeating-linear-gradient(
     90deg,
     transparent,
     transparent 1px,
-    rgba(255, 51, 102, 0.12) 1px,  /* Danger red tint */
-    rgba(255, 51, 102, 0.12) 2px
+    rgba(194, 59, 34, 0.25) 1px,  /* Dark red striping */
+    rgba(194, 59, 34, 0.25) 2px
   ) !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
   
-  /* Danger red glow around the text */
+  /* Subtle glow - just one layer for depth */
   text-shadow:
-    0 0 8px rgba(255, 51, 102, 0.9),
-    0 0 16px rgba(255, 51, 102, 0.7),
-    0 0 32px rgba(255, 51, 102, 0.5),
-    0 0 48px rgba(194, 59, 34, 0.3) !important;
+    0 0 4px rgba(194, 59, 34, 0.6) !important;
   
-  /* CRT flicker - more noticeable */
-  animation: crt-flicker 0.15s infinite;
+  /* Stronger CRT flicker */
+  animation: crt-flicker 0.1s infinite;
 }
 
-/* Horizontal scanlines overlay on the character - danger red */
+/* Strong horizontal scanlines - more visible CRT effect */
 :deep(.crt-char)::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: -10%;
+  left: -10%;
+  right: -10%;
+  bottom: -10%;
   background: repeating-linear-gradient(
     0deg,
     transparent,
-    transparent 2px,
-    rgba(255, 51, 102, 0.08) 2px,
-    rgba(255, 51, 102, 0.08) 4px
+    transparent 1px,
+    rgba(194, 59, 34, 0.15) 1px,
+    rgba(194, 59, 34, 0.15) 3px
   );
   pointer-events: none;
+  mix-blend-mode: overlay;
 }
 
-/* Circular glow behind the character - danger red */
+/* Subtle dark red glow behind character */
 :deep(.crt-char)::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 120%;
-  height: 120%;
+  width: 110%;
+  height: 110%;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(255, 51, 102, 0.25) 0%,
-    rgba(255, 51, 102, 0.12) 50%,
-    transparent 70%
+    rgba(194, 59, 34, 0.15) 0%,
+    transparent 60%
   );
   pointer-events: none;
-  animation: glow-pulse 2.5s ease-in-out infinite;
+  animation: glow-pulse 3s ease-in-out infinite;
   z-index: -1;
 }
 
