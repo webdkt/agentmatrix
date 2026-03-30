@@ -449,20 +449,21 @@ onUnmounted(() => {
   z-index: 1;
 }
 
-/* 1. Glow background - behind text (like question mark __glow) */
+/* 1. Glow background - circular, behind text (like question mark __glow) */
 .me-title--welcome::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 120%;
-  height: 150%;
+  width: 180%;
+  height: 180%;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(194, 59, 34, 0.2) 0%,
-    rgba(194, 59, 34, 0.1) 40%,
+    rgba(194, 59, 34, 0.15) 0%,
+    rgba(194, 59, 34, 0.08) 30%,
+    rgba(194, 59, 34, 0.03) 50%,
     transparent 70%
   );
   pointer-events: none;
