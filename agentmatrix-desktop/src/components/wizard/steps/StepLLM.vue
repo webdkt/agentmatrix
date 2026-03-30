@@ -28,15 +28,15 @@ function onProviderChange(val) {
 }
 
 function onUrlChange(val) {
-  data.value.url = val
+  // Only update URL if it's a valid preset URL (not empty)
+  if (val && val.trim()) {
+    data.value.url = val
+  }
 }
 
 function onModelState(state) {
   modelState.value = state
 }
-
-// Show URL when model is new (not exact match)
-const showUrl = computed(() => modelState.value === 'new')
 
 // Validation
 const isValid = computed(() => {
@@ -87,8 +87,8 @@ function togEye(btn) {
       </div>
     </div>
 
-    <!-- URL (only for new/unknown models) -->
-    <div v-if="showUrl" class="me-fg me-url-row">
+    <!-- URL (always visible) -->
+    <div class="me-fg me-url-row">
       <input
         v-model="data.url"
         class="me-url"
@@ -168,7 +168,7 @@ function togEye(btn) {
   color: var(--ink-dim);
 }
 
-/* URL field - appears for new models */
+/* URL field - always visible */
 .me-url-row {
   animation: me-fade-in 0.3s ease;
 }

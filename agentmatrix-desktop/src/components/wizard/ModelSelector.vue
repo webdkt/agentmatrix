@@ -66,7 +66,10 @@ const currentState = computed(() => {
 watch(currentState, (s) => {
   emit('update:modelValue', s.model)
   emit('update:provider', s.provider)
-  emit('update:url', s.url)
+  // Only emit URL if it's a known preset (has valid URL)
+  if (s.url && s.url.trim()) {
+    emit('update:url', s.url)
+  }
   emit('state-change', s.state)
 }, { immediate: true })
 
