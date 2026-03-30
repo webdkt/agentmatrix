@@ -443,10 +443,10 @@ onUnmounted(() => {
 }
 
 /* Single character CRT effect - like question mark */
-.crt-char {
+:deep(.crt-char) {
   position: relative;
   display: inline-block;
-  color: #D4A843;  /* The key: solid gold color like question mark */
+  color: #D4A843 !important;
   user-select: none;
   
   /* Vertical striping texture - overlays on the solid text */
@@ -456,22 +456,22 @@ onUnmounted(() => {
     transparent 1px,
     rgba(255, 255, 255, 0.12) 1px,
     rgba(255, 255, 255, 0.12) 2px
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
+  ) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
   
   /* Golden glow around the text */
   text-shadow:
     0 0 8px rgba(212, 168, 67, 0.8),
     0 0 16px rgba(212, 168, 67, 0.6),
-    0 0 32px rgba(212, 168, 67, 0.4);
+    0 0 32px rgba(212, 168, 67, 0.4) !important;
   
   /* CRT flicker - more noticeable */
   animation: crt-flicker 0.15s infinite;
 }
 
 /* Horizontal scanlines overlay on the character */
-.crt-char::after {
+:deep(.crt-char)::after {
   content: '';
   position: absolute;
   top: 0;
@@ -489,7 +489,7 @@ onUnmounted(() => {
 }
 
 /* Circular glow behind the character - smaller and tighter */
-.crt-char::before {
+:deep(.crt-char)::before {
   content: '';
   position: absolute;
   top: 50%;
