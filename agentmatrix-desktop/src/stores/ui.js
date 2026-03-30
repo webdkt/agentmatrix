@@ -19,6 +19,16 @@ export const useUIStore = defineStore('ui', {
       settings: false,
       agentConfig: false,
       confirmDialog: false,
+      emailNotify: false,
+    },
+
+    // 邮件通知数据
+    emailNotifyData: null,
+
+    // Toast 通知列表（用于邮件冒泡）
+    emailToast: {
+      show: false,
+      emailData: null
     },
 
     // 通知列表
@@ -97,9 +107,12 @@ export const useUIStore = defineStore('ui', {
     openModal(modalName, data = null) {
       if (this.modals.hasOwnProperty(modalName)) {
         this.modals[modalName] = true
-        // 可以在这里存储对话框相关的数据
         if (data) {
           this.modals[`${modalName}Data`] = data
+          // Also store in root level for components expecting root state
+          if (modalName === 'emailNotify') {
+            this.emailNotifyData = data
+          }
         }
       } else {
         console.warn(`Modal "${modalName}" not found`)

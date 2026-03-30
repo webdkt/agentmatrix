@@ -58,7 +58,10 @@
     "selectSession": "Select a session to view messages",
     "agentStatus": "Agent • Online",
     "hasQuestion": "has a question for you",
-    "questionPlaceholder": "Enter your answer..."
+    "questionPlaceholder": "Enter your answer...",
+    "newEmail": "New Email",
+    "preview": "Preview",
+    "noContent": "(No content)"
   },
   "status": {
     "running": "Running",
@@ -88,7 +91,8 @@
     "close": "Close",
     "loading": "Loading...",
     "error": "Error",
-    "success": "Success"
+    "success": "Success",
+    "view": "View"
   },
   "matrix": {
     "searchPlaceholder": "Search agents...",

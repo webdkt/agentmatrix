@@ -58,7 +58,10 @@
     "selectSession": "选择一个会话查看消息",
     "agentStatus": "智能体 • 在线",
     "hasQuestion": "有一个问题需要你回答",
-    "questionPlaceholder": "输入你的回答..."
+    "questionPlaceholder": "输入你的回答...",
+    "newEmail": "新邮件",
+    "preview": "预览",
+    "noContent": "（无内容）"
   },
   "status": {
     "running": "运行中",
@@ -88,7 +91,8 @@
     "close": "关闭",
     "loading": "加载中...",
     "error": "错误",
-    "success": "成功"
+    "success": "成功",
+    "view": "查看"
   },
   "matrix": {
     "searchPlaceholder": "搜索 Agent...",

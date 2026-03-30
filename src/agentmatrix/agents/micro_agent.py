@@ -1194,8 +1194,8 @@ Start generating the Working Notes now.
             actions_list=actions_list,
             md_skill_section=md_skill_section,
             yellow_pages_section=yellow_pages_section,
-            user_name = user_name,
-            agent_name = self.root_agent.name
+            user_name=user_name,
+            agent_name=self.root_agent.name,
         )
 
         self.system_prompt = prompt
@@ -1593,31 +1593,14 @@ Start generating the Working Notes now.
         return monitor.llm_available.is_set()
 
     async def _wait_for_llm_recovery(self):
-        """等待 LLM 服务恢复（轮询方式）"""
+        """等待 LLM 服务恢复（等待Event）"""
         monitor = self.root_agent.runtime.llm_monitor
         if monitor is None:
-            # 如果没有 monitor，直接返回
             return
 
-        check_interval = 5  # 每 5 秒检查一次
-        waited_seconds = 0
-
         self.logger.info("⏳ Waiting for LLM service recovery...")
-
-        while True:
-            await asyncio.sleep(check_interval)
-            waited_seconds += check_interval
-
-            # 检查是否恢复
-            if monitor.llm_available.is_set():
-                self.logger.info(f"✅ LLM service recovered after {waited_seconds}s")
-                break
-
-            # 每 30 秒打印一次日志
-            if waited_seconds % 30 == 0:
-                self.logger.warning(
-                    f"⏳ Still waiting for LLM service... ({waited_seconds}s elapsed)"
-                )
+        await monitor.llm_available.wait()
+        self.logger.info("✅ LLM service recovered!")
 
     async def _prepare_feedback_message(
         self, combined_result: str, step_count: int, start_time: float

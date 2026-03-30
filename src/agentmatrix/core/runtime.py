@@ -93,6 +93,7 @@ class AgentMatrix(AutoLoggerMixin):
         # 🆕 后台服务任务引用（用于关闭时取消）
         self.scheduler_task = None
         self.email_proxy_task = None
+        self.monitor_task = None
 
         self.echo(">>> 初始化世界资源...")
         self._prepare_world_resource()
@@ -108,6 +109,7 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 🆕 电源管理器（防止系统休眠，默认启用）
         from ..core.power_manager import PowerManager
+
         self.power_manager = PowerManager(enabled=True, parent_logger=self.logger)
         self.echo(">>> PowerManager initialized (防止系统休眠已启用)")
 
@@ -191,10 +193,9 @@ class AgentMatrix(AutoLoggerMixin):
         # 保存 loader 以获取 llm_config（用于创建监控器）
         self.loader = loader
         self.llm_monitor = None
-        self.monitor_task = None
 
     def _start_llm_monitor(self):
-        """启动 LLM 服务监控器"""
+        """启动 LLM 服务监控器 (Lazy模式)"""
         from .service_monitor import LLMServiceMonitor
 
         # 获取 llm_config
@@ -203,14 +204,14 @@ class AgentMatrix(AutoLoggerMixin):
         # 创建监控器
         self.llm_monitor = LLMServiceMonitor(
             llm_config=llm_config,
-            check_interval=60,  # 每分钟检查一次
+            check_interval=5,  # Lazy模式，按需检查间隔5秒
             parent_logger=self.logger,
         )
 
         # 启动监控任务
         self.monitor_task = asyncio.create_task(self.llm_monitor.start())
 
-        self.echo(f">>> LLM Service Monitor started (interval: 60s)")
+        self.echo(f">>> LLM Service Monitor started (lazy mode)")
 
     # ❌ 移除定时广播循环（改为事件驱动）
     # 每个 Agent 的 update_status() 会触发增量推送

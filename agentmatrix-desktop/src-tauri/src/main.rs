@@ -4,7 +4,7 @@
 use std::process::{Command, Child};
 use std::sync::Mutex;
 use std::path::PathBuf;
-use tauri::{State, Manager};
+use tauri::{State, Manager, menu::{Menu, MenuItem}, tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState}};
 use serde_json::Value as JsonValue;
 
 mod config;
@@ -322,6 +322,23 @@ async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, Strin
 #[tauri::command]
 async fn show_notification(title: String, body: String) -> Result<(), String> {
     println!("Notification: {} - {}", title, body);
+    Ok(())
+}
+
+#[tauri::command]
+async fn is_window_focused(app: tauri::AppHandle) -> Result<bool, String> {
+    if let Some(window) = app.get_webview_window("main") {
+        return window.is_focused().map_err(|e| e.to_string());
+    }
+    Ok(false)
+}
+
+#[tauri::command]
+async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -658,6 +675,39 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(BackendState(Mutex::new(None)))
         .setup(|app| {
+            // Setup system tray
+            let show_item = MenuItem::with_id(app, "show", "Open AgentMatrix", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            
+            let _tray = TrayIconBuilder::new()
+                .menu(&menu)
+                .tooltip("AgentMatrix")
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
             // Auto-setup container runtime on app start
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -685,6 +735,8 @@ fn main() {
             install_podman,
             check_image,
             load_image,
+            is_window_focused,
+            show_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
