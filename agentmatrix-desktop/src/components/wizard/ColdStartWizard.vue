@@ -637,7 +637,6 @@ onUnmounted(() => {
   stroke: var(--accent);
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
-  filter: drop-shadow(0 0 6px var(--accent)) drop-shadow(0 0 12px var(--accent)) drop-shadow(0 0 20px var(--accent));
 }
 
 .neon-on .neon-border {
@@ -645,9 +644,8 @@ onUnmounted(() => {
 }
 
 @keyframes neon-border-light {
-  0% { stroke-dashoffset: 1; filter: drop-shadow(0 0 2px var(--accent)); }
-  50% { filter: drop-shadow(0 0 8px var(--accent)) drop-shadow(0 0 16px var(--accent)); }
-  100% { stroke-dashoffset: 0; filter: drop-shadow(0 0 6px var(--accent)) drop-shadow(0 0 12px var(--accent)) drop-shadow(0 0 20px var(--accent)); }
+  0% { stroke-dashoffset: 1; }
+  100% { stroke-dashoffset: 0; }
 }
 
 .neon-text {
@@ -658,9 +656,6 @@ onUnmounted(() => {
   letter-spacing: 0.2em;
   padding: 16px 48px;
   color: var(--accent);
-  text-shadow: 
-    0 0 8px var(--accent),
-    0 0 16px rgba(194, 59, 34, 0.8);
   opacity: 0;
 }
 
