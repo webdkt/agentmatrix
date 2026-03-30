@@ -144,7 +144,10 @@ const handleBack = () => {
 
 .agent-dashboard__content {
   flex: 1;
+  min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .agent-dashboard__empty {

@@ -211,7 +211,8 @@ watch(() => props.agentName, async (newName) => {
 
 <style scoped>
 .profile-tab {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-lg);
 }

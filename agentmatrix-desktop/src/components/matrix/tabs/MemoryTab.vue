@@ -90,7 +90,8 @@ function truncateId(id) {
 
 <style scoped>
 .memory-tab {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-md);
 }

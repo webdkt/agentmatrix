@@ -122,9 +122,10 @@ async function openSkillsFolder() {
 
 <style scoped>
 .resources-tab {
-  padding: var(--spacing-lg);
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  padding: var(--spacing-lg);
 }
 
 .resources-grid {
