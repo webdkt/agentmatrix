@@ -26,7 +26,7 @@ const helpContent = {
       html: `
         <p>The <strong>Brain</strong> is AgentMatrix's primary reasoning engine — the large language model (LLM) that handles complex thinking, analysis, and decision-making.</p>
         <p><strong>What you need to provide:</strong></p>
-        <p>• <span class="highlight">Model Name</span> — The specific model identifier (e.g., <code>claude-3-5-sonnet-20241022</code>)</p>
+        <p>• <span class="highlight">Model Name</span> — The specific model name</p>
         <p>• <span class="highlight">API Key</span> — Your authentication key for the model provider</p>
         <p><strong>Where to get API keys:</strong></p>
         <div class="api-links">
@@ -45,7 +45,7 @@ const helpContent = {
       html: `
         <p><strong>大脑</strong>是AgentMatrix的主要推理引擎——负责复杂思维、分析和决策的大语言模型（LLM）。</p>
         <p><strong>您需要提供：</strong></p>
-        <p>• <span class="highlight">模型名称</span> — 具体的模型标识符（例如 <code>claude-3-5-sonnet-20241022</code>）</p>
+        <p>• <span class="highlight">模型名称</span> — 具体的模型名字</p>
         <p>• <span class="highlight">API密钥</span> — 您在模型提供商处的认证密钥</p>
         <p><strong>如何获取API密钥：</strong></p>
         <div class="api-links">
