@@ -4,6 +4,7 @@ import { useConfigStore } from '@/stores/config'
 import StepUserName from './steps/StepUserName.vue'
 import StepDirectory from './steps/StepDirectory.vue'
 import StepLLM from './steps/StepLLM.vue'
+import HelpQuestion from './HelpQuestion.vue'
 
 const emit = defineEmits(['complete'])
 const configStore = useConfigStore()
@@ -294,6 +295,11 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Help Question for Brain -->
+    <Teleport to="body">
+      <HelpQuestion v-if="currentStep === 3" type="brain" />
+    </Teleport>
+
     <!-- STEP 4: Cerebellum -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 4 }" v-show="currentStep === 4">
       <div class="step-inner visible">
@@ -301,6 +307,11 @@ onUnmounted(() => {
         <StepLLM which="slm" :errors="errors" step-idx="4" />
       </div>
     </div>
+
+    <!-- Help Question for Cerebellum -->
+    <Teleport to="body">
+      <HelpQuestion v-if="currentStep === 4" type="cerebellum" />
+    </Teleport>
 
     <!-- STEP 5: Initialize -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 5 }" v-show="currentStep === 5">
