@@ -33,6 +33,7 @@ const helpContent = {
           <p>• <a href="https://www.bigmodel.cn/glm-coding" target="_blank" rel="noopener">智谱 GLM (Zhipu AI)</a></p>
           <p>• <a href="https://www.kimi.com/membership/pricing" target="_blank" rel="noopener">Kimi (Moonshot AI)</a></p>
           <p>• <a href="https://platform.minimaxi.com/subscribe/token-plan" target="_blank" rel="noopener">MiniMax</a></p>
+          <p>• <a href="https://platform.xiaomimimo.com/" target="_blank" rel="noopener">Xiaomi Mimo</a></p>
           <p>• <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic Claude</a></p>
           <p>• <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI</a></p>
         </div>
@@ -51,6 +52,7 @@ const helpContent = {
           <p>• <a href="https://www.bigmodel.cn/glm-coding" target="_blank" rel="noopener">智谱 GLM</a></p>
           <p>• <a href="https://www.kimi.com/membership/pricing" target="_blank" rel="noopener">Kimi (月之暗面)</a></p>
           <p>• <a href="https://platform.minimaxi.com/subscribe/token-plan" target="_blank" rel="noopener">MiniMax</a></p>
+          <p>• <a href="https://platform.xiaomimimo.com/" target="_blank" rel="noopener">小米 Mimo</a></p>
           <p>• <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic Claude</a></p>
           <p>• <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI</a></p>
         </div>
