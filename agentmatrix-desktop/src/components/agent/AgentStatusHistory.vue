@@ -9,7 +9,7 @@ const props = defineProps({
   },
   maxItems: {
     type: Number,
-    default: 3
+    default: 4
   }
 })
 
@@ -80,12 +80,15 @@ const currentStatusText = computed(() => {
 .status-history {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .status-history__item {
   font-size: var(--font-xs);
   color: var(--ink-400);
-  line-height: var(--leading-relaxed);
+  line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

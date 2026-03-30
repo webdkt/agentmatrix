@@ -243,6 +243,7 @@ function handleViewPrompt(event) {
   padding: var(--spacing-sm) 0;
   border-top: 1px solid var(--parchment-100);
   border-bottom: 1px solid var(--parchment-100);
+  min-height: 72px;
 }
 
 .agent-card__controls {
