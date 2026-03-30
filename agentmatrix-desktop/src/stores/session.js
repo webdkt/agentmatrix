@@ -117,8 +117,13 @@ export const useSessionStore = defineStore('session', {
         this.resetDialogShown()
       }
 
-      this.currentSession = session
-      console.log('🔄 Session selected (will trigger loadEmails):', session.session_id)
+      // force=true 时创建新对象引用，触发 Vue watch 重新加载邮件
+      if (force && this.currentSession?.session_id === session.session_id) {
+        this.currentSession = { ...session }
+      } else {
+        this.currentSession = session
+      }
+      console.log('🔄 Session selected (will trigger loadEmails):', this.currentSession.session_id)
     },
 
     /**

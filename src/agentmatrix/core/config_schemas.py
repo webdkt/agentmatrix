@@ -117,16 +117,37 @@ class LLMConfig(BaseModel):
         return None
 
 
+# ==================== HTTP Proxy ====================
+
+
+class ProxyConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    enabled: bool = Field(False, description="Whether HTTP proxy is enabled")
+    host: str = Field("", description="Proxy server host, e.g. 127.0.0.1")
+    port: int = Field(0, description="Proxy server port, e.g. 7890")
+
+    @model_validator(mode="after")
+    def check_consistency(self) -> "ProxyConfig":
+        if self.enabled:
+            if not self.host:
+                raise ValueError("host is required when proxy is enabled")
+            if not self.port:
+                raise ValueError("port is required when proxy is enabled")
+        return self
+
+
 # ==================== System Config ==================
 
 
 class SystemConfig(BaseModel):
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
     user_agent_name: str = Field("User", description="Name of the user agent")
     matrix_version: str = Field("1.0.0", description="AgentMatrix version")
     description: str = Field("", description="World description")
     timezone: str = Field("UTC", description="Default timezone")
+    proxy: Optional[ProxyConfig] = Field(None, description="HTTP proxy settings")
 
 
 # ==================== Agent Profile ====================
@@ -199,6 +220,7 @@ def get_schema(config_type: str) -> dict:
         "llm": LLMModelConfig.model_json_schema,  # Single model entry
         "system": SystemConfig.model_json_schema,
         "email_proxy": EmailProxyConfig.model_json_schema,
+        "proxy": ProxyConfig.model_json_schema,
     }
 
     if config_type not in schema_map:

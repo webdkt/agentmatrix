@@ -239,3 +239,4 @@ agentmatrix*.tar
 # .dockercache/
 src-tauri/target
 agentmatrix-desktop/src-tauri/target
+.kilo

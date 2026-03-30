@@ -85,6 +85,7 @@ class AgentMatrix(AutoLoggerMixin):
         self.post_office_task = None
         self.running_agent_tasks = []
         self.running = False
+        self.agent_name_set = set()  # Agent 名字快速查找集合
 
         # 🆕 系统配置（向后兼容）
         self.system_config = None
@@ -99,6 +100,9 @@ class AgentMatrix(AutoLoggerMixin):
         self._prepare_world_resource()
         self.echo(">>> 初始化Agents...")
         self._prepare_agents()
+        # 构建 Agent 名字快速查找集合
+        self.agent_name_set = set(self.agents.keys())
+        self.echo(f">>> Agent 名字集合: {self.agent_name_set}")
 
         # 🔧 广播回调接口（由 server 注入）- 必须在 load_matrix 之前初始化
         self._broadcast_message_callback = None
@@ -254,6 +258,9 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 添加到agents字典
         self.agents[agent_name] = agent
+
+        # 更新快速查找集合
+        self.agent_name_set.add(agent_name)
 
         # 注册到PostOffice
         self.post_office.register(agent)

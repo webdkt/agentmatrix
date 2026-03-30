@@ -99,7 +99,12 @@ const sessionAgents = computed(() => {
 const loadEmails = async (sessionId) => {
   if (!sessionId) return
 
-  isLoading.value = true
+  // 仅在初次加载（列表为空）时显示 loading spinner
+  // 后台刷新时不显示，避免 EmailReply 被 v-if 销毁导致用户输入丢失
+  const isInitialLoad = emails.value.length === 0
+  if (isInitialLoad) {
+    isLoading.value = true
+  }
   error.value = null
 
   try {
@@ -158,8 +163,15 @@ const handleReplySent = async () => {
 }
 
 const handleReplySentWithEmail = (email) => {
-  // 新的实现：直接将邮件添加到列表，无需刷新
+  // 直接将邮件添加到列表，无需刷新
+  // 必须校验邮件属于当前会话，防止用户快速切换会话后邮件出现在错误的列表中
   if (email) {
+    const emailSessionId = email.task_id || email.recipient_session_id
+    const currentSessionId = currentSession.value?.session_id
+    if (emailSessionId && currentSessionId && emailSessionId !== currentSessionId) {
+      console.warn('⚠️ Email belongs to different session, skipping append:', emailSessionId, '!=', currentSessionId)
+      return
+    }
     emails.value.push(email)
     // 滚动到底部
     nextTick(() => {

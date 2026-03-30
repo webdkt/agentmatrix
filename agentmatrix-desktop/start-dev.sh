@@ -49,8 +49,21 @@ fi
 
 # Check if processes are already running
 if lsof -Pi :5173 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "⚠️  Vite dev server already running on port 5173"
-else
+    # Verify it's actually a Vite/Node process, not a stale listener
+    VITE_PID=$(lsof -Pi :5173 -sTCP:LISTEN -t 2>/dev/null | head -1)
+    if ps -p "$VITE_PID" -o comm= 2>/dev/null | grep -qiE "node|vite"; then
+        echo "⚠️  Vite dev server already running on port 5173 (PID: $VITE_PID)"
+    else
+        echo "⚠️  Port 5173 occupied by non-Vite process (PID: $VITE_PID), killing it..."
+        kill "$VITE_PID" 2>/dev/null || true
+        sleep 1
+        # Fall through to start Vite
+        VITE_PID=""
+    fi
+fi
+
+# Start Vite if not already running
+if [ -z "${VITE_PID:-}" ] || ! lsof -Pi :5173 -sTCP:LISTEN -t >/dev/null 2>&1; then
     echo "📱 Starting Vite dev server..."
     npm run dev > /tmp/vite-dev.log 2>&1 &
     VITE_PID=$!

@@ -14,7 +14,7 @@ from ..core.log_config import LogConfig
 class AgentLoader(AutoLoggerMixin):
     def __init__(self, profile_path, llm_config_path=None):
         self.profile_path = profile_path
-        env_file = os.path.join(profile_path, ".env")
+        env_file = os.path.join(os.path.dirname(profile_path), ".env")
         # if not os.path.exists(env_file):
         # raise FileNotFoundError(f"环境变量文件不存在: {self.profile_path}")
 

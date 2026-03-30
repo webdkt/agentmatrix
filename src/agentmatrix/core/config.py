@@ -13,6 +13,7 @@ import yaml
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
 from .log_util import AutoLoggerMixin
 from .paths import MatrixPaths
 from .config_sections import (
@@ -20,6 +21,7 @@ from .config_sections import (
     EmailProxyConfigSection,
     MatrixConfigSection,
     ContainerConfigSection,
+    ProxyConfigSection,
 )
 
 
@@ -42,10 +44,26 @@ class MatrixConfig(AutoLoggerMixin):
 
     def _load_configs(self):
         """加载所有配置"""
+        self._load_dotenv()
         self._load_llm_config()
         self._load_email_proxy_config()
         self._load_matrix_config()
         self._load_container_config()
+        self._load_proxy_config()
+        self._apply_proxy_env_vars()
+
+    def _load_dotenv(self):
+        """加载 .env 文件中的环境变量
+
+        优先级：Shell 环境变量 > .env 文件 > 配置文件原始值
+        使用 override=False 确保不会覆盖已有的 shell 环境变量
+        """
+        env_path = self.paths.env_path
+        if env_path.exists():
+            self.logger.info(f"📄 加载环境变量文件: {env_path}")
+            load_dotenv(env_path, override=False)
+        else:
+            self.logger.debug(f"📄 环境变量文件不存在，跳过: {env_path}")
 
     def _load_llm_config(self):
         """加载LLM配置"""
@@ -77,7 +95,6 @@ class MatrixConfig(AutoLoggerMixin):
             self._email_proxy_config = self._resolve_env_vars(self._email_proxy_config)
         else:
             return {}
-        
 
     def _load_matrix_config(self):
         """加载系统配置 - 从 system_config.yml 中读取"""
@@ -99,13 +116,42 @@ class MatrixConfig(AutoLoggerMixin):
         # 如果配置为空，使用默认值
         if not container_config:
             self.logger.info("📄 使用默认容器运行时配置")
-            container_config =  {
+            container_config = {
                 "runtime": "auto",  # 自动检测（Podman 优先）
                 "auto_start": True,
                 "fallback_strategy": "fallback",
             }
 
         self._container_config = container_config
+
+    def _load_proxy_config(self):
+        """从 system_config.yml 中提取 proxy 配置"""
+        self._proxy_config = self._matrix_config.get("proxy", {})
+        if self._proxy_config:
+            self.logger.info(
+                f"📄 加载 HTTP Proxy 配置: {self._proxy_config.get('host', '')}:{self._proxy_config.get('port', '')}"
+            )
+
+    def _apply_proxy_env_vars(self):
+        """设置 HTTP_PROXY/HTTPS_PROXY 环境变量
+
+        优先级策略：
+        1. App proxy 启用且配置完整 → 覆盖为 app 配置的代理
+        2. App proxy 未启用 → 保留系统环境变量不动（不删除）
+        """
+        proxy = self._proxy_config
+        if proxy and proxy.get("enabled") and proxy.get("host") and proxy.get("port"):
+            proxy_url = f"http://{proxy['host']}:{proxy['port']}"
+            os.environ["HTTP_PROXY"] = proxy_url
+            os.environ["HTTPS_PROXY"] = proxy_url
+            self.logger.info(f"✅ HTTP Proxy 已启用: {proxy_url}")
+        else:
+            # 不删除系统环境变量，让用户配置的代理继续生效
+            existing = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
+            if existing:
+                self.logger.info(f"ℹ️ App proxy 未启用，使用系统代理: {existing}")
+            else:
+                self.logger.info("ℹ️ App proxy 未启用，无系统代理，直连")
 
     def _get_default_llm_config(self) -> Dict[str, Any]:
         """获取默认LLM配置"""
@@ -121,10 +167,6 @@ class MatrixConfig(AutoLoggerMixin):
                 "model_name": "claude-haiku-4-20250514",
             },
         }
-
-    
-
-    
 
     def _resolve_env_vars(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -242,6 +284,13 @@ class MatrixConfig(AutoLoggerMixin):
             True
         """
         return ContainerConfigSection(self._container_config)
+
+    @property
+    def proxy(self) -> ProxyConfigSection:
+        """
+        HTTP Proxy 配置节
+        """
+        return ProxyConfigSection(self._proxy_config)
 
     def get(self, key: str, default=None) -> Any:
         """
