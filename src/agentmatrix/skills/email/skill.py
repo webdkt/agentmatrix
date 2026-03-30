@@ -23,7 +23,9 @@ class EmailSkillMixin:
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = "邮件发送技能：向其他 Agent 发送邮件，支持附件. 名字就是邮件地址"
+    _skill_description = (
+        "邮件发送技能：向其他 Agent 发送邮件，支持附件. 名字就是邮件地址"
+    )
 
     _skill_usage_guide = """
 使用场景：
@@ -42,21 +44,17 @@ class EmailSkillMixin:
 """
 
     @register_action(
-            short_desc="",
+        short_desc="",
         description="发邮件给同事，这是和其他人沟通的唯一方式。可以附带附件文件。",
         param_infos={
             "to": "收件人 (e.g. 'User')",
             "body": "邮件内容",
             "subject": "邮件主题 (可选，如果不填，系统会自动截取 body 的前20个字)",
-            "attachments": "附件文件列表（容器内路径，例如 ['/work_files/report.pdf']，可选）"
-        }
+            "attachments": "附件文件列表（容器内路径，例如 ['/work_files/report.pdf']，可选）",
+        },
     )
     async def send_email(
-        self,
-        to: str,
-        body: str,
-        subject: str = None,
-        attachments: List[str] = None
+        self, to: str, body: str, subject: str = None, attachments: List[str] = None
     ):
         """
         发送邮件给同事（支持附件）
@@ -76,6 +74,11 @@ class EmailSkillMixin:
         - 从当前 agent 的 attachments 目录复制到目标 agent 的 attachments 目录
         - 自动处理文件重名
         """
+        # 校验收件人是否为有效的系统 Agent 名字
+        runtime = self.root_agent.runtime
+        if runtime and runtime.agent_name_set:
+            if to not in runtime.agent_name_set:
+                return f"内部邮箱收件人地址错误，请使用Agent名字作为收件地址。当前系统Agent：{', '.join(sorted(runtime.agent_name_set))}"
         # 导入 Email 类（避免循环导入）
         from ...core.message import Email
 
@@ -92,16 +95,14 @@ class EmailSkillMixin:
         if not subject:
             # 如果 body 很短，直接用 body 做 subject
             # 如果 body 很长，截取前 20 个字 + ...
-            clean_body = body.strip().replace('\n', ' ')
+            clean_body = body.strip().replace("\n", " ")
             subject = clean_body[:20] + "..." if len(clean_body) > 20 else clean_body
 
         # 处理附件
         attachment_metadata = []
         if attachments:
             attachment_metadata = await self._copy_attachments_to_recipient(
-                attachments=attachments,
-                recipient_name=to,
-                task_id=session["task_id"]
+                attachments=attachments, recipient_name=to, task_id=session["task_id"]
             )
 
         # 构造邮件
@@ -114,7 +115,9 @@ class EmailSkillMixin:
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 🆕 发件人的 session
             recipient_session_id=None,  # 收件人的 session（由收件人收到后更新）
-            metadata={'attachments': attachment_metadata} if attachment_metadata else {}
+            metadata={"attachments": attachment_metadata}
+            if attachment_metadata
+            else {},
         )
 
         # 发送邮件（通过 root_agent 的 post_office）
@@ -124,20 +127,17 @@ class EmailSkillMixin:
         await self.root_agent.session_manager.update_reply_mapping(
             msg_id=msg.id,
             session_id=session["session_id"],  # 使用已获取的 session 变量
-            task_id=session["task_id"]
+            task_id=session["task_id"],
         )
 
         # 返回成功信息
         if attachment_metadata:
-            filenames = [att['filename'] for att in attachment_metadata]
+            filenames = [att["filename"] for att in attachment_metadata]
             return f"邮件已发送给 {to}，附件：{', '.join(filenames)}"
         return f"邮件已发送给 {to}"
 
     async def _copy_attachments_to_recipient(
-        self,
-        attachments: List[str],
-        recipient_name: str,
-        task_id: str
+        self, attachments: List[str], recipient_name: str, task_id: str
     ) -> List[dict]:
         """
         复制附件到目标 agent 的 attachments 目录
@@ -157,12 +157,14 @@ class EmailSkillMixin:
         """
         if self.root_agent.runtime is None:
             raise ValueError("runtime 未注入，无法发送附件")
-        
+
         source_agent = self.root_agent.name
 
         # 目标目录（收件人的 attachments 目录）
-        target_attachments_dir = self.root_agent.runtime.paths.get_agent_attachments_dir(
-            recipient_name, task_id
+        target_attachments_dir = (
+            self.root_agent.runtime.paths.get_agent_attachments_dir(
+                recipient_name, task_id
+            )
         )
 
         # 确保目标目录存在
@@ -175,7 +177,9 @@ class EmailSkillMixin:
             host_path = self._resolve_container_path_to_host(container_path, task_id)
 
             if host_path is None or not Path(host_path).exists():
-                self.logger.warning(f"附件文件不存在：{container_path} (解析后的宿主机路径: {host_path})")
+                self.logger.warning(
+                    f"附件文件不存在：{container_path} (解析后的宿主机路径: {host_path})"
+                )
                 continue
 
             # 从容器路径提取文件名
@@ -190,11 +194,13 @@ class EmailSkillMixin:
             self.logger.info(f"附件已复制：{source_file} -> {target_file}")
 
             # 添加到 metadata
-            attachment_metadata.append({
-                'filename': filename,
-                'size': target_file.stat().st_size,
-                'container_path': f'/work_files/attachments/{filename}'
-            })
+            attachment_metadata.append(
+                {
+                    "filename": filename,
+                    "size": target_file.stat().st_size,
+                    "container_path": f"/work_files/attachments/{filename}",
+                }
+            )
 
         return attachment_metadata
 
@@ -229,12 +235,12 @@ class EmailSkillMixin:
 
         # 情况 2: /work_files/* → 映射到 work_files 目录
         if container_path.startswith("/work_files/"):
-            relative_path = container_path[len("/work_files/"):]
+            relative_path = container_path[len("/work_files/") :]
             return str(docker_manager.work_files_base / task_id / relative_path)
 
         # 情况 3: /home/* → 映射到 home 目录
         if container_path.startswith("/home/"):
-            relative_path = container_path[len("/home/"):]
+            relative_path = container_path[len("/home/") :]
             return str(docker_manager.agent_home / relative_path)
 
         # 情况 4: 其他路径（可能是宿主机路径，直接返回）
