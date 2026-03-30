@@ -476,8 +476,26 @@ onUnmounted(() => {
     0 0 16px rgba(212, 168, 67, 0.6),
     0 0 32px rgba(212, 168, 67, 0.4);
   
-  /* CRT flicker */
-  animation: crt-flicker 0.12s infinite;
+  /* CRT flicker - more noticeable */
+  animation: crt-flicker 0.15s infinite;
+}
+
+/* Horizontal scanlines overlay on the character */
+.crt-char::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(253, 252, 249, 0.08) 2px,
+    rgba(253, 252, 249, 0.08) 4px
+  );
+  pointer-events: none;
 }
 
 /* Circular glow behind the character - smaller and tighter */
