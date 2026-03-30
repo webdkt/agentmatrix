@@ -69,11 +69,9 @@ function typewriterReveal(text, targetEl) {
   const spans = []
   text.split('').forEach(c => {
     const span = document.createElement('span')
+    span.className = 'crt-char'
+    span.setAttribute('data-char', c)
     span.style.opacity = '0'
-    span.style.color = 'transparent'
-    span.style.background = 'repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255,255,255,0.1) 1px, rgba(255,255,255,0.1) 2px)'
-    span.style.webkitBackgroundClip = 'text'
-    span.style.backgroundClip = 'text'
     span.textContent = c
     targetEl.appendChild(span)
     spans.push(span)
@@ -83,22 +81,16 @@ function typewriterReveal(text, targetEl) {
     if (idx >= spans.length) {
       clearInterval(timer)
       targetEl.classList.add('done')
-      // Set final CRT glow on all spans
-      spans.forEach(span => {
-        span.style.textShadow = '0 0 8px rgba(212,168,67,0.9), 0 0 16px rgba(212,168,67,0.7), 0 0 32px rgba(212,168,67,0.5)'
-        span.style.background = 'repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255,255,255,0.12) 1px, rgba(255,255,255,0.12) 2px)'
-        span.style.webkitBackgroundClip = 'text'
-        span.style.backgroundClip = 'text'
-      })
       return
     }
     const pos = idx
+    const char = text[pos]
     spans[pos].textContent = CHARS[Math.random() * CHARS.length | 0]
+    spans[pos].setAttribute('data-char', spans[pos].textContent)
     spans[pos].style.opacity = '1'
-    spans[pos].style.textShadow = '0 0 12px rgba(212,168,67,0.8), 0 0 24px rgba(212,168,67,0.5)'
     setTimeout(() => {
-      spans[pos].textContent = text[pos]
-      spans[pos].style.textShadow = '0 0 8px rgba(212,168,67,0.9), 0 0 16px rgba(212,168,67,0.6)'
+      spans[pos].textContent = char
+      spans[pos].setAttribute('data-char', char)
     }, 90)
     idx++
   }, 80)
@@ -281,9 +273,7 @@ onUnmounted(() => {
     <!-- STEP 0: Welcome -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 0 }" v-show="currentStep === 0">
       <div class="step-inner visible">
-        <div class="me-title me-title--welcome">
-          <span class="crt-char" data-char="W">W</span>elcome to the Matrix
-        </div>
+        <div class="me-title me-title--welcome"><span class="me-glitch" ref="glitchText"></span></div>
       </div>
     </div>
 
