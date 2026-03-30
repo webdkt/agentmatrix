@@ -457,13 +457,13 @@ onUnmounted(() => {
   background: repeating-linear-gradient(
     0deg,
     transparent,
-    transparent 2px,
-    rgba(253, 252, 249, 0.15) 2px,
-    rgba(253, 252, 249, 0.15) 4px
+    transparent 1px,
+    rgba(253, 252, 249, 0.25) 1px,
+    rgba(253, 252, 249, 0.25) 3px
   );
   pointer-events: none;
   z-index: 2;
-  opacity: 0.6;
+  opacity: 0.8;
 }
 
 /* Single character effect - each letter is its own CRT component */
