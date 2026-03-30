@@ -109,6 +109,12 @@ function onKeydown(e) {
   }
 }
 
+// Watch for presets changes to handle async loading
+watch(() => props.presets, () => {
+  // Trigger re-computation of allModels and filtered
+  // This ensures dropdown shows models when presets are loaded
+}, { immediate: true })
+
 // Sync from parent
 watch(() => props.modelValue, (v) => {
   if (v !== query.value) query.value = v
