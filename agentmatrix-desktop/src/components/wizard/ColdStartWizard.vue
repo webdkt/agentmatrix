@@ -446,7 +446,7 @@ onUnmounted(() => {
 :deep(.crt-char) {
   position: relative;
   display: inline-block;
-  color: #D4A843 !important;
+  color: #1A1A1A !important;  /* Black body - cyberpunk style */
   user-select: none;
   
   /* Vertical striping texture - overlays on the solid text */
@@ -454,23 +454,23 @@ onUnmounted(() => {
     90deg,
     transparent,
     transparent 1px,
-    rgba(255, 255, 255, 0.12) 1px,
-    rgba(255, 255, 255, 0.12) 2px
+    rgba(0, 212, 170, 0.15) 1px,  /* Cyan tint */
+    rgba(0, 212, 170, 0.15) 2px
   ) !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
   
-  /* Golden glow around the text */
+  /* Cyberpunk cyan glow around the text */
   text-shadow:
-    0 0 8px rgba(212, 168, 67, 0.8),
-    0 0 16px rgba(212, 168, 67, 0.6),
-    0 0 32px rgba(212, 168, 67, 0.4) !important;
+    0 0 8px rgba(0, 212, 170, 0.9),
+    0 0 16px rgba(0, 212, 170, 0.7),
+    0 0 32px rgba(0, 212, 170, 0.5) !important;
   
   /* CRT flicker - more noticeable */
   animation: crt-flicker 0.15s infinite;
 }
 
-/* Horizontal scanlines overlay on the character */
+/* Horizontal scanlines overlay on the character - cyan tinted */
 :deep(.crt-char)::after {
   content: '';
   position: absolute;
@@ -482,13 +482,13 @@ onUnmounted(() => {
     0deg,
     transparent,
     transparent 2px,
-    rgba(253, 252, 249, 0.08) 2px,
-    rgba(253, 252, 249, 0.08) 4px
+    rgba(0, 212, 170, 0.1) 2px,
+    rgba(0, 212, 170, 0.1) 4px
   );
   pointer-events: none;
 }
 
-/* Circular glow behind the character - smaller and tighter */
+/* Circular glow behind the character - cyberpunk cyan */
 :deep(.crt-char)::before {
   content: '';
   position: absolute;
@@ -500,8 +500,8 @@ onUnmounted(() => {
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(240, 200, 96, 0.25) 0%,
-    rgba(240, 200, 96, 0.1) 50%,
+    rgba(0, 212, 170, 0.3) 0%,
+    rgba(0, 212, 170, 0.15) 50%,
     transparent 70%
   );
   pointer-events: none;
