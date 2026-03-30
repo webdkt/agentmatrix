@@ -12,17 +12,41 @@ use config::AppConfig;
 
 // ─── Matrix World Initialization ───
 
+fn expand_path(path: &str) -> PathBuf {
+    if path.starts_with("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            PathBuf::from(home).join(&path[2..])
+        } else {
+            PathBuf::from(path)
+        }
+    } else {
+        PathBuf::from(path)
+    }
+}
+
 #[tauri::command]
 fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name: String) -> Result<(), String> {
-    let src = app.path().resource_dir()
-        .map_err(|e| format!("Failed to get resource dir: {}", e))?
-        .join("matrix-template");
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    println!("Debug: resource_dir = {:?}", resource_dir);
+    let src = resource_dir.join("matrix-template");
+    println!("Debug: src = {:?}", src);
+    // Expand ~ in path
+    let dest = if matrix_world_path.starts_with("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            PathBuf::from(home).join(&matrix_world_path[2..])
+        } else {
+            PathBuf::from(matrix_world_path.clone())
+        }
+    } else {
+        PathBuf::from(matrix_world_path.clone())
+    };
+    println!("Debug: dest = {:?}", dest);
 
     if !src.exists() {
         return Err(format!("Template directory not found: {:?}", src));
     }
 
-    let dest = PathBuf::from(&matrix_world_path);
     std::fs::create_dir_all(&dest)
         .map_err(|e| format!("Failed to create directory: {}", e))?;
 
@@ -42,13 +66,20 @@ fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name
         }
     }
 
+    // Save the matrix world path to config
+    let config_path = AppConfig::get_config_path().map_err(|e| format!("Failed to get config path: {}", e))?;
+    println!("Debug: Saving config to {:?}", config_path);
+    let mut config = AppConfig::load().map_err(|e| format!("Failed to load config: {}", e))?;
+    config.matrix_world_path = matrix_world_path.clone();
+    config.save().map_err(|e| format!("Failed to save config: {}", e))?;
+
     println!("✅ Matrix world initialized at {}", matrix_world_path);
     Ok(())
 }
 
 #[tauri::command]
 fn save_llm_config(matrix_world_path: String, llm_config: JsonValue) -> Result<(), String> {
-    let config_path = PathBuf::from(&matrix_world_path)
+    let config_path = expand_path(&matrix_world_path)
         .join(".matrix/configs/llm_config.json");
 
     if let Some(parent) = config_path.parent() {
@@ -68,7 +99,7 @@ fn save_llm_config(matrix_world_path: String, llm_config: JsonValue) -> Result<(
 
 #[tauri::command]
 fn save_email_proxy_config_cmd(matrix_world_path: String, email_proxy: JsonValue) -> Result<(), String> {
-    let config_path = PathBuf::from(&matrix_world_path)
+    let config_path = expand_path(&matrix_world_path)
         .join(".matrix/configs/email_proxy_config.yml");
 
     if let Some(parent) = config_path.parent() {
@@ -88,7 +119,7 @@ fn save_email_proxy_config_cmd(matrix_world_path: String, email_proxy: JsonValue
 
 #[tauri::command]
 fn save_env_file(matrix_world_path: String, env_vars: JsonValue) -> Result<(), String> {
-    let env_path = PathBuf::from(&matrix_world_path)
+    let env_path = expand_path(&matrix_world_path)
         .join(".matrix/configs/.env");
 
     if let Some(parent) = env_path.parent() {
@@ -113,7 +144,55 @@ fn save_env_file(matrix_world_path: String, env_vars: JsonValue) -> Result<(), S
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    println!("Debug: copy_dir_recursive: src={:?}, dst={:?}", src, dst);
+    // Ensure destination directory exists
     std::fs::create_dir_all(dst)?;
+    
+    #[cfg(unix)]
+    {
+        // Use cp -r src/. dst to copy contents, not the directory itself
+        let src_with_dot = src.join(".");
+        let status = Command::new("cp")
+            .arg("-r")
+            .arg(&src_with_dot)
+            .arg(dst)
+            .status()?;
+        if status.success() {
+            println!("Debug: cp command succeeded");
+            return Ok(());
+        } else {
+            println!("Debug: cp command failed, falling back to recursive copy");
+        }
+    }
+    
+    #[cfg(windows)]
+    {
+        // Use robocopy for Windows (more reliable than xcopy)
+        let src_str = src.to_string_lossy();
+        let dst_str = dst.to_string_lossy();
+        // robocopy source destination /E /COPY:DT /R:0 /W:0 /NP
+        let status = Command::new("robocopy")
+            .arg(&src_str)
+            .arg(dst_str.as_ref())
+            .arg("/E")          // copy subdirectories, including empty ones
+            .arg("/COPY:DT")    // copy data and timestamps
+            .arg("/R:0")        // no retries
+            .arg("/W:0")        // no wait time
+            .arg("/NP")         // no progress
+            .status()?;
+        // robocopy returns exit codes where 0-7 success, 8+ error
+        let code = status.code().unwrap_or(8);
+        if code < 8 {
+            println!("Debug: robocopy succeeded with code {}", code);
+            return Ok(());
+        } else {
+            println!("Debug: robocopy failed with code {}, falling back to recursive copy", code);
+        }
+    }
+    
+    // Recursive copy using Rust std::fs
+    println!("Debug: Using recursive copy");
+    let mut file_count = 0;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
@@ -122,8 +201,11 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {
             std::fs::copy(&src_path, &dst_path)?;
+            file_count += 1;
+            println!("Debug:   copied file: {:?}", src_path);
         }
     }
+    println!("Debug: Recursive copy finished, copied {} files", file_count);
     Ok(())
 }
 

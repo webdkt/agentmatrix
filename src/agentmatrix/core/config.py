@@ -105,7 +105,8 @@ class MatrixConfig(AutoLoggerMixin):
             with open(system_config_path, "r", encoding="utf-8") as f:
                 self._matrix_config = yaml.safe_load(f) or {}
         else:
-            return {}
+            self.logger.warning(f"⚠️ system_config.yml not found at {system_config_path}, using empty config")
+            self._matrix_config = {}
 
     def _load_container_config(self):
         """加载容器运行时配置"""
