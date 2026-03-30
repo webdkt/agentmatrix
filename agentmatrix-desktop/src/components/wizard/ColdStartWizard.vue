@@ -449,7 +449,7 @@ onUnmounted(() => {
   z-index: 1;
 }
 
-/* 1. Scanlines overlay - ON TOP of entire text (like question mark __scanlines) */
+/* 1. Scanlines overlay - chunky low-res CRT feel */
 .me-title--welcome::after {
   content: '';
   position: absolute;
@@ -457,13 +457,13 @@ onUnmounted(() => {
   background: repeating-linear-gradient(
     0deg,
     transparent,
-    transparent 1px,
-    rgba(253, 252, 249, 0.25) 1px,
-    rgba(253, 252, 249, 0.25) 3px
+    transparent 3px,
+    rgba(253, 252, 249, 0.35) 3px,
+    rgba(253, 252, 249, 0.35) 7px
   );
   pointer-events: none;
   z-index: 2;
-  opacity: 0.8;
+  opacity: 0.9;
 }
 
 /* Single character effect - each letter is its own CRT component */
