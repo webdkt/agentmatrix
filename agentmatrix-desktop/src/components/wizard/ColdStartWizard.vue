@@ -449,29 +449,7 @@ onUnmounted(() => {
   z-index: 1;
 }
 
-/* 1. Glow background - circular, behind text (like question mark __glow) */
-.me-title--welcome::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 180%;
-  height: 180%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(194, 59, 34, 0.15) 0%,
-    rgba(194, 59, 34, 0.08) 30%,
-    rgba(194, 59, 34, 0.03) 50%,
-    transparent 70%
-  );
-  pointer-events: none;
-  animation: glow-pulse 3s ease-in-out infinite;
-  z-index: -1;
-}
-
-/* 2. Scanlines overlay - ON TOP of text (like question mark __scanlines) */
+/* 1. Scanlines overlay - ON TOP of entire text (like question mark __scanlines) */
 .me-title--welcome::after {
   content: '';
   position: absolute;
@@ -488,13 +466,12 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-/* Single character effect - text itself (like question mark __mark) */
+/* Single character effect - each letter is its own CRT component */
 :deep(.crt-char) {
   position: relative;
   display: inline-block;
   color: #5C1800 !important;
   user-select: none;
-  z-index: 1;
   
   /* Vertical striping - on the text itself */
   background: repeating-linear-gradient(
@@ -507,12 +484,33 @@ onUnmounted(() => {
   -webkit-background-clip: text !important;
   background-clip: text !important;
   
-  /* Subtle glow */
+  /* Text glow */
   text-shadow:
     0 0 4px rgba(194, 59, 34, 0.5) !important;
   
   /* CRT flicker */
   animation: crt-flicker 0.12s infinite;
+}
+
+/* 2. Per-character glow - each letter has its own circular glow (like question mark __glow) */
+:deep(.crt-char)::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140%;
+  height: 140%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(194, 59, 34, 0.15) 0%,
+    rgba(194, 59, 34, 0.08) 40%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: glow-pulse 2.5s ease-in-out infinite;
+  z-index: -1;
 }
 
 /* No phosphor afterglow - keep text sharp */
