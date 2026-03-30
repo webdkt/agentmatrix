@@ -452,48 +452,48 @@ onUnmounted(() => {
   color: var(--ink-900);
 }
 
-/* Single character CRT effect - like the question mark */
+/* Single character CRT effect - like question mark HOVERED state */
 .crt-char {
   position: relative;
   display: inline-block;
   color: transparent;
   user-select: none;
   
-  /* Vertical striping texture */
+  /* Vertical striping texture - clearer like hovered question mark */
   background: repeating-linear-gradient(
     90deg,
     transparent,
     transparent 1px,
-    rgba(255, 255, 255, 0.12) 1px,
-    rgba(255, 255, 255, 0.12) 2px
+    rgba(255, 255, 255, 0.15) 1px,
+    rgba(255, 255, 255, 0.15) 2px
   );
   -webkit-background-clip: text;
   background-clip: text;
   
-  /* Golden glow */
+  /* Brighter golden glow - like hovered question mark */
   text-shadow:
-    0 0 8px rgba(212, 168, 67, 0.9),
-    0 0 16px rgba(212, 168, 67, 0.7),
-    0 0 32px rgba(212, 168, 67, 0.5);
+    0 0 12px rgba(240, 200, 96, 1),
+    0 0 24px rgba(240, 200, 96, 0.8),
+    0 0 36px rgba(240, 200, 96, 0.6);
   
   /* CRT flicker */
   animation: crt-flicker 0.12s infinite;
 }
 
-/* Circular glow behind the character - sized to match character */
+/* Circular glow behind the character - smaller and tighter */
 .crt-char::before {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 140%;
-  height: 140%;
+  width: 120%;
+  height: 120%;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(212, 168, 67, 0.3) 0%,
-    rgba(212, 168, 67, 0.15) 40%,
+    rgba(240, 200, 96, 0.25) 0%,
+    rgba(240, 200, 96, 0.1) 50%,
     transparent 70%
   );
   pointer-events: none;
@@ -501,15 +501,15 @@ onUnmounted(() => {
   z-index: -1;
 }
 
-/* Phosphor afterglow - blurred duplicate */
+/* Phosphor afterglow - subtle blur only */
 .crt-char::after {
   content: attr(data-char);
   position: absolute;
   top: 0;
   left: 0;
   color: transparent;
-  filter: blur(0.5px);
-  opacity: 0.4;
+  filter: blur(1px);
+  opacity: 0.3;
   animation: crt-flicker 0.12s infinite 0.02s;
   pointer-events: none;
   
@@ -517,15 +517,14 @@ onUnmounted(() => {
     90deg,
     transparent,
     transparent 1px,
-    rgba(255, 255, 255, 0.08) 1px,
-    rgba(255, 255, 255, 0.08) 2px
+    rgba(255, 255, 255, 0.1) 1px,
+    rgba(255, 255, 255, 0.1) 2px
   );
   -webkit-background-clip: text;
   background-clip: text;
   
   text-shadow:
-    0 0 8px rgba(212, 168, 67, 0.8),
-    0 0 16px rgba(212, 168, 67, 0.5);
+    0 0 8px rgba(240, 200, 96, 0.6);
 }
 
 @keyframes glow-pulse {
