@@ -48,7 +48,7 @@ class MicroAgent(AutoLoggerMixin):
         self,
         parent: Union["BaseAgent", "MicroAgent"],
         name: Optional[str] = None,
-        default_max_steps: int = 50,
+        default_max_steps: Optional[int] = None,  # 默认不限制步数
         # independent_session_context parameter removed
         available_skills: Optional[List[str]] = None,  # 🆕 可用技能列表
     ):
@@ -60,7 +60,7 @@ class MicroAgent(AutoLoggerMixin):
                 - 自动继承 brain, cerebellum, action_registry, logger
                 - WorkingContext: 使用指定的上下文
             name: Agent 名称（可选，自动生成）
-            default_max_steps: 默认最大步数
+            default_max_steps: 默认最大步数（None 表示不限制）
             available_skills: 可用技能列表（如 ["file", "browser"]）
         """
         # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
@@ -114,7 +114,9 @@ class MicroAgent(AutoLoggerMixin):
         self.yellow_pages = None  # 黄页信息（初始化为 None）
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
-        self.max_steps = 1024
+        self.max_steps = (
+            default_max_steps  # 使用 default_max_steps（默认 None，不限制）
+        )
         self.pinned_memory: Optional[str] = None  # 固定记忆（用于跨步骤保持重要信息）
 
         # ========== 🆕 压缩相关（默认开启，无需配置）==========
@@ -987,7 +989,8 @@ Start generating the Working Notes now.
             self.yellow_pages = yellow_pages
         if simple_mode:
             self.simple_mode = simple_mode
-        self.max_steps = max_steps or self.default_max_steps
+        # 不限制步数，只受时间限制（如果设置了）
+        self.max_steps = max_steps  # 可以是 None
         self.max_time = max_time  # 可以是 None
 
         # 保存 session 和 session_manager 引用
@@ -1016,10 +1019,7 @@ Start generating the Working Notes now.
                 self.current_session_folder = None
             """
 
-        # 硬限制：如果都没有设置，最多 1024 步（确保总是会返回）
-        if self.max_steps is None and self.max_time is None:
-            self.max_steps = 1024
-            self._log(logging.INFO, "未设置步数和时间限制，使用硬限制 max_steps=1024")
+        # 不设置步数限制，只受时间限制（如果设置了）
 
         # 重置执行状态
         self.step_count = 0
@@ -1335,8 +1335,7 @@ Start generating the Working Notes now.
         start_time = time.time()
         if isinstance(exit_actions, str):
             exit_actions = [exit_actions]
-        # 确定最大步数（可能为 None，表示只受时间限制）
-        max_steps = self.max_steps
+        # 不限制步数，只受时间限制（如果设置了）
         step_count = 0
 
         # 将分钟转换为秒
@@ -1345,14 +1344,6 @@ Start generating the Working Notes now.
         while True:
             # 🔀 检查点1：每次循环开始时检查是否暂停
             await self.root_agent._checkpoint()
-
-            # 检查步数限制
-            if step_count >= max_steps:
-                self.logger.warning(f"达到最大步数 ({max_steps})")
-                self.result = (
-                    "未完成，达到最大步数限制，最后的状态如下：\n" + self.result
-                )
-                break
 
             # 🆕 检查是否需要自动压缩（基于 32K tokens）
             if self._should_compress_messages():
@@ -1376,8 +1367,6 @@ Start generating the Working Notes now.
             # 计算已用时间（用于日志）
             elapsed = time.time() - start_time if max_time_seconds else 0
             step_info = f"Step {step_count}"
-            if max_steps:
-                step_info += f"/{max_steps}"
             if self.max_time:
                 elapsed_minutes = elapsed / 60
                 step_info += f" (时间: {elapsed_minutes:.1f}分钟/{self.max_time}分钟)"
