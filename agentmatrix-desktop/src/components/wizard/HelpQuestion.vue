@@ -64,11 +64,7 @@ const helpContent = {
     en: {
       title: 'Cerebellum Configuration',
       html: `
-        <p>The <strong>Cerebellum</strong> (小脑) handles routine, mechanical tasks — simple operations that don't require complex reasoning but need speed and efficiency.</p>
-        <p><strong>What it's used for:</strong></p>
-        <p>• Quick responses and simple queries</p>
-        <p>• Basic information retrieval</p>
-        <p>• Routine agent coordination</p>
+        <p>The <strong>Cerebellum</strong> is AgentMatrix's internal mechanism, responsible for executing mechanical internal functions. It does not require high intelligence and can be configured with a different model provider than the Brain.</p>
         <p><strong>Recommendation:</strong> Choose a model that is <span class="highlight">faster and cheaper</span> than your Brain model. Default is set to match Brain, but we recommend <strong>Xiaomi's Mimo Flash V2</strong> for optimal cost-performance.</p>
         <p>Since Cerebellum tasks are straightforward, a less powerful model delivers excellent results while <strong>significantly reducing costs</strong>.</p>
       `
@@ -76,11 +72,7 @@ const helpContent = {
     zh: {
       title: '小脑配置',
       html: `
-        <p><strong>小脑</strong>处理日常、机械性任务——不需要复杂推理但需要速度和效率的简单操作。</p>
-        <p><strong>主要用途：</strong></p>
-        <p>• 快速响应和简单查询</p>
-        <p>• 基础信息检索</p>
-        <p>• 常规代理协调</p>
+        <p><strong>小脑</strong>是AgentMatrix的内部工作机制，负责执行机械性的内部功能，不需要很强的智能，可以配置和大脑不同的大模型供应商。</p>
         <p><strong>建议：</strong> 选择比大脑模型<span class="highlight">更快更便宜</span>的模型。默认设置与大脑相同，但我们推荐使用<strong>小米的Mimo Flash V2</strong>以获得最佳性价比。</p>
         <p>由于小脑任务相对简单，使用较弱的模型也能获得优秀结果，同时<span class="highlight">显著降低成本</span>。</p>
       `

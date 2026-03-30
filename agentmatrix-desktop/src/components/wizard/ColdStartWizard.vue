@@ -15,6 +15,8 @@ const rainCanvas = ref(null)
 const currentStep = ref(0)
 const errors = ref({})
 const cerebellumPrefilled = ref(false)
+const showTransition = ref(false)
+const transitionText = ref('')
 let rainInterval = null
 
 // ─── Rain ───
@@ -161,6 +163,27 @@ function advance() {
     })
     return
   }
+
+  // Check if transitioning from Brain (step 3) to Cerebellum (step 4)
+  if (currentStep.value === 3) {
+    // Show transition overlay
+    transitionText.value = '// SWITCHING TO CEREBELLUM'
+    showTransition.value = true
+    setTimeout(() => {
+      showTransition.value = false
+      currentStep.value++
+      // Auto-focus first input in the new step
+      nextTick(() => {
+        const stepEl = document.querySelector('.me-step--active')
+        if (stepEl) {
+          const inp = stepEl.querySelector('input:not([type=checkbox])')
+          if (inp) inp.focus()
+        }
+      })
+    }, 1200)
+    return
+  }
+
   currentStep.value++
 
   // Auto-focus first input in the new step
@@ -332,6 +355,14 @@ onUnmounted(() => {
     <Teleport to="body">
       <HelpQuestion v-if="currentStep === 4" type="cerebellum" />
     </Teleport>
+
+    <!-- Transition Overlay: Brain to Cerebellum -->
+    <Transition name="transition-fade">
+      <div v-if="showTransition" class="me-transition">
+        <div class="me-transition__text">{{ transitionText }}</div>
+        <div class="me-transition__scanlines"></div>
+      </div>
+    </Transition>
 
     <!-- STEP 5: Initialize -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 5 }" v-show="currentStep === 5">
@@ -785,6 +816,58 @@ onUnmounted(() => {
 }
 
 @keyframes me-spin { to { transform: rotate(360deg) } }
+
+/* Transition Overlay: Brain to Cerebellum */
+.me-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--parchment-50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.me-transition__text {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  color: var(--accent);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  animation: transition-glitch 0.1s infinite;
+}
+
+@keyframes transition-glitch {
+  0%, 100% { opacity: 1; transform: translate(0); }
+  20% { opacity: 0.9; transform: translate(-1px, 1px); }
+  40% { opacity: 0.95; transform: translate(1px, -1px); }
+  60% { opacity: 0.9; transform: translate(-1px, 0); }
+  80% { opacity: 1; transform: translate(1px, 0); }
+}
+
+.me-transition__scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(194, 59, 34, 0.1) 2px,
+    rgba(194, 59, 34, 0.1) 6px
+  );
+  pointer-events: none;
+}
+
+/* Transition fade animation */
+.transition-fade-enter-active,
+.transition-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.transition-fade-enter-from,
+.transition-fade-leave-to {
+  opacity: 0;
+}
 
 /* Shake */
 .me-shake {
