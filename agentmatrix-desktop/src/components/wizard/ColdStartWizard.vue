@@ -446,7 +446,7 @@ onUnmounted(() => {
 :deep(.crt-char) {
   position: relative;
   display: inline-block;
-  color: #1A1A1A !important;  /* Black body - cyberpunk style */
+  color: #1A1A1A !important;  /* Black body - terminal style */
   user-select: none;
   
   /* Vertical striping texture - overlays on the solid text */
@@ -454,23 +454,23 @@ onUnmounted(() => {
     90deg,
     transparent,
     transparent 1px,
-    rgba(0, 212, 170, 0.15) 1px,  /* Cyan tint */
-    rgba(0, 212, 170, 0.15) 2px
+    rgba(0, 255, 65, 0.12) 1px,  /* Terminal green tint */
+    rgba(0, 255, 65, 0.12) 2px
   ) !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
   
-  /* Cyberpunk cyan glow around the text */
+  /* Terminal green glow around the text */
   text-shadow:
-    0 0 8px rgba(0, 212, 170, 0.9),
-    0 0 16px rgba(0, 212, 170, 0.7),
-    0 0 32px rgba(0, 212, 170, 0.5) !important;
+    0 0 8px rgba(0, 255, 65, 0.9),
+    0 0 16px rgba(0, 255, 65, 0.7),
+    0 0 32px rgba(0, 255, 65, 0.5) !important;
   
   /* CRT flicker - more noticeable */
   animation: crt-flicker 0.15s infinite;
 }
 
-/* Horizontal scanlines overlay on the character - cyan tinted */
+/* Horizontal scanlines overlay on the character - terminal green */
 :deep(.crt-char)::after {
   content: '';
   position: absolute;
@@ -482,13 +482,13 @@ onUnmounted(() => {
     0deg,
     transparent,
     transparent 2px,
-    rgba(0, 212, 170, 0.1) 2px,
-    rgba(0, 212, 170, 0.1) 4px
+    rgba(0, 255, 65, 0.08) 2px,
+    rgba(0, 255, 65, 0.08) 4px
   );
   pointer-events: none;
 }
 
-/* Circular glow behind the character - cyberpunk cyan */
+/* Circular glow behind the character - terminal green */
 :deep(.crt-char)::before {
   content: '';
   position: absolute;
@@ -500,8 +500,8 @@ onUnmounted(() => {
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(0, 212, 170, 0.3) 0%,
-    rgba(0, 212, 170, 0.15) 50%,
+    rgba(0, 255, 65, 0.25) 0%,
+    rgba(0, 255, 65, 0.12) 50%,
     transparent 70%
   );
   pointer-events: none;
