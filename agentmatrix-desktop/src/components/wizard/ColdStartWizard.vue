@@ -470,11 +470,10 @@ onUnmounted(() => {
   -webkit-background-clip: text;
   background-clip: text;
   
-  /* Brighter golden glow - like hovered question mark */
+  /* Sharp golden glow - fewer layers for clarity */
   text-shadow:
-    0 0 12px rgba(240, 200, 96, 1),
-    0 0 24px rgba(240, 200, 96, 0.8),
-    0 0 36px rgba(240, 200, 96, 0.6);
+    0 0 8px rgba(240, 200, 96, 0.9),
+    0 0 16px rgba(240, 200, 96, 0.5);
   
   /* CRT flicker */
   animation: crt-flicker 0.12s infinite;
@@ -501,31 +500,7 @@ onUnmounted(() => {
   z-index: -1;
 }
 
-/* Phosphor afterglow - subtle blur only */
-.crt-char::after {
-  content: attr(data-char);
-  position: absolute;
-  top: 0;
-  left: 0;
-  color: transparent;
-  filter: blur(1px);
-  opacity: 0.3;
-  animation: crt-flicker 0.12s infinite 0.02s;
-  pointer-events: none;
-  
-  background: repeating-linear-gradient(
-    90deg,
-    transparent,
-    transparent 1px,
-    rgba(255, 255, 255, 0.1) 1px,
-    rgba(255, 255, 255, 0.1) 2px
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  
-  text-shadow:
-    0 0 8px rgba(240, 200, 96, 0.6);
-}
+/* No phosphor afterglow - keep text sharp */
 
 @keyframes glow-pulse {
   0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
