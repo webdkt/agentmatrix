@@ -15,8 +15,7 @@ const rainCanvas = ref(null)
 const currentStep = ref(0)
 const errors = ref({})
 const cerebellumPrefilled = ref(false)
-const showTransition = ref(false)
-const transitionText = ref('')
+const isExiting = ref(null)
 let rainInterval = null
 
 // ─── Rain ───
@@ -137,7 +136,7 @@ function goBack() {
   if (currentStep.value > 0) currentStep.value--
 }
 
-function advance() {
+async function advance() {
   if (currentStep.value >= STEPS.length - 1) return
 
   // Pre-fill Cerebellum from Brain when first entering step 4
@@ -164,23 +163,35 @@ function advance() {
     return
   }
 
-  // Check if transitioning from Brain (step 3) to Cerebellum (step 4)
+  // Neon sign transition for Brain (step 3) -> Cerebellum (step 4)
   if (currentStep.value === 3) {
-    // Show transition overlay
-    transitionText.value = '// SWITCHING TO CEREBELLUM'
-    showTransition.value = true
-    setTimeout(() => {
-      showTransition.value = false
-      currentStep.value++
-      // Auto-focus first input in the new step
-      nextTick(() => {
-        const stepEl = document.querySelector('.me-step--active')
-        if (stepEl) {
-          const inp = stepEl.querySelector('input:not([type=checkbox])')
-          if (inp) inp.focus()
-        }
-      })
-    }, 1200)
+    isExiting.value = 3
+    await new Promise(r => setTimeout(r, 400))
+    isExiting.value = null
+    currentStep.value++
+    nextTick(() => {
+      const stepEl = document.querySelector('.me-step--active')
+      if (stepEl) {
+        const inp = stepEl.querySelector('input:not([type=checkbox])')
+        if (inp) inp.focus()
+      }
+    })
+    return
+  }
+
+  // Neon sign transition for Cerebellum (step 4) -> Initialize (step 5)
+  if (currentStep.value === 4) {
+    isExiting.value = 4
+    await new Promise(r => setTimeout(r, 400))
+    isExiting.value = null
+    currentStep.value++
+    nextTick(() => {
+      const stepEl = document.querySelector('.me-step--active')
+      if (stepEl) {
+        const inp = stepEl.querySelector('input:not([type=checkbox])')
+        if (inp) inp.focus()
+      }
+    })
     return
   }
 
@@ -331,9 +342,15 @@ onUnmounted(() => {
     </div>
 
     <!-- STEP 3: Brain -->
-    <div class="me-step" :class="{ 'me-step--active': currentStep === 3 }" v-show="currentStep === 3">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 3, 'me-step--exiting': isExiting === 3 }" v-show="currentStep === 3 || isExiting === 3">
       <div class="step-inner visible">
-        <div class="me-label me-label--title">BRAIN</div>
+        <div class="neon-sign" :class="{ 'neon-on': currentStep === 3 && !isExiting, 'neon-off': isExiting === 3 }">
+          <svg class="neon-frame" viewBox="0 0 200 50" preserveAspectRatio="xMidYMid meet">
+            <rect x="2" y="2" width="196" height="46" rx="4" fill="none" stroke="currentColor" stroke-width="2" 
+                  class="neon-border" pathLength="1"/>
+          </svg>
+          <span class="neon-text">BRAIN</span>
+        </div>
         <StepLLM which="llm" :errors="errors" step-idx="3" />
       </div>
     </div>
@@ -344,9 +361,15 @@ onUnmounted(() => {
     </Teleport>
 
     <!-- STEP 4: Cerebellum -->
-    <div class="me-step" :class="{ 'me-step--active': currentStep === 4 }" v-show="currentStep === 4">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 4, 'me-step--exiting': isExiting === 4 }" v-show="currentStep === 4 || isExiting === 4">
       <div class="step-inner visible">
-        <div class="me-label me-label--title">CEREBELLUM</div>
+        <div class="neon-sign" :class="{ 'neon-on': currentStep === 4 && !isExiting, 'neon-off': isExiting === 4 }">
+          <svg class="neon-frame" viewBox="0 0 200 50" preserveAspectRatio="xMidYMid meet">
+            <rect x="2" y="2" width="196" height="46" rx="4" fill="none" stroke="currentColor" stroke-width="2" 
+                  class="neon-border" pathLength="1"/>
+          </svg>
+          <span class="neon-text">CEREBELLUM</span>
+        </div>
         <StepLLM which="slm" :errors="errors" step-idx="4" />
       </div>
     </div>
@@ -355,14 +378,6 @@ onUnmounted(() => {
     <Teleport to="body">
       <HelpQuestion v-if="currentStep === 4" type="cerebellum" />
     </Teleport>
-
-    <!-- Transition Overlay: Brain to Cerebellum -->
-    <Transition name="transition-fade">
-      <div v-if="showTransition" class="me-transition">
-        <div class="me-transition__text">{{ transitionText }}</div>
-        <div class="me-transition__scanlines"></div>
-      </div>
-    </Transition>
 
     <!-- STEP 5: Initialize -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 5 }" v-show="currentStep === 5">
@@ -581,18 +596,98 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-/* Title style for Brain/Cerebellum steps - button-like style */
-.me-label--title {
+/* Neon sign effect for Brain/Cerebellum titles */
+.neon-sign {
+  position: relative;
   display: inline-block;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--parchment-50);
-  background: var(--accent);
-  letter-spacing: 0.15em;
-  padding: 12px 40px;
-  border-radius: 2px;
   margin-bottom: 48px;
-  box-shadow: 0 2px 8px rgba(194, 59, 34, 0.25);
+  color: var(--accent);
+  opacity: 0;
+}
+
+.neon-sign.neon-on {
+  animation: neon-appear 1.2s ease forwards;
+}\n
+.neon-sign.neon-off {
+  animation: neon-disappear 0.4s ease forwards;
+}
+
+@keyframes neon-appear {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes neon-disappear {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+
+.neon-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 220px;
+  height: 60px;
+  overflow: visible;
+}
+
+.neon-border {
+  stroke: var(--accent);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  filter: drop-shadow(0 0 4px var(--accent)) drop-shadow(0 0 8px var(--accent));
+}
+
+.neon-on .neon-border {
+  animation: neon-border-light 0.6s ease forwards;
+}
+
+@keyframes neon-border-light {
+  0% { stroke-dashoffset: 1; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.neon-text {
+  position: relative;
+  display: inline-block;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  padding: 16px 48px;
+  color: transparent;
+  text-shadow: 
+    0 0 4px var(--accent),
+    0 0 8px var(--accent),
+    0 0 16px var(--accent);
+  opacity: 0;
+}
+
+.neon-on .neon-text {
+  animation: neon-text-flicker 0.8s ease 0.6s forwards;
+}
+
+@keyframes neon-text-flicker {
+  0%, 100% { opacity: 0; }
+  20% { opacity: 1; }
+  40% { opacity: 0.5; }
+  60% { opacity: 1; }
+  80% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+.neon-off .neon-text,
+.neon-off .neon-border {
+  animation: neon-flicker-off 0.3s ease forwards;
+}
+
+@keyframes neon-flicker-off {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.3; }
+  50% { opacity: 1; }
+  75% { opacity: 0.2; }
+  100% { opacity: 0; }
 }
 
 /* Input */
@@ -816,58 +911,6 @@ onUnmounted(() => {
 }
 
 @keyframes me-spin { to { transform: rotate(360deg) } }
-
-/* Transition Overlay: Brain to Cerebellum */
-.me-transition {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  background: var(--parchment-50);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.me-transition__text {
-  font-family: var(--font-mono);
-  font-size: 24px;
-  color: var(--accent);
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  animation: transition-glitch 0.1s infinite;
-}
-
-@keyframes transition-glitch {
-  0%, 100% { opacity: 1; transform: translate(0); }
-  20% { opacity: 0.9; transform: translate(-1px, 1px); }
-  40% { opacity: 0.95; transform: translate(1px, -1px); }
-  60% { opacity: 0.9; transform: translate(-1px, 0); }
-  80% { opacity: 1; transform: translate(1px, 0); }
-}
-
-.me-transition__scanlines {
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(194, 59, 34, 0.1) 2px,
-    rgba(194, 59, 34, 0.1) 6px
-  );
-  pointer-events: none;
-}
-
-/* Transition fade animation */
-.transition-fade-enter-active,
-.transition-fade-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.transition-fade-enter-from,
-.transition-fade-leave-to {
-  opacity: 0;
-}
 
 /* Shake */
 .me-shake {
