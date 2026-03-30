@@ -472,6 +472,7 @@ onUnmounted(() => {
   display: inline-block;
   color: #5C1800 !important;
   user-select: none;
+  white-space: pre;  /* Preserve spaces */
   
   /* Vertical striping - on the text itself */
   background: repeating-linear-gradient(
@@ -490,6 +491,11 @@ onUnmounted(() => {
   
   /* CRT flicker */
   animation: crt-flicker 0.12s infinite;
+}
+
+/* Space characters need width */
+:deep(.crt-char[data-char=" "]) {
+  width: 0.5em;
 }
 
 /* 2. Per-character glow - each letter has its own circular glow (like question mark __glow) */
