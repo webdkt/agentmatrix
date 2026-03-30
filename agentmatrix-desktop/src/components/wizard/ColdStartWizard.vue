@@ -65,10 +65,15 @@ function initRain() {
 function typewriterReveal(text, targetEl) {
   if (!targetEl) return
   targetEl.textContent = ''
+  targetEl.setAttribute('data-text', text)
   const spans = []
   text.split('').forEach(c => {
     const span = document.createElement('span')
     span.style.opacity = '0'
+    span.style.color = 'transparent'
+    span.style.background = 'repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255,255,255,0.1) 1px, rgba(255,255,255,0.1) 2px)'
+    span.style.webkitBackgroundClip = 'text'
+    span.style.backgroundClip = 'text'
     span.textContent = c
     targetEl.appendChild(span)
     spans.push(span)
@@ -77,17 +82,23 @@ function typewriterReveal(text, targetEl) {
   const timer = setInterval(() => {
     if (idx >= spans.length) {
       clearInterval(timer)
-      targetEl.setAttribute('data-text', text)
       targetEl.classList.add('done')
+      // Set final CRT glow on all spans
+      spans.forEach(span => {
+        span.style.textShadow = '0 0 8px rgba(212,168,67,0.9), 0 0 16px rgba(212,168,67,0.7), 0 0 32px rgba(212,168,67,0.5)'
+        span.style.background = 'repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255,255,255,0.12) 1px, rgba(255,255,255,0.12) 2px)'
+        span.style.webkitBackgroundClip = 'text'
+        span.style.backgroundClip = 'text'
+      })
       return
     }
     const pos = idx
     spans[pos].textContent = CHARS[Math.random() * CHARS.length | 0]
     spans[pos].style.opacity = '1'
-    spans[pos].style.textShadow = '0 0 12px rgba(212,168,67,0.5)'
+    spans[pos].style.textShadow = '0 0 12px rgba(212,168,67,0.8), 0 0 24px rgba(212,168,67,0.5)'
     setTimeout(() => {
       spans[pos].textContent = text[pos]
-      spans[pos].style.textShadow = '0 0 4px rgba(212,168,67,0.2)'
+      spans[pos].style.textShadow = '0 0 8px rgba(212,168,67,0.9), 0 0 16px rgba(212,168,67,0.6)'
     }, 90)
     idx++
   }, 80)
@@ -412,6 +423,7 @@ onUnmounted(() => {
   transform: translateY(20px);
   transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
+  position: relative;
 }
 
 .step-inner.visible {
@@ -433,6 +445,35 @@ onUnmounted(() => {
   font-size: 60px;
   margin-bottom: 0;
   cursor: pointer;
+  position: relative;
+  display: inline-block;
+}
+
+/* CRT Glow - circular radial gradient behind text */
+.me-title--welcome::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140%;
+  height: 180%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(212, 168, 67, 0.25) 0%,
+    rgba(212, 168, 67, 0.15) 30%,
+    rgba(212, 168, 67, 0.05) 50%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: glow-pulse 2.5s ease-in-out infinite;
+  z-index: -1;
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.1); }
 }
 
 .me-glitch {
@@ -451,18 +492,107 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-.me-glitch.done::before {
-  color: var(--vermillion);
-  animation: me-g1 3s infinite linear alternate-reverse;
-  clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
-  opacity: 0.4;
+/* CRT text effect - main text with vertical striping (like question mark) */
+.me-glitch.done {
+  position: relative;
+  color: transparent;
+  user-select: none;
+  
+  /* Vertical striping texture - key for CRT look */
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 1px,
+    rgba(255, 255, 255, 0.12) 1px,
+    rgba(255, 255, 255, 0.12) 2px
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  
+  /* Golden glow - the actual color comes from text-shadow */
+  text-shadow:
+    0 0 8px rgba(212, 168, 67, 0.9),
+    0 0 16px rgba(212, 168, 67, 0.7),
+    0 0 32px rgba(212, 168, 67, 0.5),
+    0 0 48px rgba(180, 140, 50, 0.3);
+  
+  /* CRT flicker */
+  animation: crt-flicker 0.12s infinite;
 }
 
-.me-glitch.done::after {
-  color: var(--amber);
-  animation: me-g2 4s infinite linear alternate-reverse;
-  clip-path: polygon(0 60%, 100% 60%, 100% 100%, 0 100%);
+/* CRT flicker animation */
+@keyframes crt-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.97; }
+}
+
+/* Phosphor afterglow - blurred duplicate behind */
+.me-glitch.done::before {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  color: transparent;
+  filter: blur(0.5px);
   opacity: 0.4;
+  animation: crt-flicker 0.12s infinite 0.02s;
+  pointer-events: none;
+  
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 1px,
+    rgba(255, 255, 255, 0.08) 1px,
+    rgba(255, 255, 255, 0.08) 2px
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  
+  text-shadow:
+    0 0 8px rgba(212, 168, 67, 0.8),
+    0 0 16px rgba(212, 168, 67, 0.5);
+}
+
+/* Scanlines overlay - only on welcome step */
+.me-step:first-child .me-title--welcome::after {
+  content: '';
+  position: absolute;
+  inset: -20% -10%;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(253, 252, 249, 0.12) 2px,
+    rgba(253, 252, 249, 0.12) 4px
+  );
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* Grid/dot matrix overlay - only on welcome step */
+.me-step:first-child .step-inner::before {
+  content: '';
+  position: absolute;
+  inset: -20% -10%;
+  background-image: radial-gradient(
+    circle,
+    rgba(253, 252, 249, 0.08) 1px,
+    transparent 1px
+  );
+  background-size: 4px 4px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Vignette - edge shadow - only on welcome step */
+.me-step:first-child .step-inner::after {
+  content: '';
+  position: absolute;
+  inset: -20% -10%;
+  box-shadow: inset 0 0 80px rgba(253, 252, 249, 0.5);
+  pointer-events: none;
 }
 
 @keyframes me-g1 {
