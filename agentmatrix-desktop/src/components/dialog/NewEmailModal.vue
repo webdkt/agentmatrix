@@ -53,13 +53,24 @@ onMounted(async () => {
 })
 
 // 监听 show 变化，重置表单
-watch(() => props.show, (newValue) => {
+watch(() => props.show, async (newValue) => {
   if (newValue) {
     resetForm()
-    // 如果有预选的agent，自动选择
+    // 如果有预选的agent，等待agents加载后自动选择
     if (props.preselectedAgent) {
-      selectedAgent.value = props.preselectedAgent
-      agentSearchQuery.value = props.preselectedAgent.name
+      // 确保agents已加载
+      if (agents.value.length === 0) {
+        await loadAgents()
+      }
+      // 查找匹配的agent（可能是对象或名称字符串）
+      const agentName = typeof props.preselectedAgent === 'string' 
+        ? props.preselectedAgent 
+        : props.preselectedAgent.name
+      const agent = agents.value.find(a => a.name === agentName)
+      if (agent) {
+        selectedAgent.value = agent
+        agentSearchQuery.value = agent.name
+      }
     }
   }
 })
