@@ -180,7 +180,8 @@ function getLineClass(line) {
 
 .log-tab__content {
   flex: 1;
-  overflow-y: auto;
+  min-width: 0;
+  overflow: auto;
   background: var(--parchment-100);
   padding: var(--spacing-sm) 0;
 }
@@ -207,6 +208,7 @@ function getLineClass(line) {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
+  min-width: 0;
 }
 
 .log-line:hover {
@@ -223,6 +225,7 @@ function getLineClass(line) {
 
 .log-line__text {
   flex: 1;
+  min-width: 0;
   color: var(--ink-700);
   white-space: pre;
   overflow-x: auto;
