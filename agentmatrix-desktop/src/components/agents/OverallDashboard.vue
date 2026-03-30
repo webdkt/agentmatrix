@@ -33,7 +33,8 @@ const handleAgentClick = (agentName) => {
 
 // Handle new message button click
 const handleNewMessage = (agentName) => {
-  emit('new-message', agentName)
+  const agent = props.agents.find(a => a.name === agentName)
+  emit('new-message', agent || agentName)
 }
 
 // Handle control actions

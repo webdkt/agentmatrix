@@ -9,6 +9,10 @@ const props = defineProps({
   show: {
     type: Boolean,
     default: false
+  },
+  preselectedAgent: {
+    type: Object,
+    default: null
   }
 })
 
@@ -52,6 +56,11 @@ onMounted(async () => {
 watch(() => props.show, (newValue) => {
   if (newValue) {
     resetForm()
+    // 如果有预选的agent，自动选择
+    if (props.preselectedAgent) {
+      selectedAgent.value = props.preselectedAgent
+      agentSearchQuery.value = props.preselectedAgent.name
+    }
   }
 })
 

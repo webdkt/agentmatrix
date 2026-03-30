@@ -42,8 +42,8 @@ const handleBackToOverall = () => {
 }
 
 // Open new email dialog for specific agent
-const handleNewMessage = (agentName) => {
-  newEmailAgent.value = agentName
+const handleNewMessage = (agent) => {
+  newEmailAgent.value = agent
   showNewEmailModal.value = true
 }
 
@@ -84,6 +84,7 @@ onMounted(() => {
     <!-- New Email Modal -->
     <NewEmailModal
       :show="showNewEmailModal"
+      :preselected-agent="newEmailAgent"
       @close="handleCloseEmailModal"
       @sent="handleEmailSent"
     />
