@@ -654,6 +654,62 @@ async def init_runtime_api(request: dict):
         return {"success": False, "message": str(e)}
 
 
+@app.post("/api/config/first-run")
+async def first_run_init(request: dict):
+    """
+    One-time initialization action, called only on first cold start.
+    This endpoint is invoked after runtime init but before mark_configured.
+    """
+    global matrix_runtime
+
+    if not matrix_runtime:
+        return {"success": False, "message": "Runtime not initialized"}
+
+    try:
+        user_name = request.get("user_name", "User")
+
+        print(f"🔧 First-run initialization for user: {user_name}")
+
+        # 1. Confirm SystemAdmin exists
+        if "SystemAdmin" not in matrix_runtime.agents:
+            available = list(matrix_runtime.agents.keys())
+            return {
+                "success": False,
+                "message": f"SystemAdmin agent not found. Available: {available}",
+            }
+
+        # 2. Send system initialization email to SystemAdmin
+        import uuid
+        from agentmatrix.core.message import Email
+
+        task_id = str(uuid.uuid4())
+
+        email = Email(
+            id=str(uuid.uuid4()),
+            sender="no-reply-system",
+            recipient="SystemAdmin",
+            subject="系统初始化完成",
+            body=(
+                f"用户 {user_name} 刚刚完成了系统初始化设置，系统第一次运行了。\n"
+                f"你作为系统管理员，请写一封 welcome letter 给用户，介绍自己，"
+                f"并简要介绍系统情况，帮助用户尽快熟悉系统使用。"
+            ),
+            task_id=task_id,
+            sender_session_id=str(uuid.uuid4()),
+            recipient_session_id=None,
+        )
+
+        await matrix_runtime.post_office.dispatch(email)
+        print(f"✅ First-run email dispatched to SystemAdmin (task_id={task_id})")
+
+        return {"success": True, "message": "First-run initialization complete"}
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        return {"success": False, "message": str(e)}
+
+
 @app.get("/api/sessions")
 async def get_sessions(page: int = 1, per_page: int = 20):
     """

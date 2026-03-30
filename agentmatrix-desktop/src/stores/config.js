@@ -236,6 +236,16 @@ export const useConfigStore = defineStore('config', {
 
         this.submitResult = result
 
+        // 5.5 首次运行专属操作（仅冷启动时执行一次）
+        try {
+          await configAPI.firstRunInit({
+            matrix_world_path: path,
+            user_name: name,
+          })
+        } catch (e) {
+          console.warn('First-run init failed (non-blocking):', e)
+        }
+
         // 6. 标记已配置
         await invoke('mark_configured', { matrixWorldPath: path })
 

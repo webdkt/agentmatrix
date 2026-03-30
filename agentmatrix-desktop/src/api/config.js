@@ -34,6 +34,14 @@ export const configAPI = {
   },
 
   /**
+   * 首次运行初始化（仅冷启动时调用一次）
+   * @param {object} data - { matrix_world_path, user_name }
+   */
+  async firstRunInit(data) {
+    return API.post('/api/config/first-run', data)
+  },
+
+  /**
    * 获取所有 LLM 配置
    */
   async getLLMConfigs() {
