@@ -14,7 +14,6 @@ const emit = defineEmits(['click'])
 const showModal = ref(false)
 
 function onClick() {
-  emit('click')
   showModal.value = true
 }
 
@@ -74,7 +73,7 @@ const helpContent = {
     <!-- Help Modal -->
     <Teleport to="body"><!---->
       <Transition name="modal">
-        <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
+        <div v-if="showModal" class="modal-overlay" :class="{ active: showModal }" @click.self="closeModal">
           <div class="modal-container" @click.stop>
             <!-- Modal Header -->
             <div class="modal-header">
