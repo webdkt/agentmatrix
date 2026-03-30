@@ -4,6 +4,7 @@ import { useConfigStore } from '@/stores/config'
 import StepUserName from './steps/StepUserName.vue'
 import StepDirectory from './steps/StepDirectory.vue'
 import StepLLM from './steps/StepLLM.vue'
+import HelpQuestion from './HelpQuestion.vue'
 
 const emit = defineEmits(['complete'])
 const configStore = useConfigStore()
@@ -14,6 +15,7 @@ const rainCanvas = ref(null)
 const currentStep = ref(0)
 const errors = ref({})
 const cerebellumPrefilled = ref(false)
+const isExiting = ref(null)
 let rainInterval = null
 
 // ─── Rain ───
@@ -64,9 +66,12 @@ function initRain() {
 function typewriterReveal(text, targetEl) {
   if (!targetEl) return
   targetEl.textContent = ''
+  targetEl.setAttribute('data-text', text)
   const spans = []
   text.split('').forEach(c => {
     const span = document.createElement('span')
+    span.className = 'crt-char'
+    span.setAttribute('data-char', c)
     span.style.opacity = '0'
     span.textContent = c
     targetEl.appendChild(span)
@@ -76,17 +81,17 @@ function typewriterReveal(text, targetEl) {
   const timer = setInterval(() => {
     if (idx >= spans.length) {
       clearInterval(timer)
-      targetEl.setAttribute('data-text', text)
       targetEl.classList.add('done')
       return
     }
     const pos = idx
+    const char = text[pos]
     spans[pos].textContent = CHARS[Math.random() * CHARS.length | 0]
+    spans[pos].setAttribute('data-char', spans[pos].textContent)
     spans[pos].style.opacity = '1'
-    spans[pos].style.textShadow = '0 0 12px rgba(212,168,67,0.5)'
     setTimeout(() => {
-      spans[pos].textContent = text[pos]
-      spans[pos].style.textShadow = '0 0 4px rgba(212,168,67,0.2)'
+      spans[pos].textContent = char
+      spans[pos].setAttribute('data-char', char)
     }, 90)
     idx++
   }, 80)
@@ -131,7 +136,7 @@ function goBack() {
   if (currentStep.value > 0) currentStep.value--
 }
 
-function advance() {
+async function advance() {
   if (currentStep.value >= STEPS.length - 1) return
 
   // Pre-fill Cerebellum from Brain when first entering step 4
@@ -157,6 +162,39 @@ function advance() {
     })
     return
   }
+
+  // Neon sign transition for Brain (step 3) -> Cerebellum (step 4)
+  if (currentStep.value === 3) {
+    isExiting.value = 3
+    await new Promise(r => setTimeout(r, 400))
+    isExiting.value = null
+    currentStep.value++
+    nextTick(() => {
+      const stepEl = document.querySelector('.me-step--active')
+      if (stepEl) {
+        const inp = stepEl.querySelector('input:not([type=checkbox])')
+        if (inp) inp.focus()
+      }
+    })
+    return
+  }
+
+  // Neon sign transition for Cerebellum (step 4) -> Initialize (step 5)
+  if (currentStep.value === 4) {
+    isExiting.value = 4
+    await new Promise(r => setTimeout(r, 400))
+    isExiting.value = null
+    currentStep.value++
+    nextTick(() => {
+      const stepEl = document.querySelector('.me-step--active')
+      if (stepEl) {
+        const inp = stepEl.querySelector('input:not([type=checkbox])')
+        if (inp) inp.focus()
+      }
+    })
+    return
+  }
+
   currentStep.value++
 
   // Auto-focus first input in the new step
@@ -181,6 +219,17 @@ function getFieldValue(fieldId) {
   }
 }
 
+// Track IME composition state
+let isComposing = false
+
+function onCompositionStart() {
+  isComposing = true
+}
+
+function onCompositionEnd() {
+  isComposing = false
+}
+
 // Enter key: advance field or step
 // Escape key: go back
 function onKeydown(e) {
@@ -190,6 +239,8 @@ function onKeydown(e) {
     return
   }
   if (e.key !== 'Enter') return
+  // Ignore Enter during IME composition (e.g., Chinese input)
+  if (e.isComposing || isComposing) return
   e.preventDefault()
 
   // Find next focusable input in current step
@@ -212,7 +263,7 @@ function onKeydown(e) {
 // Click anywhere = advance
 function onClickStep(e) {
   // Don't advance if clicking on interactive elements
-  if (e.target.closest('input,select,button,a,.ms,.me-pw,.me-eye,.ms-dropdown')) return
+  if (e.target.closest('input,select,button,a,.ms,.me-pw,.me-eye,.ms-dropdown,.help-question,.help-question__mark')) return
   advance()
 }
 
@@ -228,6 +279,8 @@ async function handleSubmit() {
 onMounted(async () => {
   await configStore.loadPresets()
   document.addEventListener('keydown', onKeydown)
+  document.addEventListener('compositionstart', onCompositionStart)
+  document.addEventListener('compositionend', onCompositionEnd)
   initRain()
   typewriterReveal('Welcome to the Matrix', document.querySelector('.me-glitch'))
   setTimeout(() => advance(), 4200)
@@ -235,6 +288,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('compositionstart', onCompositionStart)
+  document.removeEventListener('compositionend', onCompositionEnd)
   if (rainInterval) clearInterval(rainInterval)
 })
 </script>
@@ -287,20 +342,42 @@ onUnmounted(() => {
     </div>
 
     <!-- STEP 3: Brain -->
-    <div class="me-step" :class="{ 'me-step--active': currentStep === 3 }" v-show="currentStep === 3">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 3, 'me-step--exiting': isExiting === 3 }" v-show="currentStep === 3 || isExiting === 3">
       <div class="step-inner visible">
-        <div class="me-label">// brain</div>
+        <div class="neon-sign" :class="{ 'neon-on': currentStep === 3 && !isExiting, 'neon-off': isExiting === 3 }">
+          <svg class="neon-frame" viewBox="0 0 200 50" preserveAspectRatio="xMidYMid meet">
+            <rect x="2" y="2" width="196" height="46" rx="4" fill="none" stroke="currentColor" stroke-width="2" 
+                  class="neon-border" pathLength="1"/>
+          </svg>
+          <span class="neon-text">BRAIN</span>
+        </div>
         <StepLLM which="llm" :errors="errors" step-idx="3" />
       </div>
     </div>
 
+    <!-- Help Question for Brain -->
+    <Teleport to="body">
+      <HelpQuestion v-if="currentStep === 3" type="brain" />
+    </Teleport>
+
     <!-- STEP 4: Cerebellum -->
-    <div class="me-step" :class="{ 'me-step--active': currentStep === 4 }" v-show="currentStep === 4">
+    <div class="me-step" :class="{ 'me-step--active': currentStep === 4, 'me-step--exiting': isExiting === 4 }" v-show="currentStep === 4 || isExiting === 4">
       <div class="step-inner visible">
-        <div class="me-label">// cerebellum</div>
+        <div class="neon-sign" :class="{ 'neon-on': currentStep === 4 && !isExiting, 'neon-off': isExiting === 4 }">
+          <svg class="neon-frame" viewBox="0 0 200 50" preserveAspectRatio="xMidYMid meet">
+            <rect x="2" y="2" width="196" height="46" rx="4" fill="none" stroke="currentColor" stroke-width="2" 
+                  class="neon-border" pathLength="1"/>
+          </svg>
+          <span class="neon-text">CEREBELLUM</span>
+        </div>
         <StepLLM which="slm" :errors="errors" step-idx="4" />
       </div>
     </div>
+
+    <!-- Help Question for Cerebellum -->
+    <Teleport to="body">
+      <HelpQuestion v-if="currentStep === 4" type="cerebellum" />
+    </Teleport>
 
     <!-- STEP 5: Initialize -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 5 }" v-show="currentStep === 5">
@@ -384,6 +461,7 @@ onUnmounted(() => {
   transform: translateY(20px);
   transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
+  position: relative;
 }
 
 .step-inner.visible {
@@ -405,38 +483,102 @@ onUnmounted(() => {
   font-size: 60px;
   margin-bottom: 0;
   cursor: pointer;
-}
-
-.me-glitch {
   position: relative;
   display: inline-block;
+  color: var(--ink-900);
 }
 
-.me-glitch::before,
-.me-glitch::after {
-  content: attr(data-text);
+/* CRT effect container - like question mark structure */
+.me-title--welcome {
+  position: relative;
+  display: inline-block;
+  z-index: 1;
+}
+
+/* 1. Scanlines overlay - chunky low-res CRT feel */
+.me-title--welcome::after {
+  content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
+  inset: -20% -10%;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(253, 252, 249, 0.35) 3px,
+    rgba(253, 252, 249, 0.35) 7px
+  );
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.9;
 }
 
-.me-glitch.done::before {
-  color: var(--vermillion);
-  animation: me-g1 3s infinite linear alternate-reverse;
-  clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
-  opacity: 0.4;
+/* Single character effect - each letter is its own CRT component */
+:deep(.crt-char) {
+  position: relative;
+  display: inline-block;
+  color: #5C1800 !important;
+  user-select: none;
+  white-space: pre;  /* Preserve spaces */
+  
+  /* Vertical striping - on the text itself */
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 1px,
+    rgba(194, 59, 34, 0.2) 1px,
+    rgba(194, 59, 34, 0.2) 2px
+  ) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  
+  /* Text glow */
+  text-shadow:
+    0 0 4px rgba(194, 59, 34, 0.5) !important;
+  
+  /* CRT flicker */
+  animation: crt-flicker 0.12s infinite;
 }
 
-.me-glitch.done::after {
-  color: var(--amber);
-  animation: me-g2 4s infinite linear alternate-reverse;
-  clip-path: polygon(0 60%, 100% 60%, 100% 100%, 0 100%);
-  opacity: 0.4;
+/* Space characters need width */
+:deep(.crt-char[data-char=" "]) {
+  width: 0.5em;
 }
 
+/* 2. Per-character glow - each letter has its own circular glow (like question mark __glow) */
+:deep(.crt-char)::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140%;
+  height: 140%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(194, 59, 34, 0.15) 0%,
+    rgba(194, 59, 34, 0.08) 40%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: glow-pulse 2.5s ease-in-out infinite;
+  z-index: -1;
+}
+
+/* No phosphor afterglow - keep text sharp */
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.15); }
+}
+
+@keyframes crt-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.97; }
+}
+
+
+/* Keep only the glitch animations */
 @keyframes me-g1 {
   0%,100%{transform:translate(0)}20%{transform:translate(-1px,1px)}40%{transform:translate(1px,-1px)}60%{transform:translate(-1px,0)}80%{transform:translate(1px,0)}
 }
@@ -452,6 +594,95 @@ onUnmounted(() => {
   text-transform: uppercase;
   margin-bottom: 28px;
   font-weight: 600;
+}
+
+/* Neon sign effect for Brain/Cerebellum titles */
+.neon-sign {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 48px;
+  color: var(--accent);
+  opacity: 0;
+}
+
+.neon-sign.neon-on {
+  animation: neon-appear 1.2s ease forwards;
+}\n
+.neon-sign.neon-off {
+  animation: neon-disappear 0.4s ease forwards;
+}
+
+@keyframes neon-appear {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes neon-disappear {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+
+.neon-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 220px;
+  height: 60px;
+  overflow: visible;
+}
+
+.neon-border {
+  stroke: var(--accent);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.neon-on .neon-border {
+  animation: neon-border-light 1.2s ease forwards;
+}
+
+@keyframes neon-border-light {
+  0% { stroke-dashoffset: 1; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.neon-text {
+  position: relative;
+  display: inline-block;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  padding: 16px 48px;
+  color: var(--accent);
+  opacity: 0;
+}
+
+.neon-on .neon-text {
+  animation: neon-text-flicker 0.8s ease 0.6s forwards;
+}
+
+@keyframes neon-text-flicker {
+  0%, 100% { opacity: 0; }
+  20% { opacity: 1; }
+  40% { opacity: 0.5; }
+  60% { opacity: 1; }
+  80% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+.neon-off .neon-text,
+.neon-off .neon-border {
+  animation: neon-flicker-off 0.3s ease forwards;
+}
+
+@keyframes neon-flicker-off {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.3; }
+  50% { opacity: 1; }
+  75% { opacity: 0.2; }
+  100% { opacity: 0; }
 }
 
 /* Input */

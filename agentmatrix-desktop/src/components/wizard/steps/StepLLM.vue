@@ -28,15 +28,16 @@ function onProviderChange(val) {
 }
 
 function onUrlChange(val) {
-  data.value.url = val
+  // Only update URL if it's a valid preset URL (not empty)
+  // This prevents clearing URL when typing doesn't match any model
+  if (val && val.trim()) {
+    data.value.url = val
+  }
 }
 
 function onModelState(state) {
   modelState.value = state
 }
-
-// Show URL when model is new (not exact match)
-const showUrl = computed(() => modelState.value === 'new')
 
 // Validation
 const isValid = computed(() => {
@@ -87,8 +88,8 @@ function togEye(btn) {
       </div>
     </div>
 
-    <!-- URL (only for new/unknown models) -->
-    <div v-if="showUrl" class="me-fg me-url-row">
+    <!-- URL (always visible) -->
+    <div class="me-fg me-url-row">
       <input
         v-model="data.url"
         class="me-url"
@@ -116,12 +117,15 @@ function togEye(btn) {
 
 .me-fg {
   margin-bottom: 0;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 
 .me-pw {
   position: relative;
-  max-width: 480px;
-  margin: 0 auto;
+  width: 100%;
 }
 
 .me-inp {
@@ -168,7 +172,7 @@ function togEye(btn) {
   color: var(--ink-dim);
 }
 
-/* URL field - appears for new models */
+/* URL field - always visible */
 .me-url-row {
   animation: me-fade-in 0.3s ease;
 }
@@ -181,15 +185,13 @@ function togEye(btn) {
 .me-url {
   display: block;
   width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
   background: transparent;
   border: none;
   border-bottom: 2px solid var(--parchment-300);
   color: var(--ink-900);
   font-family: var(--font-mono);
-  font-size: 18px;
-  padding: 10px 0;
+  font-size: 24px;
+  padding: 12px 0;
   outline: none;
   text-align: center;
   transition: border-color 0.3s;
@@ -198,7 +200,7 @@ function togEye(btn) {
 
 .me-url::placeholder {
   color: var(--ink-ghost);
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .me-url:focus {
