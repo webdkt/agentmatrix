@@ -39,6 +39,8 @@ async function handleEmailToastClick(emailData) {
       await sessionStore.selectSession(targetSession, true)
     }
   }
+  // Switch to email view
+  currentView.value = 'email'
   uiStore.emailToast.show = false
 }
 
