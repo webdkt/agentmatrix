@@ -66,10 +66,7 @@ const currentState = computed(() => {
 watch(currentState, (s) => {
   emit('update:modelValue', s.model)
   emit('update:provider', s.provider)
-  // Only emit URL if it's a known preset (has valid URL)
-  if (s.url && s.url.trim()) {
-    emit('update:url', s.url)
-  }
+  emit('update:url', s.url)
   emit('state-change', s.state)
 }, { immediate: true })
 
@@ -111,9 +108,9 @@ function onKeydown(e) {
 
 // Watch for presets changes to handle async loading
 watch(() => props.presets, () => {
-  // Trigger re-computation of allModels and filtered
-  // This ensures dropdown shows models when presets are loaded
-}, { immediate: true })
+  // Trigger re-computation of allModels when presets are loaded
+  // This ensures dropdown shows models when presets become available
+}, { immediate: true, deep: true })
 
 // Sync from parent
 watch(() => props.modelValue, (v) => {

@@ -172,7 +172,7 @@ function closeModal() {
   position: fixed;
   top: 120px;
   right: 120px;
-  z-index: 10;
+  z-index: 100;
   cursor: pointer;
   width: 140px;
   height: 140px;
@@ -180,6 +180,7 @@ function closeModal() {
   align-items: center;
   justify-content: center;
   animation: float 4s ease-in-out infinite;
+  pointer-events: auto;
 }
 
 @keyframes float {

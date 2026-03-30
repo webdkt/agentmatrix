@@ -29,6 +29,7 @@ function onProviderChange(val) {
 
 function onUrlChange(val) {
   // Only update URL if it's a valid preset URL (not empty)
+  // This prevents clearing URL when typing doesn't match any model
   if (val && val.trim()) {
     data.value.url = val
   }
@@ -188,8 +189,8 @@ function togEye(btn) {
   border-bottom: 2px solid var(--parchment-300);
   color: var(--ink-900);
   font-family: var(--font-mono);
-  font-size: 18px;
-  padding: 10px 0;
+  font-size: 24px;
+  padding: 12px 0;
   outline: none;
   text-align: center;
   transition: border-color 0.3s;
@@ -198,7 +199,7 @@ function togEye(btn) {
 
 .me-url::placeholder {
   color: var(--ink-ghost);
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .me-url:focus {

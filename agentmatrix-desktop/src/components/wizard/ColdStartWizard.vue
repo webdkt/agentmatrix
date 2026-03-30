@@ -182,6 +182,17 @@ function getFieldValue(fieldId) {
   }
 }
 
+// Track IME composition state
+let isComposing = false
+
+function onCompositionStart() {
+  isComposing = true
+}
+
+function onCompositionEnd() {
+  isComposing = false
+}
+
 // Enter key: advance field or step
 // Escape key: go back
 function onKeydown(e) {
@@ -191,6 +202,8 @@ function onKeydown(e) {
     return
   }
   if (e.key !== 'Enter') return
+  // Ignore Enter during IME composition (e.g., Chinese input)
+  if (e.isComposing || isComposing) return
   e.preventDefault()
 
   // Find next focusable input in current step
@@ -213,7 +226,7 @@ function onKeydown(e) {
 // Click anywhere = advance
 function onClickStep(e) {
   // Don't advance if clicking on interactive elements
-  if (e.target.closest('input,select,button,a,.ms,.me-pw,.me-eye,.ms-dropdown')) return
+  if (e.target.closest('input,select,button,a,.ms,.me-pw,.me-eye,.ms-dropdown,.help-question,.help-question__mark')) return
   advance()
 }
 
@@ -229,6 +242,8 @@ async function handleSubmit() {
 onMounted(async () => {
   await configStore.loadPresets()
   document.addEventListener('keydown', onKeydown)
+  document.addEventListener('compositionstart', onCompositionStart)
+  document.addEventListener('compositionend', onCompositionEnd)
   initRain()
   typewriterReveal('Welcome to the Matrix', document.querySelector('.me-glitch'))
   setTimeout(() => advance(), 4200)
@@ -236,6 +251,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('compositionstart', onCompositionStart)
+  document.removeEventListener('compositionend', onCompositionEnd)
   if (rainInterval) clearInterval(rainInterval)
 })
 </script>
@@ -290,7 +307,7 @@ onUnmounted(() => {
     <!-- STEP 3: Brain -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 3 }" v-show="currentStep === 3">
       <div class="step-inner visible">
-        <div class="me-label">// brain</div>
+        <div class="me-label me-label--title">BRAIN</div>
         <StepLLM which="llm" :errors="errors" step-idx="3" />
       </div>
     </div>
@@ -303,7 +320,7 @@ onUnmounted(() => {
     <!-- STEP 4: Cerebellum -->
     <div class="me-step" :class="{ 'me-step--active': currentStep === 4 }" v-show="currentStep === 4">
       <div class="step-inner visible">
-        <div class="me-label">// cerebellum</div>
+        <div class="me-label me-label--title">CEREBELLUM</div>
         <StepLLM which="slm" :errors="errors" step-idx="4" />
       </div>
     </div>
@@ -463,6 +480,20 @@ onUnmounted(() => {
   text-transform: uppercase;
   margin-bottom: 28px;
   font-weight: 600;
+}
+
+/* Title style for Brain/Cerebellum steps - button-like style */
+.me-label--title {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--parchment-50);
+  background: var(--accent);
+  letter-spacing: 0.15em;
+  padding: 12px 40px;
+  border-radius: 2px;
+  margin-bottom: 48px;
+  box-shadow: 0 2px 8px rgba(194, 59, 34, 0.25);
 }
 
 /* Input */
