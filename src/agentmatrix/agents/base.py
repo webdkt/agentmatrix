@@ -112,6 +112,9 @@ class BaseAgent(AutoLoggerMixin):
         # 🐳 Docker 容器管理器（延迟初始化，在 workspace_root setter 中初始化）
         self.docker_manager = None
 
+        # 🌐 浏览器适配器（懒启动，Agent 级共享资源）
+        self._browser_adapter = None
+
         # 🆕 记录最后一次 top-level MicroAgent 执行的 system prompt
         self.last_system_prompt = None
 
@@ -142,6 +145,35 @@ class BaseAgent(AutoLoggerMixin):
         except Exception as e:
             self.logger.error(f"Docker 初始化失败: {e}")
             raise  # 不降级，直接抛出异常
+
+    # ==================== 浏览器管理 ====================
+
+    def get_browser(self):
+        """
+        获取浏览器适配器（懒创建，不启动浏览器进程）
+
+        浏览器进程在首次 ensure_browser_started() 时启动。
+        返回的 adapter 是 Agent 级共享资源，所有 MicroAgent 共用同一个 Chrome 实例。
+
+        Returns:
+            DrissionPageAdapter: 浏览器适配器实例
+        """
+        if self._browser_adapter is not None:
+            return self._browser_adapter
+
+        from ..core.browser.drission_page_adapter import DrissionPageAdapter
+
+        profile_path = str(self.runtime.paths.get_browser_profile_dir(self.name))
+        self._browser_adapter = DrissionPageAdapter(profile_path=profile_path)
+        self.logger.info(f"🌐 浏览器适配器已创建 (profile: {profile_path})")
+        return self._browser_adapter
+
+    async def ensure_browser_started(self):
+        """确保浏览器进程已启动（仅首次调用时实际启动）"""
+        adapter = self.get_browser()
+        if adapter.browser is None:
+            await adapter.start(headless=False)
+            self.logger.info("🌐 浏览器进程已启动")
 
     def deprecated_get_skill_prompt(
         self, skill_name: str, prompt_name: str, **kwargs
@@ -317,12 +349,19 @@ class BaseAgent(AutoLoggerMixin):
         old_status = self._status  # 保存旧状态
         # 3. 记录问题（给 API 查询）
         self._pending_user_question = question
+        # 确保 current_user_session_id 不为 None（用于前端匹配会话）
+        if not self.current_user_session_id and self.current_task_id:
+            self.current_user_session_id = self.current_task_id
         # 🔧 更新状态会触发 AGENT_STATUS_UPDATE 增量推送（包含 pending_question）
         self.update_status(new_status=AgentStatus.WAITING_FOR_USER)
 
         # ✅ 发送邮件通知（如果 runtime 可用）
         task_id = self.current_task_id
-        session_id = self.current_session.get("session_id")
+        session_id = (
+            self.current_session.get("session_id")
+            if self.current_session
+            else self.current_task_id
+        )
         await self._send_ask_user_email(question, task_id, session_id)
 
         # 4. 创建 Future 并挂起
@@ -407,7 +446,10 @@ class BaseAgent(AutoLoggerMixin):
             # 在 Server API 中
             await agent.submit_user_input("5万-10万")
         """
-        if self.current_session.get("session_id") != session_id:
+        if (
+            not self.current_session
+            or self.current_session.get("session_id") != session_id
+        ):
             # not for this session
             return
         if not self._user_input_future or self._user_input_future.done():
@@ -752,6 +794,11 @@ class BaseAgent(AutoLoggerMixin):
                 - current_user_session_id: 当前用户会话 ID
                 - status_history: 状态历史（最近 10 条）
         """
+        # 如果 current_user_session_id 为 None，尝试使用 current_task_id 作为后备
+        user_session_id = self.current_user_session_id
+        if not user_session_id and self.current_task_id:
+            user_session_id = self.current_task_id
+
         return {
             "status": self._status,
             "pending_question": self._pending_user_question
@@ -761,7 +808,7 @@ class BaseAgent(AutoLoggerMixin):
             if self.current_session
             else None,
             "current_task_id": self.current_task_id,
-            "current_user_session_id": self.current_user_session_id,
+            "current_user_session_id": user_session_id,
             "status_history": self.status_history.copy(),
         }
 

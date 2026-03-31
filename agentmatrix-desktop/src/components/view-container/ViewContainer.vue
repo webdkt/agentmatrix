@@ -39,6 +39,11 @@ const showAskUserDialog = computed(() => {
   return sessionStore.shouldShowAskUserDialog(currentSession.value.session_id)
 })
 
+// Global dialog state
+const showGlobalAskUserDialog = computed(() => {
+  return sessionStore.shouldShowGlobalAskUserDialog()
+})
+
 // User agent name (fetched from backend on startup)
 const userAgentName = ref('User')
 
@@ -85,6 +90,11 @@ async function setupAppAfterBackend() {
 // Handle dialog submitted
 const handleDialogSubmitted = () => {
   console.log('✅ Ask user dialog submitted')
+}
+
+// Handle global dialog submitted
+const handleGlobalDialogSubmitted = () => {
+  console.log('✅ Global ask user dialog submitted')
 }
 
 // Handle view change from within views
@@ -143,6 +153,14 @@ onMounted(async () => {
       :show="showAskUserDialog"
       @close="sessionStore.closeAskUserDialog(currentSession?.session_id)"
       @submitted="handleDialogSubmitted"
+    />
+
+    <!-- Global Ask User Dialog (for questions without user session) -->
+    <AskUserDialog
+      :show="showGlobalAskUserDialog"
+      :isGlobal="true"
+      @close="sessionStore.markGlobalDialogShown()"
+      @submitted="handleGlobalDialogSubmitted"
     />
   </main>
 </template>

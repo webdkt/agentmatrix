@@ -99,10 +99,26 @@ export const useWebSocketStore = defineStore('websocket', {
           timestamp: new Date().toISOString()
         })
       }
+      // 如果有 pending_question 但没有 current_user_session_id，设置全局 pending_question
+      else if (data.pending_question) {
+        console.log(`✅ Setting global pending question from ${agent_name}`)
+        sessionStore.setGlobalPendingQuestion({
+          agent_name: agent_name,
+          agent_session_id: data.current_session_id,  // ← agent 的 session_id
+          question: data.pending_question,
+          task_id: data.current_task_id,
+          timestamp: new Date().toISOString()
+        })
+      }
       // 如果 pending_question 被清空，清除 session store 中的记录
       else if (data.current_user_session_id) {
         console.log(`❌ Clearing pending question for session ${data.current_user_session_id}`)
         sessionStore.clearPendingQuestion(data.current_user_session_id)
+      }
+      // 如果 pending_question 被清空且没有 current_user_session_id，清除全局 pending_question
+      else if (!data.pending_question && !data.current_user_session_id) {
+        console.log(`❌ Clearing global pending question`)
+        sessionStore.clearGlobalPendingQuestion()
       }
     },
 
@@ -184,10 +200,26 @@ export const useWebSocketStore = defineStore('websocket', {
               timestamp: new Date().toISOString()
             })
           }
+          // 如果有 pending_question 但没有 current_user_session_id，设置全局 pending_question
+          else if (agentInfo.pending_question) {
+            console.log(`    ✅ Found global pending question from ${agentName}`)
+            sessionStore.setGlobalPendingQuestion({
+              agent_name: agentName,
+              agent_session_id: agentInfo.current_session_id,  // ← agent 的 session_id
+              question: agentInfo.pending_question,
+              task_id: agentInfo.current_task_id,
+              timestamp: new Date().toISOString()
+            })
+          }
           // 如果 agent 的 pending_question 被清空（有 session_id 但没有问题）
           else if (agentInfo.current_user_session_id) {
             console.log(`    ❌ No pending question for session ${agentInfo.current_user_session_id}`)
             sessionStore.clearPendingQuestion(agentInfo.current_user_session_id)
+          }
+          // 如果 pending_question 被清空且没有 current_user_session_id，清除全局 pending_question
+          else if (!agentInfo.pending_question && !agentInfo.current_user_session_id) {
+            console.log(`    ❌ No global pending question`)
+            sessionStore.clearGlobalPendingQuestion()
           }
         })
       }

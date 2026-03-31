@@ -7,6 +7,10 @@ const props = defineProps({
   show: {
     type: Boolean,
     default: false
+  },
+  isGlobal: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -16,6 +20,9 @@ const sessionStore = useSessionStore()
 
 // 当前待处理问题
 const currentQuestion = computed(() => {
+  if (props.isGlobal) {
+    return sessionStore.getGlobalPendingQuestion()
+  }
   if (!sessionStore.currentSession) return null
   return sessionStore.getPendingQuestion(sessionStore.currentSession.session_id)
 })
@@ -37,13 +44,18 @@ const submit = async () => {
 
   isSubmitting.value = true
   try {
-    await sessionStore.submitAskUserAnswer(
-      sessionStore.currentSession.session_id,
-      answer.value
-    )
-
-    // 标记对话框已显示（防止重复弹出）
-    sessionStore.markDialogShown(sessionStore.currentSession.session_id)
+    if (props.isGlobal) {
+      await sessionStore.submitGlobalAskUserAnswer(answer.value)
+      // 标记全局对话框已显示
+      sessionStore.markGlobalDialogShown()
+    } else {
+      await sessionStore.submitAskUserAnswer(
+        sessionStore.currentSession.session_id,
+        answer.value
+      )
+      // 标记对话框已显示（防止重复弹出）
+      sessionStore.markDialogShown(sessionStore.currentSession.session_id)
+    }
 
     emit('submitted')
     emit('close')
@@ -56,9 +68,13 @@ const submit = async () => {
 
 // 关闭对话框
 const close = () => {
-  // 标记对话框已显示
-  if (sessionStore.currentSession) {
-    sessionStore.markDialogShown(sessionStore.currentSession.session_id)
+  if (props.isGlobal) {
+    sessionStore.markGlobalDialogShown()
+  } else {
+    // 标记对话框已显示
+    if (sessionStore.currentSession) {
+      sessionStore.markDialogShown(sessionStore.currentSession.session_id)
+    }
   }
   emit('close')
 }
@@ -85,7 +101,14 @@ const close = () => {
         <div class="ask-user-dialog-body">
           <!-- Header -->
           <div class="ask-user-dialog-header">
-            <h2 class="ask-user-dialog-title">{{ currentQuestion.agent_name }} 需要你的回答</h2>
+            <h2 class="ask-user-dialog-title">
+              <template v-if="isGlobal">
+                Agent {{ currentQuestion.agent_name }} 有一个临时问题
+              </template>
+              <template v-else>
+                {{ currentQuestion.agent_name }} 需要你的回答
+              </template>
+            </h2>
             <div class="ask-user-dialog-divider"></div>
           </div>
 
