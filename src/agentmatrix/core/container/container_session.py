@@ -142,7 +142,7 @@ class ContainerSession:
         # 构造命令 - 先 cd 到当前工作目录确保位置正确
         # 使用唯一标记来捕获输出和退出码
         wrapped_cmd = (
-            f"echo '{self._start_marker}'\n{command}\necho '{self._end_marker}:$?'\n"
+            f"echo '{self._start_marker}'\n{command}\necho '{self._end_marker}:'$?\n"
         )
 
         self.logger.debug(f"[session {self.session_id}] 执行: {command[:100]}")
