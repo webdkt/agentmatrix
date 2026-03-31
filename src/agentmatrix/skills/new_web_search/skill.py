@@ -54,6 +54,7 @@ class New_web_searchSkillMixin:
         if "new_web_search" not in self.skill_context:
             self.skill_context["new_web_search"] = {
                 "browser": None,
+                "tab": None,
                 "search_state": {},
                 "page_cache": {},
                 "last_search_query": None,
@@ -66,32 +67,39 @@ class New_web_searchSkillMixin:
     # ==========================================
 
     async def _ensure_browser(self):
-        """懒初始化浏览器"""
+        """懒初始化浏览器标签页（浏览器由 BaseAgent 管理）"""
         ns = self._ns()
-        if ns["browser"] is not None:
+        if ns.get("tab") is not None:
             return
 
-        agent_name = self.root_agent.name
-        task_id = self.root_agent.current_task_id or "default"
+        # 从 BaseAgent 获取共享浏览器（懒启动）
+        await self.root_agent.ensure_browser_started()
+        browser = self.root_agent.get_browser()
 
-        profile_path = str(
-            self.root_agent.runtime.paths.get_browser_profile_dir(agent_name)
-        )
-        work_files_dir = self.root_agent.runtime.paths.get_agent_work_files_dir(
-            agent_name, task_id
-        )
-        download_path = str(work_files_dir / "downloads")
+        # 创建本 MicroAgent 专属的 tab
+        tab = await browser.create_tab()
 
-        ns["browser"] = DrissionPageAdapter(
-            profile_path=profile_path, download_path=download_path
-        )
-        await ns["browser"].start(headless=False)
-        self.logger.info("Browser initialized")
+        ns["browser"] = browser
+        ns["tab"] = tab
+        self.logger.info("Browser tab created")
 
     async def _get_tab(self):
-        """获取浏览器标签页"""
+        """获取本 MicroAgent 的浏览器标签页"""
         await self._ensure_browser()
-        return await self._ns()["browser"].get_tab()
+        return self._ns()["tab"]
+
+    async def skill_cleanup(self):
+        """关闭本 MicroAgent 创建的 tab"""
+        ns = self._ns()
+        tab = ns.pop("tab", None)
+        browser = ns.get("browser")
+        if tab and browser:
+            try:
+                await browser.close_tab(tab)
+                self.logger.info("Browser tab closed")
+            except Exception as e:
+                self.logger.warning(f"Failed to close tab: {e}")
+        ns["browser"] = None
 
     # ==========================================
     # Action: search_with_google / search_with_bing
@@ -248,10 +256,10 @@ class New_web_searchSkillMixin:
         ]
         for selector in next_selectors:
             try:
-                el = tab.ele(selector, timeout=2)
+                el = await asyncio.to_thread(tab.ele, selector, timeout=2)
                 if el:
-                    el.click()
-                    time.sleep(2)
+                    await asyncio.to_thread(el.click)
+                    await asyncio.sleep(2)
                     return True
             except Exception:
                 continue
@@ -261,7 +269,7 @@ class New_web_searchSkillMixin:
         """尝试从页面获取总页数"""
         try:
             # Bing: 分页数字
-            page_nums = tab.eles("css:a.sb_pag")
+            page_nums = await asyncio.to_thread(tab.eles, "css:a.sb_pag")
             if page_nums:
                 nums = []
                 for p in page_nums:
@@ -478,6 +486,7 @@ URL: {url}
             sub_agent = MicroAgent(
                 parent=self.root_agent,
                 name=f"{self.name}_deep_read_{i}",
+                available_skills=["new_web_search.deep_reader", "file"],
             )
             sub_agent.notes = []
             sub_agent.answer = None
@@ -487,15 +496,12 @@ URL: {url}
                     run_label=f"deep_read_batch_{i}",
                     task=task,
                     persona=getattr(self, "persona", None),
-                    available_skills=["new_web_search.deep_reader", "file"],
                     simple_mode=True,
                     exit_actions=[
                         "provide_final_summary",
                         "goto_next_section",
                         "no_need_to_read_further",
                     ],
-                    max_steps=10,
-                    max_time=5,
                 )
             except Exception as e:
                 self.logger.error(f"Sub-agent batch {i} failed: {e}")

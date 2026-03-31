@@ -1129,6 +1129,9 @@ Start generating the Working Notes now.
 
             return {"error": str(e)}
 
+        finally:
+            await self._cleanup_skills()
+
     def _initialize_session(self):
         """初始化对话历史"""
         # 1. System Prompt
@@ -1590,6 +1593,27 @@ Start generating the Working Notes now.
         self.logger.info("⏳ Waiting for LLM service recovery...")
         await monitor.llm_available.wait()
         self.logger.info("✅ LLM service recovered!")
+
+    async def _cleanup_skills(self):
+        """
+        遍历 MRO 中的 SkillMixin，调用其 skill_cleanup()
+
+        Convention: 如果 SkillMixin 定义了 skill_cleanup() 方法，
+        在 MicroAgent 生命周期结束时自动调用。同步/异步均可。
+        每个 SkillMixin 的 cleanup 独立 try/except，一个失败不影响其他。
+        """
+        for cls in self.__class__.__mro__:
+            if not cls.__name__.endswith("SkillMixin"):
+                continue
+            cleanup_fn = cls.__dict__.get("skill_cleanup")
+            if cleanup_fn is None:
+                continue
+            try:
+                result = cleanup_fn(self)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                self.logger.warning(f"Skill cleanup failed in {cls.__name__}: {e}")
 
     async def _prepare_feedback_message(
         self, combined_result: str, step_count: int, start_time: float
