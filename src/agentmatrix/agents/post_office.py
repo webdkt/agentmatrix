@@ -8,6 +8,8 @@ from pathlib import Path
 from datetime import datetime
 from ..core.message import Email
 from ..core.log_util import AutoLoggerMixin
+
+
 class PostOffice(AutoLoggerMixin):
     def __init__(self, paths, user_agent_name: str = "User"):
         self.paths = paths
@@ -15,7 +17,7 @@ class PostOffice(AutoLoggerMixin):
         self.directory = {}
         self.queue = asyncio.Queue()
         email_db_path = str(self.paths.database_path)
-        self.email_db = AgentMatrixDB(email_db_path) # 初始化数据库连接
+        self.email_db = AgentMatrixDB(email_db_path)  # 初始化数据库连接
         self._paused = False
 
         # Store user agent name
@@ -23,10 +25,6 @@ class PostOffice(AutoLoggerMixin):
 
         # Email sent hook list
         self.on_email_sent = []
-
-
-
-
 
     def register(self, agent):
         self.directory[agent.name] = agent
@@ -59,17 +57,13 @@ class PostOffice(AutoLoggerMixin):
 
         return yellow_page
 
-    def get_contact_list(self, exclude =None):
+    def get_contact_list(self, exclude=None):
         contact_list = []
         for name, agent in self.directory.items():
             if name == exclude:
                 continue
             contact_list.append(name)
         return contact_list
-
-
-
-
 
     def pause(self):
         self._paused = True
@@ -79,12 +73,12 @@ class PostOffice(AutoLoggerMixin):
 
     def close(self):
         """关闭 PostOffice，释放资源"""
-        if hasattr(self.email_db, 'conn') and self.email_db.conn:
+        if hasattr(self.email_db, "conn") and self.email_db.conn:
             self.email_db.conn.close()
             self.logger.info("PostOffice DB connection closed.")
 
     async def dispatch(self, email):
-        self.email_db.log_email(email)
+        self.email_db.log_email(email, delivered=False)
         self.logger.debug(f"Sending email from {email.sender} to {email.recipient} ")
         await self.queue.put(email)
         self.logger.debug("Mail delivered")
@@ -105,6 +99,7 @@ class PostOffice(AutoLoggerMixin):
                     if email.recipient in self.directory:
                         target = self.directory[email.recipient]
                         await target.inbox.put(email)
+                        self.email_db.mark_email_delivered(email.id)
                     else:
                         self.logger.warning(f"Dropped mail to {email.recipient}")
                     self.queue.task_done()
@@ -123,41 +118,39 @@ class PostOffice(AutoLoggerMixin):
         Returns:
             指定范围内的邮件列表
         """
-        email_records = self.email_db.get_mails_by_range(task_id, agent_name, start, end)
+        email_records = self.email_db.get_mails_by_range(
+            task_id, agent_name, start, end
+        )
         emails = []
         for record in email_records:
             # 恢复 metadata 字段
             import json
+
             metadata = {}
-            if record.get('metadata'):
+            if record.get("metadata"):
                 try:
-                    metadata = json.loads(record['metadata'])
+                    metadata = json.loads(record["metadata"])
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
             email = Email(
-                id=record['id'],
-                timestamp=datetime.fromisoformat(record['timestamp']),
-                sender=record['sender'],
-                recipient=record['recipient'],
-                subject=record['subject'],
-                body=record['body'],
-                in_reply_to=record['in_reply_to'],
-                task_id=record.get('task_id', None),
-                sender_session_id=record.get('sender_session_id'),
-                recipient_session_id=record.get('recipient_session_id'),
-                metadata=metadata
+                id=record["id"],
+                timestamp=datetime.fromisoformat(record["timestamp"]),
+                sender=record["sender"],
+                recipient=record["recipient"],
+                subject=record["subject"],
+                body=record["body"],
+                in_reply_to=record["in_reply_to"],
+                task_id=record.get("task_id", None),
+                sender_session_id=record.get("sender_session_id"),
+                recipient_session_id=record.get("recipient_session_id"),
+                metadata=metadata,
             )
             emails.append(email)
         return emails
 
-
-
     async def update_email_receiver_session(
-        self,
-        email_id: str,
-        recipient_session_id: str,
-        receiver_name: str
+        self, email_id: str, recipient_session_id: str, receiver_name: str
     ):
         """
         更新邮件的 recipient_session_id（由收件人调用）
@@ -171,18 +164,15 @@ class PostOffice(AutoLoggerMixin):
             RuntimeError: 如果更新失败
         """
         import asyncio
+
         await asyncio.to_thread(
             self.email_db.update_receiver_session,
             email_id,
             recipient_session_id,
-            receiver_name
+            receiver_name,
         )
 
-    def get_emails_by_session(
-        self,
-        session_id: str,
-        agent_name: str
-    ):
+    def get_emails_by_session(self, session_id: str, agent_name: str):
         """
         获取某个 session 的所有邮件（发出去的 + 收到的）
 
@@ -194,31 +184,29 @@ class PostOffice(AutoLoggerMixin):
         Returns:
             Email对象列表
         """
-        email_records = self.email_db.get_emails_by_session(
-            session_id, agent_name
-        )
+        email_records = self.email_db.get_emails_by_session(session_id, agent_name)
         emails = []
         for record in email_records:
             # 恢复 metadata 字段
             metadata = {}
-            if record.get('metadata'):
+            if record.get("metadata"):
                 try:
-                    metadata = json.loads(record['metadata'])
+                    metadata = json.loads(record["metadata"])
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
             email = Email(
-                id=record['id'],
-                timestamp=datetime.fromisoformat(record['timestamp']),
-                sender=record['sender'],
-                recipient=record['recipient'],
-                subject=record['subject'],
-                body=record['body'],
-                in_reply_to=record['in_reply_to'],
-                task_id=record.get('task_id'),
-                sender_session_id=record.get('sender_session_id'),
-                recipient_session_id=record.get('recipient_session_id'),
-                metadata=metadata
+                id=record["id"],
+                timestamp=datetime.fromisoformat(record["timestamp"]),
+                sender=record["sender"],
+                recipient=record["recipient"],
+                subject=record["subject"],
+                body=record["body"],
+                in_reply_to=record["in_reply_to"],
+                task_id=record.get("task_id"),
+                sender_session_id=record.get("sender_session_id"),
+                recipient_session_id=record.get("recipient_session_id"),
+                metadata=metadata,
             )
             emails.append(email)
         return emails
@@ -230,31 +218,33 @@ class PostOffice(AutoLoggerMixin):
         Returns:
             Email对象列表，每个Email包含额外的 is_from_user 布尔字段
         """
-        email_records = self.email_db.get_emails_by_session(session_id, self.user_agent_name)
+        email_records = self.email_db.get_emails_by_session(
+            session_id, self.user_agent_name
+        )
         emails = []
         for record in email_records:
             # 恢复 metadata 字段
             metadata = {}
-            if record.get('metadata'):
+            if record.get("metadata"):
                 try:
-                    metadata = json.loads(record['metadata'])
+                    metadata = json.loads(record["metadata"])
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
             email = Email(
-                id=record['id'],
-                timestamp=datetime.fromisoformat(record['timestamp']),
-                sender=record['sender'],
-                recipient=record['recipient'],
-                subject=record['subject'],
-                body=record['body'],
-                in_reply_to=record['in_reply_to'],
-                task_id=record.get('task_id', None),
-                sender_session_id=record.get('sender_session_id'),
-                recipient_session_id=record.get('recipient_session_id'),
-                metadata=metadata
+                id=record["id"],
+                timestamp=datetime.fromisoformat(record["timestamp"]),
+                sender=record["sender"],
+                recipient=record["recipient"],
+                subject=record["subject"],
+                body=record["body"],
+                in_reply_to=record["in_reply_to"],
+                task_id=record.get("task_id", None),
+                sender_session_id=record.get("sender_session_id"),
+                recipient_session_id=record.get("recipient_session_id"),
+                metadata=metadata,
             )
             # Add is_from_user flag
-            email.is_from_user = (email.sender == self.user_agent_name)
+            email.is_from_user = email.sender == self.user_agent_name
             emails.append(email)
         return emails

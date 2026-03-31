@@ -80,6 +80,14 @@ class AgentMatrixDB(AutoLoggerMixin):
 
         self.conn.commit()
 
+        # 向后兼容：添加 delivered 列（旧数据库可能没有此列）
+        try:
+            cursor.execute("ALTER TABLE emails ADD COLUMN delivered INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
+        self.conn.commit()
+
         # 创建索引
         self._create_indexes()
 
@@ -134,14 +142,14 @@ class AgentMatrixDB(AutoLoggerMixin):
 
         self.conn.commit()
 
-    def log_email(self, email):
+    def log_email(self, email, delivered=True):
         """记录每一封信"""
         cursor = self.conn.cursor()
         cursor.execute(
             """
             INSERT OR IGNORE INTO emails
-            (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata, delivered)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 email.id,
@@ -155,9 +163,37 @@ class AgentMatrixDB(AutoLoggerMixin):
                 email.sender_session_id,
                 email.recipient_session_id,
                 json.dumps(email.metadata) if email.metadata else None,
+                1 if delivered else 0,
             ),
         )
         self.conn.commit()
+
+    def mark_email_delivered(self, email_id: str):
+        """标记邮件为已投递"""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE emails SET delivered = 1 WHERE id = ?", (email_id,))
+        self.conn.commit()
+
+    def get_undelivered_emails(self, recipient: str = None):
+        """获取未投递的邮件"""
+        cursor = self.conn.cursor()
+        if recipient:
+            cursor.execute(
+                "SELECT * FROM emails WHERE delivered = 0 AND recipient = ? ORDER BY timestamp ASC",
+                (recipient,),
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM emails WHERE delivered = 0 ORDER BY timestamp ASC"
+            )
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            row_dict = dict(zip(columns, row))
+            row_dict.pop("delivered", None)
+            result.append(row_dict)
+        return result
 
     def get_mailbox(self, agent_name, limit=50):
         """查询某个 Agent 的收件箱历史"""

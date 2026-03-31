@@ -71,6 +71,14 @@ class AsyncAgentMatrixDB:
         """根据 ID 查询邮件（异步）"""
         return await asyncio.to_thread(self._db.get_email_by_id, email_id)
 
+    async def get_undelivered_emails(self, recipient: str = None) -> List[Dict]:
+        """获取未投递的邮件（异步）"""
+        return await asyncio.to_thread(self._db.get_undelivered_emails, recipient)
+
+    async def mark_email_delivered(self, email_id: str) -> None:
+        """标记邮件为已投递（异步）"""
+        await asyncio.to_thread(self._db.mark_email_delivered, email_id)
+
     # ===== External Email Map 相关 =====
 
     async def save_external_email_mapping(

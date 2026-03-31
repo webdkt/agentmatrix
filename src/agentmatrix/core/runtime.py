@@ -1,20 +1,15 @@
-# runtime.py 或 snapshot_manager.py
+# runtime.py
 import json
 
 from datetime import datetime
 from ..core.message import Email
-from dataclasses import asdict
 from ..core.loader import AgentLoader
 import asyncio
-import os
 
 
 from ..agents.post_office import PostOffice
 from ..core.log_util import LogFactory, AutoLoggerMixin
 from .system_status_collector import SystemStatusCollector
-
-
-from ..core.message import Email
 
 
 # all event format:
@@ -104,7 +99,7 @@ class AgentMatrix(AutoLoggerMixin):
         self.agent_name_set = set(self.agents.keys())
         self.echo(f">>> Agent 名字集合: {self.agent_name_set}")
 
-        # 🔧 广播回调接口（由 server 注入）- 必须在 load_matrix 之前初始化
+        # 🔧 广播回调接口（由 server 注入）- 必须在 startup 之前初始化
         self._broadcast_message_callback = None
 
         self.echo(">>> 初始化系统配置...")
@@ -117,8 +112,8 @@ class AgentMatrix(AutoLoggerMixin):
         self.power_manager = PowerManager(enabled=True, parent_logger=self.logger)
         self.echo(">>> PowerManager initialized (防止系统休眠已启用)")
 
-        self.echo(">>> 加载世界状态...")
-        self.load_matrix()
+        self.echo(">>> 启动系统...")
+        self.startup()
         self.echo(">>> 启动 LLM 服务监控...")
         self._start_llm_monitor()
 
@@ -321,8 +316,8 @@ class AgentMatrix(AutoLoggerMixin):
 
         self.echo(">>> EmailProxy服务已初始化")
 
-    async def save_matrix(self):
-        """一键休眠 - 修复了任务等待和异常处理问题"""
+    async def shutdown(self):
+        """关闭系统 - 停止所有服务和任务"""
         self.echo(">>> 正在冻结世界...")
 
         # 0. 停止电源管理（最先停止，恢复系统默认行为）
@@ -412,47 +407,10 @@ class AgentMatrix(AutoLoggerMixin):
         if self.post_office:
             self.post_office.close()
 
-        world_state = {
-            "timestamp": str(datetime.now()),
-            "agents": {},
-            "post_office": [],
-        }
-
-        # 1. 冻结所有 Agent
-        for agent in self.agents.values():
-            world_state["agents"][agent.name] = agent.dump_state()
-
-        # 2. 冻结邮局 (如果有还在路由的信)
-        # 逻辑同 Agent Inbox
-        po_queue = []
-        while not self.post_office.queue.empty():
-            email = self.post_office.queue.get_nowait()
-            po_queue.append(asdict(email))
-            self.post_office.queue.task_done()
-        world_state["post_office"] = po_queue
-        filepath = str(self.paths.snapshot_path)
-        # 3. 写入磁盘
-        try:
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(
-                    world_state,
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                    default=self.json_serializer,
-                )
-        except TypeError as e:
-            self.logger.error(f"JSON序列化错误: {str(e)}")
-            # 打印world_state的结构，帮助定位问题
-            self.logger.debug("World state structure:")
-            self.logger.debug(world_state)
-            raise
-
-        self.echo(f">>> 世界已保存至 {filepath}")
-        # 9. 清理资源
+        # 6. 清理资源
         self.running = False
 
-        # 10. 取消未完成的任务（避免hang）
+        # 7. 取消未完成的任务（避免hang）
         try:
             loop = asyncio.get_event_loop()
             pending = asyncio.all_tasks(loop)
@@ -467,46 +425,15 @@ class AgentMatrix(AutoLoggerMixin):
         except Exception as e:
             self.echo(f">>> Cleanup error: {e}")
 
-    def load_matrix(self):
-        """一键复活"""
-        self.echo(f">>> 正在从 {self.paths.snapshot_path} 恢复世界...")
+    def startup(self):
+        """启动系统 - 注册Agent、启动服务、恢复未投递邮件"""
+        self.echo(">>> 正在启动系统...")
 
-        # 启动电源管理（防止系统休眠）
         # 启动电源管理（防止系统休眠）
         self.power_manager.start_sync()
 
-        matrix_snapshot_path = str(self.paths.snapshot_path)
-        os.makedirs(os.path.dirname(matrix_snapshot_path), exist_ok=True)
-        # 加载向量数据库
-
-        try:
-            with open(matrix_snapshot_path, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if not content:  # 文件为空
-                    self.echo(f">>> {matrix_snapshot_path} 为空，创建新的世界状态...")
-                    world_state = {}
-                    with open(matrix_snapshot_path, "w", encoding="utf-8") as f:
-                        json.dump(world_state, f, ensure_ascii=False, indent=2)
-                else:
-                    world_state = json.loads(
-                        content
-                    )  # 使用 json.loads 而不是 json.load
-        except FileNotFoundError:
-            self.echo(f">>> 未找到 {matrix_snapshot_path}，创建新的世界状态...")
-            world_state = {}
-            with open(matrix_snapshot_path, "w", encoding="utf-8") as f:
-                json.dump(world_state, f, ensure_ascii=False, indent=2)
-
-        # 1. 恢复 Agent 状态
-        if world_state and "agents" in world_state:
-            for agent in self.agents.values():
-                if agent.name in world_state["agents"]:
-                    agent_data = world_state["agents"][agent.name]
-                    agent.load_state(agent_data)
-                    self.echo(f">>> 恢复 Agent {agent.name} 状态成功！")
-
+        # 1. 注册 Agent 到邮局并启动
         self.running_agent_tasks = []
-        # 3. 注册到邮局
         for agent in self.agents.values():
             # 注入 runtime 引用（setter 会自动初始化 SessionManager 等资源）
             agent.runtime = self
@@ -515,31 +442,40 @@ class AgentMatrix(AutoLoggerMixin):
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
             self.echo(f">>> Agent {agent.name} 已注册到邮局！")
 
-        # 4. 恢复投递
-        self.post_office.resume()
-        if world_state and "post_office" in world_state:
-            for email_dict in world_state["post_office"]:
-                self.post_office.queue.put_nowait(Email(**email_dict))
-
-        # 🆕 启动TaskScheduler
-        if hasattr(self, "task_scheduler"):
-            self.scheduler_task = asyncio.ensure_future(self.task_scheduler.start())
-
-        # 🆕 启动EmailProxy
+        # 2. 启动 EmailProxy（hook 注册立即完成，IMAP 拉取延迟 60s）
         if self.email_proxy:
-            self.echo(f">>> 启动EmailProxy服务...")
+            self.echo(f">>> 启动 EmailProxy 服务...")
             self.email_proxy_task = asyncio.ensure_future(self.email_proxy.start())
             self.echo(">>> EmailProxy service started")
         else:
-            self.echo(">>> EmailProxy未配置，跳过启动")
-        self.echo(">>> 世界已恢复，系统继续运行！")
+            self.echo(">>> EmailProxy 未配置，跳过启动")
+
+        # 3. 从数据库恢复未投递的邮件
+        undelivered = self.post_office.email_db.get_undelivered_emails()
+        if undelivered:
+            self.echo(f">>> 恢复 {len(undelivered)} 封未投递邮件...")
+            for email_dict in undelivered:
+                try:
+                    email = Email(**email_dict)
+                    self.post_office.queue.put_nowait(email)
+                except Exception as e:
+                    self.logger.warning(f"恢复邮件失败: {e}")
+
+        # 4. 恢复投递
+        self.post_office.resume()
+
+        # 5. 启动 TaskScheduler
+        if hasattr(self, "task_scheduler"):
+            self.scheduler_task = asyncio.ensure_future(self.task_scheduler.start())
+
+        self.echo(">>> 系统启动完成，继续运行！")
         yellow_page = self.post_office.yellow_page()
         self.echo(f">>> 当前世界中的 Agent 有：\n{yellow_page}")
 
-        # 🔧 启动运行时（事件驱动模式，无需定时广播）
+        # 启动运行时（事件驱动模式，无需定时广播）
         self.running = True
 
-        # ✅ 注入广播回调给所有 Agent
+        # 注入广播回调给所有 Agent
         for agent in self.agents.values():
             agent._broadcast_message_callback = self.get_broadcast_callback()
         self.logger.info("✅ 广播回调已注入到所有 Agent")

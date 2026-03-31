@@ -64,7 +64,6 @@ class BaseAgent(AutoLoggerMixin):
 
         self.last_received_email = None  # 最后收到的信
         self.post_office = None
-        self.last_email_processed = True
 
         # Session Manager（延迟初始化）
         self.session_manager = None
@@ -923,15 +922,12 @@ class BaseAgent(AutoLoggerMixin):
                         self.logger.info("⏸️ 取消 history worker（开始处理邮件）")
                         self.history_worker_task.cancel()
 
-                    # 处理邮件（现有逻辑）
+                    # 处理邮件
                     self.last_received_email = email
-                    self.last_email_processed = False
 
                     try:
                         await self.process_email(email)
-                        self.last_email_processed = True
                     except asyncio.CancelledError:
-                        # 任务被取消，保持 last_email_processed = False
                         self.logger.warning(
                             f"Task cancelled, email "
                             f"{self.last_received_email.id if self.last_received_email else 'None'} "
@@ -1140,11 +1136,6 @@ Extract facts now.
             email = self.inbox.get_nowait()
             inbox_content.append(asdict(email))  # Email 也需要 to_dict
             self.inbox.task_done()
-
-        # 额外检查：如果保存时正在处理某封信，把它塞回 Inbox 的头部！
-        # 这样下次启动时，Agent 会重新处理这封信，相当于"断点重试"
-        if self.last_received_email and not self.last_email_processed:
-            inbox_content.insert(0, asdict(self.last_received_email))
 
         return {
             "name": self.name,

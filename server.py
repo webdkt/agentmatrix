@@ -277,7 +277,7 @@ async def graceful_shutdown():
         try:
             print("💾 Saving Matrix state...")
             # Use wait_for to prevent hanging
-            await asyncio.wait_for(matrix_runtime.save_matrix(), timeout=10.0)
+            await asyncio.wait_for(matrix_runtime.shutdown(), timeout=10.0)
             print("✅ Matrix state saved successfully")
         except asyncio.TimeoutError:
             print("⚠️  Saving matrix state timed out (10s), forcing shutdown...")
