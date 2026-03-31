@@ -19,3 +19,4 @@ markdown-it-py>=3.0.0
 python-multipart
 imap-tools
 pydantic>=2.0.0
+aiosqlite>=0.19.0

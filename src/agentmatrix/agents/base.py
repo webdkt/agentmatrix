@@ -586,11 +586,11 @@ class BaseAgent(AutoLoggerMixin):
                 "Docker 容器管理器未初始化。请确保 workspace_root 已正确设置。"
             )
 
-        # 唤醒容器
-        self.docker_manager.wakeup()
+        # 唤醒容器（异步）
+        await asyncio.to_thread(self.docker_manager.wakeup)
 
-        # 切换工作区
-        success = self.docker_manager.switch_workspace(task_id)
+        # 切换工作区（异步）
+        success = await asyncio.to_thread(self.docker_manager.switch_workspace, task_id)
         if not success:
             raise RuntimeError(f"工作区切换失败: {task_id}")
 

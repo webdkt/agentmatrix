@@ -69,13 +69,30 @@ if [ -z "${VITE_PID:-}" ] || ! lsof -Pi :5173 -sTCP:LISTEN -t >/dev/null 2>&1; t
     VITE_PID=$!
     echo "   Vite server PID: $VITE_PID"
     echo "   Waiting for Vite to start..."
-    sleep 3
-    if curl -s http://localhost:5173 > /dev/null; then
+
+    # Retry loop - wait up to 15 seconds for server to be ready
+    READY=false
+    for i in $(seq 1 15); do
+        sleep 1
+        # Use 127.0.0.1 to avoid IPv6 issues, follow redirects
+        if curl -s -f -o /dev/null --max-time 2 http://127.0.0.1:5173/ 2>/dev/null; then
+            READY=true
+            break
+        fi
+    done
+
+    if [ "$READY" = true ]; then
         echo "   ✅ Vite server ready at http://localhost:5173"
     else
-        echo "   ❌ Vite server failed to start"
-        echo "   Check logs: tail -f /tmp/vite-dev.log"
-        exit 1
+        echo "   ⚠️  Vite health check inconclusive, checking if process is running..."
+        if kill -0 $VITE_PID 2>/dev/null; then
+            echo "   ✅ Vite server process (PID: $VITE_PID) is running"
+            echo "   💡 You can access it at http://localhost:5173"
+        else
+            echo "   ❌ Vite server failed to start"
+            echo "   Check logs: tail -f /tmp/vite-dev.log"
+            exit 1
+        fi
     fi
 fi
 

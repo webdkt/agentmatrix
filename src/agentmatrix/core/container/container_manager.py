@@ -17,6 +17,7 @@ from datetime import datetime
 from .runtime_factory import ContainerRuntimeFactory
 from .runtime_adapter import ContainerAdapter, ContainerHandle
 from .compat import ContainerCompat
+from .container_session import ContainerSession
 
 
 def sanitize_container_name(agent_name: str) -> str:
@@ -111,6 +112,9 @@ class ContainerManager:
 
         # 容器句柄（延迟创建）
         self.container: Optional[ContainerHandle] = None
+
+        # 持久 Shell 会话
+        self._session: Optional[ContainerSession] = None
 
         # HTTP Proxy 配置
         self.proxy_config = proxy_config
@@ -433,20 +437,20 @@ class ContainerManager:
             raise RuntimeError(f"工作区切换失败: {e}") from e
 
     async def exec_command(
-        self, command: str, timeout: int = 30
+        self, command: str, timeout: int = 30, use_session: bool = True
     ) -> Tuple[int, str, str]:
         """
         在容器内执行命令（async 版本）
 
-        所有命令在 /work_files 目录下执行（内部使用 cd 处理符号链接）
+        如果 use_session=True（默认），会尝试使用持久会话执行命令，
+        保持工作目录和环境变量状态。如果会话不存在会自动创建。
 
-        超时策略：
-        - 命令在容器内正常执行，不强制中断
-        - 如果执行超过1小时，返回提示信息，但容器内命令继续运行
+        如果 use_session=False，使用传统的每次新建 shell 的方式。
 
         Args:
             command: 要执行的命令
             timeout: 超时时间（秒，已弃用，保留仅为兼容性）
+            use_session: 是否使用持久会话（默认 True）
 
         Returns:
             Tuple[int, str, str]: (退出码, stdout, stderr)
@@ -456,6 +460,16 @@ class ContainerManager:
         """
         import subprocess
         import time
+        import asyncio
+
+        # 尝试使用持久会话
+        if use_session:
+            try:
+                result = await self.exec_command_in_session_async(command, timeout=3600)
+                return result
+            except Exception as e:
+                self.logger.warning(f"Session 执行失败，回退到传统模式: {e}")
+                # 回退到传统模式
 
         try:
             self._ensure_container()
@@ -468,8 +482,6 @@ class ContainerManager:
             full_command = f"cd /work_files && {command}"
 
             # 🔧 使用 subprocess 直接调用 podman exec（SDK 的 exec_run 有 bug）
-            import asyncio
-
             loop = asyncio.get_event_loop()
 
             # 构建完整的 podman exec 命令
@@ -513,6 +525,115 @@ class ContainerManager:
 
         except Exception as e:
             raise RuntimeError(f"命令执行失败: {e}") from e
+
+    # ==================== 持久 Session 管理 ====================
+
+    def start_session(self, workdir: str = "/work_files") -> ContainerSession:
+        """
+        启动持久 Shell 会话
+
+        持久会话保持工作目录和环境变量状态，
+        类似于打开一个终端，所有操作都在同一个会话中。
+
+        Args:
+            workdir: 初始工作目录
+
+        Returns:
+            ContainerSession: 会话对象
+        """
+        if self._session and self._session.is_alive():
+            self.logger.info("会话已存在且活跃，复用现有会话")
+            return self._session
+
+        self._ensure_container()
+
+        # 确保容器已运行
+        if self.container.status.lower() != "running":
+            self.wakeup()
+
+        # 停止旧会话（如果存在）
+        if self._session:
+            try:
+                self._session.stop()
+            except Exception:
+                pass
+
+        # 创建并启动新会话
+        self._session = ContainerSession(
+            container_name=self.container_name,
+            runtime_type=self.runtime_type,
+            initial_workdir=workdir,
+            logger=self.logger,
+        )
+        self._session.start()
+
+        self.logger.info(f"✅ 持久会话已启动: {self._session.session_id}")
+        return self._session
+
+    def stop_session(self) -> None:
+        """停止持久会话"""
+        if self._session:
+            self._session.stop()
+            self.logger.info("持久会话已停止")
+            self._session = None
+
+    def get_session(self) -> Optional[ContainerSession]:
+        """获取当前会话（如果存在且活跃）"""
+        if self._session and self._session.is_alive():
+            return self._session
+        return None
+
+    def exec_command_in_session(
+        self, command: str, timeout: float = 3600
+    ) -> Tuple[int, str, str]:
+        """
+        在持久会话中执行命令
+
+        与 exec_command 的区别：
+        - 保持工作目录状态
+        - 保持环境变量状态
+        - 类似终端交互体验
+
+        Args:
+            command: 要执行的命令
+            timeout: 超时时间（秒）
+
+        Returns:
+            Tuple[int, str, str]: (退出码, stdout, stderr)
+        """
+        session = self.get_session()
+        if not session:
+            # 自动创建会话
+            session = self.start_session()
+
+        return session.execute(command, timeout)
+
+    def get_session_workdir(self) -> Optional[str]:
+        """获取会话当前工作目录"""
+        session = self.get_session()
+        if session:
+            return session.get_workdir()
+        return None
+
+    async def exec_command_in_session_async(
+        self, command: str, timeout: float = 3600
+    ) -> Tuple[int, str, str]:
+        """
+        在持久会话中执行命令（async 版本）
+
+        Args:
+            command: 要执行的命令
+            timeout: 超时时间（秒）
+
+        Returns:
+            Tuple[int, str, str]: (退出码, stdout, stderr)
+        """
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.exec_command_in_session(command, timeout)
+        )
 
     def get_status(self) -> Dict:
         """
@@ -559,6 +680,9 @@ class ContainerManager:
             RuntimeError: 停止失败
         """
         try:
+            # 先停止会话
+            self.stop_session()
+
             self._ensure_container()
 
             if self.container.status.lower() == "running":
@@ -605,6 +729,12 @@ class ContainerManager:
 
     def __del__(self):
         """析构函数：清理资源"""
+        try:
+            # 停止会话
+            if hasattr(self, "_session") and self._session:
+                self._session.stop()
+        except Exception:
+            pass
         try:
             if hasattr(self, "adapter") and self.adapter:
                 self.adapter.close()

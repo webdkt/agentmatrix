@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import re
+import time
 import asyncio
 import argparse
 from pathlib import Path
@@ -440,6 +441,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# === 请求计时中间件 ===
+@app.middleware("http")
+async def add_timing_header(request: Request, call_next):
+    """添加请求计时头，标记慢请求（>100ms）"""
+    start = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start
+    response.headers["X-Process-Time"] = f"{process_time:.3f}"
+
+    # 超过 100ms 记录日志（帮助识别性能瓶颈）
+    if process_time > 0.1:
+        print(
+            f"⚠️ Slow request: {request.method} {request.url.path} took {process_time:.3f}s"
+        )
+
+    return response
+
+
 # Store configuration in app.state
 app.state.config = {
     "matrix_world_dir": matrix_world_dir,
@@ -729,9 +749,12 @@ async def get_sessions(page: int = 1, per_page: int = 20):
 
     user_agent_name = matrix_runtime.get_user_agent_name()
 
-    # Query sessions from database
-    result = matrix_runtime.post_office.email_db.get_user_sessions(
-        user_agent_name=user_agent_name, page=page, per_page=per_page
+    # Query sessions from database (async)
+    result = await asyncio.to_thread(
+        matrix_runtime.post_office.email_db.get_user_sessions,
+        user_agent_name=user_agent_name,
+        page=page,
+        per_page=per_page,
     )
 
     # Transform to response format
@@ -843,17 +866,25 @@ async def send_email(
                 content = await attachment.read()
                 filename = attachment.filename or "unnamed"
 
-                # 保存到 User 目录
+                # 保存到 User 目录（异步）
                 user_file_path = user_attachments_dir / filename
-                with open(user_file_path, "wb") as f:
-                    f.write(content)
+
+                def save_file():
+                    with open(user_file_path, "wb") as f:
+                        f.write(content)
+
+                await asyncio.to_thread(save_file)
 
                 # 同时复制到收件人目录（如果是发给 Agent）
                 if recipient_attachments_dir is not None:
                     import shutil
 
                     recipient_file_path = recipient_attachments_dir / filename
-                    shutil.copy2(user_file_path, recipient_file_path)
+
+                    def copy_file():
+                        shutil.copy2(user_file_path, recipient_file_path)
+
+                    await asyncio.to_thread(copy_file)
                     print(
                         f"✅ Attachment copied to recipient: {filename} -> {recipient_file_path}"
                     )
@@ -963,7 +994,9 @@ async def get_session_emails(session_id: str):
             )
 
         # 标记会话为已读（用户查看了这个 session）
-        matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
+        await asyncio.to_thread(
+            matrix_runtime.post_office.email_db.mark_session_as_read, session_id
+        )
 
         return {"success": True, "emails": emails_data, "total_count": len(emails_data)}
     except Exception as e:
@@ -1047,9 +1080,13 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
         if file_ext in all_previewable:
             # File can be previewed in browser
             media_type = all_previewable[file_ext]
-            # Use inline to display in browser instead of downloading
-            with open(attachment_path, "rb") as f:
-                file_content = f.read()
+
+            # Use inline to display in browser instead of downloading (async)
+            def read_file():
+                with open(attachment_path, "rb") as f:
+                    return f.read()
+
+            file_content = await asyncio.to_thread(read_file)
             # Encode filename for HTTP header (support Chinese and other non-ASCII characters)
             encoded_filename = quote(filename, safe="")
 
@@ -1061,7 +1098,7 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
                 },
             )
         else:
-            # Download the file
+            # Download the file (FileResponse handles this efficiently)
             return FileResponse(
                 path=str(attachment_path),
                 filename=filename,
@@ -1195,7 +1232,7 @@ async def get_agent_log(agent_name: str, lines: int = 200):
     if not log_path.exists():
         return {"content": "", "path": str(log_path)}
 
-    try:
+    def read_log_file():
         with open(log_path, "r", encoding="utf-8") as f:
             all_lines = f.readlines()
             # 返回最后 N 行
@@ -1204,6 +1241,11 @@ async def get_agent_log(agent_name: str, lines: int = 200):
                 if len(all_lines) > lines
                 else "".join(all_lines)
             )
+        return content
+
+    try:
+        # 使用线程池读取文件（不阻塞事件循环）
+        content = await asyncio.to_thread(read_log_file)
         return {"content": content, "path": str(log_path)}
     except Exception as e:
         return {"content": "", "error": str(e)}
@@ -1224,8 +1266,8 @@ async def get_agent_sessions(agent_name: str):
         # 直接使用 PostOffice 的数据库实例
         db = matrix_runtime.post_office.email_db
 
-        # 获取 Agent 的 sessions
-        sessions = db.get_agent_sessions(agent_name)
+        # 获取 Agent 的 sessions (async)
+        sessions = await asyncio.to_thread(db.get_agent_sessions, agent_name)
         return {"sessions": sessions}
     except Exception as e:
         print(f"Error getting agent sessions: {e}")
@@ -1332,6 +1374,11 @@ async def get_runtime_status():
 
 # === Skills APIs ===
 
+# Skills 缓存 (5分钟 TTL)
+_skills_cache: list = None
+_skills_cache_time: float = 0
+_skills_cache_ttl: float = 300  # 5 分钟
+
 
 def scan_available_skills() -> list:
     """扫描所有可用的 skills（从文件系统）"""
@@ -1437,12 +1484,40 @@ def get_skill_description(skill_file: Path, skill_name: str) -> str:
     return f"{skill_name} skill"
 
 
+def get_skills_with_cache(force_refresh: bool = False) -> list:
+    """获取 skills（带缓存）"""
+    global _skills_cache, _skills_cache_time
+
+    now = time.time()
+    if (
+        not force_refresh
+        and _skills_cache is not None
+        and (now - _skills_cache_time) < _skills_cache_ttl
+    ):
+        return _skills_cache
+
+    # 缓存过期或强制刷新
+    _skills_cache = scan_available_skills()
+    _skills_cache_time = now
+    return _skills_cache
+
+
 @app.get("/api/skills")
 async def get_available_skills():
-    """Get all available skills in the system"""
+    """Get all available skills in the system (with 5min cache)"""
     try:
-        skills = scan_available_skills()
+        skills = get_skills_with_cache()
         return {"skills": skills}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/skills/refresh")
+async def refresh_skills_cache():
+    """Force refresh skills cache"""
+    try:
+        skills = get_skills_with_cache(force_refresh=True)
+        return {"skills": skills, "refreshed": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1513,28 +1588,24 @@ def agent_profile_to_response(profile: dict) -> dict:
 
 @app.get("/api/agent-profiles")
 async def get_agent_profiles():
-    """Get all agent profiles from YAML files (including full details)"""
+    """Get all agent profiles from runtime (in-memory, no file I/O)"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        return {"agents": []}
+
     try:
-        import yaml
-
         profiles = []
+        user_agent_name = matrix_runtime.get_user_agent_name()
 
-        if not agents_dir.exists():
-            return {"agents": []}
-
-        for yml_file in agents_dir.glob("*.yml"):
-            # Skip User.yml - it's special
-            if yml_file.stem == "User":
+        for name, agent in matrix_runtime.agents.items():
+            # Skip User agent
+            if name == user_agent_name:
                 continue
 
-            try:
-                with open(yml_file, "r", encoding="utf-8") as f:
-                    profile = yaml.safe_load(f)
-                    if profile and isinstance(profile, dict):
-                        profiles.append(agent_profile_to_response(profile))
-            except Exception as e:
-                print(f"Error loading agent profile {yml_file}: {e}")
-                continue
+            # Use in-memory profile data (no file read needed)
+            if hasattr(agent, "profile") and agent.profile:
+                profiles.append(agent_profile_to_response(agent.profile))
 
         return {"agents": profiles}
     except Exception as e:
