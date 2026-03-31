@@ -112,6 +112,9 @@ jobs:
         run: npm install
 
       # ==================== Tauri Build ====================
+      - name: Clean .DS_Store files
+        run: find . -name ".DS_Store" -delete
+
       - name: Build Tauri application
         working-directory: agentmatrix-desktop
         run: npm run tauri:build
@@ -204,6 +207,9 @@ jobs:
         run: npm install
 
       # ==================== Tauri Build ====================
+      - name: Clean .DS_Store files
+        run: find . -name ".DS_Store" -delete
+
       - name: Build Tauri application
         working-directory: agentmatrix-desktop
         run: npm run tauri:build
@@ -299,6 +305,10 @@ jobs:
         run: npm install
 
       # ==================== Tauri Build ====================
+      - name: Clean .DS_Store files
+        shell: bash
+        run: find . -name ".DS_Store" -delete 2>/dev/null || true
+
       - name: Build Tauri application
         working-directory: agentmatrix-desktop
         run: npm run tauri:build
@@ -337,5 +347,6 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          clobber: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
