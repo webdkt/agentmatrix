@@ -16,8 +16,8 @@ class UserProxyAgent(BaseAgent):
         super().__init__(profile, profile_path=profile_path)
         self.on_mail_received = None
 
-        # UserProxyAgent 不需要 docker_manager
-        # 跳过 Docker 初始化
+        # UserProxyAgent 不需要 container_session
+        # 跳过 Container Session 初始化
 
     def set_mail_handler(self, on_mail_received: OnMailReceived):
         self.on_mail_received = on_mail_received

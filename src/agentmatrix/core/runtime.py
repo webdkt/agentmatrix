@@ -293,17 +293,13 @@ class AgentMatrix(AutoLoggerMixin):
         """初始化单容器管理器（共享容器架构）"""
         from ..core.container.single_container_manager import SingleContainerManager
 
-        try:
-            self.container_manager = SingleContainerManager(
-                workspace_root=self.paths.workspace_dir,
-                parent_logger=self.logger,
-            )
-            # 确保容器已启动
-            self.container_manager.wakeup()
-            self.echo(">>> 单容器管理器初始化成功")
-        except Exception as e:
-            self.echo(f">>> 单容器管理器初始化失败: {e}")
-            self.container_manager = None
+        self.container_manager = SingleContainerManager(
+            workspace_root=self.paths.workspace_dir,
+            parent_logger=self.logger,
+        )
+        # 确保容器已启动
+        self.container_manager.wakeup()
+        self.echo(">>> 单容器管理器初始化成功")
 
     def _init_email_proxy(self):
         """初始化EmailProxy服务"""

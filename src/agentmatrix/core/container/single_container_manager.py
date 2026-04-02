@@ -21,6 +21,7 @@ from .runtime_factory import ContainerRuntimeFactory
 from .runtime_adapter import ContainerAdapter, ContainerHandle
 from .compat import ContainerCompat
 from .container_session import ContainerSession
+from ..log_util import AutoLoggerMixin
 
 
 def sanitize_username(agent_name: str) -> str:
@@ -54,7 +55,7 @@ def sanitize_username(agent_name: str) -> str:
     return f"agent_{short_hash}"
 
 
-class SingleContainerManager:
+class SingleContainerManager(AutoLoggerMixin):
     """
     单容器多用户管理器
 
@@ -97,9 +98,9 @@ class SingleContainerManager:
         self.proxy_config = proxy_config
 
         if parent_logger:
-            self.logger = parent_logger.getChild("single_container")
+            self._parent_logger = parent_logger.getChild("single_container")
         else:
-            self.logger = logging.getLogger("single_container")
+            self._parent_logger = logging.getLogger("single_container")
 
         # 初始化容器运行时适配器
         self.adapter: ContainerAdapter = ContainerRuntimeFactory.create(
@@ -114,7 +115,7 @@ class SingleContainerManager:
         self.container: Optional[ContainerHandle] = None
 
         # 已注册的 Agent 用户 {username: ContainerSession}
-        self._sessions: Dict[str, ContainerSession] = {}
+        self._container_sessions: Dict[str, ContainerSession] = {}
 
         # 已注册的用户名集合
         self._registered_users: set = set()
@@ -340,9 +341,9 @@ class SingleContainerManager:
         self._ensure_container()
 
         # 停止该用户的会话
-        if username in self._sessions:
-            self._sessions[username].stop()
-            del self._sessions[username]
+        if username in self._container_sessions:
+            self._container_sessions[username].stop()
+            del self._container_sessions[username]
 
         # 删除用户（保留数据目录，仅删除系统用户）
         exit_code, output = self._exec_as_root(f"userdel {username} 2>&1")
@@ -360,7 +361,7 @@ class SingleContainerManager:
 
     # ==================== 会话管理 ====================
 
-    def get_session(self, agent_name: str) -> ContainerSession:
+    def get_container_session(self, agent_name: str) -> ContainerSession:
         """
         获取或创建 Agent 的持久终端连接。
 
@@ -379,38 +380,38 @@ class SingleContainerManager:
         self.ensure_user(agent_name)
 
         # 检查现有终端连接（用 username 作为 key）
-        if username in self._sessions:
-            session = self._sessions[username]
-            if session.is_alive():
-                return session
+        if username in self._container_sessions:
+            container_session = self._container_sessions[username]
+            if container_session.is_alive():
+                return container_session
             # 连接已断开，重新创建
-            session.stop()
+            container_session.stop()
 
         # 创建新终端连接
         self._ensure_container()
         if self.container.status.lower() != "running":
             self.wakeup()
 
-        session = ContainerSession(
+        container_session = ContainerSession(
             container_name=self.SHARED_CONTAINER_NAME,
             runtime_type=self.runtime_type,
             initial_workdir=None,
             logger=self.logger,
             username=username,
         )
-        session.start()
-        self._sessions[username] = session
+        container_session.start()
+        self._container_sessions[username] = container_session
         self.logger.info(
-            f"终端连接已建立: {username} (agent: {agent_name}, session: {session.session_id})"
+            f"终端连接已建立: {username} (agent: {agent_name}, container_session: {container_session.session_id})"
         )
-        return session
+        return container_session
 
-    def stop_session(self, agent_name: str) -> None:
+    def stop_container_session(self, agent_name: str) -> None:
         """停止 Agent 的持久会话"""
         username = sanitize_username(agent_name)
-        if username in self._sessions:
-            self._sessions[username].stop()
-            del self._sessions[username]
+        if username in self._container_sessions:
+            self._container_sessions[username].stop()
+            del self._container_sessions[username]
 
     # ==================== 命令执行 ====================
 
@@ -433,7 +434,7 @@ class SingleContainerManager:
         """
         import asyncio
 
-        session = self.get_session(agent_name)
+        session = self.get_container_session(agent_name)
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
@@ -441,78 +442,6 @@ class SingleContainerManager:
         )
 
     # ==================== 工作区管理 ====================
-
-    def _setup_current_task_symlink(self, agent_name: str, task_id: str) -> None:
-        """
-        创建 ~/current_task 软链接，指向任务目录。
-
-        容器内视角：
-        ~/current_task → /data/agents/{agent_name}/work_files/{task_id}
-
-        Args:
-            agent_name: Agent 名称（用于路径，非 sanitize 后的用户名）
-            task_id: 任务 ID
-        """
-        username = sanitize_username(agent_name)
-        link_path = f"/data/agents/{agent_name}/home/current_task"
-        target_path = f"/data/agents/{agent_name}/work_files/{task_id}"
-
-        self.logger.info(f"[symlink] 设置软链接: {link_path} -> {target_path}")
-
-        cmds = [
-            f"rm -rf {link_path}",
-            f"ln -sf {target_path} {link_path}",
-            f"chown -h {username}:{username} {link_path}",
-        ]
-        for cmd in cmds:
-            exit_code, output = self._exec_as_root(cmd)
-            if exit_code != 0:
-                self.logger.warning(f"[symlink] 命令失败: {cmd} -> {output}")
-
-        # 验证软链接是否生效
-        verify_code, verify_out = self._exec_as_root(f"readlink {link_path}")
-        self.logger.info(
-            f"[symlink] 验证: readlink -> {verify_out.strip()} (exit={verify_code})"
-        )
-
-    def switch_workspace(self, agent_name: str, task_id: str) -> bool:
-        """
-        切换 Agent 的任务工作目录。
-
-        1. 宿主机创建任务目录
-        2. 更新 ~/current_task 软链接
-        3. 如果有活跃 session，cd 到 ~/current_task
-
-        Args:
-            agent_name: Agent 名称
-            task_id: 任务/会话 ID
-
-        Returns:
-            bool: 是否成功
-        """
-        username = sanitize_username(agent_name)
-        self._ensure_container()
-        self.logger.info(
-            f"DEBUG switch_workspace: agent_name={agent_name!r}, task_id={task_id!r}"
-        )
-
-        # 在宿主机创建目录（路径用 agent_name，volume mount 自动同步到容器内）
-        task_dir = self.agents_root / agent_name / "work_files" / task_id
-        task_dir.mkdir(parents=True, exist_ok=True)
-
-        # 设置目录所有权（chown 用 username，路径用 agent_name）
-        chown_cmd = f"chown -R {username}:{username} /data/agents/{agent_name}/work_files/{task_id}"
-        self._exec_as_root(chown_cmd)
-
-        # 更新 ~/current_task 软链接（路径用 agent_name）
-        self._setup_current_task_symlink(agent_name, task_id)
-
-        # 如果有活跃的会话，cd 到 ~/current_task
-        if username in self._sessions and self._sessions[username].is_alive():
-            self._sessions[username]._send_raw("cd ~/current_task\n")
-
-        self.logger.info(f"任务已切换: {agent_name} (user: {username}) -> {task_id}")
-        return True
 
     # ==================== 状态查询 ====================
 
@@ -541,9 +470,9 @@ class SingleContainerManager:
         """停止容器"""
         try:
             # 停止所有会话
-            for session in self._sessions.values():
+            for session in self._container_sessions.values():
                 session.stop()
-            self._sessions.clear()
+            self._container_sessions.clear()
 
             self._ensure_container()
             if self.container.status.lower() == "running":
@@ -556,9 +485,9 @@ class SingleContainerManager:
     def remove(self) -> bool:
         """删除容器"""
         try:
-            for session in self._sessions.values():
+            for session in self._container_sessions.values():
                 session.stop()
-            self._sessions.clear()
+            self._container_sessions.clear()
 
             self._ensure_container()
             if self.container.status.lower() in ("running", "paused"):
@@ -611,7 +540,7 @@ class SingleContainerManager:
     def __del__(self):
         """析构函数：清理资源"""
         try:
-            for session in self._sessions.values():
+            for session in self._container_sessions.values():
                 session.stop()
         except Exception:
             pass

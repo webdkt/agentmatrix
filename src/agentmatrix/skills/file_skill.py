@@ -3,11 +3,12 @@ File Operation Skill - 容器内执行版本
 
 核心设计：
 - 所有文件操作在共享容器内以 Agent 用户身份执行
-- 工作目录：~/current_task（自动切换到当前任务目录）
+- 直接使用用户提供的路径，不做任何路径转换
 - Agent 在自己的工作目录中有完全权限（无白名单限制）
 """
 
-import os
+import asyncio
+import base64
 from typing import Optional
 from ..core.action import register_action
 
@@ -22,56 +23,14 @@ class FileSkillMixin:
     - write: 写入文件
     - search: 搜索文件或内容
     - bash: 执行 shell 命令
-
-    特点：
-    - 容器内执行，Agent 隔离
-    - 工作目录：~/current_task
     """
 
-    # 🆕 Skill 级别元数据
-    _skill_description = """文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。当前会话的工作目录已自动挂载到 **`~/current_task`** 目录"""
-    _skill_description = """文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。当前会话的工作目录已自动挂载到 **`~/current_task`** 目录"""
+    # Skill 级别元数据
+    _skill_description = """文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。"""
 
     _skill_usage_guide = """
-文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。当前会话的工作目录已自动挂载到 **`~/current_task`** 目录
+文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。
 """
-
-    def _get_root_agent(self):
-        """获取 root_agent"""
-        if hasattr(self, "root_agent") and self.root_agent:
-            return self.root_agent
-        return self
-
-    def _ensure_docker_manager(self):
-        """确保 docker_manager 可用"""
-        root_agent = self._get_root_agent()
-
-        if not hasattr(root_agent, "docker_manager") or not root_agent.docker_manager:
-            raise RuntimeError("Docker manager 未初始化，无法执行文件操作")
-
-        return root_agent.docker_manager
-
-    def _get_container_workdir(self) -> str:
-        """获取容器内的工作目录路径"""
-        docker_manager = self._ensure_docker_manager()
-        if hasattr(docker_manager, "container_workdir"):
-            return docker_manager.container_workdir
-        return "$HOME/current_task"
-
-    def _resolve_container_path(self, file_path: str) -> str:
-        """
-        解析文件路径为容器内绝对路径
-
-        Args:
-            file_path: 用户提供的路径（相对或绝对）
-
-        Returns:
-            str: 容器内绝对路径
-        """
-        if os.path.isabs(file_path):
-            return file_path
-        workdir = self._get_container_workdir()
-        return f"{workdir}/{file_path}"
 
     # ==================== Actions ====================
 
@@ -79,7 +38,7 @@ class FileSkillMixin:
         short_desc="列目录[directory, recursive=False]",
         description="列出目录内容。支持单层或递归列出",
         param_infos={
-            "directory": "目录路径（可选，默认当前目录 ~/current_task）",
+            "directory": "目录路径（可选，默认当前目录）",
             "recursive": "是否递归列出子目录（默认False）",
         },
     )
@@ -93,9 +52,9 @@ class FileSkillMixin:
             directory: 目录路径（默认当前目录）
             recursive: 是否递归列出子目录
         """
-        docker_manager = self._ensure_docker_manager()
+        container_session = self.root_agent.container_session
 
-        # 默认工作目录（使用相对路径）
+        # 默认当前目录
         work_dir = directory or "."
 
         # 构建命令
@@ -104,34 +63,16 @@ class FileSkillMixin:
         else:
             cmd = f"ls -lho {work_dir}"
 
-        # 在容器内执行
-        exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
+        # 在容器内执行（异步避免阻塞）
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            container_session.execute, cmd
+        )
 
         self.logger.info(f"[list_dir] 命令: {cmd}")
         self.logger.info(f"[list_dir] exit_code: {exit_code}")
-        self.logger.info(f"[list_dir] stdout:\n{stdout}")
-        self.logger.info(f"[list_dir] stderr:\n{stderr}")
 
         if exit_code != 0:
-            # 提供详细的错误信息
-            container_status = "unknown"
-            try:
-                container_status = (
-                    docker_manager.container.status
-                    if docker_manager.container
-                    else "no_container"
-                )
-            except Exception:
-                container_status = "error_getting_status"
-
-            error_msg = f"""列出目录失败
-- 命令: {cmd}
-- 退出码: {exit_code}
-- 容器状态: {container_status}
-- 标准输出: {stdout.strip() if stdout else "(空)"}
-- 标准错误: {stderr.strip() if stderr else "(空)"}
-"""
-            return error_msg
+            return f"列出目录失败\n- 命令: {cmd}\n- 退出码: {exit_code}\n- 错误: {stderr.strip() if stderr else '(空)'}"
 
         return stdout or "目录为空"
 
@@ -139,7 +80,7 @@ class FileSkillMixin:
         short_desc="读文件内容[file_path, start_line=1,end_line=200]",
         description="读取文件内容。支持指定行范围（默认前200行）",
         param_infos={
-            "file_path": "文件路径（相对于当前工作目录）",
+            "file_path": "文件路径",
             "start_line": "起始行号（从1开始，默认1）",
             "end_line": "结束行号（默认200）",
         },
@@ -158,42 +99,26 @@ class FileSkillMixin:
             start_line: 起始行号（从 1 开始，默认 1）
             end_line: 结束行号（默认 200）
         """
-        docker_manager = self._ensure_docker_manager()
-
-        # 容器内路径
-        container_path = self._resolve_container_path(file_path)
+        container_session = self.root_agent.container_session
 
         # 使用 sed 读取指定行
-        cmd = f"sed -n '{start_line},{end_line}p' {container_path}"
+        cmd = f"sed -n '{start_line},{end_line}p' {file_path}"
 
-        exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            container_session.execute, cmd
+        )
 
         self.logger.info(f"[read] 命令: {cmd}")
         self.logger.info(f"[read] exit_code: {exit_code}")
-        self.logger.info(f"[read] stdout:\n{stdout}")
-        self.logger.info(f"[read] stderr:\n{stderr}")
 
         if exit_code != 0:
-            container_status = "unknown"
-            try:
-                container_status = (
-                    docker_manager.container.status
-                    if docker_manager.container
-                    else "no_container"
-                )
-            except Exception:
-                container_status = "error_getting_status"
-            return f"""读取文件失败
-- 文件路径: {file_path}
-- 容器内路径: {container_path}
-- 退出码: {exit_code}
-- 容器状态: {container_status}
-- 标准错误: {stderr.strip() if stderr else "(空)"}
-"""
+            return f"读取文件失败\n- 文件: {file_path}\n- 退出码: {exit_code}\n- 错误: {stderr.strip() if stderr else '(空)'}"
 
         # 获取文件总行数
-        total_cmd = f"wc -l {container_path}"
-        total_exit, total_out, _ = await docker_manager.exec_command(total_cmd)
+        total_cmd = f"wc -l {file_path}"
+        total_exit, total_out, _ = await asyncio.to_thread(
+            container_session.execute, total_cmd
+        )
         total_lines = total_out.strip().split()[0] if total_exit == 0 else "?"
 
         return f"# 文件: {file_path} (共 {total_lines} 行)\n# 显示第 {start_line}-{end_line} 行\n\n{stdout}"
@@ -202,7 +127,7 @@ class FileSkillMixin:
         short_desc="写入文件[file_path,content,mode='overwrite',allow_overwrite=False]",
         description="写入文件内容。默认覆盖模式。",
         param_infos={
-            "file_path": "文件路径（相对于当前工作目录）",
+            "file_path": "文件路径",
             "content": "文件内容",
             "mode": "写入模式，'overwrite' 覆盖或 'append' 追加（默认overwrite）",
             "allow_overwrite": "（可选）是否允许覆盖已存在文件（默认False）",
@@ -224,69 +149,44 @@ class FileSkillMixin:
             mode: 写入模式，'overwrite' 覆盖或 'append' 追加（默认 overwrite）
             allow_overwrite: 是否允许覆盖已存在文件（默认 False）
         """
-        docker_manager = self._ensure_docker_manager()
-
-        # 容器内路径
-        container_path = self._resolve_container_path(file_path)
+        container_session = self.root_agent.container_session
 
         # 检查文件是否存在
-        check_cmd = f"test -f {container_path} && echo 'exists' || echo 'not_exists'"
-        exit_code, stdout, _ = await docker_manager.exec_command(check_cmd)
+        check_cmd = f"test -f {file_path} && echo 'exists' || echo 'not_exists'"
+        exit_code, stdout, _ = await asyncio.to_thread(
+            container_session.execute, check_cmd
+        )
         file_exists = stdout.strip() == "exists"
 
         if file_exists and mode == "overwrite" and not allow_overwrite:
             return f"错误：文件已存在，如果要覆盖请设置 allow_overwrite=True\n  文件: {file_path}"
 
         # 创建目录
-        dir_cmd = f"mkdir -p $(dirname {container_path})"
-        await docker_manager.exec_command(dir_cmd)
+        dir_cmd = f"mkdir -p $(dirname {file_path})"
+        await asyncio.to_thread(container_session.execute, dir_cmd)
 
         # 写入文件
         # 使用 base64 编码传递内容（避免转义问题）
-        import base64
-
         encoded_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
 
-        # 使用相对路径（因为 workdir 已经是工作目录）
-        # 去掉工作目录前缀，得到相对路径
-        workdir = self._get_container_workdir()
-        if container_path.startswith(workdir + "/"):
-            relative_path = container_path[len(workdir) + 1 :]
-        elif container_path == workdir:
-            relative_path = "."
-        else:
-            relative_path = container_path
-
         if mode == "append":
-            write_cmd = f"echo {encoded_content} | base64 -d | tee -a {relative_path} > /dev/null"
+            write_cmd = (
+                f"echo {encoded_content} | base64 -d | tee -a {file_path} > /dev/null"
+            )
         else:
             write_cmd = (
-                f"echo {encoded_content} | base64 -d | tee {relative_path} > /dev/null"
+                f"echo {encoded_content} | base64 -d | tee {file_path} > /dev/null"
             )
 
-        exit_code, stdout, stderr = await docker_manager.exec_command(write_cmd)
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            container_session.execute, write_cmd
+        )
 
         self.logger.info(f"[write] 命令: {write_cmd}")
         self.logger.info(f"[write] exit_code: {exit_code}")
-        self.logger.info(f"[write] stdout:\n{stdout}")
-        self.logger.info(f"[write] stderr:\n{stderr}")
 
         if exit_code != 0:
-            container_status = "unknown"
-            try:
-                container_status = (
-                    docker_manager.container.status
-                    if docker_manager.container
-                    else "no_container"
-                )
-            except Exception:
-                container_status = "error_getting_status"
-            return f"""写入文件失败
-- 文件路径: {file_path}
-- 退出码: {exit_code}
-- 容器状态: {container_status}
-- 标准错误: {stderr.strip() if stderr else "(空)"}
-"""
+            return f"写入文件失败\n- 文件: {file_path}\n- 退出码: {exit_code}\n- 错误: {stderr.strip() if stderr else '(空)'}"
 
         mode_desc = "追加到" if mode == "append" else "写入"
         return f"成功{mode_desc} {file_path}\n"
@@ -317,9 +217,9 @@ class FileSkillMixin:
             directory: 搜索目录（默认当前目录）
             recursive: 是否递归搜索
         """
-        docker_manager = self._ensure_docker_manager()
+        container_session = self.root_agent.container_session
 
-        # 默认工作目录（使用相对路径，避免符号链接问题）
+        # 默认当前目录
         work_dir = directory or "."
 
         if target == "filename":
@@ -335,15 +235,15 @@ class FileSkillMixin:
             else:
                 cmd = f"grep -n '{pattern}' {work_dir}/*"
 
-        exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            container_session.execute, cmd
+        )
 
         self.logger.info(f"[search_file] 命令: {cmd}")
         self.logger.info(f"[search_file] exit_code: {exit_code}")
-        self.logger.info(f"[search_file] stdout:\n{stdout}")
-        self.logger.info(f"[search_file] stderr:\n{stderr}")
 
         if exit_code != 0 and not stdout:
-            return f"未找到匹配结果"
+            return "未找到匹配结果"
 
         return stdout or "未找到匹配结果"
 
@@ -366,16 +266,15 @@ class FileSkillMixin:
         Returns:
             执行结果
         """
-        docker_manager = self._ensure_docker_manager()
+        container_session = self.root_agent.container_session
 
         # 直接在容器内执行命令（无白名单限制）
-        # 注意：Agent 在自己的容器里有完全权限，可以执行任意命令
-        exit_code, stdout, stderr = await docker_manager.exec_command(command)
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            container_session.execute, command
+        )
 
         self.logger.info(f"[bash] 命令: {command}")
         self.logger.info(f"[bash] exit_code: {exit_code}")
-        self.logger.info(f"[bash] stdout:\n{stdout}")
-        self.logger.info(f"[bash] stderr:\n{stderr}")
 
         result = ""
         if stdout:
@@ -392,7 +291,7 @@ class FileSkillMixin:
         short_desc="文件内替换[file_path,old_pattern,new_string,use_regex=False]",
         description="字符串替换：在文件中查找并替换字符串。",
         param_infos={
-            "file_path": "文件路径（相对于当前工作目录）",
+            "file_path": "文件路径",
             "old_pattern": "要替换的旧字符串",
             "new_string": "新字符串",
             "use_regex": "是否使用正则表达式（默认false）",
@@ -410,31 +309,27 @@ class FileSkillMixin:
             new_string: 新字符串
             use_regex: 是否使用正则表达式（默认false）
         """
-        docker_manager = self._ensure_docker_manager()
-
-        # 容器内路径
-        container_path = self._resolve_container_path(file_path)
+        container_session = self.root_agent.container_session
 
         # 使用 sed 进行替换
         if use_regex:
             # sed 正则表达式替换
-            # 转义特殊字符
             sed_pattern = old_pattern
-            cmd = f"sed -i 's/{sed_pattern}/{new_string}/g' {container_path}"
+            cmd = f"sed -i 's/{sed_pattern}/{new_string}/g' {file_path}"
         else:
             # sed 字面字符串替换（需要转义）
             sed_pattern = old_pattern.replace("/", "\\/")
             sed_replacement = new_string.replace("/", "\\/")
-            cmd = f"sed -i 's/{sed_pattern}/{sed_replacement}/g' {container_path}"
+            cmd = f"sed -i 's/{sed_pattern}/{sed_replacement}/g' {file_path}"
 
-        exit_code, stdout, stderr = await docker_manager.exec_command(cmd)
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            container_session.execute, cmd
+        )
 
         self.logger.info(f"[replace_string_in_file] 命令: {cmd}")
         self.logger.info(f"[replace_string_in_file] exit_code: {exit_code}")
-        self.logger.info(f"[replace_string_in_file] stdout:\n{stdout}")
-        self.logger.info(f"[replace_string_in_file] stderr:\n{stderr}")
 
         if exit_code != 0:
-            return f"❌ 替换失败：{stderr}"
+            return f"替换失败：{stderr}"
 
-        return f"字符串已替换"
+        return "字符串已替换"
