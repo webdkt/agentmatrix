@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, Optional, Callable, List, Any
+from typing import Dict, Optional, Callable, List, Any, Tuple
 from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
@@ -123,27 +123,26 @@ class BaseAgent(AutoLoggerMixin):
         # 不再需要手动注册，移除 _register_new_skills() 方法
 
     def _init_docker_manager(self):
-        """初始化 Docker 容器管理器"""
-        from ..core.docker_manager import DockerContainerManager
-
+        """初始化 Docker 容器管理器（单容器架构）"""
         if self.runtime is None:
             raise RuntimeError("runtime 未注入，无法初始化 Docker")
 
-        try:
-            self.docker_manager = DockerContainerManager(
-                agent_name=self.name,
-                workspace_root=self.runtime.paths.workspace_dir,
-                parent_logger=self.logger,
-            )
+        if (
+            hasattr(self.runtime, "container_manager")
+            and self.runtime.container_manager
+        ):
+            from ..core.container.single_container_manager import SingleContainerManager
 
-            # 初始化目录结构
-            self.docker_manager.initialize_directories()
+            scm = self.runtime.container_manager
+            if isinstance(scm, SingleContainerManager):
+                self.docker_manager = _SingleContainerCompatAdapter(
+                    scm, self.name, self.logger
+                )
+                self.docker_manager.initialize_directories()
+                self.logger.info("Docker 容器管理器初始化成功（单容器架构）")
+                return
 
-            self.logger.info("✅ Docker 容器管理器初始化成功")
-
-        except Exception as e:
-            self.logger.error(f"Docker 初始化失败: {e}")
-            raise  # 不降级，直接抛出异常
+        self.logger.warning("单容器管理器未可用，docker_manager 未初始化")
 
     # ==================== 浏览器管理 ====================
 
@@ -620,6 +619,7 @@ class BaseAgent(AutoLoggerMixin):
 
         # 🐳 容器模式：唤醒并切换工作区
         task_id = session["task_id"]
+        self.logger.info(f"DEBUG: session task_id = {task_id!r}, email.task_id = {email.task_id!r}")
 
         # 检查 Docker 管理器是否已初始化
         if self.docker_manager is None:
@@ -1302,24 +1302,72 @@ Extract facts now.
     # 通用 Actions
     # ==========================================
 
-    @classmethod
-    def shutdown_all_docker_containers(cls):
-        """系统退出时停止所有 Agent 容器"""
-        import docker
-        from docker.errors import DockerException
 
-        try:
-            client = docker.from_env()
-            containers = client.containers.list(filters={"name": "agent_"})
+class _SingleContainerCompatAdapter:
+    """
+    单容器管理器兼容适配器
 
-            for container in containers:
-                try:
-                    container.stop(timeout=3)
-                    print(f"🛑 已停止容器: {container.name}")
-                except Exception as e:
-                    print(f"⚠️ 停止容器失败 {container.name}: {e}")
+    将 SingleContainerManager 的接口适配为 DockerContainerManager 的接口，
+    使得 base.py 和 file_skill.py 无需修改即可使用单容器架构。
 
-        except DockerException as e:
-            print(f"⚠️ Docker 连接失败: {e}")
-        except Exception as e:
-            print(f"⚠️ 清理容器时出错: {e}")
+    适配映射:
+    - exec_command(command, timeout) → exec_command(command, agent_name, timeout)
+    - switch_workspace(task_id) → switch_workspace(agent_name, task_id)
+    - wakeup() → wakeup() (no-op for shared container, just ensures running)
+    - hibernate() → hibernate() (no-op for shared container)
+    """
+
+    def __init__(self, single_manager, agent_name: str, logger):
+        """
+        Args:
+            single_manager: SingleContainerManager 实例
+            agent_name: 当前 Agent 名称
+            logger: 日志记录器
+        """
+        self._manager = single_manager
+        self.agent_name = agent_name
+        self.logger = logger
+
+        # 兼容属性
+        self.container = None  # 共享容器不暴露单个 container
+
+        # 单容器架构中的工作目录路径（容器内视角）
+        from ..core.container.single_container_manager import sanitize_username
+
+        username = sanitize_username(agent_name)
+        # ~/current_task 是软链接，指向 /data/agents/{username}/work_files/{task_id}
+        self.container_workdir = "$HOME/current_task"
+
+    def initialize_directories(self) -> None:
+        """初始化目录结构"""
+        self._manager.ensure_user(self.agent_name)
+
+    def wakeup(self) -> bool:
+        """唤醒容器"""
+        return self._manager.wakeup()
+
+    def hibernate(self) -> bool:
+        """休眠容器（单容器架构中为 no-op）"""
+        return True
+
+    def switch_workspace(self, task_id: str) -> bool:
+        """切换工作区"""
+        return self._manager.switch_workspace(self.agent_name, task_id)
+
+    async def exec_command(
+        self, command: str, timeout: int = 30
+    ) -> Tuple[int, str, str]:
+        """执行命令"""
+        return await self._manager.exec_command(command, self.agent_name, timeout)
+
+    def get_status(self) -> Dict:
+        """获取容器状态"""
+        return self._manager.get_status()
+
+    def stop(self) -> bool:
+        """停止容器"""
+        return self._manager.stop()
+
+    def remove(self) -> bool:
+        """删除容器"""
+        return self._manager.remove()

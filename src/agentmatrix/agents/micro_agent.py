@@ -1176,7 +1176,7 @@ Start generating the Working Notes now.
         md_skill_section = ""
         if md_skill_count > 0 and self._is_top_level_microagent():
             md_skill_section = f"""#### B. 扩展技能库 (Procedural Skills)
-你有{md_skill_count}个额外扩展技能存放在 /home/SKILLS/ 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
+你有{md_skill_count}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
 如果需要使用额外技能，先列目录，看有什么技能（目录名代表了技能的名字）
 如果名字看上去可能是你需要的，就继续读里面的SKILL.md 的开头，判断是否真的是你需要的技能
 如果是需要的技能，就继续阅读，理解如何使用

@@ -1091,7 +1091,7 @@ AgentMatrix 自动回复
         return {
             "filename": filename,
             "size": file_path.stat().st_size,
-            "container_path": f"/work_files/attachments/{filename}",
+            "container_path": f"~/current_task/attachments/{filename}",
         }
 
     def _add_attachment(self, msg: MIMEMultipart, att: dict, sender: str, task_id: str):

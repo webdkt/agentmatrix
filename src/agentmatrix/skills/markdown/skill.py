@@ -65,28 +65,13 @@ class MarkdownSkillMixin:
         # AST 缓存：支持多文件
         self._ast_cache: dict[str, MarkdownAST] = {}
 
-    def _get_docker_manager(self):
-        """获取 docker_manager"""
-        if hasattr(self, 'root_agent') and self.root_agent:
-            if hasattr(self.root_agent, 'docker_manager'):
-                return self.root_agent.docker_manager
-
-        # 兼容：自己就是 root_agent
-        if hasattr(self, 'docker_manager'):
-            return self.docker_manager
-
-        return None
-
-    
-
     def _resolve_to_host_path(self, container_path: str) -> str:
         """
         容器内路径 → 宿主机路径
 
-        路径映射规则：
-        - /work_files/test.md → {workspace_root}/agent_files/{agent_name}/work_files/{session_id}/test.md
-        - /SKILLS/git-workflow/skill.md → {workspace_root}/SKILLS/git-workflow/skill.md
-        - /home/plan.md → {workspace_root}/agent_files/{agent_name}/home/plan.md
+        路径映射规则（新架构）：
+        - 相对路径 → 基于当前任务目录解析
+        - /data/agents/{username}/... → workspace/agent_files/{username}/...
 
         Args:
             container_path: 容器内路径或宿主机路径
@@ -94,31 +79,35 @@ class MarkdownSkillMixin:
         Returns:
             宿主机路径
         """
-        docker_manager = self._get_docker_manager()
-
         # 非 Docker 环境：直接返回原路径
-        if not docker_manager:
+        root_agent = self._get_root_agent()
+        if not hasattr(root_agent, "runtime") or not root_agent.runtime:
             return container_path
 
         # 检查是否已经是宿主机路径（如果文件存在，则认为是宿主机路径）
         from pathlib import Path
+
         if Path(container_path).exists():
             return container_path
 
-        # Docker 环境：转换路径
-        if container_path.startswith("/work_files/"):
-            relative_path = container_path[len("/work_files/"):]
-            session_id = self.current_task_id
-            return str(docker_manager.work_files_base / session_id / relative_path)
-        elif container_path.startswith("/SKILLS/"):
-            relative_path = container_path[len("/SKILLS/"):]
-            return str(docker_manager.skills_dir / relative_path)
-        elif container_path.startswith("/home/"):
-            relative_path = container_path[len("/home/"):]
-            return str(docker_manager.agent_home / relative_path)
-        else:
-            # 可能是宿主机路径，直接返回
-            return container_path
+        runtime = root_agent.runtime
+        agent_name = root_agent.name
+        task_id = getattr(root_agent, "current_task_id", None) or "default"
+
+        # 容器内绝对路径: /data/agents/{username}/...
+        if container_path.startswith("/data/agents/"):
+            relative = container_path.split("/data/agents/")[1]
+            return str(runtime.paths.workspace_dir / "agent_files" / relative)
+
+        # 相对路径，基于当前任务目录
+        if not Path(container_path).is_absolute():
+            return str(
+                runtime.paths.get_agent_work_files_dir(agent_name, task_id)
+                / container_path
+            )
+
+        # 其他绝对路径，直接返回
+        return container_path
 
     def _get_ast(self, file_path: str) -> MarkdownAST:
         """
@@ -148,7 +137,7 @@ class MarkdownSkillMixin:
 
     def _get_root_agent(self):
         """获取 root_agent"""
-        if hasattr(self, 'root_agent') and self.root_agent:
+        if hasattr(self, "root_agent") and self.root_agent:
             return self.root_agent
         return self
 
@@ -165,8 +154,10 @@ class MarkdownSkillMixin:
         root_agent = self._get_root_agent()
 
         # 调用 root_agent 的 LLM
-        if hasattr(root_agent, 'call_llm'):
-            response = await root_agent.call_llm(messages=[{"role": "user", "content": prompt}])
+        if hasattr(root_agent, "call_llm"):
+            response = await root_agent.call_llm(
+                messages=[{"role": "user", "content": prompt}]
+            )
             return response
         else:
             raise RuntimeError("root_agent 没有 call_llm 方法")
@@ -227,12 +218,9 @@ class MarkdownSkillMixin:
     # ==================== Actions ====================
 
     @register_action(
-            short_desc="",
+        short_desc="",
         description="获取 Markdown 文档的目录结构（TOC）",
-        param_infos={
-            "file_path": "Markdown 文件路径",
-            "depth": "目录深度（默认 2）"
-        }
+        param_infos={"file_path": "Markdown 文件路径", "depth": "目录深度（默认 2）"},
     )
     async def get_toc(self, file_path: str, depth: int = 2) -> str:
         """
@@ -254,10 +242,12 @@ class MarkdownSkillMixin:
         param_infos={
             "file_path": "Markdown 文件路径",
             "query": "搜索关键词或正则表达式",
-            "context_lines": "上下文行数（默认 2）"
-        }
+            "context_lines": "上下文行数（默认 2）",
+        },
     )
-    async def search_keywords(self, file_path: str, query: str, context_lines: int = 2) -> str:
+    async def search_keywords(
+        self, file_path: str, query: str, context_lines: int = 2
+    ) -> str:
         """
         搜索关键字
 
@@ -277,8 +267,8 @@ class MarkdownSkillMixin:
         description="读取 Markdown 节点的内容",
         param_infos={
             "file_path": "Markdown 文件路径",
-            "node_id": "节点 ID（如 root/h1_1/h2_2/p_3）"
-        }
+            "node_id": "节点 ID（如 root/h1_1/h2_2/p_3）",
+        },
     )
     async def read_node_content(self, file_path: str, node_id: str) -> str:
         """
@@ -317,10 +307,12 @@ class MarkdownSkillMixin:
         param_infos={
             "file_path": "Markdown 文件路径",
             "node_id": "节点 ID",
-            "edit_instruction": "修改指令（如'把A改为B'）"
-        }
+            "edit_instruction": "修改指令（如'把A改为B'）",
+        },
     )
-    async def modify_node(self, file_path: str, node_id: str, edit_instruction: str) -> str:
+    async def modify_node(
+        self, file_path: str, node_id: str, edit_instruction: str
+    ) -> str:
         """
         修改节点内容（改写表述方式）
 
@@ -354,10 +346,12 @@ class MarkdownSkillMixin:
             "file_path": "Markdown 文件路径",
             "node_id": "节点 ID",
             "old_str": "原文",
-            "new_str": "新内容"
-        }
+            "new_str": "新内容",
+        },
     )
-    async def exact_replace(self, file_path: str, node_id: str, old_str: str, new_str: str) -> str:
+    async def exact_replace(
+        self, file_path: str, node_id: str, old_str: str, new_str: str
+    ) -> str:
         """
         精确替换文本
 
@@ -391,15 +385,11 @@ class MarkdownSkillMixin:
             "file_path": "Markdown 文件路径",
             "parent_id": "父节点 ID",
             "content": "新节点的内容（用户提供）",
-            "node_type": "节点类型（如 h1, h2, paragraph, code_block）"
-        }
+            "node_type": "节点类型（如 h1, h2, paragraph, code_block）",
+        },
     )
     async def append_new_node(
-        self,
-        file_path: str,
-        parent_id: str,
-        content: str,
-        node_type: str = "paragraph"
+        self, file_path: str, parent_id: str, content: str, node_type: str = "paragraph"
     ) -> str:
         """
         在父节点后追加新节点
@@ -425,9 +415,7 @@ class MarkdownSkillMixin:
 
         # 创建新节点
         new_node = MarkdownNode(
-            node_id=new_node_id,
-            node_type=node_type,
-            content=content
+            node_id=new_node_id, node_type=node_type, content=content
         )
 
         parent_node.add_child(new_node)
@@ -445,15 +433,15 @@ class MarkdownSkillMixin:
             "file_path": "Markdown 文件路径",
             "after_node": "在哪个节点后插入（node_id）",
             "content": "新节点的内容（用户提供）",
-            "node_type": "节点类型（默认 paragraph）"
-        }
+            "node_type": "节点类型（默认 paragraph）",
+        },
     )
     async def insert_node(
         self,
         file_path: str,
         after_node: str,
         content: str,
-        node_type: str = "paragraph"
+        node_type: str = "paragraph",
     ) -> str:
         """
         在指定节点后插入新节点
@@ -483,9 +471,7 @@ class MarkdownSkillMixin:
 
         # 创建新节点
         new_node = MarkdownNode(
-            node_id=new_node_id,
-            node_type=node_type,
-            content=content
+            node_id=new_node_id, node_type=node_type, content=content
         )
 
         # 插入到指定位置
@@ -501,10 +487,7 @@ class MarkdownSkillMixin:
     @register_action(
         short_desc="参数`文件路径`,`要删除的node_id`",
         description="删除节点",
-        param_infos={
-            "file_path": "Markdown 文件路径",
-            "node_id": "要删除的节点 ID"
-        }
+        param_infos={"file_path": "Markdown 文件路径", "node_id": "要删除的节点 ID"},
     )
     async def delete_node(self, file_path: str, node_id: str) -> str:
         """
@@ -538,10 +521,7 @@ class MarkdownSkillMixin:
     @register_action(
         short_desc="参数`文件路径`,`要总结的node_id`",
         description="总结节点内容",
-        param_infos={
-            "file_path": "Markdown 文件路径",
-            "node_id": "节点 ID"
-        }
+        param_infos={"file_path": "Markdown 文件路径", "node_id": "节点 ID"},
     )
     async def summarize_node(self, file_path: str, node_id: str) -> str:
         """
@@ -568,9 +548,7 @@ class MarkdownSkillMixin:
     @register_action(
         short_desc="唯一参数`文件路径`,把刚才对该文件的修改存盘",
         description="保存 Markdown 文件的修改",
-        param_infos={
-            "file_path": "Markdown 文件路径"
-        }
+        param_infos={"file_path": "Markdown 文件路径"},
     )
     async def save_modified_file(self, file_path: str) -> str:
         """
@@ -592,7 +570,7 @@ class MarkdownSkillMixin:
         host_path = self._resolve_to_host_path(file_path)
 
         # 写入文件
-        with open(host_path, 'w', encoding='utf-8') as f:
+        with open(host_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         # 清除 dirty 标记

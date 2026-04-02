@@ -24,9 +24,11 @@ class Deep_researcher_helperSkillMixin:
 
     def _get_work_dir(self) -> str:
         task_id = self.root_agent.current_task_id or "default"
-        return str(self.root_agent.runtime.paths.get_agent_work_files_dir(
-            self.root_agent.name, task_id
-        ))
+        return str(
+            self.root_agent.runtime.paths.get_agent_work_files_dir(
+                self.root_agent.name, task_id
+            )
+        )
 
     def _read_file(self, rel_path: str) -> str:
         file_path = Path(self._get_work_dir()) / rel_path
@@ -48,8 +50,8 @@ class Deep_researcher_helperSkillMixin:
         description="记录研究笔记到指定章节的笔记文件。chapter_name 使用章节大纲中的有效章节名。",
         param_infos={
             "content": "笔记内容",
-            "chapter_name": "章节名称（使用章节大纲中定义的名称）"
-        }
+            "chapter_name": "章节名称（使用章节大纲中定义的名称）",
+        },
     )
     async def take_note(self, content: str, chapter_name: str) -> str:
         work_dir = Path(self._get_work_dir())
@@ -59,9 +61,9 @@ class Deep_researcher_helperSkillMixin:
         # 模糊匹配章节名
         chapter_outline = self._read_file("research_state/chapter_outline.md") or ""
         valid_chapters = []
-        for line in chapter_outline.strip().split('\n'):
+        for line in chapter_outline.strip().split("\n"):
             line = line.strip()
-            if line.startswith('# '):
+            if line.startswith("# "):
                 valid_chapters.append(line[2:].strip())
 
         matched_chapter = self._fuzzy_match_chapter(chapter_name, valid_chapters)
@@ -99,7 +101,7 @@ class Deep_researcher_helperSkillMixin:
     @register_action(
         short_desc="咨询导师",
         description="向 Director 导师请教问题。导师会根据研究目的和当前进展给出建议。",
-        param_infos={"question": "要向导师请教的问题"}
+        param_infos={"question": "要向导师请教的问题"},
     )
     async def consult_with_director(self, question: str) -> str:
         from ..deep_researcher.helpers import format_prompt
@@ -110,6 +112,7 @@ class Deep_researcher_helperSkillMixin:
         purpose = self._read_file("research_state/research_purpose.md") or ""
 
         import re
+
         pattern = r"## Director Persona\s*\n(.*?)(?=\n## |\Z)"
         match = re.search(pattern, persona_text, re.DOTALL)
         director_persona = match.group(1).strip() if match else "一位资深研究总监"
@@ -120,13 +123,12 @@ class Deep_researcher_helperSkillMixin:
                 "director_persona": director_persona,
                 "research_title": title,
                 "research_purpose": purpose,
-                "question": question
-            }
+                "question": question,
+            },
         )
 
         result = await self.root_agent.cerebellum.think_with_retry(
-            prompt,
-            lambda x: {"status": "success", "content": x}
+            prompt, lambda x: {"status": "success", "content": x}
         )
 
         if result and isinstance(result, dict):
@@ -140,7 +142,7 @@ class Deep_researcher_helperSkillMixin:
     @register_action(
         short_desc="撰写章节草稿",
         description="根据研究笔记撰写指定章节的草稿。会读取 notebook/ 下对应章节的笔记作为素材。",
-        param_infos={"chapter_name": "章节名称（使用章节大纲中定义的名称）"}
+        param_infos={"chapter_name": "章节名称（使用章节大纲中定义的名称）"},
     )
     async def write_chapter_draft(self, chapter_name: str) -> str:
         notes = self._read_file(f"notebook/{chapter_name}.md") or ""
@@ -166,8 +168,7 @@ class Deep_researcher_helperSkillMixin:
 4. 输出格式为 Markdown
 """
         result = await self.root_agent.cerebellum.think_with_retry(
-            prompt,
-            lambda x: {"status": "success", "content": x}
+            prompt, lambda x: {"status": "success", "content": x}
         )
 
         if result and isinstance(result, dict):
@@ -182,7 +183,7 @@ class Deep_researcher_helperSkillMixin:
     @register_action(
         short_desc="润色章节",
         description="润色指定章节的草稿。修正语法、统一格式、优化逻辑。",
-        param_infos={"chapter_name": "章节名称"}
+        param_infos={"chapter_name": "章节名称"},
     )
     async def polish_chapter(self, chapter_name: str) -> str:
         draft = self._read_file(f"drafts/{chapter_name}.md") or ""
@@ -210,8 +211,7 @@ class Deep_researcher_helperSkillMixin:
 输出润色后的完整章节内容（Markdown 格式）。
 """
         result = await self.root_agent.cerebellum.think_with_retry(
-            prompt,
-            lambda x: {"status": "success", "content": x}
+            prompt, lambda x: {"status": "success", "content": x}
         )
 
         if result and isinstance(result, dict):
@@ -226,16 +226,16 @@ class Deep_researcher_helperSkillMixin:
     @register_action(
         short_desc="组装报告",
         description="将所有章节草稿组装成最终报告。所有章节完成后调用。",
-        param_infos={}
+        param_infos={},
     )
     async def assemble_report(self) -> str:
         title = self._read_file("research_state/research_title.md") or "研究报告"
         chapter_outline = self._read_file("research_state/chapter_outline.md") or ""
 
         chapters = []
-        for line in chapter_outline.strip().split('\n'):
+        for line in chapter_outline.strip().split("\n"):
             line = line.strip()
-            if line.startswith('# '):
+            if line.startswith("# "):
                 chapters.append(line[2:].strip())
 
         if not chapters:
@@ -251,10 +251,10 @@ class Deep_researcher_helperSkillMixin:
             else:
                 report_parts.append(f"\n## {chapter_name}\n\n[待撰写]\n\n---\n")
 
-        final_report = '\n'.join(report_parts)
+        final_report = "\n".join(report_parts)
 
         self._write_file("final_report.md", final_report)
         self._write_file("research_state/phase.md", "done")
 
         self.logger.info(f"组装最终报告完成: final_report.md ({len(chapters)} 章)")
-        return f"最终报告已生成: /work_files/final_report.md"
+        return f"最终报告已生成: final_report.md"

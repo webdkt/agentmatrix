@@ -15,8 +15,10 @@ from pathlib import Path
 from ...core.action import register_action
 from ...agents.micro_agent import MicroAgent
 from .helpers import (
-    read_work_file, write_work_file,
-    format_prompt, persona_parser,
+    read_work_file,
+    write_work_file,
+    format_prompt,
+    persona_parser,
 )
 from .prompts import ResearchPrompts
 
@@ -33,9 +35,11 @@ class Deep_researcherSkillMixin:
 
     def _get_work_dir(self) -> str:
         task_id = self.root_agent.current_task_id or "default"
-        return str(self.root_agent.runtime.paths.get_agent_work_files_dir(
-            self.root_agent.name, task_id
-        ))
+        return str(
+            self.root_agent.runtime.paths.get_agent_work_files_dir(
+                self.root_agent.name, task_id
+            )
+        )
 
     def _read_file(self, rel_path: str) -> str:
         return read_work_file(self._get_work_dir(), rel_path)
@@ -52,8 +56,8 @@ class Deep_researcherSkillMixin:
         description="执行研究规划阶段。制定研究计划、章节大纲。完成后进入 research 阶段。",
         param_infos={
             "research_title": "研究的标题（简短描述）",
-            "research_purpose": "研究的目的和需求"
-        }
+            "research_purpose": "研究的目的和需求",
+        },
     )
     async def do_planning(self, research_title: str, research_purpose: str) -> str:
         work_dir = Path(self._get_work_dir())
@@ -63,7 +67,7 @@ class Deep_researcherSkillMixin:
         if state_dir.exists() and self._read_file("research_state/phase.md").strip():
             phase = self._read_file("research_state/phase.md").strip()
             if phase == "done":
-                return "研究已完成，报告在 /work_files/final_report.md"
+                return "研究已完成，报告在 final_report.md"
             self.logger.info(f"恢复研究，当前阶段: {phase}")
         else:
             state_dir.mkdir(parents=True, exist_ok=True)
@@ -86,7 +90,7 @@ class Deep_researcherSkillMixin:
         planner = MicroAgent(
             parent=self.root_agent,
             name="ResearchPlanner",
-            available_skills=["simple_web_search","file","deep_researcher_helper"]
+            available_skills=["simple_web_search", "file", "deep_researcher_helper"],
         )
 
         planning_task = f"""
@@ -113,7 +117,7 @@ class Deep_researcherSkillMixin:
             run_label="planning",
             persona=researcher_persona,
             task=planning_task,
-            max_steps=20
+            max_steps=20,
         )
 
         return "规划阶段执行完毕"
@@ -121,20 +125,22 @@ class Deep_researcherSkillMixin:
     @register_action(
         short_desc="执行研究",
         description="执行研究阶段。逐个完成研究任务，搜索资料、记笔记。完成后自动进入 writing 阶段。",
-        param_infos={}
+        param_infos={},
     )
     async def do_research(self) -> str:
         personas = self._read_file("research_state/personas.md") or ""
         researcher_persona = self._extract_persona(personas, "Researcher")
         plan_text = self._read_file("research_state/research_plan.md") or ""
-        overall_summary = self._read_file("research_state/research_overall_summary.md") or "无"
+        overall_summary = (
+            self._read_file("research_state/research_overall_summary.md") or "无"
+        )
         chapter_outline = self._read_file("research_state/chapter_outline.md") or ""
 
         # 提取有效章节名
         chapters = []
-        for line in chapter_outline.strip().split('\n'):
+        for line in chapter_outline.strip().split("\n"):
             line = line.strip()
-            if line.startswith('# '):
+            if line.startswith("# "):
                 chapters.append(line[2:].strip())
         chapters_hint = "、".join(chapters) if chapters else "（未定义）"
 
@@ -144,7 +150,7 @@ class Deep_researcherSkillMixin:
         researcher = MicroAgent(
             parent=self.root_agent,
             name="Researcher",
-            available_skills=["simple_web_search", "deep_researcher_helper","file"]
+            available_skills=["simple_web_search", "deep_researcher_helper", "file"],
         )
 
         research_task = f"""
@@ -179,7 +185,7 @@ class Deep_researcherSkillMixin:
             run_label="research",
             persona=researcher_persona,
             task=research_task,
-            max_steps=50
+            max_steps=50,
         )
 
         return "研究阶段执行完毕"
@@ -187,7 +193,7 @@ class Deep_researcherSkillMixin:
     @register_action(
         short_desc="执行写作",
         description="执行写作阶段。根据研究笔记撰写报告各章节，组装最终报告。完成后自动标记 done。",
-        param_infos={}
+        param_infos={},
     )
     async def do_writing(self) -> str:
         title = self._read_file("research_state/research_title.md").strip()
@@ -201,7 +207,7 @@ class Deep_researcherSkillMixin:
         writer = MicroAgent(
             parent=self.root_agent,
             name="ReportWriter",
-            available_skills=["deep_researcher_helper","file"]
+            available_skills=["deep_researcher_helper", "file"],
         )
 
         writing_task = f"""
@@ -224,7 +230,7 @@ class Deep_researcherSkillMixin:
             run_label="writing",
             persona=researcher_persona,
             task=writing_task,
-            max_steps=100
+            max_steps=100,
         )
 
         return "写作阶段执行完毕"
@@ -237,23 +243,19 @@ class Deep_researcherSkillMixin:
         """生成 Director 和 Researcher 人设"""
         director_prompt = format_prompt(
             ResearchPrompts.DIRECTOR_PERSONA_DESIGNER,
-            {"research_title": title, "research_purpose": purpose}
+            {"research_title": title, "research_purpose": purpose},
         )
         director_persona = await self.root_agent.brain.think_with_retry(
-            director_prompt,
-            persona_parser,
-            header="[正式文稿]"
+            director_prompt, persona_parser, header="[正式文稿]"
         )
 
         researcher_prompt = format_prompt(
             ResearchPrompts.RESEARCHER_PERSONA_DESIGNER,
             {"research_title": title, "research_purpose": purpose},
-            director_persona=director_persona
+            director_persona=director_persona,
         )
         researcher_persona = await self.root_agent.brain.think_with_retry(
-            researcher_prompt,
-            persona_parser,
-            header="[正式文稿]"
+            researcher_prompt, persona_parser, header="[正式文稿]"
         )
 
         personas_content = f"## Director Persona\n{director_persona}\n\n## Researcher Persona\n{researcher_persona}\n"
@@ -266,6 +268,7 @@ class Deep_researcherSkillMixin:
             return ""
 
         import re
+
         pattern = rf"## {role} Persona\s*\n(.*?)(?=\n## |\Z)"
         match = re.search(pattern, personas_text, re.DOTALL)
         if match:

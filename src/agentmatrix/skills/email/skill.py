@@ -44,21 +44,17 @@ class EmailSkillMixin:
 """
 
     @register_action(
-            short_desc="发邮件给用户和其他Agent，名字即地址",
+        short_desc="发邮件给用户和其他Agent，名字即地址",
         description="发邮件给同事，这是和其他人沟通的唯一方式。可以附带附件文件。",
         param_infos={
             "to": "收件人 (e.g. 'User')",
             "body": "邮件内容",
             "subject": "邮件主题 (可选，如果不填，系统会自动截取 body 的前20个字)",
-            "attachments": "附件文件列表（容器内路径，例如 ['/work_files/report.pdf']，可选）",
+            "attachments": "附件文件列表（容器内路径，例如 ['report.pdf', '~/current_task/data.pdf']，可选）",
         },
     )
     async def send_internal_mail(
-        self,
-        to: str,
-        body: str,
-        subject: str = None,
-        attachments: List[str] = None
+        self, to: str, body: str, subject: str = None, attachments: List[str] = None
     ):
         """
         发送邮件给同事（支持附件）
@@ -67,7 +63,7 @@ class EmailSkillMixin:
             to: 收件人名称
             body: 邮件内容
             subject: 邮件主题（可选）
-            attachments: 附件文件列表（容器内路径，例如 ['/work_files/report.pdf']）
+            attachments: 附件文件列表（容器内路径，例如 ['report.pdf']）
 
         邮件路由逻辑：
         - 如果发给 session 的 original_sender：in_reply_to = session.session_id
@@ -147,7 +143,7 @@ class EmailSkillMixin:
         复制附件到目标 agent 的 attachments 目录
 
         Args:
-            attachments: 附件文件列表（容器内路径，例如 ['report.pdf', '/work_files/data.pdf']）
+            attachments: 附件文件列表（容器内路径，例如 ['report.pdf', '~/current_task/data.pdf']）
             recipient_name: 收件人 agent 名称
             task_id: 用户会话 ID
 
@@ -155,9 +151,9 @@ class EmailSkillMixin:
             附件 metadata 列表
 
         容器内路径映射规则：
-        - 相对路径（如 'report.pdf'）→ 相对于 /work_files
-        - /work_files/xxx → work_files 目录下的文件
-        - /home/xxx → home 目录下的文件
+        - 相对路径（如 'report.pdf'）→ 基于当前任务目录
+        - ~/current_task/xxx → 当前任务目录下的文件
+        - /data/agents/{username}/home/xxx → home 目录下的文件
         """
         if self.root_agent.runtime is None:
             raise ValueError("runtime 未注入，无法发送附件")
@@ -202,7 +198,7 @@ class EmailSkillMixin:
                 {
                     "filename": filename,
                     "size": target_file.stat().st_size,
-                    "container_path": f"/work_files/attachments/{filename}",
+                    "container_path": f"~/current_task/attachments/{filename}",
                 }
             )
 
@@ -213,10 +209,9 @@ class EmailSkillMixin:
         将容器内路径转换为宿主机路径
 
         路径映射规则：
-        - 相对路径（如 'report.pdf'）→ 相对于 /work_files
-        - /work_files/test.md → {workspace_root}/agent_files/{agent_name}/work_files/{session_id}/test.md
-        - /home/plan.md → {workspace_root}/agent_files/{agent_name}/home/plan.md
-        - 其他路径 → 直接返回（假设是宿主机路径）
+        - 相对路径（如 'report.pdf'）→ 基于当前任务目录
+        - ~/current_task/... → 基于当前任务目录
+        - /data/agents/{username}/... → workspace/agent_files/{username}/...
 
         Args:
             container_path: 容器内路径或宿主机路径
@@ -225,27 +220,31 @@ class EmailSkillMixin:
         Returns:
             宿主机路径
         """
-        docker_manager = self.root_agent.docker_manager
-
-        # 非 Docker 环境：直接返回原路径
-        if not docker_manager:
+        runtime = self.root_agent.runtime
+        if not runtime:
             return container_path
 
+        agent_name = self.root_agent.name
         path = Path(container_path)
 
-        # 情况 1: 相对路径（如 'report.pdf'）→ 当作相对于 /work_files
+        # 情况 1: 相对路径 → 基于当前任务目录
         if not path.is_absolute():
-            return str(docker_manager.work_files_base / task_id / container_path)
+            return str(
+                runtime.paths.get_agent_work_files_dir(agent_name, task_id)
+                / container_path
+            )
 
-        # 情况 2: /work_files/* → 映射到 work_files 目录
-        if container_path.startswith("/work_files/"):
-            relative_path = container_path[len("/work_files/") :]
-            return str(docker_manager.work_files_base / task_id / relative_path)
+        # 情况 2: ~/current_task/... 展开为绝对路径
+        if container_path.startswith("~"):
+            rel = container_path.lstrip("~/")
+            return str(
+                runtime.paths.get_agent_work_files_dir(agent_name, task_id) / rel
+            )
 
-        # 情况 3: /home/* → 映射到 home 目录
-        if container_path.startswith("/home/"):
-            relative_path = container_path[len("/home/") :]
-            return str(docker_manager.agent_home / relative_path)
+        # 情况 3: /data/agents/{username}/... → workspace/agent_files/{username}/...
+        if container_path.startswith("/data/agents/"):
+            relative = container_path.split("/data/agents/")[1]
+            return str(runtime.paths.workspace_dir / "agent_files" / relative)
 
-        # 情况 4: 其他路径（可能是宿主机路径，直接返回）
+        # 情况 4: 其他绝对路径（可能是宿主机路径，直接返回）
         return container_path

@@ -203,6 +203,13 @@ persona: |
             # 从 runtime 移除
             del runtime.agents[agent_name]
 
+            # 🆕 移除容器用户（单容器架构）
+            if hasattr(runtime, "container_manager") and runtime.container_manager:
+                try:
+                    runtime.container_manager.remove_user(agent_name)
+                except Exception as e:
+                    self.logger.warning(f"移除容器用户失败: {e}")
+
             if delete_config:
                 msg = cs.delete_agent_config(agent_name)
                 return f"✅ Agent '{agent_name}' 已删除（{msg}）"
