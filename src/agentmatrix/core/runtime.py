@@ -104,6 +104,11 @@ class AgentMatrix(AutoLoggerMixin):
 
         self.echo(">>> 初始化系统配置...")
         self._init_system_config()
+
+        # 🆕 初始化单容器管理器
+        self.echo(">>> 初始化单容器管理器...")
+        self._init_container_manager()
+
         self.echo(">>> 广播回调接口已初始化（事件驱动模式）")
 
         # 🆕 电源管理器（防止系统休眠，默认启用）
@@ -152,13 +157,13 @@ class AgentMatrix(AutoLoggerMixin):
     # 准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
 
-        # 🐳 确保 Docker 运行（全局资源初始化）
-        self.echo(">>> 检查 Docker 状态...")
-        from ..core.docker_manager import ensure_docker_running
+        # 🐳 确保容器运行时已启动（全局资源初始化）
+        self.echo(">>> 检查容器运行时状态...")
+        from ..core.container.runtime_factory import ContainerRuntimeFactory
 
-        if not ensure_docker_running(logger=self.logger):
+        if not ContainerRuntimeFactory.ensure_running(logger=self.logger):
             raise RuntimeError(
-                "Docker 启动失败。AgentMatrix 依赖 Docker 运行，请确保 Docker Desktop 已安装并可以启动。\n"
+                "容器运行时启动失败。AgentMatrix 依赖 Docker 或 Podman 运行，请确保已安装并启动。\n"
                 "下载地址: https://www.docker.com/products/docker-desktop/"
             )
 
@@ -251,6 +256,14 @@ class AgentMatrix(AutoLoggerMixin):
         agent.async_event_callback = self.async_event_callback
         agent.runtime = self  # 这会触发 SessionManager 和其他资源的初始化
 
+        # 🆕 确保容器用户已创建
+        if self.container_manager:
+            try:
+                self.container_manager.ensure_user(agent_name)
+                self.echo(f">>> 容器用户已创建: {agent_name}")
+            except Exception as e:
+                self.echo(f">>> 容器用户创建失败: {e}")
+
         # 添加到agents字典
         self.agents[agent_name] = agent
 
@@ -275,6 +288,22 @@ class AgentMatrix(AutoLoggerMixin):
             self._init_email_proxy()
         else:
             self.echo(">>> EmailProxy未启用")
+
+    def _init_container_manager(self):
+        """初始化单容器管理器（共享容器架构）"""
+        from ..core.container.single_container_manager import SingleContainerManager
+
+        try:
+            self.container_manager = SingleContainerManager(
+                workspace_root=self.paths.workspace_dir,
+                parent_logger=self.logger,
+            )
+            # 确保容器已启动
+            self.container_manager.wakeup()
+            self.echo(">>> 单容器管理器初始化成功")
+        except Exception as e:
+            self.echo(f">>> 单容器管理器初始化失败: {e}")
+            self.container_manager = None
 
     def _init_email_proxy(self):
         """初始化EmailProxy服务"""
@@ -407,7 +436,15 @@ class AgentMatrix(AutoLoggerMixin):
         if self.post_office:
             self.post_office.close()
 
-        # 6. 清理资源
+        # 6. 停止单容器管理器
+        if hasattr(self, "container_manager") and self.container_manager:
+            try:
+                self.container_manager.stop()
+                self.echo(">>> 单容器管理器已停止")
+            except Exception as e:
+                self.echo(f">>> 单容器管理器停止失败: {e}")
+
+        # 7. 清理资源
         self.running = False
 
         # 7. 取消未完成的任务（避免hang）

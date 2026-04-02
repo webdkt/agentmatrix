@@ -1,17 +1,10 @@
 """
-File Operation Skill - Docker 容器内执行版本
-
-重构说明：
-- 所有文件操作在 Docker 容器内执行
-- 移除 working_context 依赖
-- 使用 docker_manager.exec_command() 执行命令
-- 移除路径溢出检查（容器内已隔离）
-- 返回结果保持不变
+File Operation Skill - 容器内执行版本
 
 核心设计：
-- 容器内工作目录：/work_files
-- 所有命令通过容器执行
-- Agent 在容器内有完全权限（无白名单限制）
+- 所有文件操作在共享容器内以 Agent 用户身份执行
+- 工作目录：~/current_task（自动切换到当前任务目录）
+- Agent 在自己的工作目录中有完全权限（无白名单限制）
 """
 
 import os
@@ -21,9 +14,9 @@ from ..core.action import register_action
 
 class FileSkillMixin:
     """
-    File Operation Skill Mixin (Docker 容器版本)
+    File Operation Skill Mixin (容器内执行版本)
 
-    所有文件操作在 Docker 容器内执行：
+    所有文件操作在共享容器内以 Agent 用户身份执行：
     - list_dir: 列出目录内容
     - read: 读取文件
     - write: 写入文件
@@ -31,32 +24,15 @@ class FileSkillMixin:
     - bash: 执行 shell 命令
 
     特点：
-    - 容器内执行，路径隔离
-    - 工作目录：/work_files
-    - bash 安全白名单保留
+    - 容器内执行，Agent 隔离
+    - 工作目录：~/current_task
     """
 
     # 🆕 Skill 级别元数据
-    _skill_description = """文件操作技能：读取、写入、搜索文件和目录，执行 shell 命令。注意你的工作环境位于容器中，和宿主机环境是隔离的。你和用户以及其他Agent不能直接共享文件，向用户传递文件需要通过附件。当前会话的工作路径是`/work_files`，你的私人长期目录是`/home`"""
+    _skill_description = """文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。当前会话的工作目录已自动挂载到 **`~/current_task`** 目录"""
 
     _skill_usage_guide = """
-使用场景：
-- 需要读取或写入文件
-- 需要列出目录内容
-- 需要在文件中搜索内容
-- 需要执行 shell 命令或脚本
-
-使用建议：
-- 使用 list_dir 查看目录结构（支持递归）
-- 使用 read 读取文件（支持行范围，默认前200行）
-- 使用 write 写入文件（默认覆盖模式，支持追加）
-- 使用 search_file 搜索文件或内容（支持文件名和内容搜索）
-- 使用 bash 执行 shell 命令（有安全白名单）
-
-注意事项：
-- 所有路径相对于 /work_files
-- write 默认覆盖，需设置 allow_overwrite=True
-- bash 命令受安全白名单限制
+文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。当前会话的工作目录已自动挂载到 **`~/current_task`** 目录
 """
 
     def _get_root_agent(self):
@@ -74,13 +50,35 @@ class FileSkillMixin:
 
         return root_agent.docker_manager
 
+    def _get_container_workdir(self) -> str:
+        """获取容器内的工作目录路径"""
+        docker_manager = self._ensure_docker_manager()
+        if hasattr(docker_manager, "container_workdir"):
+            return docker_manager.container_workdir
+        return "$HOME/current_task"
+
+    def _resolve_container_path(self, file_path: str) -> str:
+        """
+        解析文件路径为容器内绝对路径
+
+        Args:
+            file_path: 用户提供的路径（相对或绝对）
+
+        Returns:
+            str: 容器内绝对路径
+        """
+        if os.path.isabs(file_path):
+            return file_path
+        workdir = self._get_container_workdir()
+        return f"{workdir}/{file_path}"
+
     # ==================== Actions ====================
 
     @register_action(
         short_desc="列目录[directory, recursive=False]",
         description="列出目录内容。支持单层或递归列出",
         param_infos={
-            "directory": "目录路径（可选，默认当前目录 /work_files）",
+            "directory": "目录路径（可选，默认当前目录 ~/current_task）",
             "recursive": "是否递归列出子目录（默认False）",
         },
     )
@@ -140,7 +138,7 @@ class FileSkillMixin:
         short_desc="读文件内容[file_path, start_line=1,end_line=200]",
         description="读取文件内容。支持指定行范围（默认前200行）",
         param_infos={
-            "file_path": "文件路径（相对于 /work_files）",
+            "file_path": "文件路径（相对于当前工作目录）",
             "start_line": "起始行号（从1开始，默认1）",
             "end_line": "结束行号（默认200）",
         },
@@ -162,10 +160,7 @@ class FileSkillMixin:
         docker_manager = self._ensure_docker_manager()
 
         # 容器内路径
-        if not os.path.isabs(file_path):
-            container_path = f"/work_files/{file_path}"
-        else:
-            container_path = file_path
+        container_path = self._resolve_container_path(file_path)
 
         # 使用 sed 读取指定行
         cmd = f"sed -n '{start_line},{end_line}p' {container_path}"
@@ -206,7 +201,7 @@ class FileSkillMixin:
         short_desc="写入文件[file_path,content,mode='overwrite',allow_overwrite=False]",
         description="写入文件内容。默认覆盖模式。",
         param_infos={
-            "file_path": "文件路径（相对于 /work_files）",
+            "file_path": "文件路径（相对于当前工作目录）",
             "content": "文件内容",
             "mode": "写入模式，'overwrite' 覆盖或 'append' 追加（默认overwrite）",
             "allow_overwrite": "（可选）是否允许覆盖已存在文件（默认False）",
@@ -231,10 +226,7 @@ class FileSkillMixin:
         docker_manager = self._ensure_docker_manager()
 
         # 容器内路径
-        if not os.path.isabs(file_path):
-            container_path = f"/work_files/{file_path}"
-        else:
-            container_path = file_path
+        container_path = self._resolve_container_path(file_path)
 
         # 检查文件是否存在
         check_cmd = f"test -f {container_path} && echo 'exists' || echo 'not_exists'"
@@ -254,11 +246,12 @@ class FileSkillMixin:
 
         encoded_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
 
-        # 使用相对路径（因为 workdir 已经是 /work_files）
-        # 去掉 /work_files 前缀，得到相对路径
-        if container_path.startswith("/work_files/"):
-            relative_path = container_path[len("/work_files/") :]
-        elif container_path == "/work_files":
+        # 使用相对路径（因为 workdir 已经是工作目录）
+        # 去掉工作目录前缀，得到相对路径
+        workdir = self._get_container_workdir()
+        if container_path.startswith(workdir + "/"):
+            relative_path = container_path[len(workdir) + 1 :]
+        elif container_path == workdir:
             relative_path = "."
         else:
             relative_path = container_path
@@ -303,7 +296,7 @@ class FileSkillMixin:
         param_infos={
             "pattern": "搜索模式（文件名模式或文本内容）",
             "target": "搜索目标，'content' 表示在文件内容中搜索，'filename' 表示按文件名搜索（默认content）",
-            "directory": "搜索目录（可选，默认当前目录 /work_files）",
+            "directory": "搜索目录（可选，默认当前目录）",
             "recursive": "是否递归搜索（默认True）",
         },
     )
@@ -398,7 +391,7 @@ class FileSkillMixin:
         short_desc="文件内替换[file_path,old_pattern,new_string,use_regex=False]",
         description="字符串替换：在文件中查找并替换字符串。",
         param_infos={
-            "file_path": "文件路径（相对于 /work_files）",
+            "file_path": "文件路径（相对于当前工作目录）",
             "old_pattern": "要替换的旧字符串",
             "new_string": "新字符串",
             "use_regex": "是否使用正则表达式（默认false）",
@@ -419,10 +412,7 @@ class FileSkillMixin:
         docker_manager = self._ensure_docker_manager()
 
         # 容器内路径
-        if not os.path.isabs(file_path):
-            container_path = f"/work_files/{file_path}"
-        else:
-            container_path = file_path
+        container_path = self._resolve_container_path(file_path)
 
         # 使用 sed 进行替换
         if use_regex:

@@ -24,10 +24,8 @@ COPY requirements-docker.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements-docker.txt
 
 # 创建目录结构
-# /SKILLS - 只读挂载点（全局技能）
-# /home - 读写挂载点（Agent Home）
-# /work_files_base - 读写挂载点（所有 session 的工作文件父目录）
-RUN mkdir -p /SKILLS /home /work_files_base
+# /data/agents - 所有 Agent 数据的挂载点（每个 Agent 一个子目录）
+RUN mkdir -p /data/agents
 
 # 使用根目录作为默认工作目录，避免符号链接问题
 WORKDIR /

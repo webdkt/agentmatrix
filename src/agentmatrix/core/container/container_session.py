@@ -31,11 +31,13 @@ class ContainerSession:
         runtime_type: str = "podman",
         initial_workdir: str = "/work_files",
         logger: Optional[logging.Logger] = None,
+        username: Optional[str] = None,
     ):
         self.container_name = container_name
         self.runtime_type = runtime_type
         self.initial_workdir = initial_workdir
         self.logger = logger or logging.getLogger("container_session")
+        self.username = username
 
         # 进程状态
         self.process: Optional[subprocess.Popen] = None
@@ -63,7 +65,18 @@ class ContainerSession:
             return
 
         runtime_cmd = "podman" if self.runtime_type == "podman" else "docker"
-        cmd = [runtime_cmd, "exec", "-i", self.container_name, "sh"]
+        if self.username:
+            cmd = [
+                runtime_cmd,
+                "exec",
+                "-i",
+                self.container_name,
+                "su",
+                "-",
+                self.username,
+            ]
+        else:
+            cmd = [runtime_cmd, "exec", "-i", self.container_name, "sh"]
 
         self.logger.info(f"启动持久会话: {' '.join(cmd)}")
 
@@ -93,8 +106,11 @@ class ContainerSession:
         self._stderr_reader_thread.start()
 
         # 进入工作目录
-        if self.initial_workdir:
-            self._send_raw(f"cd {self.initial_workdir}\n")
+        workdir = self.initial_workdir
+        if not workdir and self.username:
+            workdir = f"/home/{self.username}"
+        if workdir:
+            self._send_raw(f"cd {workdir}\n")
 
         self.logger.info(f"会话 {self.session_id} 已启动")
 

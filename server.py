@@ -894,7 +894,7 @@ async def send_email(
                     {
                         "filename": filename,
                         "size": len(content),
-                        "container_path": f"/work_files/attachments/{filename}",
+                        "container_path": f"~/current_task/attachments/{filename}",
                     }
                 )
                 print(

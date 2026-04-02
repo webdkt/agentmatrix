@@ -197,6 +197,30 @@ class ContainerRuntimeFactory:
             return False
 
     @staticmethod
+    def ensure_running(logger: logging.Logger = None) -> bool:
+        """
+        确保容器运行时已启动。
+
+        自动检测并启动可用的容器运行时（Podman 优先，Docker 次之）。
+        这是一个全局初始化函数，应该在系统启动时调用一次。
+
+        Args:
+            logger: 日志记录器（可选）
+
+        Returns:
+            bool: 容器运行时是否成功运行
+        """
+        try:
+            adapter = ContainerRuntimeFactory._auto_detect(logger=logger)
+            return adapter.ensure_running()
+        except Exception as e:
+            if logger:
+                logger.log(logging.WARNING, f"容器运行时启动失败: {e}")
+            else:
+                print(f"容器运行时启动失败: {e}")
+            return False
+
+    @staticmethod
     def get_available_runtimes(logger: logging.Logger = None) -> list:
         """
         获取所有可用的运行时列表
