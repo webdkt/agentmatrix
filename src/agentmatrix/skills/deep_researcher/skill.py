@@ -111,13 +111,12 @@ class Deep_researcherSkillMixin:
 
 当规划完成后：
 - 把 research_state/phase.md 的内容改为 research（用 write action）
-- 然后调用 all_finished 结束
+- 然后结束（无需调用任何 action，回复即可）
 """
         await planner.execute(
             run_label="planning",
             persona=researcher_persona,
-            task=planning_task,
-            max_steps=20,
+            task=planning_task
         )
 
         return "规划阶段执行完毕"
@@ -172,7 +171,7 @@ class Deep_researcherSkillMixin:
    并把下一个 [pending] 改为 [in_progress]（用 replace_string_in_file 或 write 覆写整个文件）
    状态值域：pending | in_progress | completed
 4. 继续下一个 pending 任务
-5. 所有任务完成后，用 write 把 research_state/phase.md 改为 writing，然后调用 all_finished 结束
+5. 所有任务完成后，用 write 把 research_state/phase.md 改为 writing，然后结束（无需调用任何 action，回复即可）
 
 重要：
 - 好记性不如烂笔头，务必勤记笔记（take_note）
@@ -185,7 +184,6 @@ class Deep_researcherSkillMixin:
             run_label="research",
             persona=researcher_persona,
             task=research_task,
-            max_steps=50,
         )
 
         return "研究阶段执行完毕"
@@ -229,8 +227,7 @@ class Deep_researcherSkillMixin:
         await writer.execute(
             run_label="writing",
             persona=researcher_persona,
-            task=writing_task,
-            max_steps=100,
+            task=writing_task
         )
 
         return "写作阶段执行完毕"

@@ -7,7 +7,6 @@ Base Skill - 所有 MicroAgent 必备的基础 Actions
 - ask_user: 向用户提问并等待回答
 
 注意：
-- all_finished 不在此 skill 中，它硬编码在 MicroAgent 中
 - send_email 已移到 email skill 中
 """
 

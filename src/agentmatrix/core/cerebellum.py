@@ -79,9 +79,14 @@ class Cerebellum(AutoLoggerMixin):
             3. Extract ALL required parameters for "{action_name}". 
             4. DECISION:
                - If NOT TO run: Output JSON {{"status": "NOT_TO_RUN", "reason": "reason_for_not_running"}}
-               - If READY: Output JSON {{"status": "READY", "params": {{"param1": "value1", "param2": "value2", ...}}}}
+               - If READY: Output JSON {{"status": "READY", "action_label": "短描述", "params": {{"param1": "value1", "param2": "value2", ...}}}}
                - If MISSING: Output JSON {{"status": "ASK", "question": "What is the value for [param_name] of {action_name}?"}}
                - If AMBIGUOUS: Output JSON {{"status": "ASK", "question": "Clarification needed for [param_name] of {action_name}..."}}
+
+            5. When status is READY, you MUST also provide "action_label":
+               - A brief natural language description of THIS specific action call
+               - Examples: "搜索机器学习最新进展", "发送邮件给张三关于项目进度", "打开百度首页"
+               - This label helps distinguish multiple calls to the same action function
 
             !Important!
             Action function knows absolutely NOTHING about the context, it only can see what's provided in paramter you generate.
@@ -115,9 +120,11 @@ class Cerebellum(AutoLoggerMixin):
 
                 if status == "READY":
                     params = decision.get("params", {})
+                    action_label = decision.get("action_label", "")
                     #self.logger.debug(f"参数解析成功：{params}")
                     return {
                         "action": action_name,
+                        "action_label": action_label,
                         "params": params
                     }
                 elif status == "NOT_TO_RUN":
@@ -125,6 +132,7 @@ class Cerebellum(AutoLoggerMixin):
                     self.logger.debug(f"Action 不执行：{reason}")
                     return {
                         "action": action_name,
+                        "action_label": "",
                         "params": "NOT_TO_RUN",
                         "reason": reason
                     }
@@ -148,6 +156,6 @@ class Cerebellum(AutoLoggerMixin):
                 if len(negotiation_history) > 2:
                     negotiation_history.pop()
 
-        return {"action": action_name, "params": {}}
+        return {"action": action_name, "action_label": "", "params": {}}
 
     

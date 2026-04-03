@@ -112,7 +112,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
 
             
 
-            # 6. 执行 MicroAgent,  execute 内部也是一个永久循环，直到运行 rest_n_wait, take_a_break, all_finished
+            # 6. 执行 MicroAgent,  execute 内部也是一个永久循环，直到运行 rest_n_wait, take_a_break, 或声明式退出
             result = await micro_core.execute(
                 run_label=f'Round {round_count} - {phase}',
                 persona=persona,
@@ -120,7 +120,7 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
                 session=session,  # ← 传递干净的 session
                 session_manager=self.session_manager,  # ← 传递 session_manager
                 #yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
-                exit_actions=["rest_n_wait", "take_a_break", "all_finished"]
+                exit_actions=["rest_n_wait", "take_a_break"]
             )
 
             # 7. 更新轮次计数
@@ -130,9 +130,10 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
             last_action = micro_core.last_action_name
             self.logger.info(f"🔚 MicroAgent finished with action: {last_action}")
 
-            if last_action in ["rest_n_wait", "all_finished"]:
+            if last_action in ["rest_n_wait"] or not last_action:
                 # 正常退出：保存 session（下次用户发邮件时继续）
-                self.logger.info(f"💾 Saving session and exiting outer loop (action: {last_action})")
+                # rest_n_wait 显式退出，或声明式退出（无 last_action）
+                self.logger.info(f"💾 Saving session and exiting outer loop (action: {last_action or 'declarative'})")
                 #这个时候篡改一下session hisotry
                 old_history_length = len(history_before_loop)
                 new_history = session["history"].copy()
@@ -141,10 +142,6 @@ class DeepResearcher(BaseAgent, BrowserUseSkillMixin, FileOperationSkillMixin):
 
 
                 await self.session_manager.save_session(session)
-
-                if last_action == "all_finished":
-                    # 更新最后发送者
-                    session["last_sender"] = self.name
 
                 # 退出外层循环，等待用户输入
                 break

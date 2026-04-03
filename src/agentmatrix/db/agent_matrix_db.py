@@ -29,6 +29,40 @@ class AgentMatrixDB(AutoLoggerMixin):
             )
         """)
 
+        # 1b. 待投递队列（小表，启动时全表扫描恢复）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS email_to_deliver (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT,
+                sender TEXT,
+                recipient TEXT,
+                subject TEXT,
+                body TEXT,
+                in_reply_to TEXT,
+                task_id TEXT,
+                sender_session_id TEXT,
+                recipient_session_id TEXT,
+                metadata TEXT
+            )
+        """)
+
+        # 1c. 已投递待处理队列（小表，启动时全表扫描恢复）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS email_to_process (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT,
+                sender TEXT,
+                recipient TEXT,
+                subject TEXT,
+                body TEXT,
+                in_reply_to TEXT,
+                task_id TEXT,
+                sender_session_id TEXT,
+                recipient_session_id TEXT,
+                metadata TEXT
+            )
+        """)
+
         # 2. 定时任务表 (Scheduled Tasks)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -77,14 +111,6 @@ class AgentMatrixDB(AutoLoggerMixin):
                 metadata TEXT
             )
         """)
-
-        self.conn.commit()
-
-        # 向后兼容：添加 delivered 列（旧数据库可能没有此列）
-        try:
-            cursor.execute("ALTER TABLE emails ADD COLUMN delivered INTEGER DEFAULT 1")
-        except sqlite3.OperationalError:
-            pass  # 列已存在
 
         self.conn.commit()
 
@@ -142,58 +168,91 @@ class AgentMatrixDB(AutoLoggerMixin):
 
         self.conn.commit()
 
-    def log_email(self, email, delivered=True):
-        """记录每一封信"""
+    def log_email(self, email):
+        """新邮件进入待投递队列（dispatch 时调用）"""
         cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO emails
-            (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata, delivered)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                email.id,
-                email.timestamp.isoformat(),
-                email.sender,
-                email.recipient,
-                email.subject,
-                email.body,
-                email.in_reply_to,
-                email.task_id,
-                email.sender_session_id,
-                email.recipient_session_id,
-                json.dumps(email.metadata) if email.metadata else None,
-                1 if delivered else 0,
-            ),
+        email_data = (
+            email.id,
+            email.timestamp.isoformat(),
+            email.sender,
+            email.recipient,
+            email.subject,
+            email.body,
+            email.in_reply_to,
+            email.task_id,
+            email.sender_session_id,
+            email.recipient_session_id,
+            json.dumps(email.metadata) if email.metadata else None,
         )
+        columns = "(id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata)"
+        placeholders = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+
+        cursor.execute(f"INSERT OR IGNORE INTO email_to_deliver {columns} VALUES {placeholders}", email_data)
         self.conn.commit()
 
     def mark_email_delivered(self, email_id: str):
-        """标记邮件为已投递"""
+        """投递完成：从 to_deliver 移到 to_process"""
         cursor = self.conn.cursor()
-        cursor.execute("UPDATE emails SET delivered = 1 WHERE id = ?", (email_id,))
+        # 从待投递队列取数据
+        cursor.execute("SELECT * FROM email_to_deliver WHERE id = ?", (email_id,))
+        row = cursor.fetchone()
+        if not row:
+            return  # 已处理过（重复投递安全）
+        columns = [col[0] for col in cursor.description]
+        row_dict = dict(zip(columns, row))
+
+        # 移到待处理队列
+        cursor.execute(
+            "INSERT OR IGNORE INTO email_to_process (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (row_dict["id"], row_dict["timestamp"], row_dict["sender"], row_dict["recipient"],
+             row_dict["subject"], row_dict["body"], row_dict["in_reply_to"], row_dict["task_id"],
+             row_dict["sender_session_id"], row_dict["recipient_session_id"], row_dict["metadata"])
+        )
+        cursor.execute("DELETE FROM email_to_deliver WHERE id = ?", (email_id,))
         self.conn.commit()
 
-    def get_undelivered_emails(self, recipient: str = None):
-        """获取未投递的邮件"""
+    def get_undelivered_emails(self):
+        """获取待投递的邮件（启动恢复用）"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM email_to_deliver ORDER BY timestamp ASC")
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def mark_emails_processed(self, email_ids: list):
+        """批量标记邮件已处理：从 to_process 移到 emails（归档）"""
+        if not email_ids:
+            return
+        cursor = self.conn.cursor()
+        for eid in email_ids:
+            # 从 to_process 取数据
+            cursor.execute("SELECT * FROM email_to_process WHERE id = ?", (eid,))
+            row = cursor.fetchone()
+            if not row:
+                continue
+            columns = [col[0] for col in cursor.description]
+            row_dict = dict(zip(columns, row))
+            # 移到归档表
+            cursor.execute(
+                "INSERT OR IGNORE INTO emails (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (row_dict["id"], row_dict["timestamp"], row_dict["sender"], row_dict["recipient"],
+                 row_dict["subject"], row_dict["body"], row_dict["in_reply_to"], row_dict["task_id"],
+                 row_dict["sender_session_id"], row_dict["recipient_session_id"], row_dict["metadata"])
+            )
+            cursor.execute("DELETE FROM email_to_process WHERE id = ?", (eid,))
+        self.conn.commit()
+
+    def get_unprocessed_emails(self, recipient: str = None):
+        """获取已投递但未处理的邮件（启动恢复用）"""
         cursor = self.conn.cursor()
         if recipient:
             cursor.execute(
-                "SELECT * FROM emails WHERE delivered = 0 AND recipient = ? ORDER BY timestamp ASC",
+                "SELECT * FROM email_to_process WHERE recipient = ? ORDER BY timestamp ASC",
                 (recipient,),
             )
         else:
-            cursor.execute(
-                "SELECT * FROM emails WHERE delivered = 0 ORDER BY timestamp ASC"
-            )
+            cursor.execute("SELECT * FROM email_to_process ORDER BY timestamp ASC")
         columns = [col[0] for col in cursor.description]
-        rows = cursor.fetchall()
-        result = []
-        for row in rows:
-            row_dict = dict(zip(columns, row))
-            row_dict.pop("delivered", None)
-            result.append(row_dict)
-        return result
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     def get_mailbox(self, agent_name, limit=50):
         """查询某个 Agent 的收件箱历史"""
@@ -256,26 +315,19 @@ class AgentMatrixDB(AutoLoggerMixin):
     ):
         """
         更新邮件的 recipient_session_id
-
-        Args:
-            email_id: 邮件ID
-            recipient_session_id: 收件人的 session
-            receiver_name: 收件人名称
-
-        Raises:
-            RuntimeError: 如果更新失败（邮件不存在或收件人不匹配）
+        邮件可能在 email_to_deliver、email_to_process 或 emails 中，全部更新。
         """
         cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            UPDATE emails
-            SET recipient_session_id = ?
-            WHERE id = ? AND recipient = ?
-        """,
-            (recipient_session_id, email_id, receiver_name),
-        )
+        total_updated = 0
 
-        if cursor.rowcount == 0:
+        for table in ("email_to_deliver", "email_to_process", "emails"):
+            cursor.execute(
+                f"UPDATE {table} SET recipient_session_id = ? WHERE id = ? AND recipient = ?",
+                (recipient_session_id, email_id, receiver_name),
+            )
+            total_updated += cursor.rowcount
+
+        if total_updated == 0:
             raise RuntimeError(
                 f"Failed to update recipient_session_id: "
                 f"email_id={email_id}, receiver={receiver_name}, "
@@ -319,19 +371,16 @@ class AgentMatrixDB(AutoLoggerMixin):
 
     def get_email_by_id(self, email_id: str) -> Optional[dict]:
         """
-        根据 email_id 查询邮件记录
-
-        Args:
-            email_id: 邮件ID
-
-        Returns:
-            dict: 邮件记录，如果不存在返回 None
+        根据 email_id 查询邮件记录（搜索所有队列 + 归档）
         """
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
-        columns = [col[0] for col in cursor.description]
-        row = cursor.fetchone()
-        return dict(zip(columns, row)) if row else None
+        for table in ("email_to_deliver", "email_to_process", "emails"):
+            cursor.execute(f"SELECT * FROM {table} WHERE id = ?", (email_id,))
+            row = cursor.fetchone()
+            if row:
+                columns = [col[0] for col in cursor.description]
+                return dict(zip(columns, row))
+        return None
 
     # ===== External Email Map 相关方法 =====
 
