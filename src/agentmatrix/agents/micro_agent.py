@@ -13,9 +13,16 @@ import asyncio
 import uuid
 import types  # 用于动态绑定
 from datetime import datetime
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable, Any, TYPE_CHECKING, Union
 import logging
 import time
+
+
+@dataclass
+class Signal:
+    type: str  # "email", "action_completed", "action_failed"
+    payload: Any
 
 
 from ..core.log_util import AutoLoggerMixin
@@ -48,7 +55,6 @@ class MicroAgent(AutoLoggerMixin):
         self,
         parent: Union["BaseAgent", "MicroAgent"],
         name: Optional[str] = None,
-        default_max_steps: Optional[int] = None,  # 默认不限制步数
         # independent_session_context parameter removed
         available_skills: Optional[List[str]] = None,  # 🆕 可用技能列表
     ):
@@ -60,7 +66,6 @@ class MicroAgent(AutoLoggerMixin):
                 - 自动继承 brain, cerebellum, action_registry, logger
                 - WorkingContext: 使用指定的上下文
             name: Agent 名称（可选，自动生成）
-            default_max_steps: 默认最大步数（None 表示不限制）
             available_skills: 可用技能列表（如 ["file", "browser"]）
         """
         # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
@@ -109,14 +114,11 @@ class MicroAgent(AutoLoggerMixin):
             self.root_agent = parent.root_agent
 
         # ========== 其他配置 ==========
-        self.default_max_steps = default_max_steps
         self.messages: List[Dict] = []  # 对话历史
         self.yellow_pages = None  # 黄页信息（初始化为 None）
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
-        self.max_steps = (
-            default_max_steps  # 使用 default_max_steps（默认 None，不限制）
-        )
+        
         self.pinned_memory: Optional[str] = None  # 固定记忆（用于跨步骤保持重要信息）
 
         # ========== 🆕 压缩相关（默认开启，无需配置）==========
@@ -130,6 +132,12 @@ class MicroAgent(AutoLoggerMixin):
         # 供 skill 存取自己的属性，避免 mixin __init__ 的 MRO 问题
         # skill 按名字空间存取: self.skill_context.setdefault("skill_name", {})["key"] = value
         self.skill_context: dict = {}
+
+        # ========== 信号驱动架构 ==========
+        self.signal_queue: asyncio.Queue = asyncio.Queue()
+        self._running_actions: Dict[str, dict] = {}  # {action_id: {"task": Task, "label": str}}
+        self._action_counter: int = 0
+        self._pending_processed_ids: List[str] = []
 
         # 日志
         self.logger.info(
@@ -207,23 +215,106 @@ class MicroAgent(AutoLoggerMixin):
         return dynamic_class
 
     @register_action(
-        short_desc="全部工作完成",
-        description="所有任务都已完成。当你觉得没有其他要做的，就必须调用此 action。",
-        param_infos={"result": "最终结果的描述（可选）"},
+        short_desc="取消正在执行的操作",
+        description="取消当前正在运行的操作。如果有多个操作在同时运行，可以通过 action_id 指定取消哪个。",
+        param_infos={"action_id": "要取消的 action ID（可选，不填则取消所有正在运行的操作）"},
     )
-    async def all_finished(self, result: str = None) -> Any:
-        """
-        [TERMINAL ACTION] 完成任务并返回最终结果
+    async def cancel_action(self, action_id: str = None) -> str:
+        """取消正在运行的 action tasks"""
+        _SENTINEL = object()
 
-        这是 MicroAgent 的终止 action，执行后会退出 execute 循环。
+        if action_id and action_id in self._running_actions:
+            info = self._running_actions.pop(action_id, _SENTINEL)
+            if info is _SENTINEL:
+                return f"未找到 {action_id}"
+            task = info["task"] if isinstance(info, dict) else info
+            label = info.get("label", "") if isinstance(info, dict) else ""
+            display_name = f"{action_id.rsplit('_', 1)[0]}: {label}" if label else action_id
+            task.cancel()
+            return f"已取消 [{display_name}]"
+        elif self._running_actions:
+            # pop 所有 entries（除了自己），这样被取消 action 的 _on_action_done 回调触发时会跳过信号
+            # 保留自己的 entry，让 _on_action_done 能正确 put cancel 结果信号
+            current = asyncio.current_task()
+            entries = {}
+            to_keep = {}
+            for aid, info in self._running_actions.items():
+                task = info["task"] if isinstance(info, dict) else info
+                if task is current:
+                    to_keep[aid] = info
+                else:
+                    entries[aid] = info
+            self._running_actions.clear()
+            self._running_actions.update(to_keep)
+            cancelled = []
+            for aid, info in entries.items():
+                task = info["task"] if isinstance(info, dict) else info
+                label = info.get("label", "") if isinstance(info, dict) else ""
+                action_name = aid.rsplit("_", 1)[0]
+                display_name = f"{action_name}: {label}" if label else action_name
+                cancelled.append(display_name)
+                task.cancel()
+            names = ", ".join(cancelled)
+            return f"已取消 {len(cancelled)} 个操作: [{names}]"
+        else:
+            return "当前没有正在运行的操作"
 
-        Args:
-            result: 任务结果描述（可选）
+    def _inject_signal(self, signal):
+        """将信号注入为 messages，让 agent 在下一轮 think 中看到"""
+        if signal.type == "email":
+            batch = signal.payload
+            # batch = {"text": "combined email text", "email_ids": ["id1", "id2"]}
+            text = batch["text"]
+            # 如果有 action 正在运行，告知 agent
+            if self._running_actions:
+                running = ", ".join(
+                    aid.rsplit("_", 1)[0] for aid in self._running_actions
+                )
+                text += f"\n\n**Action {running} Still Running**"
+            self._add_message("user", text)
+            # 收集待标记 processed 的 email ids
+            self._pending_processed_ids.extend(batch.get("email_ids", []))
+        elif signal.type == "action_completed":
+            action_name = signal.payload["action_name"]
+            action_label = signal.payload.get("action_label", "")
+            result = signal.payload["result"]
+            display_name = f"{action_name}: {action_label}" if action_label else action_name
+            msg = f"[{display_name} Done]: {result}"
+            self._add_message("user", msg)
+        elif signal.type == "action_failed":
+            action_name = signal.payload["action_name"]
+            action_label = signal.payload.get("action_label", "")
+            error = signal.payload["error"]
+            display_name = f"{action_name}: {action_label}" if action_label else action_name
+            msg = f"[{display_name} Failed]: {error}"
+            self._add_message("user", msg)
 
-        Returns:
-            Dict: 包含 result 和 finished 标志
-        """
-        return {"result": result or "", "finished": True}
+    def _on_action_done(self, action_id, action_name, task):
+        """action task 完成后的回调 - 投递信号到 signal_queue"""
+        # 如果 entry 已被 cancel_action 移除，跳过信号（取消结果由 cancel_action 统一报告）
+        info = self._running_actions.pop(action_id, None)
+        if info is None:
+            return
+        action_label = info.get("label", "") if isinstance(info, dict) else ""
+        display_name = f"{action_name}: {action_label}" if action_label else action_name
+        try:
+            result = task.result()
+            if result == "NOT_TO_RUN":
+                return
+            self.signal_queue.put_nowait(Signal(
+                type="action_completed",
+                payload={"action_name": action_name, "action_label": action_label, "result": str(result)}
+            ))
+        except asyncio.CancelledError:
+            self.signal_queue.put_nowait(Signal(
+                type="action_completed",
+                payload={"action_name": action_name, "action_label": action_label, "result": f"[{display_name} 已被取消]"}
+            ))
+        except Exception as e:
+            self.signal_queue.put_nowait(Signal(
+                type="action_failed",
+                payload={"action_name": action_name, "action_label": action_label, "error": str(e)}
+            ))
 
     @register_action(
         short_desc="查看skill或action帮助[skill?, action?], ",
@@ -383,7 +474,7 @@ class MicroAgent(AutoLoggerMixin):
         for cls in self.__class__.__mro__:
             # 🔥 过滤逻辑：
             # 1. 扫描所有 *SkillMixin 类（真正的 skills）
-            # 2. 扫描 MicroAgent 类本身（获取 all_finished, help）
+            # 2. 扫描 MicroAgent 类本身（获取 help 等内置 actions）
             # 3. 排除动态类（DynamicAgent_*）和其他类
             is_skill_mixin = cls.__name__.endswith("SkillMixin")
             is_microagent_class = cls.__name__ == "MicroAgent"
@@ -929,15 +1020,13 @@ Start generating the Working Notes now.
         run_label: str,  # 必须指定，有语义的名字
         task: str,
         persona: str = None,
-        max_steps: Optional[int] = None,
-        max_time: Optional[float] = None,
         initial_history: Optional[List[Dict]] = None,
         result_params: Optional[Dict[str, str]] = None,
         yellow_pages: Optional[str] = None,
         session: Optional[Dict] = None,
         session_manager=None,
         simple_mode: bool = False,
-        exit_actions=[],  # 如果运行哪些动作就退出主循环（all_finished 一定会退出）
+        exit_actions=[],  # 如果运行哪些动作就退出主循环
     ) -> Any:
         """
         执行任务（可重复调用）
@@ -950,10 +1039,8 @@ Start generating the Working Notes now.
             run_label: 执行标签（必须），用于日志标识和追踪
             persona: 角色/身份描述（作为 system prompt）
             task: 任务描述
-            max_steps: 最大步数（可选，默认使用 default_max_steps）
-            max_time: 最大执行时间（分钟）（可选，None 表示不限制时间）
             initial_history: 初始对话历史（用于恢复记忆，可选）
-            result_params: 返回值参数描述（可选），用于指定 all_finished 的参数结构
+            result_params: 返回值参数描述（可选）
             yellow_pages: 黄页信息（可选），包含其他agent的描述和如何调用它们
             session: session 对象（可选），用于持久化对话历史
             session_manager: session_manager 对象（可选），用于保存 session
@@ -989,10 +1076,7 @@ Start generating the Working Notes now.
             self.yellow_pages = yellow_pages
         if simple_mode:
             self.simple_mode = simple_mode
-        # 不限制步数，只受时间限制（如果设置了）
-        self.max_steps = max_steps  # 可以是 None
-        self.max_time = max_time  # 可以是 None
-
+        
         # 保存 session 和 session_manager 引用
         self.session = session
         self.session_manager = session_manager
@@ -1025,24 +1109,6 @@ Start generating the Working Notes now.
         self.step_count = 0
         self.result = None
 
-        # all_finished 现在从 BaseAgent 继承，已在 action_registry 中
-        # 动态更新 all_finished 的元数据（如果提供了 result_params）
-        if result_params:
-            # 获取 all_finished 方法
-            all_finished_method = self.action_registry.get(
-                "all_finished"
-            )  # 注意：这里改为 "all_finished"
-
-            if all_finished_method:
-                # 更新参数描述
-                all_finished_method._action_param_infos = result_params
-
-                # 动态生成 description，包含参数的自然语言描述
-                param_descriptions = ", ".join(result_params.values())
-                all_finished_method._action_desc = (
-                    f"完成所有任务并返回最终结果。需要提供：{param_descriptions}"
-                )
-
         # 恢复或初始化对话历史
         # 优先从 session 获取，否则使用 initial_history
         if session:
@@ -1058,8 +1124,9 @@ Start generating the Working Notes now.
                     "role": "system",
                     "content": self._build_system_prompt(),
                 }
-                # 添加新的任务输入（只在恢复已有会话时）
-                self._add_message("user", self._format_task_message())
+                # 添加新的任务输入（只在恢复已有会话时，空 task 跳过）
+                if self.task:
+                    self._add_message("user", self._format_task_message())
             elif not self.messages:
                 self._initialize_session()
                 # 🔥 Bug fix: 不要重复添加 user message，_initialize_session 已经添加了
@@ -1076,8 +1143,9 @@ Start generating the Working Notes now.
                     "role": "system",
                     "content": self._build_system_prompt(),
                 }
-                # 添加新的任务输入（只在恢复已有会话时）
-                self._add_message("user", self._format_task_message())
+                # 添加新的任务输入（只在恢复已有会话时，空 task 跳过）
+                if self.task:
+                    self._add_message("user", self._format_task_message())
             elif not self.messages:
                 self._initialize_session()
                 # 🔥 Bug fix: 不要重复添加 user message，_initialize_session 已经添加了
@@ -1138,9 +1206,10 @@ Start generating the Working Notes now.
         system_prompt = self._build_system_prompt()
         self.messages.append({"role": "system", "content": system_prompt})
 
-        # 2. 任务描述
-        task_message = self._format_task_message()
-        self.messages.append({"role": "user", "content": task_message})
+        # 2. 任务描述（空 task 跳过，邮件通过 signal 进入）
+        if self.task:
+            task_message = self._format_task_message()
+            self.messages.append({"role": "user", "content": task_message})
 
     def _build_system_prompt(self) -> str:
         """构建 System Prompt"""
@@ -1185,7 +1254,7 @@ Start generating the Working Notes now.
         yellow_pages_section = ""
         if self.yellow_pages:
             yellow_pages_section = f"""#### C. 协作网络 (Collaborators)
-如果你无法独立完成任务，可以联系以下 Agent。请使用 `send_email`
+如果你无法独立完成任务，可以联系以下 Agent。
 
 {self.yellow_pages}
 """
@@ -1334,15 +1403,14 @@ Start generating the Working Notes now.
         return "\n".join(lines)
 
     async def _run_loop(self, exit_actions=[]):
-        """执行主循环 - 支持批量 action 执行和时间限制，添加 LLM 服务异常处理"""
+        """信号驱动的执行主循环 - think → launch actions → wait signal → think"""
         start_time = time.time()
         if isinstance(exit_actions, str):
             exit_actions = [exit_actions]
-        # 不限制步数，只受时间限制（如果设置了）
         step_count = 0
 
         # 将分钟转换为秒
-        max_time_seconds = self.max_time * 60 if self.max_time else None
+        
 
         while True:
             # 🔀 检查点1：每次循环开始时检查是否暂停
@@ -1352,31 +1420,54 @@ Start generating the Working Notes now.
             if self._should_compress_messages():
                 await self._compress_messages()
 
-            # 检查时间限制
-            if max_time_seconds:
-                elapsed = time.time() - start_time
-                if elapsed >= max_time_seconds:
-                    self.logger.warning(
-                        f"达到最大时间 ({self.max_time}分钟)，已执行 {step_count} 步"
-                    )
-                    self.result = (
-                        "未完成，达到最大时间限制，最后的状态如下：\n" + self.result
-                    )
-                    break
+            
 
             step_count += 1
             self.step_count = step_count
 
             # 计算已用时间（用于日志）
-            elapsed = time.time() - start_time if max_time_seconds else 0
+            elapsed = time.time() - start_time
             step_info = f"Step {step_count}"
-            if self.max_time:
-                elapsed_minutes = elapsed / 60
-                step_info += f" (时间: {elapsed_minutes:.1f}分钟/{self.max_time}分钟)"
+            elapsed_minutes = elapsed / 60
+            step_info += f" (时间: {elapsed_minutes:.1f}分钟)"
             self.logger.debug(step_info)
 
             # 🔀 检查点2：think 之前检查是否暂停
             await self.root_agent._checkpoint()
+
+            # ===== 批量取信号 =====
+            # 如果 signal_queue 非空 → drain 所有 signals
+            # 如果 signal_queue 空 + 有 running actions → 阻塞等 signal
+            # 如果 signal_queue 空 + 无 running actions → 不阻塞（可能进入声明式退出）
+            if self.signal_queue.empty() and not self._running_actions:
+                # 没有信号也没有 running actions → 跳过信号获取，进入 action 执行后的退出判断
+                signals = []
+            elif self.signal_queue.empty() and self._running_actions:
+                # 有 running actions，阻塞等信号
+                signal = await self.signal_queue.get()
+                signals = [signal]
+                while not self.signal_queue.empty():
+                    signals.append(self.signal_queue.get_nowait())
+            else:
+                # signal_queue 非空，drain 所有
+                signals = []
+                while not self.signal_queue.empty():
+                    signals.append(self.signal_queue.get_nowait())
+
+            # 注入信号为 messages
+            for sig in signals:
+                self._inject_signal(sig)
+
+            # 批量标记邮件已处理（内容已通过 _add_message 写入 session history）
+            if self._pending_processed_ids:
+                ids = self._pending_processed_ids.copy()
+                self._pending_processed_ids.clear()
+                asyncio.create_task(
+                    asyncio.to_thread(
+                        self.root_agent.post_office.email_db.mark_emails_processed,
+                        ids
+                    )
+                )
 
             try:
                 # 1. Think（使用 think_with_retry + actions parser）
@@ -1421,14 +1512,14 @@ Start generating the Working Notes now.
                         # 如果没有 "[ACTION]" 标记，全部返回
                         self.root_agent.update_status(new_message=raw_reply)
 
-                action_thought = thought["[ACTION]"]
+                action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
 
                 # self.logger.debug(f"THOUGHTS: {raw_reply}")
                 # self.logger.debug(f"ACTIONS: {action_thougth}")
 
                 # 2. 检测 actions（多个，保持顺序）
-                action_names = await self._detect_actions(action_thought)
+                action_names = await self._detect_actions(action_section_text)
 
                 self.logger.debug(f"Detected actions: {action_names}")
 
@@ -1442,41 +1533,19 @@ Start generating the Working Notes now.
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply)
 
-                # 5. 顺序执行所有 actions
-                execution_results = []
-                should_break_loop = False  # 标记是否需要退出主循环
+                # 4. 启动 actions（非阻塞）
+                should_break_loop = False
 
                 for idx, action_name in enumerate(action_names, start=1):
-                    # 🔀 检查点3：每个 action 执行前检查是否暂停
-                    if (
-                        hasattr(self, "root_agent")
-                        and self.root_agent
-                        and hasattr(self.root_agent, "_checkpoint")
-                    ):
-                        await self.root_agent._checkpoint()
-
                     # === 处理特殊 actions ===
-                    if action_name == "all_finished":
-                        # 执行 all_finished
-                        result = await self._execute_action(
-                            "all_finished", action_thought, idx, action_names
-                        )
-                        self.result = result
-                        self.return_action_name = "all_finished"
-                        should_break_loop = True
-                        # 不记录 execution_results，直接退出
-                        break  # ← 退出 for action_names 循环
-
-                    elif action_name == "update_memory":
-                        # 执行 update_memory（特殊处理：不记录结果，因为它压缩 messages）
+                    if action_name == "update_memory":
+                        # update_memory 必须阻塞执行（它压缩 messages，影响后续 think）
                         await self._execute_action(
-                            "update_memory", action_thought, idx, action_names
+                            "update_memory", action_section_text, idx, action_names
                         )
                         self.logger.debug(
                             f"✅ {action_name} done (messages compressed)"
                         )
-                        # update_memory会触发compress,那么最后一条记录肯定是user message.
-                        # 这样编造最后的两个message，让会话圆满
                         self._add_message("assistant", "[ACTION] 执行update_memory")
                         self._add_message("user", "[update_memory] DONE SUCCESSFULLY")
 
@@ -1484,7 +1553,7 @@ Start generating the Working Notes now.
                         self.return_action_name = action_name
                         try:
                             result = await self._execute_action(
-                                action_name, action_thought, idx, action_names
+                                action_name, action_section_text, idx, action_names
                             )
                             self.result = result
                         except Exception:
@@ -1492,48 +1561,32 @@ Start generating the Working Notes now.
                         should_break_loop = True
                         break
 
-                    # === 执行普通 actions ===
+                    # === 普通 actions：非阻塞启动 ===
                     else:
-                        try:
-                            result = await self._execute_action(
-                                action_name, action_thought, idx, action_names
+                        task = asyncio.create_task(
+                            self._execute_action(
+                                action_name, action_section_text, idx, action_names
                             )
-                            if result != "NOT_TO_RUN":
-                                execution_results.append(
-                                    f"[{action_name} Done]:\n {result}"
-                                )
-                                self.logger.debug(f"✅ {action_name} done")
-                                self.logger.debug(result)
+                        )
+                        action_id = f"{action_name}_{self._action_counter}"
+                        self._action_counter += 1
+                        self._running_actions[action_id] = {"task": task, "label": ""}
+                        task.add_done_callback(
+                            lambda t, aid=action_id, aname=action_name:
+                                self._on_action_done(aid, aname, t)
+                        )
 
-                                # ✅ 状态更新：Action 执行结果
-                                action_status = f"{action_name}: {result[:100] if len(result) > 100 else result}"
-                                self.root_agent.update_status(
-                                    new_status="WORKING", new_message=action_status
-                                )
-
-                        except Exception as e:
-                            error_msg = str(e)
-                            execution_results.append(
-                                f"[{action_name} Failed]:\n {error_msg}"
-                            )
-                            self.logger.warning(f"❌ {action_name} failed: {error_msg}")
-
-                # 6. 反馈给 Brain（只有普通 actions 才反馈）
-                if execution_results:
-                    combined_result = "\n".join(execution_results)
-
-                    # Hook：子类可重写来增强反馈
-                    enhanced_feedback = await self._prepare_feedback_message(
-                        combined_result, step_count, start_time
-                    )
-
-                    self._add_message("user", enhanced_feedback)
-
-                    self.result = combined_result  # 有进展就保存一下，最后的结果，下面如果超时或者超轮次退出，就用这个未完成结果。
-
-                # 7. 检查是否需要退出主循环
+                # 5. 检查是否需要退出主循环
                 if should_break_loop:
                     break
+
+                # 声明式退出：没有新 action 要执行，且没有 running action 在跑
+                if not action_names and not self._running_actions:
+                    break
+
+                # 回到循环顶部，signal_queue.get() 等待
+                # action task 完成后 callback 会 put 信号进来
+                # BaseAgent 收到新邮件也会 put 信号进来
 
             except LLMServiceUnavailableError as e:
                 # ========== LLM 服务异常处理 ==========
@@ -1643,9 +1696,9 @@ Start generating the Working Notes now.
         1. 如果有 [ACTION] section → 检查下面是否有有效的 action name
            - 有 → 返回 raw_reply（验证通过）
            - 没有 → 返回 error（让 LLM 重试）
-        2. 如果没有 [ACTION] section → 检查全文是否只提到一个 action
-           - 是 → 返回 raw_reply（验证通过）
-           - 否则 → 返回 error（让 LLM 重试）
+        2. 如果没有 [ACTION] section → 检查全文是否有 action name
+           - 有 → 返回 raw_reply（验证通过，全文当作 [ACTION] 内容）
+           - 0 个 → 也 OK（合法的"无 action"回复）
 
         Args:
             raw_reply: LLM 的原始输出
@@ -1678,37 +1731,27 @@ Start generating the Working Notes now.
 
             if result["status"] == "success":
                 actions_text = result["content"]["[ACTION]"]
-
-                # 检查是否包含有效的 action（使用正则提取，参照 _extract_mentioned_actions 的方法）
-                import re
-
-                action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
-                matches = re.finditer(action_pattern, actions_text)
-
-                detected_actions = set()
-                for match in matches:
-                    action_name = match.group(1).lower()
-                    if action_name in action_registry:
-                        detected_actions.add(action_name)
-
-                if detected_actions:
-                    # 验证通过：[ACTION] 下有有效的 action
-                    result["content"]["[RAW_REPLY]"] = raw_reply
-                    return result
-                else:
-                    # 验证失败：[ACTION] 下没有有效的 action
-                    return {
-                        "status": "error",
-                        "feedback": f"[ACTION] 下必须要指明使用什么动作(action 名字)",
-                    }
             else:
-                # multi_section_parser 失败
-                return {
-                    "status": "error",
-                    "feedback": "必须在[ACTION] 下指明使用什么动作(action 名字)",
-                }
+                # multi_section_parser 失败（比如 [ACTION] 下为空），当作无 action
+                actions_text = ""
 
-        # 规则2：没有 [ACTION] section，检查全文是否只提到一个 action
+            # 检查是否包含有效的 action
+            import re
+
+            action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
+            matches = re.finditer(action_pattern, actions_text)
+
+            detected_actions = set()
+            for match in matches:
+                action_name = match.group(1).lower()
+                if action_name in action_registry:
+                    detected_actions.add(action_name)
+
+            # 有 action 或无 action 都 OK
+            content = {"[ACTION]": actions_text, "[RAW_REPLY]": raw_reply}
+            return {"status": "success", "content": content}
+
+        # 规则2：没有 [ACTION] section，检查全文是否有 action name
         # 正则提取所有 action names
         action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
         matches = re.finditer(action_pattern, raw_reply)
@@ -1720,17 +1763,15 @@ Start generating the Working Notes now.
                 detected_actions.add(action_name)
 
         # 检查数量
-        if len(detected_actions) == 1:
-            # 只有一个 action，验证通过
+        if len(detected_actions) >= 1:
+            # 有 action，验证通过（把全文当作 [ACTION] 内容）
             content = {"[ACTION]": raw_reply, "[RAW_REPLY]": raw_reply}
             return {"status": "success", "content": content}
 
         else:
-            # 多个 actions，但没有用 [ACTION] section
-            return {
-                "status": "error",
-                "feedback": "必须使用 [ACTION] section 来明确列出要执行的动作",
-            }
+            # 0 个 action 也 OK — 合法的"无 action"回复
+            content = {"[ACTION]": "", "[RAW_REPLY]": raw_reply}
+            return {"status": "success", "content": content}
 
     def _extract_mentioned_actions(self, thought: str) -> List[str]:
         """
@@ -1744,7 +1785,7 @@ Start generating the Working Notes now.
         Example:
             "我刚做完了web_search，现在准备file_operation" → ["web_search", "file_operation"]
             "使用send_email发送" → ["send_email"]
-            "先搜索，然后完成" → ["web_search", "all_finished"]
+            "先搜索，然后完成" → ["web_search"]
             "write A, write B, write C" → ["write", "write", "write"]
         """
         import re
@@ -1980,10 +2021,19 @@ write, send_mail, write
             )
 
             params = action_json.get("params", {})
+            action_label = action_json.get("action_label", "")
             if params == "NOT_TO_RUN":
                 return params
         else:
             params = {}
+            action_label = ""
+
+        # 将 action_label 存入 _running_actions（让 callback 能拿到）
+        current_task = asyncio.current_task()
+        for aid, info in self._running_actions.items():
+            if isinstance(info, dict) and info.get("task") is current_task:
+                info["label"] = action_label
+                break
 
         # 3. 执行方法（✅ 直接调用，无需动态绑定）
         self._log(
@@ -2005,10 +2055,8 @@ write, send_mail, write
                 # 调用 root_agent.ask_user（会挂起等待用户输入）
                 result = await self.root_agent.ask_user(question)
             else:
-                # 普通 action：正常调用
+                # 普通 action：正常调用（异常由 _on_action_done callback 处理）
                 result = await method(**params)
-        except Exception as e:
-            result = f"Error executing {action_name}: {str(e)}"
         finally:
             # 记录最后执行的 action 名字
             self.last_action_name = action_name
