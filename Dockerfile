@@ -7,6 +7,11 @@ RUN apt-get update && apt-get install -y \
     git \
     vim \
     tree \
+    wget \
+    unzip \
+    ssh \
+    make \
+    gcc \
     # Office 文档处理依赖
     libxml2 \
     libxslt1.1 \
@@ -17,6 +22,11 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     libpng-dev \
     # 清理缓存
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Node.js 20.x LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖（容器内最小依赖）
