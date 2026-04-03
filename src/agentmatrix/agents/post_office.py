@@ -78,7 +78,7 @@ class PostOffice(AutoLoggerMixin):
             self.logger.info("PostOffice DB connection closed.")
 
     async def dispatch(self, email):
-        self.email_db.log_email(email, delivered=False)
+        self.email_db.log_email(email)
         self.logger.debug(f"Sending email from {email.sender} to {email.recipient} ")
         await self.queue.put(email)
         self.logger.debug("Mail delivered")

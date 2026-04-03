@@ -2,6 +2,7 @@ from ..agents.base import BaseAgent
 from ..core.message import Email
 from ..core.readable_id_generator import generate_readable_id
 from typing import Callable, Awaitable, Optional
+import asyncio
 import datetime
 import uuid
 import shutil
@@ -86,23 +87,22 @@ class UserProxyAgent(BaseAgent):
             )
             # 不抛出异常，继续执行（目录操作失败不应该阻塞邮件发送）
 
-    async def process_email(self, email: Email):
+    async def _route_email(self, email: Email):
         """
-        当 Matrix 里的 Agent (如 Planner) 给 User 发信时触发
+        轻量级路由：session 归属 → 更新 recipient_session_id → 推送前台。
+        不创建 MicroAgent，不做 AI 处理。
         """
-        # 1. 恢复 session（继承自 BaseAgent 的能力）
         session = await self.session_manager.get_session(email)
         self.current_session = session
         self.current_task_id = session["task_id"]
 
-        # 2. 更新 recipient_session_id（如果尚未设置）
+        # 更新 recipient_session_id
         if email.recipient_session_id is None:
             await self.post_office.update_email_receiver_session(
                 email_id=email.id,
                 recipient_session_id=session["session_id"],
                 receiver_name=self.name,
             )
-            # 🔑 关键修复：同步更新内存对象，否则 WebSocket 回调拿到的还是 null
             email.recipient_session_id = session["session_id"]
 
         # 维护 user_sessions（用户收件：is_read=0，对方是发件人）
@@ -113,8 +113,7 @@ class UserProxyAgent(BaseAgent):
             is_read=0,
         )
 
-        # 3. 记录日志（保持原有逻辑）
-        print(f"[{self.name}] 收到邮件: {email.subject}")
+        # 推送到前台
         await self.emit(
             "USER_INTERACTION",
             f"收到来自 {email.sender} 的消息",
@@ -125,22 +124,36 @@ class UserProxyAgent(BaseAgent):
                 "subject": email.subject,
                 "body": email.body,
                 "in_reply_to": email.in_reply_to,
-                "recipient_session_id": session[
-                    "session_id"
-                ],  # 关键：前端需要知道放到哪个会话
-                "task_id": session["task_id"],  # 前端也需要 task_id
+                "recipient_session_id": session["session_id"],
+                "task_id": session["task_id"],
             },
         )
 
-        # 4. 触发外部钩子（保持原有逻辑）
+        # 触发外部钩子
         if self.on_mail_received:
-            # 把这封信扔给外部程序，至于外部程序是打印还是弹窗，我不关心
             await self.on_mail_received(email)
-        else:
-            # 默认行为：简单的打印到控制台，防止没有任何反应
-            print(
-                f"\n[UserProxy 收到邮件] From: {email.sender}\nSubject: {email.subject}\nBody: {email.body}\n"
-            )
+
+        # 标记邮件已处理（从 email_to_process 移到 emails 归档表）
+        self.post_office.email_db.mark_emails_processed([email.id])
+
+    async def _main_loop(self):
+        """简化版 main loop：只收邮件、路由，无 session 生命周期管理。"""
+        self.logger.info("🔄 UserProxyAgent Main loop 已启动")
+        try:
+            while True:
+                email = await self.inbox.get()
+                try:
+                    self.last_received_email = email
+                    await self._route_email(email)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    self.logger.exception(f"Error routing email in {self.name}")
+                finally:
+                    self.inbox.task_done()
+        except asyncio.CancelledError:
+            self.logger.info("🔄 UserProxyAgent Main loop 已停止")
+            raise
 
     async def speak(
         self,

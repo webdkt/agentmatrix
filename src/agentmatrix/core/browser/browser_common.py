@@ -33,8 +33,7 @@ class BaseCrawlerContext(ABC):
     提供公共的状态管理和历史记录功能。
     """
 
-    def __init__(self, deadline: float):
-        self.deadline = deadline
+    def __init__(self):
         self.visited_urls: Set[str] = set()  # 实际访问过的URL
         self.evaluated_urls: Set[str] = set()  # LLM评估过的URL（可能被推荐，也可能被拒绝）
         self.interaction_history: Set[str] = set()
@@ -46,10 +45,10 @@ class BaseCrawlerContext(ABC):
         }
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(deadline={self.deadline}, visited={len(self.visited_urls)})"
+        return f"{self.__class__.__name__}(visited={len(self.visited_urls)})"
 
     def is_time_up(self) -> bool:
-        return time.time() > self.deadline
+        return False
 
     def mark_visited(self, url: str):
         """标记 URL 为已访问（或已处理）"""

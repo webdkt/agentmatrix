@@ -1,18 +1,18 @@
 import asyncio
 from typing import Dict, Optional, Callable, List, Any, Tuple
+from dataclasses import asdict
 from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
 from ..core.session_manager import SessionManager
 import traceback
-from dataclasses import asdict
 import inspect
 import json
 import textwrap
 from ..core.log_util import AutoLoggerMixin
 import logging
 from pathlib import Path
-from .micro_agent import MicroAgent
+from .micro_agent import MicroAgent, Signal
 
 
 # Agent 状态常量
@@ -22,6 +22,7 @@ class AgentStatus:
     WORKING = "WORKING"
     WAITING_FOR_USER = "WAITING_FOR_USER"
     PAUSED = "PAUSED"
+    STOPPED = "STOPPED"
     ERROR = "ERROR"
 
 
@@ -95,6 +96,11 @@ class BaseAgent(AutoLoggerMixin):
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # 初始状态为已设置（不阻塞）
 
+        # 🛑 停止机制
+        self._stopped = False
+        self._stop_event = asyncio.Event()
+        self._stop_event.set()  # 初始状态为已设置（不阻塞）
+
         # 💬 ask_user 机制（等待用户输入）
         self._pending_user_question = None  # 当前等待用户回答的问题
         self._user_input_future = None  # 用于等待用户输入的 Future
@@ -107,6 +113,12 @@ class BaseAgent(AutoLoggerMixin):
         # 🆕 Stop 机制
         self._execute_task = None  # 当前正在运行的 execute task
         self._is_stopping = False  # 是否正在停止
+
+        # 🆕 信号驱动架构 — session 管理
+        self.active_session_id: Optional[str] = None
+        self.active_micro_agent: Optional[MicroAgent] = None
+        self._session_task: Optional[asyncio.Task] = None
+        self.waiting_emails: List[Email] = []  # 非 active session 的邮件暂存
 
         # 🐳 Container Session（延迟初始化）
         self.container_session = None
@@ -298,27 +310,33 @@ class BaseAgent(AutoLoggerMixin):
         self.update_status(new_status=AgentStatus.PAUSED, new_message="⏸️ Agent已暂停")
 
     async def resume(self):
-        """恢复 Agent 执行"""
-        if not self._paused:
-            self.logger.warning(f"Agent {self.name} 未暂停，无需恢复")
-            return
-
-        self._paused = False
-        self._pause_event.set()  # 设置事件，唤醒所有等待的协程
-        self.logger.info(f"▶️ Agent {self.name} 已恢复")
-
-        # 🔧 更新状态并推送
-        self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已恢复")
+        """恢复 Agent 执行（智能区分 stop / pause）"""
+        if self._stopped:
+            self._stopped = False
+            self._stop_event.set()
+            self.logger.info(f"▶️ Agent {self.name} 从停止状态恢复")
+            self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已从停止状态恢复")
+        elif self._paused:
+            self._paused = False
+            self._pause_event.set()
+            self.logger.info(f"▶️ Agent {self.name} 从暂停状态恢复")
+            self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已从暂停状态恢复")
+        else:
+            self.logger.warning(f"Agent {self.name} 未停止也未暂停")
 
     async def _checkpoint(self):
         """
         检查点：在 MicroAgent 的关键位置调用
 
-        如果 Agent 处于暂停状态，会挂起当前协程，直到恢复。
+        如果 Agent 处于停止或暂停状态，会挂起当前协程，直到恢复。
         """
+        if self._stopped:
+            self.logger.debug(f"🛑 Agent {self.name} 检查到停止，等待恢复...")
+            await self._stop_event.wait()
+            self.logger.debug(f"✅ Agent {self.name} 从停止状态恢复")
         if self._paused:
             self.logger.debug(f"🛑 Agent {self.name} 检查到暂停，等待恢复...")
-            await self._pause_event.wait()  # 挂起，等待 resume()
+            await self._pause_event.wait()
             self.logger.debug(f"✅ Agent {self.name} 已恢复执行")
 
     @property
@@ -330,19 +348,28 @@ class BaseAgent(AutoLoggerMixin):
 
     def stop(self):
         """
-        停止当前正在执行的 MicroAgent。
+        停止 Agent：停止当前 session，并且不再处理新邮件。
 
-        只中断当前 email 的处理，不影响 email_worker 继续等待新邮件。
+        需要调用 resume() 恢复。
         """
-        if self._execute_task and not self._execute_task.done():
-            self._is_stopping = True
-            self._execute_task.cancel()
-            self.logger.info(f"🛑 Agent {self.name} 已停止当前执行")
+        self._stopped = True
+        self._stop_event.clear()
+        self._is_stopping = True
 
-            # 🔧 更新状态并推送
-            self.update_status(new_status=AgentStatus.IDLE, new_message="🛑 执行已停止")
-        else:
-            self.logger.info(f"ℹ️ Agent {self.name} 没有正在执行的任务")
+        # 取消所有 running action tasks
+        if self.active_micro_agent:
+            entries = dict(self.active_micro_agent._running_actions)
+            self.active_micro_agent._running_actions.clear()
+            for aid, info in entries.items():
+                task = info["task"] if isinstance(info, dict) else info
+                task.cancel()
+
+        # 取消 session task
+        if self._session_task and not self._session_task.done():
+            self._session_task.cancel()
+            self.logger.info(f"🛑 Agent {self.name} 已停止当前 session")
+
+        self.update_status(new_status=AgentStatus.STOPPED, new_message="🛑 Agent已停止")
 
     # ========== ask_user 机制 ==========
 
@@ -483,6 +510,92 @@ class BaseAgent(AutoLoggerMixin):
         # 设置结果，唤醒 Future
         self._user_input_future.set_result(answer)
 
+    def get_status_snapshot(self) -> dict:
+        """
+        获取当前 Agent 的完整状态快照
+
+        Returns:
+            dict: Agent 完整状态，包含：
+                - status: Agent 状态
+                - pending_question: 等待中的用户问题
+                - current_session_id: 当前会话 ID
+                - current_task_id: 当前任务 ID
+                - current_user_session_id: 当前用户会话 ID
+                - status_history: 状态历史（最近 10 条）
+        """
+        user_session_id = self.current_user_session_id
+        if not user_session_id and self.current_task_id:
+            user_session_id = self.current_task_id
+
+        return {
+            "status": self._status,
+            "pending_question": self._pending_user_question
+            if hasattr(self, "_pending_user_question")
+            else None,
+            "current_session_id": self.current_session.get("session_id")
+            if self.current_session
+            else None,
+            "current_task_id": self.current_task_id,
+            "current_user_session_id": user_session_id,
+            "status_history": self.status_history.copy(),
+        }
+
+    def update_status(self, new_status=None, new_message=None):
+        """
+        统一的状态更新接口（唯一修改 Agent 状态的方式）
+
+        Args:
+            new_status (str, optional): 新的 Agent 状态
+            new_message (str, optional): 添加到状态历史的消息
+
+        注意：此方法会触发增量状态推送
+        """
+        if new_status is not None:
+            self._status = new_status
+            from datetime import datetime
+
+            self._status_since = datetime.now()
+            self.logger.debug(f"📊 Status: {new_status}")
+
+        if new_message is not None:
+            from datetime import datetime
+
+            entry = {
+                "message": new_message,
+                "timestamp": datetime.now().isoformat(),
+                "user_session_id": self.current_user_session_id,
+            }
+            self.status_history.append(entry)
+            if len(self.status_history) > self._max_status_history:
+                self.status_history.pop(0)
+            self.logger.debug(f"📊 Status history: {new_message}")
+
+        if self._broadcast_message_callback:
+            agent_info = self.get_status_snapshot()
+            message = {
+                "type": "AGENT_STATUS_UPDATE",
+                "agent_name": self.name,
+                "data": agent_info,
+            }
+            asyncio.create_task(self._send_message(message))
+
+    async def _send_message(self, message):
+        """异步发送消息（数据已经在调用方准备好）"""
+        try:
+            await self._broadcast_message_callback(message)
+        except Exception as e:
+            self.logger.warning(f"Failed to send status update: {e}")
+
+    def get_current_status(self) -> dict:
+        """获取当前状态（最新一条）"""
+        if self.status_history:
+            return self.status_history[-1]
+        return {"message": "空闲", "timestamp": None}
+
+    def get_status_history(self) -> list:
+        """获取状态历史（最近 10 条）"""
+        return self.status_history.copy()
+
     def _scan_all_actions(self):
         """
         扫描所有 actions（新架构）
@@ -574,24 +687,20 @@ class BaseAgent(AutoLoggerMixin):
             await self.async_event_callback(event)
 
     async def run(self):
-        """主循环：启动并监控双 worker"""
-        # 🆕 启动两个 worker
-        self.email_worker_task = asyncio.create_task(self._email_worker())
+        """主循环：启动 _main_loop + history_worker"""
+        self.email_worker_task = asyncio.create_task(self._main_loop())
         self.history_worker_task = asyncio.create_task(self._history_worker())
 
         await self.emit("SYSTEM", f"{self.name} Started")
 
-        # 监控 email_worker（history_worker 由 email_worker 管理）
         try:
             await asyncio.gather(self.email_worker_task, return_exceptions=True)
         except asyncio.CancelledError:
             self.logger.info(f"{self.name} main loop cancelled")
-            # 取消所有 worker
             if self.email_worker_task:
                 self.email_worker_task.cancel()
             if self.history_worker_task:
                 self.history_worker_task.cancel()
-            # 等待worker任务完成
             try:
                 await asyncio.gather(
                     self.email_worker_task,
@@ -600,440 +709,243 @@ class BaseAgent(AutoLoggerMixin):
                 )
             except Exception:
                 pass
-            raise  # Re-raise CancelledError to properly propagate cancellation
+            raise
         except Exception as e:
             self.logger.exception(f"Unexpected error in {self.name} main loop")
 
-    async def process_email(self, email: Email):
+    async def _main_loop(self):
         """
-        处理邮件 = 恢复记忆 + 执行 + 保存记忆
+        主循环：收邮件 + 路由 + session 管理
 
-        使用内置 Micro Agent 执行 think-act 循环
+        替代旧的 _email_worker + process_email。
+        邮件不再阻塞处理，而是路由到 active session 的 signal_queue，
+        或暂存到 waiting_emails 等待后续 session 处理。
         """
-        # 1. Session Management (Routing)
-        self.logger.debug(f"New Email")
-        self.logger.debug(str(email))
+        self.logger.info("🔄 Main loop 已启动")
+
+        try:
+            while True:
+                # 🛑 停止状态：阻塞等待 resume
+                if self._stopped:
+                    self.logger.info("🛑 Main loop 已停止，等待恢复...")
+                    await self._stop_event.wait()
+                    self.logger.info("▶️ Main loop 从停止状态恢复")
+
+                # 暂停状态：阻塞等待 resume
+                if self._paused:
+                    self.logger.info("⏸️ Main loop 已暂停，等待恢复...")
+                    await self._pause_event.wait()
+                    self.logger.info("▶️ Main loop 已恢复")
+
+                # 阻塞等待邮件
+                email = await self.inbox.get()
+
+                try:
+                    self.last_received_email = email
+                    await self._route_email(email)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    self.logger.exception(f"Error routing email in {self.name}")
+                finally:
+                    self.inbox.task_done()
+
+        except asyncio.CancelledError:
+            # 取消 session task
+            if self._session_task and not self._session_task.done():
+                # 取消所有 running action tasks
+                if self.active_micro_agent:
+                    for aid, task in self.active_micro_agent._running_actions.items():
+                        task.cancel()
+                self._session_task.cancel()
+                try:
+                    await self._session_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            self.logger.info("🔄 Main loop 已停止")
+            raise
+
+    async def _route_email(self, email: Email):
+        """
+        路由邮件到正确的 session。
+
+        三种情况：
+        1. 无 active session → activate session 并投递邮件
+        2. active session + 邮件属于同一 session → 投递到 signal_queue
+        3. active session + 邮件属于不同 session → 暂存到 waiting_emails
+        """
+        # 解析 session
         session = await self.session_manager.get_session(email)
-        self.current_session = session
-        self.current_task_id = session["task_id"]
+        session_id = session["session_id"]
 
-        # 🆕 设置 current_user_session_id（如果邮件来自User）
-        # 检查邮件发送者是否是用户
-        if self.runtime and email.sender == self.runtime.get_user_agent_name():
-            # 邮件来自User，设置 current_user_session_id
-            self.current_user_session_id = email.sender_session_id
-            self.logger.debug(
-                f"📧 邮件来自用户 User，设置 current_user_session_id = {email.sender_session_id[:8] if email.sender_session_id else None}..."
-            )
-        else:
-            # 邮件来自其他Agent，清空 current_user_session_id
-            self.current_user_session_id = None
-            self.logger.debug(
-                f"📧 邮件来自 {email.sender}，清空 current_user_session_id"
-            )
-
-        # 2. 更新 recipient_session_id（如果尚未设置）
+        # 更新 recipient_session_id
         if email.recipient_session_id is None:
             await self.post_office.update_email_receiver_session(
                 email_id=email.id,
-                recipient_session_id=session["session_id"],
+                recipient_session_id=session_id,
                 receiver_name=self.name,
             )
 
-        # 🐳 容器模式：切换工作区
-        task_id = session["task_id"]
-        self.logger.info(
-            f"DEBUG: session task_id = {task_id!r}, email.task_id = {email.task_id!r}"
-        )
+        if self.active_session_id is None:
+            # 情况 1：无 active session → activate
+            await self._activate_session(session, email)
+        elif self.active_session_id == session_id:
+            # 情况 2：同一 session → 投递 batch 信号
+            if self.active_micro_agent:
+                email_text = f"[新邮件] 来自 {email.sender}: {email.subject}\n{email.body}"
+                self.active_micro_agent.signal_queue.put_nowait(
+                    Signal(type="email", payload={
+                        "text": email_text,
+                        "email_ids": [email.id]
+                    })
+                )
+            self.logger.debug(f"📧 邮件路由到 active session {session_id[:8]}")
+        else:
+            # 情况 3：不同 session → 暂存
+            self.waiting_emails.append(email)
+            self.logger.debug(
+                f"📧 邮件暂存 (session {session_id[:8]} != active {self.active_session_id[:8]})"
+            )
 
-        # 检查 Container Session 是否已初始化
+    async def _activate_session(self, session: dict, first_email: Email):
+        """
+        激活 session：创建 MicroAgent，投递首封邮件，启动 session task。
+        """
+        session_id = session["session_id"]
+        self.active_session_id = session_id
+        self.current_session = session
+        self.current_task_id = session["task_id"]
+
+        # 设置 current_user_session_id
+        if self.runtime and first_email.sender == self.runtime.get_user_agent_name():
+            self.current_user_session_id = first_email.sender_session_id
+        else:
+            self.current_user_session_id = None
+
+        # 切换工作区
         if self.container_session is None:
-            raise RuntimeError(
-                "Container Session 未初始化。请确保 runtime 已正确设置。"
-            )
-
-        # 切换工作区（异步）
-        success = await self.switch_workspace(task_id)
+            raise RuntimeError("Container Session 未初始化。")
+        success = await self.switch_workspace(session["task_id"])
         if not success:
-            raise RuntimeError(f"工作区切换失败: {task_id}")
+            raise RuntimeError(f"工作区切换失败: {session['task_id']}")
 
+        # 准备 available_skills
+        available_skills = self.profile.get("skills", [])
+        for required in ["base", "email"]:
+            if required not in available_skills:
+                available_skills = [required] + available_skills
+
+        # 创建 MicroAgent
+        micro_agent = MicroAgent(
+            parent=self, name=self.name, available_skills=available_skills
+        )
+        self.active_micro_agent = micro_agent
+
+        # 首封邮件作为 batch signal 放入 queue（取代旧的 task 参数 + signal 双重路径）
+        email_text = f"[新邮件] 来自 {first_email.sender}: {first_email.subject}\n{first_email.body}"
+        micro_agent.signal_queue.put_nowait(Signal(
+            type="email",
+            payload={"text": email_text, "email_ids": [first_email.id]}
+        ))
+
+        # 启动 session task — task 为空，邮件通过 signal 进入
+        self._session_task = asyncio.create_task(
+            self._run_session(micro_agent, session)
+        )
+        self.logger.info(f"🚀 Session {session_id[:8]} 已激活")
+
+    async def _run_session(self, micro_agent: MicroAgent, session: dict):
+        """
+        运行 session 的 MicroAgent，处理完成后的清理。
+        """
+        session_id = session["session_id"]
         try:
-            # 2. 准备参数
-            task = str(email)
-
-            # 3. 准备 available_skills（🆕 新架构）
-            available_skills = self.profile.get("skills", [])
-
-            # 自动注入 base 和 email skills（Top-level MicroAgent 必备）
-            # base: get_current_datetime, take_a_break, ask_user（所有 MicroAgent 必备）
-            # email: send_email（Top-level MicroAgent 需要和用户通信）
-            # 确保 Top-level MicroAgent 始终拥有这些基础 actions
-            for required in ["base", "email"]:
-                if required not in available_skills:
-                    available_skills = [required] + available_skills
-
-            # 4. 执行 Micro Agent
-            # 每次创建新的 MicroAgent
-            # 🆕 传入身份特征参数
-            persona = self.persona
-            micro_core = MicroAgent(
-                parent=self, name=self.name, available_skills=available_skills
+            result = await micro_agent.execute(
+                run_label="Process Email",
+                task="",  # 邮件通过 signal 进入，不再通过 task
+                yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
+                session_manager=self.session_manager,
+                session=session,
             )
-
-            # 执行 MicroAgent（带异常处理，用于错误恢复）
-            result = None
-            try:
-                # 创建 execute task（可被 stop() 中断）
-                execute_task = asyncio.create_task(
-                    micro_core.execute(
-                        run_label="Process Email",
-                        task=task,
-                        max_steps=100,
-                        yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
-                        session_manager=self.session_manager,
-                        session=session,
-                    )
-                )
-                self._execute_task = execute_task
-                result = await execute_task
-
-            except asyncio.CancelledError:
-                # 检查是我们的 stop() 还是系统 Ctrl-C
-                if self._is_stopping:
-                    # ===== 我们的 stop() 导致的中断 =====
-                    self.logger.info(f"🛑 Agent {self.name} 执行中止")
-
-                    # 1. 确保最后一条消息是 assistant
-                    if session.get("history"):
-                        history = session["history"]
-                        if history:
-                            last = history[-1]
-                            if last.get("role") == "assistant":
-                                # append 到现有 assistant 消息
-                                last["content"] = (
-                                    last.get("content", "").strip()
-                                    + "\n\n**执行中，用户要求中止**"
-                                )
-                            else:
-                                # 添加新的 assistant 消息
-                                history.append(
-                                    {
-                                        "role": "assistant",
-                                        "content": "**执行中，用户要求中止**",
-                                    }
-                                )
-
-                    # 2. 保存 session
-                    try:
-                        await self.session_manager.save_session(session)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to save session on stop: {e}")
-
-                    # 3. 设置结果
-                    result = "Stopped by user"
-                    self._is_stopping = False
-                else:
-                    # ===== 系统 Ctrl-C 或其他中断 =====
-                    self.logger.info(f"🛑 Agent {self.name} 收到系统中断")
-                    raise  # 重新抛出，让 run() 正常退出
-
-            except Exception as e:
-                self.logger.error(f"❌ 邮件处理出错: {e}")
-
-                # 1. 发送错误通知给用户（完整错误信息）
-                user_name = (
-                    self.runtime.get_user_agent_name() if self.runtime else "User"
-                )
-                try:
-                    error_full = f"在处理您的邮件时发生错误：\n\n{str(e)}"
-                    await micro_core.send_internal_mail(
-                        to=user_name,
-                        subject=f"⚠️ {self.name} 执行出错",
-                        body=f"{error_full}\n\n请检查后回复「继续」以便继续执行。",
-                    )
-                except Exception as e2:
-                    self.logger.error(f"发送错误通知邮件失败: {e2}")
-
-                # 2. 确保最后一条消息是 assistant（简短版本，用于会话连续性）
+        except asyncio.CancelledError:
+            if self._is_stopping:
+                self.logger.info(f"🛑 Session {session_id[:8]} 被 stop() 中断")
                 if session.get("history"):
                     history = session["history"]
-                    if history and history[-1].get("role") != "assistant":
-                        error_msg = f"执行出错：{str(e)[:100]}...（请检查后回复继续）"
-                        history.append({"role": "assistant", "content": error_msg})
-                        session["history"] = history
-
-                # 不抛出异常，让流程继续（外层finally会休眠容器）
-                result = f"Error: {str(e)[:200]}"
-
-            # 5. 更新 session 元数据
-            # 注意：session["history"] 已经在 MicroAgent 执行过程中自动保存了
-            # 这里只更新其他元数据
-            session["last_sender"] = self.name  # 更新最后发送者
-
-            # 6. 最终保存到磁盘（保险起见，虽然 MicroAgent 已经自动保存）
-            try:
-                await self.session_manager.save_session(session)
-                self.logger.debug(
-                    f"💾 Final save of session {session['session_id'][:8]}"
-                )
-            except Exception as e:
-                self.logger.warning(f"Failed to final-save session: {e}")
-
-            # 只有当 result 是字符串且长度超过 100 时才切片
-            if isinstance(result, str) and len(result) > 100:
-                result_preview = f"{result[:100]}..."
+                    if history:
+                        last = history[-1]
+                        if last.get("role") == "assistant":
+                            last["content"] = (
+                                last.get("content", "").strip()
+                                + "\n\n**执行中，用户要求中止**"
+                            )
+                        else:
+                            history.append(
+                                {"role": "assistant", "content": "**执行中，用户要求中止**"}
+                            )
+                try:
+                    await self.session_manager.save_session(session)
+                except Exception as e:
+                    self.logger.warning(f"Failed to save session on stop: {e}")
+                self._is_stopping = False
             else:
-                result_preview = result if result else "No result"
-            self.logger.debug(f"Email processing completed. Result: {result_preview}")
-            self.logger.info(
-                f"Session {session['session_id'][:8]} now has {len(session['history'])} messages"
-            )
-
+                raise
+        except Exception as e:
+            self.logger.error(f"❌ Session {session_id[:8]} 出错: {e}")
+            user_name = self.runtime.get_user_agent_name() if self.runtime else "User"
+            try:
+                await micro_agent.send_internal_mail(
+                    to=user_name,
+                    subject=f"⚠️ {self.name} 执行出错",
+                    body=f"在处理您的邮件时发生错误：\n\n{str(e)}\n\n请检查后回复「继续」以便继续执行。",
+                )
+            except Exception as e2:
+                self.logger.error(f"发送错误通知邮件失败: {e2}")
         finally:
-            # 清理 execute task 引用
-            self._execute_task = None
+            await self._deactivate_session(session)
 
-            # 更新状态为 IDLE
+    async def _deactivate_session(self, session: dict):
+        """
+        停用 session：保存 session，清理 active 状态，处理下一个 waiting email。
+        """
+        session_id = session.get("session_id", "unknown")
+
+        # 保存 session
+        session["last_sender"] = self.name
+        try:
+            await self.session_manager.save_session(session)
+        except Exception as e:
+            self.logger.warning(f"Failed to save session on deactivate: {e}")
+
+        # 清理 active 状态
+        self.active_session_id = None
+        self.active_micro_agent = None
+        self._session_task = None
+        self._execute_task = None
+        if not self._is_stopping:
             self.update_status(new_status=AgentStatus.IDLE)
 
-    # ==================== 📊 状态管理 ====================
+        self.logger.info(f"✅ Session {session_id[:8]} 已停用")
 
-    def get_status_snapshot(self) -> dict:
-        """
-        获取当前 Agent 的完整状态快照
-
-        返回的结构与 system_status_collector 收集的完全一致，
-        用于全量推送和增量推送。
-
-        Returns:
-            dict: Agent 完整状态，包含：
-                - status: Agent 状态
-                - pending_question: 等待中的用户问题
-                - current_session_id: 当前会话 ID
-                - current_task_id: 当前任务 ID
-                - current_user_session_id: 当前用户会话 ID
-                - status_history: 状态历史（最近 10 条）
-        """
-        # 如果 current_user_session_id 为 None，尝试使用 current_task_id 作为后备
-        user_session_id = self.current_user_session_id
-        if not user_session_id and self.current_task_id:
-            user_session_id = self.current_task_id
-
-        return {
-            "status": self._status,
-            "pending_question": self._pending_user_question
-            if hasattr(self, "_pending_user_question")
-            else None,
-            "current_session_id": self.current_session.get("session_id")
-            if self.current_session
-            else None,
-            "current_task_id": self.current_task_id,
-            "current_user_session_id": user_session_id,
-            "status_history": self.status_history.copy(),
-        }
-
-    def update_status(self, new_status=None, new_message=None):
-        """
-        统一的状态更新接口（唯一修改 Agent 状态的方式）
-
-        Args:
-            new_status (str, optional): 新的 Agent 状态
-                例如: "WORKING", "WAITING_FOR_USER", "IDLE" 等
-            new_message (str, optional): 添加到状态历史的消息
-                例如: "Thinking...", "开始执行: xxx"
-
-        两种参数都是可选的，可以：
-        - 只更新状态: update_status(new_status="WORKING")
-        - 只更新历史: update_status(new_message="执行中...")
-        - 同时更新: update_status(new_status="WORKING", new_message="开始工作")
-
-        注意：此方法会触发增量状态推送
-        """
-        # 🔧 1. 更新状态字段
-        if new_status is not None:
-            self._status = new_status
-            from datetime import datetime
-
-            self._status_since = datetime.now()
-            self.logger.debug(f"📊 Status: {new_status}")
-
-        # 🔧 2. 更新状态历史
-        if new_message is not None:
-            from datetime import datetime
-
-            entry = {
-                "message": new_message,
-                "timestamp": datetime.now().isoformat(),
-                "user_session_id": self.current_user_session_id,
-            }
-            self.status_history.append(entry)
-            if len(self.status_history) > self._max_status_history:
-                self.status_history.pop(0)
-            self.logger.debug(f"📊 Status history: {new_message}")
-
-        # 🔧 3. 立即收集状态快照（同步），然后异步发送
-        # 这样确保发送的是调用 update_status 时的状态，而不是稍后任务执行时的状态
-        if self._broadcast_message_callback:
-            agent_info = self.get_status_snapshot()
-            message = {
-                "type": "AGENT_STATUS_UPDATE",
-                "agent_name": self.name,
-                "data": agent_info,
-            }
-            # 异步发送，但数据已经在上面收集好了
-            asyncio.create_task(self._send_message(message))
-
-    async def _send_message(self, message):
-        """异步发送消息（数据已经在调用方准备好）"""
-        try:
-            await self._broadcast_message_callback(message)
-        except Exception as e:
-            self.logger.warning(f"Failed to send status update: {e}")
-
-    def get_current_status(self) -> dict:
-        """
-        获取当前状态（最新一条）
-
-        Returns:
-            dict: {"message": str, "timestamp": str}
-        """
-        if self.status_history:
-            return self.status_history[-1]
-        return {"message": "空闲", "timestamp": None}
-
-    def get_status_history(self) -> list:
-        """
-        获取状态历史（最近 10 条）
-
-        Returns:
-            list: [{"message": str, "timestamp": str, "user_session_id": str}, ...]
-        """
-        return self.status_history.copy()
-
-        # ==================== 🆕 双 Worker 模型 ====================
-
-    async def _email_worker(self):
-        """
-        邮件处理 Worker（独立任务）
-
-        职责：
-        - 监听 inbox，阻塞等待邮件
-        - 来邮件时取消 history_worker
-        - 处理邮件
-        - 邮件处理完成后恢复 history_worker
-
-        注意：如果 Agent 处于 pause 状态，会在取邮件前等待 resume
-        """
-        self.logger.info("📧 Email worker 已启动")
-
-        try:
-            while True:
-                # 如果处于暂停状态，等待 resume
-                if self._paused:
-                    self.logger.info("⏸️ Email worker 已暂停，等待恢复...")
-                    await self._pause_event.wait()
-                    self.logger.info("▶️ Email worker 已恢复")
-
-                try:
-                    # 阻塞等待邮件
-                    email = await self.inbox.get()
-
-                    # ⚠️ 取消 history_worker（如果正在运行）
-                    if self.history_worker_task and not self.history_worker_task.done():
-                        self.logger.info("⏸️ 取消 history worker（开始处理邮件）")
-                        self.history_worker_task.cancel()
-
-                    # 处理邮件
-                    self.last_received_email = email
-
-                    try:
-                        await self.process_email(email)
-                    except asyncio.CancelledError:
-                        self.logger.warning(
-                            f"Task cancelled, email "
-                            f"{self.last_received_email.id if self.last_received_email else 'None'} "
-                            f"not completed"
-                        )
-                        raise  # Re-raise to stop the worker
-                    except Exception as e:
-                        self.logger.exception(f"Failed to process email in {self.name}")
-                    finally:
-                        # 标记任务完成
-                        self.inbox.task_done()
-
-                    # ✅ 邮件处理完成，恢复 history_worker
-                    self.history_worker_task = asyncio.create_task(
-                        self._history_worker()
-                    )
-                    self.logger.info("✅ 邮件处理完成，恢复 history worker")
-
-                except Exception as e:
-                    self.logger.exception(f"Error in email_worker: {e}")
-                    # 继续循环
-
-        except asyncio.CancelledError:
-            self.logger.info("📧 Email worker 已停止")
-            raise
+        # 非 stop 状态：自动处理 waiting emails
+        # stop 状态下不 pick，等 resume 后 _main_loop 自然恢复
+        if not self._stopped and self.waiting_emails:
+            next_email = self.waiting_emails.pop(0)
+            self.logger.info(f"📬 处理下一个 waiting email")
+            try:
+                await self._route_email(next_email)
+            except Exception as e:
+                self.logger.exception(f"Error routing waiting email: {e}")
 
     async def _history_worker(self):
         """
-        历史整理 Worker（独立任务，可被打断）
-
-        职责：
-        - 处理 pending_summaries_queue
-        - 生成 event list（调用 LLM）
-        - 持久化到数据库
-        - 被 email_worker 打断时自动恢复
-
-        特性：
-        - 可被取消（CancelledError）
-        - 被取消时放回当前 item 到队列头部
-        - 每次处理完 sleep(1)（限流）
+        历史整理 Worker（已暂停，等待后续改造）
         """
-        self.logger.info("🔄 History worker 已启动")
-
         try:
             while True:
-                try:
-                    # 🔄 检查队列
-                    if not self.pending_summaries_queue:
-                        await asyncio.sleep(2)  # 队列为空，等待
-                        continue
-
-                    # 获取待处理项
-                    summary_item = self.pending_summaries_queue.pop(0)
-
-                    try:
-                        self.logger.info(
-                            f"🔄 处理待总结项 "
-                            f"(队列剩余: {len(self.pending_summaries_queue)})"
-                        )
-
-                        # 生成 event list（可能被取消）
-                        events = await self._generate_event_list(summary_item)
-
-                        # 持久化
-                        if events:
-                            await self._persist_event_list(events)
-
-                        self.logger.info(f"✅ 已生成 {len(events)} 个事件")
-
-                        # 限流：每次间隔1秒
-                        await asyncio.sleep(1)
-
-                    except asyncio.CancelledError:
-                        # ⚠️ 被取消（email_worker 来邮件了）
-                        self.logger.info("⚠️ History worker 被取消（邮件打断）")
-                        # 把当前 item 放回队列头部
-                        self.pending_summaries_queue.insert(0, summary_item)
-                        raise  # 重新抛出，结束任务
-
-                except Exception as e:
-                    self.logger.warning(f"❌ 处理失败: {e}")
-                    # 继续处理下一个
-
+                await asyncio.sleep(2)
+                continue
         except asyncio.CancelledError:
-            # 最外层捕获（确保任务被正确取消）
             self.logger.info("🛑 History worker 已停止")
             raise
 

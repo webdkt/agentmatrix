@@ -494,6 +494,18 @@ class AgentMatrix(AutoLoggerMixin):
                 except Exception as e:
                     self.logger.warning(f"恢复邮件失败: {e}")
 
+        # 3b. 恢复已投递但未处理的邮件（crash 在 inbox → route 之间）
+        for agent_name, agent in self.agents.items():
+            unprocessed = self.post_office.email_db.get_unprocessed_emails(recipient=agent_name)
+            if unprocessed:
+                self.echo(f">>> 恢复 {len(unprocessed)} 封 {agent_name} 未处理邮件...")
+                for email_dict in unprocessed:
+                    try:
+                        email = Email(**email_dict)
+                        self.post_office.queue.put_nowait(email)
+                    except Exception as e:
+                        self.logger.warning(f"恢复未处理邮件失败: {e}")
+
         # 4. 恢复投递
         self.post_office.resume()
 
