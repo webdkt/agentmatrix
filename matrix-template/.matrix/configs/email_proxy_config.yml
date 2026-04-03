@@ -1,0 +1,13 @@
+enabled: false
+matrix_mailbox: ""
+user_mailbox: ""
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  user: ""
+  password: "${SMTP_PASSWORD}"
+imap:
+  host: "imap.gmail.com"
+  port: 993
+  user: ""
+  password: "${IMAP_PASSWORD}"

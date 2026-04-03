@@ -33,6 +33,70 @@ export PYTHONPATH="$PROJECT_DIR/src:$PYTHONPATH"
 echo "🐍 PYTHONPATH set to: $PROJECT_DIR/src"
 echo "📁 PROJECT_DIR: $PROJECT_DIR"
 
+# Copy matrix-template to configured locations
+MATRIX_TEMPLATE_SRC="$PROJECT_DIR/matrix-template"
+SETTINGS_FILE="$HOME/.agentmatrix/settings.json"
+
+if [ -d "$MATRIX_TEMPLATE_SRC" ]; then
+    echo ""
+    echo "📋 Syncing matrix-template..."
+
+    # 1. Copy to matrix_world_path from settings.json (runtime environment)
+    if [ -f "$SETTINGS_FILE" ]; then
+        MATRIX_WORLD_PATH=$(grep '"matrix_world_path"' "$SETTINGS_FILE" | sed 's/.*"matrix_world_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+        if [ -n "$MATRIX_WORLD_PATH" ]; then
+            echo "   → Copying to matrix_world_path: $MATRIX_WORLD_PATH"
+            mkdir -p "$MATRIX_WORLD_PATH"
+
+            # Copy workspace directory (including hidden files)
+            if [ -d "$MATRIX_TEMPLATE_SRC/workspace" ]; then
+                mkdir -p "$MATRIX_WORLD_PATH/workspace"
+                rsync -a "$MATRIX_TEMPLATE_SRC/workspace/" "$MATRIX_WORLD_PATH/workspace/" 2>/dev/null || \
+                    cp -rf "$MATRIX_TEMPLATE_SRC/workspace"/. "$MATRIX_WORLD_PATH/workspace"/
+            fi
+
+            # Copy .matrix directory structure
+            # For configs: only copy agents and prompts subdirectories, skip other config files
+            mkdir -p "$MATRIX_WORLD_PATH/.matrix/configs"
+
+            # Copy agents directory
+            if [ -d "$MATRIX_TEMPLATE_SRC/.matrix/configs/agents" ]; then
+                mkdir -p "$MATRIX_WORLD_PATH/.matrix/configs/agents"
+                rsync -a "$MATRIX_TEMPLATE_SRC/.matrix/configs/agents/" "$MATRIX_WORLD_PATH/.matrix/configs/agents/" 2>/dev/null || \
+                    cp -rf "$MATRIX_TEMPLATE_SRC/.matrix/configs/agents"/. "$MATRIX_WORLD_PATH/.matrix/configs/agents"/
+            fi
+
+            # Copy prompts directory
+            if [ -d "$MATRIX_TEMPLATE_SRC/.matrix/configs/prompts" ]; then
+                mkdir -p "$MATRIX_WORLD_PATH/.matrix/configs/prompts"
+                rsync -a "$MATRIX_TEMPLATE_SRC/.matrix/configs/prompts/" "$MATRIX_WORLD_PATH/.matrix/configs/prompts/" 2>/dev/null || \
+                    cp -rf "$MATRIX_TEMPLATE_SRC/.matrix/configs/prompts"/. "$MATRIX_WORLD_PATH/.matrix/configs/prompts"/
+            fi
+
+            echo "   ✅ Synced to $MATRIX_WORLD_PATH"
+        else
+            echo "   ⚠️  matrix_world_path not found in settings.json"
+        fi
+    else
+        echo "   ⚠️  Settings file not found: $SETTINGS_FILE"
+    fi
+
+    # 2. Copy to Tauri resources directory (for packaging) - complete copy
+    # NOTE: This is for packaging, don't delete existing files that may be in git
+    TEMPLATE_RESOURCES_DST="$SCRIPT_DIR/src-tauri/resources/matrix-template"
+    echo "   → Copying to Tauri resources: $TEMPLATE_RESOURCES_DST"
+    mkdir -p "$TEMPLATE_RESOURCES_DST"
+    # Use rsync WITHOUT --delete to avoid removing files that are in git
+    rsync -a "$MATRIX_TEMPLATE_SRC/" "$TEMPLATE_RESOURCES_DST/" 2>/dev/null || \
+        cp -rf "$MATRIX_TEMPLATE_SRC"/. "$TEMPLATE_RESOURCES_DST"/
+    echo "   ✅ Synced to $TEMPLATE_RESOURCES_DST"
+
+    echo ""
+else
+    echo "   ⚠️  matrix-template source not found: $MATRIX_TEMPLATE_SRC"
+    echo ""
+fi
+
 # Ensure resource directories exist (CI downloads installers, dev mode needs placeholders)
 mkdir -p "$SCRIPT_DIR/src-tauri/resources/podman"
 touch "$SCRIPT_DIR/src-tauri/resources/podman/.gitkeep" 2>/dev/null || true

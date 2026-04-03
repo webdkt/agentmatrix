@@ -1,0 +1,9 @@
+user_agent_name: "{{USER_NAME}}"
+matrix_version: "1.0.0"
+description: "AgentMatrix World"
+timezone: "UTC"
+
+proxy:
+  enabled: false
+  host: ""
+  port: 0

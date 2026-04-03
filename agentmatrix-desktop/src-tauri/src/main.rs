@@ -26,10 +26,19 @@ fn expand_path(path: &str) -> PathBuf {
 
 #[tauri::command]
 fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name: String) -> Result<(), String> {
-    let resource_dir = app.path().resource_dir()
-        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-    println!("Debug: resource_dir = {:?}", resource_dir);
-    let src = resource_dir.join("matrix-template");
+    // In dev mode, use local resources directory (fixes worktree symlink issues)
+    // In production, use resource_dir from the bundle
+    let src = if cfg!(dev) {
+        // Dev mode: use resources directory relative to CARGO_MANIFEST_DIR
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir.join("resources").join("matrix-template")
+    } else {
+        // Production: use bundled resources
+        let resource_dir = app.path().resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+        resource_dir.join("matrix-template")
+    };
+
     println!("Debug: src = {:?}", src);
     // Expand ~ in path
     let dest = if matrix_world_path.starts_with("~/") {

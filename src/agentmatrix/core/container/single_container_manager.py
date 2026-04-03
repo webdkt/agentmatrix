@@ -272,6 +272,22 @@ class SingleContainerManager(AutoLoggerMixin):
         if self.container.status.lower() != "running":
             self.wakeup()
 
+        # 第一步：在宿主机创建目录（无论用户是否存在都要创建）
+        # 因为 workspace/agent_files/ 挂载到 /data/agents/，
+        # 宿主机创建的目录会自动出现在容器内
+        agent_home = self.agents_root / agent_name / "home"
+        agent_work = self.agents_root / agent_name / "work_files"
+
+        self.logger.debug(f"Creating directories on host: home={agent_home}, work={agent_work}")
+        agent_home.mkdir(parents=True, exist_ok=True)
+        agent_work.mkdir(parents=True, exist_ok=True)
+
+        # 验证目录是否创建成功
+        if not agent_home.exists():
+            self.logger.error(f"Failed to create home directory: {agent_home}")
+        if not agent_work.exists():
+            self.logger.error(f"Failed to create work directory: {agent_work}")
+
         # 检查用户是否已存在
         check_cmd = f"id -u {username} 2>/dev/null"
         exit_code, output = self._exec_as_root(check_cmd)
@@ -287,22 +303,13 @@ class SingleContainerManager(AutoLoggerMixin):
                 self.logger.info(
                     f"修正用户 {username} 的 home 目录: {actual_home.strip()} -> {expected_home}"
                 )
-                # 确保正确路径的目录存在
-                self._exec_as_root(f"mkdir -p {expected_home}")
+                # 修改用户的 home 目录（宿主机目录已创建，只需修改用户配置）
                 self._exec_as_root(
                     f"chown -R {username}:{username} /data/agents/{agent_name}"
                 )
                 # 修改用户的 home 目录
                 self._exec_as_root(f"usermod -d {expected_home} {username}")
             return username
-
-        # 第一步：在宿主机创建目录（使用 agent_name，不是 username）
-        # 因为 workspace/agent_files/ 挂载到 /data/agents/，
-        # 宿主机创建的目录会自动出现在容器内
-        agent_home = self.agents_root / agent_name / "home"
-        agent_work = self.agents_root / agent_name / "work_files"
-        agent_home.mkdir(parents=True, exist_ok=True)
-        agent_work.mkdir(parents=True, exist_ok=True)
 
         # 第二步：在容器内创建用户
         # -M: 不创建默认 home（我们用宿主机创建的目录）
@@ -311,6 +318,7 @@ class SingleContainerManager(AutoLoggerMixin):
         setup_commands = [
             f"useradd -M -d /data/agents/{agent_name}/home -s /bin/bash {username}",
             f"chown -R {username}:{username} /data/agents/{agent_name}",
+            f"ls -la /data/agents/{agent_name}/ || echo 'Directory check failed'",
         ]
 
         for cmd in setup_commands:
