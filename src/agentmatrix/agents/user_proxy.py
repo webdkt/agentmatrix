@@ -8,20 +8,20 @@ import uuid
 import shutil
 from pathlib import Path
 
-# 定义一个回调函数的类型：接收一封邮件，返回 None (异步)
-OnMailReceived = Callable[[Email], Awaitable[None]]
+# 回调类型：接收邮件对象、方向、已读状态
+OnSessionUpdate = Callable[[Email, str, int], Awaitable[None]]
 
 
 class UserProxyAgent(BaseAgent):
     def __init__(self, profile, profile_path: str = None):
         super().__init__(profile, profile_path=profile_path)
-        self.on_mail_received = None
+        self.on_user_session_updated = None
 
         # UserProxyAgent 不需要 container_session
         # 跳过 Container Session 初始化
 
-    def set_mail_handler(self, on_mail_received: OnMailReceived):
-        self.on_mail_received = on_mail_received
+    def set_session_update_handler(self, handler: OnSessionUpdate):
+        self.on_user_session_updated = handler
 
     async def _rename_task_and_session_directories(
         self,
@@ -113,9 +113,9 @@ class UserProxyAgent(BaseAgent):
             is_read=0,
         )
 
-        # 触发外部钩子（同时负责前台推送，避免重复通知）
-        if self.on_mail_received:
-            await self.on_mail_received(email)
+        # 触发外部钩子（收件）
+        if self.on_user_session_updated:
+            await self.on_user_session_updated(email, "inbound", 0)
 
         # 标记邮件已处理（从 email_to_process 移到 emails 归档表）
         self.post_office.email_db.mark_emails_processed([email.id])
@@ -268,6 +268,10 @@ class UserProxyAgent(BaseAgent):
         self.post_office.email_db.upsert_user_session(
             email=email, user_session_id=session["session_id"], agent_name=to, is_read=1
         )
+
+        # 触发外部钩子（发件）
+        if self.on_user_session_updated:
+            await self.on_user_session_updated(email, "outbound", 1)
 
         # 更新 reply_mapping
         await self.session_manager.update_reply_mapping(

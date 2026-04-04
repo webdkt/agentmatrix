@@ -19,11 +19,7 @@ export const useUIStore = defineStore('ui', {
       settings: false,
       agentConfig: false,
       confirmDialog: false,
-      emailNotify: false,
     },
-
-    // 邮件通知数据
-    emailNotifyData: null,
 
     // Toast 通知列表（用于邮件冒泡）
     emailToast: {
@@ -109,10 +105,6 @@ export const useUIStore = defineStore('ui', {
         this.modals[modalName] = true
         if (data) {
           this.modals[`${modalName}Data`] = data
-          // Also store in root level for components expecting root state
-          if (modalName === 'emailNotify') {
-            this.emailNotifyData = data
-          }
         }
       } else {
         console.warn(`Modal "${modalName}" not found`)

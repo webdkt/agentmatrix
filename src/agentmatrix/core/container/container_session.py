@@ -230,25 +230,51 @@ class ContainerSession:
             self.process.stdin.flush()
 
     def _read_stdout(self) -> None:
-        """后台线程：读取 stdout"""
+        """后台线程：读取 stdout（块读取 + 自行分行，避免 readline 在无换行时阻塞）"""
+        buf = b""
         while self.is_active and self.process and self.process.stdout:
             try:
-                line = self.process.stdout.readline()
-                if not line:
+                chunk = self.process.stdout.read(4096)
+                if not chunk:
+                    # 管道关闭，输出残留数据
+                    if buf:
+                        self._output_queue.put(buf)
                     break
-                self._output_queue.put(line)
+                buf += chunk
+                # 按换行分割，将完整行放入队列
+                while True:
+                    idx = buf.find(b"\n")
+                    if idx == -1:
+                        break
+                    line = buf[:idx]
+                    buf = buf[idx + 1 :]
+                    self._output_queue.put(line)
             except Exception:
+                if buf:
+                    self._output_queue.put(buf)
                 break
 
     def _read_stderr(self) -> None:
-        """后台线程：读取 stderr"""
+        """后台线程：读取 stderr（块读取 + 自行分行，避免 readline 在无换行时阻塞）"""
+        buf = b""
         while self.is_active and self.process and self.process.stderr:
             try:
-                line = self.process.stderr.readline()
-                if not line:
+                chunk = self.process.stderr.read(4096)
+                if not chunk:
+                    if buf:
+                        self._stderr_queue.put(buf)
                     break
-                self._stderr_queue.put(line)
+                buf += chunk
+                while True:
+                    idx = buf.find(b"\n")
+                    if idx == -1:
+                        break
+                    line = buf[:idx]
+                    buf = buf[idx + 1 :]
+                    self._stderr_queue.put(line)
             except Exception:
+                if buf:
+                    self._stderr_queue.put(buf)
                 break
 
     def _drain_queues(self) -> None:

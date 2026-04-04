@@ -6,11 +6,12 @@ import { useSessionStore } from '@/stores/session'
 import { useUIStore } from '@/stores/ui'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
+import { useNotifications } from '@/composables/useNotifications'
 import ViewSelector from '@/components/view-selector/ViewSelector.vue'
 import ViewContainer from '@/components/view-container/ViewContainer.vue'
 import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
-import EmailNotifyModal from '@/components/dialog/EmailNotifyModal.vue'
 import EmailToast from '@/components/toast/EmailToast.vue'
+import { sessionAPI } from '@/api/session'
 
 const currentView = ref('email')
 const backendStore = useBackendStore()
@@ -19,6 +20,7 @@ const sessionStore = useSessionStore()
 const uiStore = useUIStore()
 const websocketStore = useWebSocketStore()
 const { isConnected, connect, onMessage } = useWebSocket()
+const { showNotification } = useNotifications()
 
 const appState = ref('loading')
 
@@ -44,10 +46,6 @@ async function handleEmailToastClick(emailData) {
   uiStore.emailToast.show = false
 }
 
-async function handleEmailNotifyView(emailData) {
-  await handleEmailToastClick(emailData)
-}
-
 async function initializeWebSocket() {
   console.log('🔌 Initializing WebSocket connection...')
 
@@ -62,24 +60,32 @@ async function initializeWebSocket() {
     websocketStore.handle_message(data)
   })
 
-  websocketStore.onNewEmail(async (emailData) => {
-    console.log('📧 Handling new email from WebSocket:', emailData)
+  websocketStore.onSessionUpdate(async (data) => {
+    const { session_id, direction, is_read, sender, subject } = data
+    const isCurrentSession = session_id === currentSession.value?.session_id
 
-    const sessionId = emailData.recipient_session_id || emailData.receiver_session_id
-    const isCurrentSession = sessionId === currentSession.value?.session_id
+    // 更新本地 session 状态
+    sessionStore.updateSessionFromEvent(data)
 
-    if (isCurrentSession) {
-      // 立即弹窗（不等待 API 刷新）
-      uiStore.openModal('emailNotify', emailData)
-      // 后台刷新邮件列表（不 await，与弹窗同时进行）
-      sessionStore.selectSession(currentSession.value, true)
-    } else {
-      await sessionStore.loadSessions()
-      uiStore.emailToast = {
-        show: true,
-        emailData: emailData
+    if (direction === 'inbound' && is_read === 0) {
+      // 收到新邮件
+      if (currentView.value === 'email') {
+        if (isCurrentSession) {
+          // 当前在看这个 session：刷新邮件列表，延迟标记已读
+          sessionStore.selectSession(currentSession.value, true)
+          setTimeout(() => {
+            sessionStore.markSessionRead(session_id)
+            sessionAPI.markAsRead(session_id)
+          }, 3000)
+        }
+        // 在 Email View 但其他 session：不弹窗，只更新 sidebar 样式（由 updateSessionFromEvent 处理）
+      } else {
+        // 不在 Email View：toast + OS 通知
+        uiStore.emailToast = { show: true, emailData: data }
+        showNotification('新邮件', `来自 ${sender}: ${subject}`)
       }
     }
+    // direction='outbound'（用户发件）：不触发任何通知，只更新 UI 状态（已由 updateSessionFromEvent 处理）
   })
 }
 
@@ -143,13 +149,6 @@ onUnmounted(() => {
       @view-change="handleViewChange"
     />
   </div>
-
-  <EmailNotifyModal
-    :show="uiStore.modals.emailNotify"
-    :email-data="uiStore.modals.emailNotifyData"
-    @close="uiStore.closeModal('emailNotify')"
-    @view="handleEmailNotifyView"
-  />
 
   <EmailToast
     :show="uiStore.emailToast.show"

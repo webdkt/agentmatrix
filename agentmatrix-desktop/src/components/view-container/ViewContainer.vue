@@ -4,7 +4,6 @@ import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useBackendStore } from '@/stores/backend'
-import { useNotifications } from '@/composables/useNotifications'
 import { useConfigStore } from '@/stores/config'
 import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
@@ -28,7 +27,6 @@ const websocketStore = useWebSocketStore()
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
 const { isConnected, connect, onMessage } = useWebSocket()
-const { requestPermission } = useNotifications()
 
 // Computed
 const currentSession = computed(() => sessionStore.currentSession)
@@ -67,17 +65,6 @@ async function setupAppAfterBackend() {
       if (data.type === 'email_updated') {
         sessionStore.fetchSessions()
       }
-    })
-
-    // Register callback for new email notifications
-    websocketStore.registerCallback('on_new_email', async (emailData) => {
-      const granted = await requestPermission()
-      if (granted) {
-        new Notification('New Email', {
-          body: `From: ${emailData.from}\nSubject: ${emailData.subject}`,
-        })
-      }
-      sessionStore.fetchSessions()
     })
 
     // Fetch initial data

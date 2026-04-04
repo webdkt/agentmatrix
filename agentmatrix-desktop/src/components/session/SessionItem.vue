@@ -122,7 +122,7 @@ const isUnread = computed(() => {
 <template>
   <div
     @click="emit('click')"
-    :class="['session-item', { 'session-item--active': isActive }]"
+    :class="['session-item', { 'session-item--active': isActive, 'session-item--unread': isUnread }]"
   >
     <!-- Avatar -->
     <div class="session-item__avatar-wrapper">
@@ -156,7 +156,6 @@ const isUnread = computed(() => {
 
       <!-- Subject -->
       <p class="session-item__subject">
-        <span v-if="isUnread" class="session-item__unread-dot"></span>
         {{ session.subject || 'No Subject' }}
       </p>
     </div>
@@ -282,12 +281,14 @@ const isUnread = computed(() => {
   gap: 6px;
 }
 
-/* Unread dot */
-.session-item__unread-dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  background: var(--fault);
-  border-radius: 50%;
+/* Unread styling: bold name + subject */
+.session-item--unread .session-item__name {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.session-item--unread .session-item__subject {
+  font-weight: 600;
+  color: var(--ink);
 }
 </style>

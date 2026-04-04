@@ -88,4 +88,12 @@ export const sessionAPI = {
   async getEmails(sessionId) {
     return API.get(`/api/sessions/${sessionId}/emails`)
   },
+
+  /**
+   * 标记会话为已读
+   * @param {string} sessionId - 会话 ID
+   */
+  async markAsRead(sessionId) {
+    return API.post(`/api/sessions/${sessionId}/mark-read`)
+  },
 }
