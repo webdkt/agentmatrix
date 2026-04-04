@@ -113,23 +113,7 @@ class UserProxyAgent(BaseAgent):
             is_read=0,
         )
 
-        # 推送到前台
-        await self.emit(
-            "USER_INTERACTION",
-            f"收到来自 {email.sender} 的消息",
-            payload={
-                "type": "MAIL_RECEIVED",
-                "mail_id": email.id,
-                "sender": email.sender,
-                "subject": email.subject,
-                "body": email.body,
-                "in_reply_to": email.in_reply_to,
-                "recipient_session_id": session["session_id"],
-                "task_id": session["task_id"],
-            },
-        )
-
-        # 触发外部钩子
+        # 触发外部钩子（同时负责前台推送，避免重复通知）
         if self.on_mail_received:
             await self.on_mail_received(email)
 

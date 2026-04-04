@@ -9,9 +9,11 @@ Email Skill - 邮件相关 Actions
 - read_email: 读取邮件详情
 """
 
+import asyncio
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Tuple
 from ...core.action import register_action
 
 
@@ -100,10 +102,15 @@ class EmailSkillMixin:
 
         # 处理附件
         attachment_metadata = []
+        attachment_errors = []
         if attachments:
-            attachment_metadata = await self._copy_attachments_to_recipient(
+            attachment_metadata, attachment_errors = await self._copy_attachments_to_recipient(
                 attachments=attachments, recipient_name=to, task_id=session["task_id"]
             )
+
+            # 附件全部失败则中止发送
+            if attachment_errors and not attachment_metadata:
+                return "邮件发送失败：" + "; ".join(attachment_errors)
 
         # 构造邮件
         msg = Email(
@@ -131,14 +138,21 @@ class EmailSkillMixin:
         )
 
         # 返回成功信息
+        result_parts = []
         if attachment_metadata:
             filenames = [att["filename"] for att in attachment_metadata]
-            return f"邮件已发送给 {to}，附件：{', '.join(filenames)}"
-        return f"邮件已发送给 {to}"
+            result_parts.append(f"邮件已发送给 {to}，附件：{', '.join(filenames)}")
+        else:
+            result_parts.append(f"邮件已发送给 {to}")
+
+        if attachment_errors:
+            result_parts.append("部分附件失败：" + "; ".join(attachment_errors))
+
+        return "\n".join(result_parts)
 
     async def _copy_attachments_to_recipient(
         self, attachments: List[str], recipient_name: str, task_id: str
-    ) -> List[dict]:
+    ) -> Tuple[List[dict], List[str]]:
         """
         复制附件到目标 agent 的 attachments 目录
 
@@ -148,17 +162,16 @@ class EmailSkillMixin:
             task_id: 用户会话 ID
 
         Returns:
-            附件 metadata 列表
+            (attachment_metadata, errors): 附件 metadata 列表和错误信息列表
 
         容器内路径映射规则：
         - 相对路径（如 'report.pdf'）→ 基于当前任务目录
         - ~/current_task/xxx → 当前任务目录下的文件
         - /data/agents/{username}/home/xxx → home 目录下的文件
+        - 其他绝对路径（如 /tmp/xxx）→ 从容器内提取
         """
         if self.root_agent.runtime is None:
             raise ValueError("runtime 未注入，无法发送附件")
-
-        source_agent = self.root_agent.name
 
         # 目标目录（收件人的 attachments 目录）
         target_attachments_dir = (
@@ -171,29 +184,28 @@ class EmailSkillMixin:
         target_attachments_dir.mkdir(parents=True, exist_ok=True)
 
         attachment_metadata = []
+        errors = []
 
         for container_path in attachments:
-            # 将容器内路径转换为宿主机路径
-            host_path = self._resolve_container_path_to_host(container_path, task_id)
-
-            if host_path is None or not Path(host_path).exists():
-                self.logger.warning(
-                    f"附件文件不存在：{container_path} (解析后的宿主机路径: {host_path})"
-                )
-                continue
-
-            # 从容器路径提取文件名
             filename = Path(container_path).name
-            source_file = Path(host_path)
-
-            # 目标文件路径（同名文件直接覆盖）
             target_file = target_attachments_dir / filename
 
-            # 复制文件
-            shutil.copy2(source_file, target_file)
-            self.logger.info(f"附件已复制：{source_file} -> {target_file}")
+            # 先尝试将容器内路径转换为宿主机路径
+            host_path = self._resolve_container_path_to_host(container_path, task_id)
 
-            # 添加到 metadata
+            if host_path and Path(host_path).exists():
+                # 宿主机路径可以直接访问
+                shutil.copy2(Path(host_path), target_file)
+                self.logger.info(f"附件已复制（宿主机路径）：{host_path} -> {target_file}")
+            else:
+                # 宿主机路径不存在，尝试从容器内直接提取
+                success, error_msg = await self._extract_file_from_container(
+                    container_path, target_file
+                )
+                if not success:
+                    errors.append(f"附件 '{container_path}' 无法访问：{error_msg}")
+                    continue
+
             attachment_metadata.append(
                 {
                     "filename": filename,
@@ -202,7 +214,55 @@ class EmailSkillMixin:
                 }
             )
 
-        return attachment_metadata
+        return attachment_metadata, errors
+
+    async def _extract_file_from_container(
+        self, container_path: str, target_file: Path
+    ) -> Tuple[bool, str]:
+        """
+        通过 docker/podman cp 从容器内提取文件
+
+        Args:
+            container_path: 容器内绝对路径（如 /tmp/report.md）
+            target_file: 宿主机目标文件路径
+
+        Returns:
+            (success, error_msg): 是否成功，失败时的错误信息
+        """
+        runtime = self.root_agent.runtime
+        if not runtime or not runtime.container_manager:
+            return False, "容器管理器不可用"
+
+        cm = runtime.container_manager
+        runtime_cmd = cm.runtime_type  # "podman" or "docker"
+        container_name = cm.SHARED_CONTAINER_NAME
+
+        cmd = [
+            runtime_cmd, "cp",
+            f"{container_name}:{container_path}",
+            str(target_file),
+        ]
+
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run, cmd,
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0 and target_file.exists():
+                self.logger.info(
+                    f"附件已从容器提取：{container_path} -> {target_file}"
+                )
+                return True, ""
+            else:
+                stderr = result.stderr.strip() if result.stderr else "未知错误"
+                self.logger.warning(
+                    f"容器提取失败：{container_path} (exit={result.returncode}, {stderr})"
+                )
+                return False, f"容器内文件不存在或无法读取 ({stderr})"
+        except subprocess.TimeoutExpired:
+            return False, "从容器提取文件超时"
+        except Exception as e:
+            return False, f"提取失败：{e}"
 
     def _resolve_container_path_to_host(self, container_path: str, task_id: str) -> str:
         """
