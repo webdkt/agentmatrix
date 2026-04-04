@@ -6,15 +6,21 @@ import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
 import EmailItem from './EmailItem.vue'
 import EmailReply from './EmailReply.vue'
-import AgentStatusIcon from '../agent/AgentStatusIcon.vue'
+import AgentStatusCard from '../agent/AgentStatusCard.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   user_agent_name: {
     type: String,
     default: 'User'
+  },
+  selectedAgent: {
+    type: String,
+    default: null
   }
 })
+
+const emit = defineEmits(['agent-selected'])
 
 const { t } = useI18n()
 const sessionStore = useSessionStore()
@@ -212,6 +218,20 @@ const handleInlineReplySent = async (response) => {
   showInlineReply.value = false
 }
 
+const handleAgentSelected = (agentName) => {
+  const agentData = agentStore.getAgent(agentName)
+  const isWorkingOnOther = agentData?.current_user_session_id && agentData.current_user_session_id !== currentSession.value?.session_id
+
+  if (isWorkingOnOther) {
+    // Switch to the session the agent is working on
+    sessionStore.selectSession({ session_id: agentData.current_user_session_id })
+    return
+  }
+
+  // Toggle panel
+  emit('agent-selected', agentName)
+}
+
 const handleAgentQuestionSubmit = async () => {
   if (!answer.value.trim() || !currentSession.value) return
 
@@ -325,12 +345,13 @@ const handleAgentQuestionSubmit = async () => {
 
         <!-- Agent Status - 在滚动容器内 -->
         <div class="email-list__agent-status">
-          <AgentStatusIcon
+          <AgentStatusCard
             v-for="agentName in sessionAgents"
             :key="agentName"
             :agent-name="agentName"
             :current-session-id="currentSession.session_id"
-            :show-name="true"
+            :is-selected="selectedAgent === agentName"
+            @select="handleAgentSelected"
           />
         </div>
 
