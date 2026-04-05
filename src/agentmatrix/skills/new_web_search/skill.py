@@ -59,6 +59,7 @@ class New_web_searchSkillMixin:
                 "page_cache": {},
                 "last_search_query": None,
                 "link_map": {},
+                "link_map_need_clear": True,
                 "browser_lock": asyncio.Lock(),
             }
         return self.skill_context["new_web_search"]
@@ -197,10 +198,15 @@ class New_web_searchSkillMixin:
                 visited_map = await detect_visited_links(tab, ns["browser"], urls)
 
                 # 建立 link_to_resultN → 实际 URL 的映射
-                link_map = {}
+                # begin: 如果上一轮 visit 已经"结束"，清空 link_map
+                if ns.get("link_map_need_clear", True):
+                    ns["link_map"] = {}
+                    ns["link_map_need_clear"] = False
+
+                existing = ns["link_map"]
+                offset = len(existing)
                 for i, r in enumerate(raw_results, start=1):
-                    link_map[f"link_to_result{i}"] = r.get("url", "")
-                ns["link_map"] = link_map
+                    existing[f"link_to_result{i + offset}"] = r.get("url", "")
 
                 # 估算总页数（从页面底部的分页控件获取）
                 total_pages = await self._get_total_pages(tab)
@@ -295,7 +301,7 @@ class New_web_searchSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="[url] 访问网页（支持 link_to_resultN 或完整 URL）",
+        short_desc="[url] 打开网页（支持 link_to_resultN 或完整 URL）",
         description="""访问一个网页，返回页面内容摘要。
 
 接受两种参数：
@@ -308,7 +314,7 @@ class New_web_searchSkillMixin:
 - 如果页面不相关，跳过即可""",
         param_infos={"url": "网页 URL 或搜索结果引用（link_to_resultN）"},
     )
-    async def visit(self, url: str) -> str:
+    async def open_url(self, url: str) -> str:
         # 解析 link_to_resultN 引用
         if url.startswith("link_to_result"):
             ns = self._ns()
@@ -318,6 +324,8 @@ class New_web_searchSkillMixin:
                 return f"未知的链接引用: {url}。请先搜索，然后使用搜索结果中的 link_to_resultN。"
             self.logger.info(f"Resolved {url} -> {actual_url[:80]}...")
             url = actual_url
+            # end: 标记下次新 search 应清空 link_map
+            ns["link_map_need_clear"] = True
 
         await self._ensure_browser()
         tab = await self._get_tab()

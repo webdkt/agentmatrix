@@ -166,41 +166,43 @@ async def search_google(adapter, tab, query, max_pages=1):
     print("   Pausing briefly (simulating human behavior)...")
     await asyncio.sleep(random.uniform(0.8, 1.5))
 
-    # Step 4: Submit search
+    # Step 4: Submit search — 优先用 Enter（更可靠）
     print("\n4. Submitting search...")
-    await asyncio.sleep(random.uniform(0.3, 0.7))
+    from ..browser.browser_adapter import KeyAction
 
-    search_button_selectors = [
-        'css:input[type="submit"][aria-label="Google 搜索"]',
-        'css:input[type="submit"][aria-label="Google Search"]',
-    ]
+    submit_report = await adapter.press_key(tab, KeyAction.ENTER)
+    print(f"   Pressed Enter. URL changed: {submit_report.is_url_changed}")
 
-    button_clicked = False
-    for selector in search_button_selectors:
+    # 如果 Enter 没有触发页面跳转，点空白处关下拉框，再尝试按钮
+    if not submit_report.is_url_changed:
+        print("   Enter did not navigate, clicking blank area to dismiss dropdown...")
         try:
-            print(f"   Trying to click search button: {selector}")
-            success = await adapter.click_first_visible_by_selector(tab, selector)
+            body = await asyncio.to_thread(tab.ele, "css:body", timeout=2)
+            if body:
+                await asyncio.to_thread(body.click)
+                await asyncio.sleep(random.uniform(0.3, 0.5))
+        except Exception:
+            pass
 
-            if not success.error:
-                print(f"   ✓ Search button clicked successfully")
-                button_clicked = True
-                break
-            else:
-                print(f"   ✗ Failed to click button: {success.error}")
-        except Exception as e:
-            import traceback
+        print("   Trying search button click...")
+        search_button_selectors = [
+            'css:input[type="submit"][aria-label="Google 搜索"]',
+            'css:input[type="submit"][aria-label="Google Search"]',
+        ]
 
-            print(f"   ✗ Button click failed: {e}")
-            print(f"   Full stack trace:")
-            traceback.print_exc()
-            continue
+        for selector in search_button_selectors:
+            try:
+                print(f"   Trying to click search button: {selector}")
+                success = await adapter.click_first_visible_by_selector(tab, selector)
 
-    if not button_clicked:
-        print(f"   ⚠️  Could not find search button, trying Enter key...")
-        from ..browser.browser_adapter import KeyAction
-
-        submit_report = await adapter.press_key(tab, KeyAction.ENTER)
-        print(f"   Pressed Enter. URL changed: {submit_report.is_url_changed}")
+                if not success.error:
+                    print(f"   ✓ Search button clicked successfully")
+                    break
+                else:
+                    print(f"   ✗ Failed to click button: {success.error}")
+            except Exception as e:
+                print(f"   ✗ Button click failed: {e}")
+                continue
 
     # Wait for search results page to load
     print("   Waiting for search results page to load...")

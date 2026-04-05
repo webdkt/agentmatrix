@@ -21,7 +21,7 @@ import time
 
 @dataclass
 class Signal:
-    type: str  # "email", "action_completed", "action_failed"
+    type: str  # "email", "action_completed", "action_failed", "actions_completed"
     payload: Any
 
 
@@ -288,6 +288,9 @@ class MicroAgent(AutoLoggerMixin):
             display_name = f"{action_name}: {action_label}" if action_label else action_name
             msg = f"[{display_name} Failed]: {error}"
             self._add_message("user", msg)
+        elif signal.type == "actions_completed":
+            combined = signal.payload["combined"]
+            self._add_message("user", f"[Actions Done]:\n{combined}")
 
     def _on_action_done(self, action_id, action_name, task):
         """action task 完成后的回调 - 投递信号到 signal_queue"""
@@ -1535,6 +1538,7 @@ Start generating the Working Notes now.
 
                 # 4. 启动 actions（非阻塞）
                 should_break_loop = False
+                results = []  # 收集所有普通 action 的结果
 
                 for idx, action_name in enumerate(action_names, start=1):
                     # === 处理特殊 actions ===
@@ -1561,20 +1565,23 @@ Start generating the Working Notes now.
                         should_break_loop = True
                         break
 
-                    # === 普通 actions：非阻塞启动 ===
+                    # === 普通 actions：顺序执行，收集结果 ===
                     else:
-                        task = asyncio.create_task(
-                            self._execute_action(
+                        try:
+                            result = await self._execute_action(
                                 action_name, action_section_text, idx, action_names
                             )
-                        )
-                        action_id = f"{action_name}_{self._action_counter}"
-                        self._action_counter += 1
-                        self._running_actions[action_id] = {"task": task, "label": ""}
-                        task.add_done_callback(
-                            lambda t, aid=action_id, aname=action_name:
-                                self._on_action_done(aid, aname, t)
-                        )
+                            results.append({"action_name": action_name, "result": str(result), "status": "ok"})
+                        except Exception as e:
+                            results.append({"action_name": action_name, "error": str(e), "status": "error"})
+
+                # 4. 所有普通 action 执行完毕，组合投信号
+                if results:
+                    combined = self._format_combined_results(results)
+                    self.signal_queue.put_nowait(Signal(
+                        type="actions_completed",
+                        payload={"results": results, "combined": combined}
+                    ))
 
                 # 5. 检查是否需要退出主循环
                 if should_break_loop:
@@ -1585,7 +1592,6 @@ Start generating the Working Notes now.
                     break
 
                 # 回到循环顶部，signal_queue.get() 等待
-                # action task 完成后 callback 会 put 信号进来
                 # BaseAgent 收到新邮件也会 put 信号进来
 
             except LLMServiceUnavailableError as e:
@@ -1667,6 +1673,16 @@ Start generating the Working Notes now.
                     await result
             except Exception as e:
                 self.logger.warning(f"Skill cleanup failed in {cls.__name__}: {e}")
+
+    def _format_combined_results(self, results: list) -> str:
+        """将多个 action 的结果格式化为一个组合文本"""
+        lines = []
+        for r in results:
+            if r["status"] == "ok":
+                lines.append(f"[{r['action_name']} Done]: {r['result']}")
+            else:
+                lines.append(f"[{r['action_name']} Failed]: {r['error']}")
+        return "\n".join(lines)
 
     async def _prepare_feedback_message(
         self, combined_result: str, step_count: int, start_time: float
