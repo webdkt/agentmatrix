@@ -361,20 +361,25 @@ def init_runtime(matrix_world_dir: Path):
             f"User agent '{user_agent_name}' not found in loaded agents. Available agents: {list(runtime.agents.keys())}"
         )
     user_agent = runtime.agents[user_agent_name]
-    if not hasattr(user_agent, "set_mail_handler"):
+    if not hasattr(user_agent, "set_session_update_handler"):
         raise Exception(
-            f"Agent '{user_agent_name}' is not a UserProxyAgent (missing set_mail_handler method)"
+            f"Agent '{user_agent_name}' is not a UserProxyAgent (missing set_session_update_handler method)"
         )
     print(f"✅ User agent validation passed: '{user_agent_name}'")
 
-    # Set up User agent's mail callback to push emails via WebSocket
+    # Set up User agent's session update callback to push events via WebSocket
     actual_user_name = runtime.get_user_agent_name()
     if actual_user_name in runtime.agents:
 
-        async def user_mail_callback(email):
-            """Callback to push User agent's received emails to WebSocket clients"""
+        async def user_session_update_callback(email, direction, is_read):
+            """Callback to push user session updates to WebSocket clients"""
             try:
-                email_data = {
+                session_id = (
+                    email.recipient_session_id
+                    if direction == "inbound"
+                    else email.sender_session_id
+                )
+                data = {
                     "id": email.id,
                     "timestamp": email.timestamp.isoformat(),
                     "sender": email.sender,
@@ -383,21 +388,36 @@ def init_runtime(matrix_world_dir: Path):
                     "body": email.body,
                     "in_reply_to": email.in_reply_to,
                     "task_id": email.task_id,
+                    "sender_session_id": email.sender_session_id,
                     "recipient_session_id": email.recipient_session_id,
+                    "session_id": session_id,
+                    "direction": direction,
+                    "is_read": is_read,
+                    "agent_name": email.sender
+                    if direction == "inbound"
+                    else email.recipient,
                 }
-                message = json.dumps({"type": "new_email", "data": email_data})
+                message = json.dumps(
+                    {"type": "user_session_updated", "data": data}
+                )
                 for ws in active_websockets[:]:
                     try:
                         await ws.send_text(message)
                     except Exception as e:
-                        print(f"⚠️  Error sending email to WebSocket: {e}")
+                        print(f"⚠️  Error sending to WebSocket: {e}")
                         active_websockets.remove(ws)
-                print(f"📧 User received email from {email.sender}: {email.subject}")
+                print(
+                    f"📧 User session updated ({direction}): {email.sender} -> {email.recipient}: {email.subject}"
+                )
             except Exception as e:
-                print(f"⚠️  Error in user mail callback: {e}")
+                print(f"⚠️  Error in user session update callback: {e}")
 
-        runtime.agents[actual_user_name].set_mail_handler(user_mail_callback)
-        print(f"✅ User agent mail callback configured for '{actual_user_name}'")
+        runtime.agents[actual_user_name].set_session_update_handler(
+            user_session_update_callback
+        )
+        print(
+            f"✅ User agent session update callback configured for '{actual_user_name}'"
+        )
     else:
         print(f"⚠️  Warning: User agent '{actual_user_name}' not found in runtime")
 
@@ -999,6 +1019,23 @@ async def get_session_emails(session_id: str):
         )
 
         return {"success": True, "emails": emails_data, "total_count": len(emails_data)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sessions/{session_id}/mark-read")
+async def mark_session_read(session_id: str):
+    """Mark a user session as read"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        await asyncio.to_thread(
+            matrix_runtime.post_office.email_db.mark_session_as_read, session_id
+        )
+        return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

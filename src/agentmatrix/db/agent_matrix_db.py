@@ -341,7 +341,8 @@ class AgentMatrixDB(AutoLoggerMixin):
         """
         获取某个 session 的所有邮件（发出去的 + 收到的）
 
-        单次 SQL 查询，无需递归！
+        查询所有三个表（emails, email_to_process, email_to_deliver），
+        按 pipeline 阶段顺序拼接，避免邮件在中间状态时前端查询不到。
 
         Args:
             session_id: 会话ID
@@ -351,23 +352,24 @@ class AgentMatrixDB(AutoLoggerMixin):
             该 session 的所有邮件列表（按时间升序）
         """
         cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM emails
-            WHERE (
-                -- 发出去的邮件（View A）
-                (sender_session_id = ? AND sender = ?)
-                OR
-                -- 收到的邮件（View B）
-                (recipient_session_id = ? AND recipient = ?)
-            )
-            ORDER BY timestamp ASC
-        """,
-            (session_id, agent_name, session_id, agent_name),
-        )
+        condition = """
+            (sender_session_id = ? AND sender = ?)
+            OR
+            (recipient_session_id = ? AND recipient = ?)
+        """
+        params = (session_id, agent_name, session_id, agent_name)
 
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        result = []
+        # pipeline 顺序：最老的在前，最新的在后
+        for table in ("emails", "email_to_process", "email_to_deliver"):
+            cursor.execute(
+                f"SELECT * FROM {table} WHERE {condition} ORDER BY timestamp ASC",
+                params,
+            )
+            columns = [col[0] for col in cursor.description]
+            result.extend(dict(zip(columns, row)) for row in cursor.fetchall())
+
+        return result
 
     def get_email_by_id(self, email_id: str) -> Optional[dict]:
         """

@@ -168,15 +168,18 @@ class BaseAgent(AutoLoggerMixin):
         # 2. 在容器内更新软链接（Agent 用户可以操作自己的软链接，不需要 root）
         # ~/current_task 是固定的软链接，指向当前任务目录
         # ln -sf 会自动覆盖已存在的软链接，不会删除目标目录内容
-        cmd = f"ln -sf /data/agents/{self.name}/work_files/{task_id} ~/current_task && cd ~/current_task"
+        cmd = f"ln -sf /data/agents/{self.name}/work_files/{task_id} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
+        self.logger.info(f"🔧 switch_workspace 命令: {cmd}")
+        self.logger.info(f"🔧 宿主机目录存在: {task_dir.exists()}")
         exit_code, stdout, stderr = await asyncio.to_thread(
             self.container_session.execute, cmd
         )
         if exit_code != 0:
-            self.logger.warning(f"switch_workspace 命令失败: {cmd} -> {stderr}")
+            self.logger.warning(f"switch_workspace 命令失败: exit={exit_code}, stderr={stderr}")
             return False
 
         self.logger.info(f"工作目录已切换: {self.name} -> {task_id}")
+        self.logger.info(f"🔍 symlink 实际指向: {stdout.strip() if stdout else 'unknown'}")
         return True
 
     # ==================== 浏览器管理 ====================
@@ -825,6 +828,10 @@ class BaseAgent(AutoLoggerMixin):
         # 切换工作区
         if self.container_session is None:
             raise RuntimeError("Container Session 未初始化。")
+        # 重建 container shell（deactivate 时已 stop，这里按需 start）
+        if not self.container_session.is_alive():
+            self.logger.info(f"🔌 重建 container shell: {self.container_session.session_id}")
+            self.container_session.start()
         success = await self.switch_workspace(session["task_id"])
         if not success:
             raise RuntimeError(f"工作区切换失败: {session['task_id']}")
@@ -916,6 +923,11 @@ class BaseAgent(AutoLoggerMixin):
             await self.session_manager.save_session(session)
         except Exception as e:
             self.logger.warning(f"Failed to save session on deactivate: {e}")
+
+        # 断开 container shell（下次 activate 时重建，避免残留命令跨 session 干扰）
+        if self.container_session and self.container_session.is_alive():
+            self.logger.debug(f"🔌 断开 container shell: {self.container_session.session_id}")
+            self.container_session.stop()
 
         # 清理 active 状态
         self.active_session_id = None

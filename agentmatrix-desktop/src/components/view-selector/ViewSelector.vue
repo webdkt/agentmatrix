@@ -1,7 +1,10 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSessionStore } from '@/stores/session'
 import MIcon from '@/components/icons/MIcon.vue'
+
+const sessionStore = useSessionStore()
 
 const props = defineProps({
   currentView: {
@@ -44,6 +47,10 @@ const handleViewClick = (viewId) => {
         @click="handleViewClick(view.id)"
       >
         <MIcon :name="view.icon" />
+        <span
+          v-if="view.id === 'email' && sessionStore.hasUnreadSessions"
+          class="view-selector__badge"
+        ></span>
       </button>
     </nav>
 
@@ -130,6 +137,17 @@ const handleViewClick = (viewId) => {
 
 .view-selector__icon {
   font-size: var(--icon-lg);
+}
+
+/* Unread badge on email icon */
+.view-selector__badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  background: var(--fault);
+  border-radius: 50%;
 }
 
 .view-selector__status {

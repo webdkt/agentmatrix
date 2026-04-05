@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
 import { useSessionStore } from './session'
 import { useAgentStore } from './agent'
 
@@ -11,13 +10,13 @@ export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     isConnected: false,
     lastEvent: null,
-    newEmailCallbacks: [],  // 新邮件回调函数列表
-    listeners: {},          // 事件监听器 { eventType: [callback, ...] }
+    sessionUpdateCallbacks: [],  // user_session_updated 回调函数列表
+    listeners: {},               // 事件监听器 { eventType: [callback, ...] }
   }),
 
   getters: {
-    hasNewEmailCallbacks: (state) => {
-      return state.newEmailCallbacks.length > 0
+    hasSessionUpdateCallbacks: (state) => {
+      return state.sessionUpdateCallbacks.length > 0
     }
   },
 
@@ -45,9 +44,9 @@ export const useWebSocketStore = defineStore('websocket', {
         })
       }
 
-      // 处理新邮件事件
-      if (data.type === 'new_email') {
-        this.handleNewEmail(data.data)
+      // 处理 user session 更新事件
+      if (data.type === 'user_session_updated') {
+        this.handleSessionUpdate(data.data)
       }
       // 处理运行时事件（USER_INTERACTION 等）
       else if (data.type === 'runtime_event') {
@@ -123,17 +122,17 @@ export const useWebSocketStore = defineStore('websocket', {
     },
 
     /**
-     * 处理新邮件事件
+     * 处理 user session 更新事件
      */
-    handleNewEmail(emailData) {
-      console.log('📧 New email received via WebSocket:', emailData)
+    handleSessionUpdate(data) {
+      console.log('📧 User session updated via WebSocket:', data)
 
       // 通知所有注册的回调
-      this.newEmailCallbacks.forEach(callback => {
+      this.sessionUpdateCallbacks.forEach(callback => {
         try {
-          callback(emailData)
+          callback(data)
         } catch (error) {
-          console.error('Error in new email callback:', error)
+          console.error('Error in session update callback:', error)
         }
       })
     },
@@ -236,33 +235,33 @@ export const useWebSocketStore = defineStore('websocket', {
     },
 
     /**
-     * 注册回调（别名，兼容 onNewEmail）
+     * 注册回调（别名，兼容 onSessionUpdate）
      */
     registerCallback(event, callback) {
-      if (event === 'on_new_email') {
-        this.onNewEmail(callback)
+      if (event === 'on_session_update') {
+        this.onSessionUpdate(callback)
       } else {
         this.registerListener(event, callback)
       }
     },
 
     /**
-     * 注册新邮件回调
+     * 注册 session 更新回调
      */
-    onNewEmail(callback) {
-      this.newEmailCallbacks.push(callback)
+    onSessionUpdate(callback) {
+      this.sessionUpdateCallbacks.push(callback)
 
       // 返回清理函数
       return () => {
-        this.newEmailCallbacks = this.newEmailCallbacks.filter(cb => cb !== callback)
+        this.sessionUpdateCallbacks = this.sessionUpdateCallbacks.filter(cb => cb !== callback)
       }
     },
 
     /**
-     * 移除新邮件回调
+     * 移除 session 更新回调
      */
-    offNewEmail(callback) {
-      this.newEmailCallbacks = this.newEmailCallbacks.filter(cb => cb !== callback)
+    offSessionUpdate(callback) {
+      this.sessionUpdateCallbacks = this.sessionUpdateCallbacks.filter(cb => cb !== callback)
     }
   }
 })

@@ -4,13 +4,13 @@ import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useBackendStore } from '@/stores/backend'
-import { useNotifications } from '@/composables/useNotifications'
 import { useConfigStore } from '@/stores/config'
 import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
+import AgentStatusPanel from '@/components/agent/AgentStatusPanel.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
@@ -28,7 +28,6 @@ const websocketStore = useWebSocketStore()
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
 const { isConnected, connect, onMessage } = useWebSocket()
-const { requestPermission } = useNotifications()
 
 // Computed
 const currentSession = computed(() => sessionStore.currentSession)
@@ -69,17 +68,6 @@ async function setupAppAfterBackend() {
       }
     })
 
-    // Register callback for new email notifications
-    websocketStore.registerCallback('on_new_email', async (emailData) => {
-      const granted = await requestPermission()
-      if (granted) {
-        new Notification('New Email', {
-          body: `From: ${emailData.from}\nSubject: ${emailData.subject}`,
-        })
-      }
-      sessionStore.fetchSessions()
-    })
-
     // Fetch initial data
     await sessionStore.fetchSessions()
   } catch (error) {
@@ -102,6 +90,26 @@ const handleViewChange = (viewId) => {
   emit('view-change', viewId)
 }
 
+// Agent status panel state
+const expandedAgent = ref(null)
+
+const handleAgentSelected = (agentName) => {
+  if (expandedAgent.value === agentName) {
+    expandedAgent.value = null
+  } else {
+    expandedAgent.value = agentName
+  }
+}
+
+const handlePanelClose = () => {
+  expandedAgent.value = null
+}
+
+// Reset expanded agent when session changes
+watch(currentSession, () => {
+  expandedAgent.value = null
+})
+
 // Lifecycle
 onMounted(async () => {
   await setupAppAfterBackend()
@@ -113,7 +121,19 @@ onMounted(async () => {
     <!-- Email View -->
     <div v-if="currentView === 'email'" class="view-container__content">
       <SessionList />
-      <EmailList :user_agent_name="userAgentName" />
+      <EmailList
+        :user_agent_name="userAgentName"
+        :selected-agent="expandedAgent"
+        @agent-selected="handleAgentSelected"
+      />
+      <Transition name="panel-slide">
+        <AgentStatusPanel
+          v-if="expandedAgent"
+          :key="expandedAgent"
+          :agent-name="expandedAgent"
+          @close="handlePanelClose"
+        />
+      </Transition>
     </div>
 
     <!-- Settings View -->
@@ -216,5 +236,24 @@ onMounted(async () => {
 .placeholder-view p {
   font-size: var(--font-base);
   color: var(--neutral-500);
+}
+
+/* Panel slide transition */
+.panel-slide-enter-active,
+.panel-slide-leave-active {
+  transition: flex-basis 0.25s var(--ease-out), opacity 0.2s var(--ease-out);
+  overflow: hidden;
+}
+
+.panel-slide-enter-from,
+.panel-slide-leave-to {
+  flex-basis: 0;
+  opacity: 0;
+}
+
+.panel-slide-enter-to,
+.panel-slide-leave-from {
+  flex-basis: 300px;
+  opacity: 1;
 }
 </style>

@@ -77,6 +77,13 @@ export const useSessionStore = defineStore('session', {
     shouldShowGlobalAskUserDialog: (state) => () => {
       return !!state.globalPendingQuestion && !state.globalDialogShown
     },
+
+    /**
+     * 是否有未读会话
+     */
+    hasUnreadSessions: (state) => {
+      return state.sessions.some(s => s.is_unread)
+    },
   },
 
   actions: {
@@ -348,6 +355,36 @@ export const useSessionStore = defineStore('session', {
      */
     async fetchSessions() {
       return this.loadSessions(false)
+    },
+
+    /**
+     * 根据 WebSocket 事件更新本地 session 状态
+     * @param {object} data - user_session_updated 事件数据
+     */
+    updateSessionFromEvent(data) {
+      const { session_id, is_read, subject, timestamp, sender, recipient } = data
+      const index = this.sessions.findIndex(s => s.session_id === session_id)
+
+      if (index !== -1) {
+        const updated = { ...this.sessions[index] }
+
+        // 更新未读状态：is_read=0 → 未读, is_read=1 → 已读
+        if (is_read !== undefined) {
+          updated.is_unread = is_read === 0
+        }
+
+        // 更新显示字段
+        if (subject) updated.subject = subject
+        if (timestamp) updated.timestamp = timestamp
+
+        // 用 splice 确保 Vue 响应式更新
+        this.sessions.splice(index, 1, updated)
+        console.log('🔄 Session updated from event:', session_id, { is_unread: updated.is_unread })
+      } else {
+        // session 不存在，刷新全量列表
+        console.log('🔄 Session not found, refreshing list:', session_id)
+        this.loadSessions()
+      }
     },
   },
 })
