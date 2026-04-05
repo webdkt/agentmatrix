@@ -291,7 +291,7 @@ class MicroAgent(AutoLoggerMixin):
             self._add_message("user", msg)
         elif signal.type == "actions_completed":
             combined = signal.payload["combined"]
-            self._add_message("user", f"[Actions Done]:\n{combined}")
+            self._add_message("user", f"{combined}")
 
     def _on_action_done(self, action_id, action_name, task):
         """action task 完成后的回调 - 投递信号到 signal_queue"""
@@ -1546,18 +1546,7 @@ Start generating the Working Notes now.
 
                 for idx, action_name in enumerate(action_names, start=1):
                     # === 处理特殊 actions ===
-                    if action_name == "update_memory":
-                        # update_memory 必须阻塞执行（它压缩 messages，影响后续 think）
-                        await self._execute_action(
-                            "update_memory", action_section_text, idx, action_names
-                        )
-                        self.logger.debug(
-                            f"✅ {action_name} done (messages compressed)"
-                        )
-                        self._add_message("assistant", "[ACTION] 执行update_memory")
-                        self._add_message("user", "[update_memory] DONE SUCCESSFULLY")
-
-                    elif action_name in exit_actions:
+                    if action_name in exit_actions:
                         self.return_action_name = action_name
                         try:
                             result = await self._execute_action(
@@ -1686,7 +1675,7 @@ Start generating the Working Notes now.
                 lines.append(f"[{r['action_name']} Done]: {r['result']}")
             else:
                 lines.append(f"[{r['action_name']} Failed]: {r['error']}")
-        return "\n".join(lines)
+        return "\n\n".join(lines)
 
     async def _prepare_feedback_message(
         self, combined_result: str, step_count: int, start_time: float

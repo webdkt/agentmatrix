@@ -6,6 +6,7 @@ class_name: agentmatrix.agents.base.BaseAgent
 skills:
   - file  # 文件操作技能
   - new_web_search
+  - memory
 
 
 

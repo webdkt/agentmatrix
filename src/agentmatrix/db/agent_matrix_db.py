@@ -691,6 +691,89 @@ class AgentMatrixDB(AutoLoggerMixin):
 
         return next_time.isoformat()
 
+    def search_emails_by_keyword_groups(
+        self, agent_name: str, keywords: list, limit: int = 50
+    ) -> list:
+        """
+        按关键词组合搜索邮件，返回匹配的 session 列表
+
+        AND 组合：所有关键词都必须匹配（每个关键词在 subject 或 body 中匹配）。
+        搜索范围：emails + email_to_process + email_to_deliver 三表 UNION。
+
+        Args:
+            agent_name: Agent 名称
+            keywords: 关键词列表（AND 组合）
+            limit: 最大返回 session 数
+
+        Returns:
+            List[dict]: [{session_id, hit_count, last_email_time, first_subject}]
+            按 hit_count DESC, last_email_time DESC 排序
+        """
+        if not keywords:
+            return []
+
+        # 构建 WHERE 条件
+        # 每个 keyword: (subject LIKE '%kw%' OR body LIKE '%kw%')
+        keyword_conditions = []
+        keyword_params = []
+        for kw in keywords:
+            pattern = f"%{kw}%"
+            keyword_conditions.append("(subject LIKE ? OR body LIKE ?)")
+            keyword_params.extend([pattern, pattern])
+
+        where_clause = " AND ".join(keyword_conditions)
+
+        # 三表 UNION 子查询（只保留 agent 相关的邮件）
+        params = [agent_name, agent_name] + keyword_params
+        query = f"""
+            SELECT id, timestamp, sender, recipient, subject, body,
+                   sender_session_id, recipient_session_id
+            FROM (
+                SELECT * FROM emails WHERE sender = ? OR recipient = ?
+                UNION ALL
+                SELECT * FROM email_to_process WHERE sender = ? OR recipient = ?
+                UNION ALL
+                SELECT * FROM email_to_deliver WHERE sender = ? OR recipient = ?
+            )
+            WHERE {where_clause}
+        """
+        # Adjust params: agent_name repeated 6 times for the 3 UNION ALL subqueries
+        agent_params = [agent_name, agent_name] * 3
+        all_params = agent_params + keyword_params
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, all_params)
+        columns = [col[0] for col in cursor.description]
+        matched_emails = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+        if not matched_emails:
+            return []
+
+        # 按 session 分组，统计 hit_count
+        from collections import defaultdict
+        sessions = defaultdict(lambda: {"hit_count": 0, "last_email_time": "", "first_subject": ""})
+
+        for email in matched_emails:
+            sid = email.get("sender_session_id") or email.get("recipient_session_id") or ""
+            if not sid:
+                continue
+            s = sessions[sid]
+            s["hit_count"] += 1
+            ts = email.get("timestamp", "")
+            if ts > s["last_email_time"]:
+                s["last_email_time"] = ts
+                s["first_subject"] = email.get("subject", "")
+
+        # 转换为列表并排序
+        result = [
+            {"session_id": sid, **data}
+            for sid, data in sessions.items()
+        ]
+        result.sort(key=lambda x: (-x["hit_count"], x["last_email_time"]), reverse=False)
+        result.sort(key=lambda x: x["hit_count"], reverse=True)
+
+        return result[:limit]
+
     def get_agent_sessions(self, agent_name: str) -> list:
         """
         获取 Agent 的所有 sessions（用于 Matrix View Memory Tab）

@@ -9,8 +9,6 @@ export const useBackendStore = defineStore('backend', {
     error: null,
     lastCheckTime: null,
     healthCheckInterval: null,
-    startupAttempts: 0,
-    maxStartupAttempts: 3,
     autoStartEnabled: true,
     continuousMonitoring: true,
   }),
@@ -31,43 +29,38 @@ export const useBackendStore = defineStore('backend', {
       if (state.isRunning) return 'healthy'
       return 'unhealthy'
     },
-
-    canRetry: (state) => state.startupAttempts < state.maxStartupAttempts,
   },
 
   actions: {
-    async startBackend(autoRetry = true) {
+    async startBackend() {
       if (!this.canStart) {
         throw new Error('Cannot start backend in current state')
       }
 
       this.isStarting = true
       this.error = null
-      this.startupAttempts++
 
       try {
-        console.log(`Starting Python backend... (Attempt ${this.startupAttempts}/${this.maxStartupAttempts})`)
+        console.log('Starting Python backend...')
         await invoke('start_backend')
 
-        // Wait for backend to start with progressive backoff
-        const waitTime = Math.min(2000 * this.startupAttempts, 8000)
-        await new Promise(resolve => setTimeout(resolve, waitTime))
+        // Poll health check until backend is ready or we time out
+        const maxAttempts = 5
+        let isRunning = false
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const waitTime = Math.min(2000 * attempt, 8000)
+          console.log(`Health check attempt ${attempt}/${maxAttempts}, waiting ${waitTime}ms...`)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
 
-        // Check if it's actually running
-        const isRunning = await this.checkBackendInternal()
+          isRunning = await this.checkBackendInternal()
+          if (isRunning) break
+        }
 
         if (!isRunning) {
-          if (autoRetry && this.canRetry) {
-            console.log('Backend health check failed, retrying...')
-            await new Promise(resolve => setTimeout(resolve, 2000))
-            return this.startBackend(autoRetry)
-          } else {
-            throw new Error('Backend failed to start after multiple attempts')
-          }
+          throw new Error('Backend failed to start after multiple attempts')
         }
 
         console.log('✅ Backend started successfully')
-        this.startupAttempts = 0 // Reset on success
 
         // Start continuous monitoring
         if (this.continuousMonitoring) {
