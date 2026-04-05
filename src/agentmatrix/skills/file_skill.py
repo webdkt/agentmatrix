@@ -76,52 +76,62 @@ class FileSkillMixin:
 
         return stdout or "目录为空"
 
+    # 不可读取的路径（设备文件、伪文件系统等会阻塞或无意义）
+    _BLOCKED_PATHS = ("/dev/", "/proc/", "/sys/")
+
     @register_action(
-        short_desc="读文件内容[file_path, start_line=1,end_line=200]",
-        description="读取文件内容。支持指定行范围（默认前200行）",
+        short_desc="读取文本文件内容[file_path, start_line=1,end_line=200]",
+        description="读取普通文本文件的内容（如 .py, .md, .txt, .json, .yaml 等）。支持指定行范围（默认前200行）。不可用于设备文件、管道等特殊路径。",
         param_infos={
-            "file_path": "文件路径",
+            "file_path": "文本文件路径",
             "start_line": "起始行号（从1开始，默认1）",
             "end_line": "结束行号（默认200）",
         },
     )
-    async def read(
+    async def read_txt_file(
         self,
         file_path: str,
         start_line: Optional[int] = 1,
         end_line: Optional[int] = 200,
     ) -> str:
         """
-        读取文件内容（容器内执行）
+        读取文本文件内容（容器内执行）
 
         Args:
-            file_path: 文件路径
+            file_path: 文本文件路径
             start_line: 起始行号（从 1 开始，默认 1）
             end_line: 结束行号（默认 200）
         """
+        # 黑名单检查：拒绝设备文件、伪文件系统等特殊路径
+        if any(file_path.startswith(p) for p in self._BLOCKED_PATHS):
+            return f"读取文件失败：路径 '{file_path}' 是特殊路径（设备文件/伪文件系统），不可读取。请使用普通文件路径。"
+
         container_session = self.root_agent.container_session
 
-        # 使用 sed 读取指定行
-        cmd = f"sed -n '{start_line},{end_line}p' {file_path}"
+        # 使用 sed 读取指定行，合并 wc -l 为单次调用，加 30s 超时
+        cmd = f"sed -n '{start_line},{end_line}p' {file_path}; echo '___WC_SEP___'; wc -l {file_path}"
 
-        exit_code, stdout, stderr = await asyncio.to_thread(
-            container_session.execute, cmd
+        exit_code, stdout, stderr = await asyncio.wait_for(
+            asyncio.to_thread(container_session.execute, cmd, 30),
+            timeout=35,
         )
 
-        self.logger.info(f"[read] 命令: {cmd}")
-        self.logger.info(f"[read] exit_code: {exit_code}")
+        self.logger.info(f"[read_txt_file] 命令: {cmd}")
+        self.logger.info(f"[read_txt_file] exit_code: {exit_code}")
+
+        # 解析合并输出
+        if "___WC_SEP___" in stdout:
+            content, wc_part = stdout.split("___WC_SEP___", 1)
+            content = content.strip()
+            total_lines = wc_part.strip().split()[0] if wc_part.strip() else "?"
+        else:
+            content = stdout
+            total_lines = "?"
 
         if exit_code != 0:
             return f"读取文件失败\n- 文件: {file_path}\n- 退出码: {exit_code}\n- 错误: {stderr.strip() if stderr else '(空)'}"
 
-        # 获取文件总行数
-        total_cmd = f"wc -l {file_path}"
-        total_exit, total_out, _ = await asyncio.to_thread(
-            container_session.execute, total_cmd
-        )
-        total_lines = total_out.strip().split()[0] if total_exit == 0 else "?"
-
-        return f"# 文件: {file_path} (共 {total_lines} 行)\n# 显示第 {start_line}-{end_line} 行\n\n{stdout}"
+        return f"# 文件: {file_path} (共 {total_lines} 行)\n# 显示第 {start_line}-{end_line} 行\n\n{content}"
 
     @register_action(
         short_desc="写入文件[file_path,content,mode='overwrite',allow_overwrite=False]",

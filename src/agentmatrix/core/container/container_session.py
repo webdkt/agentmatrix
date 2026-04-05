@@ -198,6 +198,10 @@ class ContainerSession:
 
                 stdout_lines.append(line_str)
             except Empty:
+                # 进程已死但 reader 线程已退出，队列不会再有数据，继续等也是空转
+                if not self.is_alive():
+                    self.logger.warning(f"容器 shell 进程已终止: {command[:50]}")
+                    return -1, "\n".join(stdout_lines), "\n".join(stderr_lines) + "\n[进程已终止]"
                 continue
 
         # 收集 stderr（非阻塞）

@@ -78,49 +78,25 @@ class BaseSkillMixin:
     
 
     @register_action(
-        short_desc="将重要信息临时pin到本次会话记忆中，必须先unpin清空才能pin新的。如果需要合并就自己整理好新的全量内容。",
-        description="将重要信息临时pin到本次会话记忆中，以便在后续步骤中持续访问。注意：必须先使用 unpin_memory 清空之前的固定记忆才能使用此功能。",
-        param_infos={"content": "要固定的信息内容"},
+        short_desc="随手记录工作过程中的关键要点（完成的步骤、遇到的约束、重要发现等），没有记下的信息稍后会被遗忘",
+        description="随手记录工作过程中的关键要点（完成的步骤、遇到的约束、重要发现等）。这些笔记会在上下文压缩时辅助生成更精准的 Working Notes，压缩后自动清空。自由追加，无需清空。",
+        param_infos={"content": "要记录的要点内容"},
     )
-    async def pin_memory(self, content: str) -> str:
+    async def add_scratchpad(self, content: str) -> str:
         """
-        固定信息到记忆中
+        在草稿纸上记一条要点
 
-        将重要信息保存到 pinned_memory，以便在后续步骤中持续访问。
-        如果已经有固定记忆，需要先使用 unpin_memory 清空。
+        将重要信息追加到 scratchpad，压缩时作为辅助材料喂给 Working Notes 生成器。
+        压缩后自动清空，无需手动管理。
+
+        适用场景：完成关键步骤、遇到约束、发现重要信息时随手记一条。
 
         Args:
-            content: 要固定的信息内容
+            content: 要记录的要点内容
 
         Returns:
-            str: 操作结果
-
-        Raises:
-            RuntimeError: 如果已有固定记忆且未清空
+            str: 操作结果及当前条数
         """
-        if self.pinned_memory is not None:
-            raise RuntimeError(
-                "已有固定记忆存在，请先使用 unpin_memory 清空后再使用 pin_memory"
-            )
-
-        self.pinned_memory = content
-        return f"Done"
-
-    @register_action(
-        short_desc="清空固定的记忆",
-        description="清空 pinned_memory 中的固定记忆，释放内存空间。",
-        param_infos={},
-    )
-    async def unpin_memory(self) -> str:
-        """
-        清空固定的记忆
-
-        将 pinned_memory 设置为 None，释放内存空间。
-
-        Returns:
-            str: 操作结果
-        """
-    
-        self.pinned_memory = None
-        return f"已unpin记忆"
+        self.scratchpad.append(content)
+        return f"Done (scratchpad: {len(self.scratchpad)} 条)"
 
