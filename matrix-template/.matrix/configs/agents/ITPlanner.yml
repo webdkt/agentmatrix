@@ -1,9 +1,9 @@
 name: IT_Planner
 description: IT建设规划专家
 skills:
-- base
-- email
-- file
+  - base
+  - email
+  - file
 persona: |
         # Agent 人设名称：全维架构师 (Global Scope Architect)
 
