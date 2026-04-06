@@ -215,6 +215,8 @@ class MicroAgent(AutoLoggerMixin):
 
         return dynamic_class
 
+    _BASH_CANCEL_HINT = "\n\n注意：被取消的任务中可能包含 bash 命令，如果涉及网络请求/安装等长时间操作，命令可能仍在容器中运行，如需终止请使用 `ps` + `kill`。"
+
     @register_action(
         short_desc="取消正在执行的操作",
         description="取消当前正在运行的操作。如果有多个操作在同时运行，可以通过 action_id 指定取消哪个。",
@@ -230,9 +232,13 @@ class MicroAgent(AutoLoggerMixin):
                 return f"未找到 {action_id}"
             task = info["task"] if isinstance(info, dict) else info
             label = info.get("label", "") if isinstance(info, dict) else ""
+            action_names = info.get("action_names", []) if isinstance(info, dict) else []
             display_name = f"{action_id.rsplit('_', 1)[0]}: {label}" if label else action_id
             task.cancel()
-            return f"已取消 [{display_name}]"
+            result = f"已取消 [{display_name}]"
+            if "bash" in action_names:
+                result += self._BASH_CANCEL_HINT
+            return result
         elif self._running_actions:
             # pop 所有 entries（除了自己），这样被取消 action 的 _on_action_done 回调触发时会跳过信号
             # 保留自己的 entry，让 _on_action_done 能正确 put cancel 结果信号
@@ -248,15 +254,22 @@ class MicroAgent(AutoLoggerMixin):
             self._running_actions.clear()
             self._running_actions.update(to_keep)
             cancelled = []
+            has_bash = False
             for aid, info in entries.items():
                 task = info["task"] if isinstance(info, dict) else info
                 label = info.get("label", "") if isinstance(info, dict) else ""
+                action_names = info.get("action_names", []) if isinstance(info, dict) else []
+                if "bash" in action_names:
+                    has_bash = True
                 action_name = aid.rsplit("_", 1)[0]
                 display_name = f"{action_name}: {label}" if label else action_name
                 cancelled.append(display_name)
                 task.cancel()
             names = ", ".join(cancelled)
-            return f"已取消 {len(cancelled)} 个操作: [{names}]"
+            result = f"已取消 {len(cancelled)} 个操作: [{names}]"
+            if has_bash:
+                result += self._BASH_CANCEL_HINT
+            return result
         else:
             return "当前没有正在运行的操作"
 
@@ -294,7 +307,7 @@ class MicroAgent(AutoLoggerMixin):
             self._add_message("user", f"{combined}")
 
     def _on_action_done(self, action_id, action_name, task):
-        """action task 完成后的回调 - 投递信号到 signal_queue"""
+        """单个 action task 完成后的回调 - 投递信号到 signal_queue"""
         # 如果 entry 已被 cancel_action 移除，跳过信号（取消结果由 cancel_action 统一报告）
         info = self._running_actions.pop(action_id, None)
         if info is None:
@@ -318,6 +331,23 @@ class MicroAgent(AutoLoggerMixin):
             self.signal_queue.put_nowait(Signal(
                 type="action_failed",
                 payload={"action_name": action_name, "action_label": action_label, "error": str(e)}
+            ))
+
+    def _on_batch_done(self, action_id, task):
+        """batch task 完成后的回调 - 直接投 combined 结果，不加额外包装"""
+        info = self._running_actions.pop(action_id, None)
+        if info is None:
+            return
+        try:
+            combined = task.result()
+            self.signal_queue.put_nowait(Signal(
+                type="actions_completed",
+                payload={"combined": combined}
+            ))
+        except Exception as e:
+            self.signal_queue.put_nowait(Signal(
+                type="actions_completed",
+                payload={"combined": f"Batch 执行异常: {e}"}
             ))
 
     @register_action(
@@ -1272,9 +1302,9 @@ Start generating the Working Notes now.
         if md_skill_count > 0 and self._is_top_level_microagent():
             md_skill_section = f"""#### B. 扩展技能库 (Procedural Skills)
 你有{md_skill_count}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
-如果需要使用额外技能，先列目录，看有什么技能（目录名代表了技能的名字）
+如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）
 如果名字看上去可能是你需要的，就继续读里面的SKILL.md 的开头，判断是否真的是你需要的技能
-如果是需要的技能，就继续阅读，理解如何使用
+如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行
 """
 
         yellow_pages_section = ""
@@ -1540,41 +1570,58 @@ Start generating the Working Notes now.
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply)
 
-                # 4. 启动 actions（非阻塞）
+                # 4. 分发 actions
                 should_break_loop = False
-                results = []  # 收集所有普通 action 的结果
 
-                for idx, action_name in enumerate(action_names, start=1):
-                    # === 处理特殊 actions ===
+                # 分离 exit_actions 和普通 actions
+                exit_action_name = None
+                for action_name in action_names:
                     if action_name in exit_actions:
-                        self.return_action_name = action_name
-                        try:
-                            result = await self._execute_action(
-                                action_name, action_section_text, idx, action_names
-                            )
-                            self.result = result
-                        except Exception:
-                            pass  # action 不存在时静默跳过
-                        should_break_loop = True
+                        exit_action_name = action_name
                         break
 
-                    # === 普通 actions：顺序执行，收集结果 ===
-                    else:
-                        try:
-                            result = await self._execute_action(
-                                action_name, action_section_text, idx, action_names
-                            )
-                            results.append({"action_name": action_name, "result": str(result), "status": "ok"})
-                        except Exception as e:
-                            results.append({"action_name": action_name, "error": str(e), "status": "error"})
-
-                # 4. 所有普通 action 执行完毕，组合投信号
-                if results:
-                    combined = self._format_combined_results(results)
-                    self.signal_queue.put_nowait(Signal(
-                        type="actions_completed",
-                        payload={"results": results, "combined": combined}
-                    ))
+                if exit_action_name:
+                    # exit_action 仍然同步执行，执行完直接退出循环
+                    self.return_action_name = exit_action_name
+                    try:
+                        result = await self._execute_action(
+                            exit_action_name, action_section_text,
+                            action_names.index(exit_action_name) + 1, action_names
+                        )
+                        self.result = result
+                    except Exception:
+                        pass
+                    should_break_loop = True
+                elif len(action_names) == 1:
+                    # 单个 action：直接后台执行，保留 action 本身的名称
+                    self._action_counter += 1
+                    action_id = f"{action_names[0]}_{self._action_counter}"
+                    action_task = asyncio.create_task(
+                        self._execute_action(action_names[0], action_section_text, 1, action_names)
+                    )
+                    self._running_actions[action_id] = {
+                        "task": action_task,
+                        "label": "",
+                        "action_names": action_names,
+                    }
+                    action_task.add_done_callback(
+                        lambda t, aid=action_id, an=action_names[0]: self._on_action_done(aid, an, t)
+                    )
+                elif action_names:
+                    # 多个 actions：打包成一个后台 task 顺序执行
+                    self._action_counter += 1
+                    action_id = f"batch_{self._action_counter}"
+                    batch_task = asyncio.create_task(
+                        self._run_actions_batch(action_names, action_section_text)
+                    )
+                    self._running_actions[action_id] = {
+                        "task": batch_task,
+                        "label": "",
+                        "action_names": action_names,
+                    }
+                    batch_task.add_done_callback(
+                        lambda t, aid=action_id: self._on_batch_done(aid, t)
+                    )
 
                 # 5. 检查是否需要退出主循环
                 if should_break_loop:
@@ -1671,10 +1718,14 @@ Start generating the Working Notes now.
         """将多个 action 的结果格式化为一个组合文本"""
         lines = []
         for r in results:
+            label = r.get("label", "")
+            display_name = f"{r['action_name']}: {label}" if label else r["action_name"]
             if r["status"] == "ok":
-                lines.append(f"[{r['action_name']} Done]: {r['result']}")
+                lines.append(f"[{display_name} Done]: {r['result']}")
+            elif r["status"] == "canceled":
+                lines.append(f"[{display_name} Canceled]")
             else:
-                lines.append(f"[{r['action_name']} Failed]: {r['error']}")
+                lines.append(f"[{display_name} Failed]: {r.get('error', '')}")
         return "\n\n".join(lines)
 
     async def _prepare_feedback_message(
@@ -1961,6 +2012,41 @@ write, send_mail, write
         self.logger.debug(f"[阶段2] 判断要执行的 actions: {actions_to_execute}")
         return actions_to_execute
 
+    async def _run_actions_batch(
+        self, action_names: List[str], thought: str
+    ) -> str:
+        """
+        后台顺序执行一批 actions，返回组合结果字符串。
+
+        正常完成：所有 action 的结果拼接。
+        被取消：已完成的标记 ok，被中断的标记 canceled。
+        """
+        results = []
+        for idx, action_name in enumerate(action_names, start=1):
+            try:
+                result = await self._execute_action(
+                    action_name, thought, idx, action_names
+                )
+                # 从 entry 读 label（_execute_action 内已回写）
+                action_label = ""
+                current_task = asyncio.current_task()
+                for _, info in self._running_actions.items():
+                    if isinstance(info, dict) and info.get("task") is current_task:
+                        action_label = info.get("label", "")
+                        break
+                results.append({"action_name": action_name, "label": action_label, "result": str(result), "status": "ok"})
+            except asyncio.CancelledError:
+                results.append({"action_name": action_name, "label": "", "result": "Canceled", "status": "canceled"})
+                # 标记后续所有 action 为 canceled
+                for remaining_name in action_names[idx:]:
+                    results.append({"action_name": remaining_name, "label": "", "result": "Canceled", "status": "canceled"})
+                break
+            except Exception as e:
+                results.append({"action_name": action_name, "label": "", "error": str(e), "status": "error"})
+
+        combined = self._format_combined_results(results)
+        return combined
+
     async def _execute_action(
         self, action_name: str, thought: str, action_index: int, action_list: List[str]
     ) -> Any:
@@ -2076,9 +2162,13 @@ write, send_mail, write
         """
         添加消息到对话历史
 
+        如果最后一条消息是同 role，追加到其后（避免连续多个 user/assistant）。
         如果有 session，自动保存到 session
         """
-        self.messages.append({"role": role, "content": content})
+        if self.messages and self.messages[-1]["role"] == role:
+            self.messages[-1]["content"] += "\n\n" + content
+        else:
+            self.messages.append({"role": role, "content": content})
 
         # 如果有 session，自动保存
         if self.session and self.session_manager:

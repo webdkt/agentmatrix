@@ -26,10 +26,10 @@ class FileSkillMixin:
     """
 
     # Skill 级别元数据
-    _skill_description = """文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。"""
+    _skill_description = """文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。当前任务的工作目录在`~/current_task`, 临时文件放`~/current_task/tmp`, 任务输出放`~/current_task/output`. 发给他人的附件要留好copy。及时清理自己的临时文件，维护好系统的健康整洁。"""
 
     _skill_usage_guide = """
-文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。
+文件操作技能。注意你和其他Agent共用同一个Li文件操作技能。注意你和其他Agent共用同一个Linux环境，切勿直接修改他人文件。当前任务的工作目录在`~/current_task`, 临时文件放`~/current_task/tmp`, 任务输出放`~/current_task/output`. 发给他人的附件要留好copy。及时清理自己的临时文件，维护好系统的健康整洁。nux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。
 """
 
     # ==================== Actions ====================

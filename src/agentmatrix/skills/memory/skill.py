@@ -16,16 +16,26 @@ class MemorySkillMixin:
     提供基于邮件历史的回忆搜索功能。
     """
 
-    _skill_description = "记忆管理技能，使用recall(问题)来搜索邮件历史回忆信息"
+    _skill_description = "用自然语言搜索邮件历史，找回Layer 3记忆信息"
 
     @register_action(
-        short_desc="(question)",
+        short_desc="(question)，搜索历史对话，描述要找什么",
+        description="搜索历史对话回忆信息。当你需要回忆之前讨论过的事情、决策、项目细节等时调用此 action。",
+        param_infos={
+            "question": "要回忆的问题（如'上次讨论的预算是多少？'）",
+        },
+    )
+    async def search_conversations(self, question: str) -> str:
+        return await self.search_emails(question)
+
+    @register_action(
+        short_desc="(question)，搜索邮件，描述要找什么",
         description="搜索邮件历史回忆信息。当你需要回忆之前讨论过的事情、决策、项目细节等时调用此 action。",
         param_infos={
             "question": "要回忆的问题（如'上次讨论的预算是多少？'）",
         },
     )
-    async def recall(self, question: str) -> str:
+    async def search_emails(self, question: str) -> str:
         """
         搜索邮件历史回忆信息
 
