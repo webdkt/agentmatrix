@@ -134,7 +134,7 @@ jobs:
   # Job 3: Build macOS x64
   build-macos-x64:
     needs: build-docker
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
       - name: Checkout repository
