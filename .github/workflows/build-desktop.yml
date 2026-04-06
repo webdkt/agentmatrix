@@ -212,11 +212,7 @@ jobs:
 
       - name: Build Tauri application (x64)
         working-directory: agentmatrix-desktop
-        run: |
-          cargo build --release --target x86_64-apple-darwin
-          TAURI_PRIVATE_KEY="${{ secrets.TAURI_PRIVATE_KEY }}" \
-          TAURI_KEY_PASSWORD="${{ secrets.TAURI_KEY_PASSWORD }}" \
-          npx tauri build --target x86_64-apple-darwin
+        run: npx tauri build --target x86_64-apple-darwin
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
