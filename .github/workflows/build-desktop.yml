@@ -131,16 +131,16 @@ jobs:
             agentmatrix-desktop/src-tauri/target/release/bundle/dmg/*.dmg
           retention-days: 7
 
-  # Job 3: Build macOS x64
+  # Job 3: Build macOS x64 (cross-compiled from ARM runner)
   build-macos-x64:
     needs: build-docker
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==================== Python Backend Build ====================
+      # ==================== Python Backend Build (x64 cross-compile) ====================
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -153,12 +153,13 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.txt
 
-      - name: Build Python backend with PyInstaller
+      - name: Build Python backend with PyInstaller (x64)
         run: |
-          pyinstaller server.spec --distpath dist-server
+          ARCHFLAGS="-arch x86_64" pyinstaller server.spec --distpath dist-server
 
       - name: Verify server executable
         run: |
+          file dist-server/server/server
           ls -la dist-server/server/server
 
       # ==================== Download Docker Image ====================
@@ -205,13 +206,17 @@ jobs:
         working-directory: agentmatrix-desktop
         run: npm install
 
-      # ==================== Tauri Build ====================
+      # ==================== Tauri Build (cross-compile to x64) ====================
       - name: Clean .DS_Store files
         run: find . -name ".DS_Store" -delete
 
-      - name: Build Tauri application
+      - name: Build Tauri application (x64)
         working-directory: agentmatrix-desktop
-        run: npm run tauri:build
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          TAURI_PRIVATE_KEY="${{ secrets.TAURI_PRIVATE_KEY }}" \
+          TAURI_KEY_PASSWORD="${{ secrets.TAURI_KEY_PASSWORD }}" \
+          npx tauri build --target x86_64-apple-darwin
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
@@ -222,7 +227,7 @@ jobs:
         with:
           name: x86_64-apple-darwin-build
           path: |
-            agentmatrix-desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
   # Job 4: Build Windows
