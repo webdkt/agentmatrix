@@ -128,7 +128,7 @@ jobs:
         with:
           name: aarch64-apple-darwin-build
           path: |
-            agentmatrix-desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            agentmatrix-desktop/src-tauri/target/release/bundle/dmg/*.dmg
           retention-days: 7
 
   # Job 3: Build macOS x64
@@ -222,7 +222,7 @@ jobs:
         with:
           name: x86_64-apple-darwin-build
           path: |
-            agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            agentmatrix-desktop/src-tauri/target/release/bundle/dmg/*.dmg
           retention-days: 7
 
   # Job 4: Build Windows
@@ -320,7 +320,7 @@ jobs:
         with:
           name: x86_64-pc-windows-msvc-build
           path: |
-            agentmatrix-desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            agentmatrix-desktop/src-tauri/target/release/bundle/msi/*.msi
           retention-days: 7
 
   # Job 5: Release (only on tag push)
