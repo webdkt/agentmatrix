@@ -128,8 +128,7 @@ jobs:
         with:
           name: aarch64-apple-darwin-build
           path: |
-            agentmatrix-desktop/src-tauri/target/release/bundle/
-            agentmatrix-desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/
+            agentmatrix-desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
   # Job 3: Build macOS x64
@@ -223,8 +222,7 @@ jobs:
         with:
           name: x86_64-apple-darwin-build
           path: |
-            agentmatrix-desktop/src-tauri/target/release/bundle/
-            agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/
+            agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
   # Job 4: Build Windows
@@ -278,7 +276,7 @@ jobs:
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman.msi \
-            "https://github.com/containers/podman/releases/latest/download/podman-v5.0.0-setup-x64.msi"
+            "https://github.com/containers/podman/releases/latest/download/podman-setup-x64.msi"
 
       # ==================== Copy Server to Tauri Sidecar ====================
       - name: Copy server to sidecar directory
@@ -322,8 +320,7 @@ jobs:
         with:
           name: x86_64-pc-windows-msvc-build
           path: |
-            agentmatrix-desktop/src-tauri/target/release/bundle/
-            agentmatrix-desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/
+            agentmatrix-desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
           retention-days: 7
 
   # Job 5: Release (only on tag push)
@@ -347,6 +344,5 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
-          clobber: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
