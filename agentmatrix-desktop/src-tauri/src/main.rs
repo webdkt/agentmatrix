@@ -36,7 +36,7 @@ fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name
         // Production: use bundled resources
         let resource_dir = app.path().resource_dir()
             .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-        resource_dir.join("matrix-template")
+        resource_dir.join("resources").join("matrix-template")
     };
 
     println!("Debug: src = {:?}", src);
