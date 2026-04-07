@@ -39,10 +39,10 @@ dependencies = [
     "trafilatura>=1.6.0",
     "DrissionPage>=4.0.0",
     "beautifulsoup4>=4.12.0",
-    "marker-pdf==1.8.0",
+    "marker-pdf>=1.8.0",
     "PyMuPDF>=1.23.0",
     "libtmux>=0.52.0",
-    "browser-use>=0.11.9,<1.0.0",
+
     "python-multipart",
     "imap-tools",
     "pydantic>=2.0.0",
