@@ -2,7 +2,6 @@ name: Build Desktop App
 
 on:
   push:
-    branches: [main, feature/*]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -58,6 +57,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
+          pip install -e .
 
       - name: Build Python backend with PyInstaller
         run: |
@@ -84,10 +84,21 @@ jobs:
       - name: Download Podman installer (macOS ARM64)
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          # Fetch latest release info from GitHub API
-          RELEASE_INFO=$(curl -s https://api.github.com/repos/containers/podman/releases/latest)
+          # Fetch latest release info from GitHub API (use GITHUB_TOKEN to avoid rate limits)
+          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
+          # Validate response
+          if [ -z "$RELEASE_INFO" ] || echo "$RELEASE_INFO" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
+            echo "ERROR: Failed to fetch Podman release info"
+            echo "$RELEASE_INFO" | head -5
+            exit 1
+          fi
           # Extract ARM64 package URL
           PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-arm64.pkg") | .browser_download_url')
+          if [ -z "$PACKAGE_URL" ] || [ "$PACKAGE_URL" = "null" ]; then
+            echo "ERROR: Could not find podman-installer-macos-arm64.pkg in latest release"
+            echo "$RELEASE_INFO" | jq '.assets[].name'
+            exit 1
+          fi
           echo "Downloading from: $PACKAGE_URL"
           # Download package
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg "$PACKAGE_URL"
@@ -160,6 +171,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
+          pip install -e .
 
       - name: Build Python backend with PyInstaller (x64)
         run: |
@@ -187,10 +199,21 @@ jobs:
       - name: Download Podman installer (macOS x64)
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          # Fetch latest release info from GitHub API
-          RELEASE_INFO=$(curl -s https://api.github.com/repos/containers/podman/releases/latest)
+          # Fetch latest release info from GitHub API (use GITHUB_TOKEN to avoid rate limits)
+          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
+          # Validate response
+          if [ -z "$RELEASE_INFO" ] || echo "$RELEASE_INFO" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
+            echo "ERROR: Failed to fetch Podman release info"
+            echo "$RELEASE_INFO" | head -5
+            exit 1
+          fi
           # Extract x64 package URL
           PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-amd64.pkg") | .browser_download_url')
+          if [ -z "$PACKAGE_URL" ] || [ "$PACKAGE_URL" = "null" ]; then
+            echo "ERROR: Could not find podman-installer-macos-amd64.pkg in latest release"
+            echo "$RELEASE_INFO" | jq '.assets[].name'
+            exit 1
+          fi
           echo "Downloading from: $PACKAGE_URL"
           # Download package
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg "$PACKAGE_URL"
@@ -262,6 +285,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
+          pip install -e .
 
       - name: Build Python backend with PyInstaller
         run: |
@@ -291,10 +315,21 @@ jobs:
         shell: bash
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          # Fetch latest release info from GitHub API
-          RELEASE_INFO=$(curl -s https://api.github.com/repos/containers/podman/releases/latest)
+          # Fetch latest release info from GitHub API (use GITHUB_TOKEN to avoid rate limits)
+          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
+          # Validate response
+          if [ -z "$RELEASE_INFO" ] || echo "$RELEASE_INFO" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
+            echo "ERROR: Failed to fetch Podman release info"
+            echo "$RELEASE_INFO" | head -5
+            exit 1
+          fi
           # Extract Windows package URL
           PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-windows-amd64.msi") | .browser_download_url')
+          if [ -z "$PACKAGE_URL" ] || [ "$PACKAGE_URL" = "null" ]; then
+            echo "ERROR: Could not find podman-installer-windows-amd64.msi in latest release"
+            echo "$RELEASE_INFO" | jq '.assets[].name'
+            exit 1
+          fi
           echo "Downloading from: $PACKAGE_URL"
           # Download package
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi "$PACKAGE_URL"
