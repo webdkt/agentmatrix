@@ -126,7 +126,7 @@ const handleAttachmentClick = async (attachment) => {
 <template>
   <div class="email-item">
     <!-- Email Card (Direct card, no avatar + card layout) -->
-    <div :class="['email-card', { 'email-card--user': email.is_from_user }]">
+    <div :class="['email-card', { 'email-card--user': email.is_from_user, 'email-card--placeholder': email._isPlaceholder }]">
       <!-- Header -->
       <div class="email-card__header">
         <div class="email-card__sender">
@@ -178,6 +178,7 @@ const handleAttachmentClick = async (attachment) => {
         <button
           @click="handleReply"
           class="email-card__action"
+          :disabled="email._isPlaceholder"
           :title="t('emails.reply')"
         >
           <MIcon name="arrow-back-up" />
@@ -193,6 +194,7 @@ const handleAttachmentClick = async (attachment) => {
         <button
           @click="handleDelete"
           class="email-card__action"
+          :disabled="email._isPlaceholder"
           :title="t('common.delete')"
         >
           <MIcon name="trash" />
@@ -240,6 +242,16 @@ const handleAttachmentClick = async (attachment) => {
 
 .email-card--user:hover {
   border-left-color: var(--success-500);
+}
+
+.email-card--placeholder {
+  opacity: 0.6;
+  animation: placeholderPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes placeholderPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.45; }
 }
 
 /* Header */

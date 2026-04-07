@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
+import { getPlaceholdersForSession, consumeResolvedEmail } from '@/composables/usePendingEmails'
 import EmailItem from './EmailItem.vue'
 import EmailReply from './EmailReply.vue'
 import AgentStatusCard from '../agent/AgentStatusCard.vue'
@@ -39,6 +40,11 @@ const hideInlineForm = ref(false)
 const submittedAnswer = ref(null)
 const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
+
+const hasPlaceholderLast = computed(() => {
+  if (emails.value.length === 0) return false
+  return !!emails.value[emails.value.length - 1]._isPlaceholder
+})
 
 // 判断是否需要底部对齐：内容是否超出容器
 const shouldAlignBottom = ref(false)
@@ -115,7 +121,11 @@ const loadEmails = async (sessionId) => {
 
   try {
     const result = await sessionAPI.getEmails(sessionId)
-    emails.value = result.emails || result.sessions || []
+    const serverEmails = result.emails || result.sessions || []
+
+    // When loading real emails from server, drop all placeholders
+    // (placeholder emails are shown via watch(currentSession) for placeholder sessions only)
+    emails.value = serverEmails
 
     // 标记会话为已读（后端已处理，前端同步更新本地状态）
     sessionStore.markSessionRead(sessionId)
@@ -143,6 +153,24 @@ watch(pendingQuestion, (newQuestion) => {
 
 watch(currentSession, async (newSession) => {
   if (newSession) {
+    if (newSession._isPlaceholder) {
+      // Placeholder session: load from pending map, don't call API
+      const placeholders = getPlaceholdersForSession(newSession.session_id)
+      emails.value = placeholders.length > 0 ? [...placeholders] : []
+      isLoading.value = false
+      return
+    }
+
+    // Check if there's a resolved email from a new email send (avoids API call)
+    const resolved = consumeResolvedEmail(newSession.session_id)
+    if (resolved) {
+      emails.value = [resolved]
+      isLoading.value = false
+      sessionStore.markSessionRead(newSession.session_id)
+      await nextTick()
+      return
+    }
+
     await loadEmails(newSession.session_id)
   } else {
     emails.value = []
@@ -166,6 +194,18 @@ const refreshEmails = async () => {
 const handleReplySent = async () => {
   // Deprecated: 这个方法保留用于向后兼容，但新的实现使用 handleReplySentWithEmail
   await refreshEmails()
+}
+
+const handleReplySendStarted = ({ placeholder }) => {
+  emails.value.push(placeholder)
+  nextTick(() => scrollToBottom())
+}
+
+const handleReplySendFailed = ({ placeholderId }) => {
+  const idx = emails.value.findIndex(e => e.id === placeholderId)
+  if (idx !== -1) {
+    emails.value.splice(idx, 1)
+  }
 }
 
 const handleReplySentWithEmail = (email) => {
@@ -206,13 +246,24 @@ const cancelInlineReply = () => {
   showInlineReply.value = false
 }
 
-const handleInlineReplySent = async (response) => {
-  // 如果响应中包含 email 对象，直接添加到列表
-  if (response && response.email) {
-    handleReplySentWithEmail(response.email)
-  } else {
-    // 降级到刷新整个列表（向后兼容）
-    await handleReplySent()
+const handleInlineReplySent = (payload) => {
+  // Support new { response, placeholderId } and old response format
+  const response = payload?.response || payload
+  const placeholderId = payload?.placeholderId
+  const email = response?.email
+
+  if (email) {
+    if (placeholderId) {
+      const idx = emails.value.findIndex(e => e.id === placeholderId)
+      if (idx !== -1) {
+        emails.value.splice(idx, 1, email)
+        inlineReplyEmail.value = null
+        showInlineReply.value = false
+        return
+      }
+    }
+    // Fallback: append (no placeholder found, or old code path)
+    handleReplySentWithEmail(email)
   }
   inlineReplyEmail.value = null
   showInlineReply.value = false
@@ -405,7 +456,10 @@ const handleAgentQuestionSubmit = async () => {
         :emails="emails"
         :inline-email="inlineReplyEmail"
         :show-inline="showInlineReply"
+        :is-locked="hasPlaceholderLast"
+        @send-started="handleReplySendStarted"
         @sent="handleInlineReplySent"
+        @send-failed="handleReplySendFailed"
         @cancel-inline="cancelInlineReply"
       />
     </div>

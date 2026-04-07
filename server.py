@@ -967,6 +967,7 @@ async def send_email(
         "in_reply_to": new_email.in_reply_to,
         "task_id": new_email.task_id,
         "recipient_session_id": new_email.recipient_session_id,
+        "sender_session_id": new_email.sender_session_id,
         "is_from_user": True,  # User sent this email
         "attachments": new_email.attachments or [],
     }

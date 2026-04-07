@@ -381,9 +381,8 @@ export const useSessionStore = defineStore('session', {
         this.sessions.splice(index, 1, updated)
         console.log('🔄 Session updated from event:', session_id, { is_unread: updated.is_unread })
       } else {
-        // session 不存在，刷新全量列表
-        console.log('🔄 Session not found, refreshing list:', session_id)
-        this.loadSessions()
+        // session 不存在 → 跳过。新邮件场景中 handleEmailSent 已增量插入了真实 session。
+        console.log('⏭️ Session not found, skipping:', session_id)
       }
     },
   },

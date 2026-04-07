@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
+import { addPendingEmail, removePendingEmail, setResolvedEmailForSession } from '@/composables/usePendingEmails'
 import SessionItem from './SessionItem.vue'
 import NewEmailModal from '@/components/dialog/NewEmailModal.vue'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -52,42 +53,68 @@ const openNewEmailModal = () => {
   showNewEmailModal.value = true
 }
 
-// 邮件发送成功后重新加载会话列表
-const handleEmailSent = async (result) => {
+// New email 开始发送：创建 placeholder session
+const handleNewEmailStarted = (emailData) => {
+  const placeholderId = `placeholder-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+  const placeholderSession = {
+    session_id: placeholderId,
+    name: emailData.recipient,
+    participants: [emailData.recipient],
+    subject: emailData.body.substring(0, 50),
+    timestamp: new Date().toISOString(),
+    last_email_time: new Date().toISOString(),
+    is_unread: false,
+    _isPlaceholder: true,
+  }
+
+  const placeholderEmail = addPendingEmail(placeholderId, emailData)
+  placeholderSession._placeholderEmailId = placeholderEmail.id
+
+  sessionStore.sessions.unshift(placeholderSession)
+  sessionStore.selectSession(placeholderSession)
+  showNewEmailModal.value = false
+}
+
+// New email 发送成功：增量替换 placeholder
+const handleEmailSent = (result) => {
   console.log('Email sent result:', result)
 
-  // 重新加载会话列表
-  await sessionStore.loadSessions()
-
-  // 尝试自动选择新会话
-  // 策略1: 如果返回了 session_id，直接选择
-  if (result && result.session_id) {
-    const newSession = sessions.value.find(s => s.session_id === result.session_id)
-    if (newSession) {
-      console.log('Auto-selecting session by ID:', newSession)
-      await sessionStore.selectSession(newSession)
-      return
-    }
+  // 1. 移除 placeholder session
+  const placeholderIndex = sessionStore.sessions.findIndex(s => s._isPlaceholder)
+  if (placeholderIndex !== -1) {
+    sessionStore.sessions.splice(placeholderIndex, 1)
   }
 
-  // 策略2: 如果返回了 agent name，选择第一个匹配的会话
-  if (result && result.recipient) {
-    const matchedSession = sessions.value.find(s => {
-      const participants = s.participants || []
-      return participants.includes(result.recipient)
-    })
-    if (matchedSession) {
-      console.log('Auto-selecting session by recipient:', matchedSession)
-      await sessionStore.selectSession(matchedSession)
-      return
-    }
+  // 2. 用 result 数据构造真实 session，增量插入
+  const realSessionId = result.email.sender_session_id || result.email.task_id || result.task_id
+  const realSession = {
+    session_id: realSessionId,
+    name: result.email.recipient,
+    participants: [result.email.recipient],
+    subject: result.email.subject || result.email.body.substring(0, 50),
+    timestamp: result.email.timestamp,
+    last_email_time: result.email.timestamp,
+    is_unread: false,
   }
 
-  // 策略3: 选择最新创建的会话（列表第一个）
-  if (sessions.value.length > 0) {
-    const latestSession = sessions.value[0]
-    console.log('Auto-selecting latest session:', latestSession)
-    await sessionStore.selectSession(latestSession)
+  // Store the resolved email so EmailList can use it without an API call
+  setResolvedEmailForSession(realSessionId, result.email)
+
+  sessionStore.sessions.unshift(realSession)
+  sessionStore.selectSession(realSession)
+}
+
+// New email 发送失败：移除 placeholder
+const handleNewEmailFailed = ({ emailData, error }) => {
+  console.error('New email failed:', error)
+  const idx = sessionStore.sessions.findIndex(s => s._isPlaceholder)
+  if (idx !== -1) {
+    const session = sessionStore.sessions[idx]
+    if (session._placeholderEmailId) {
+      removePendingEmail(session._placeholderEmailId)
+    }
+    sessionStore.sessions.splice(idx, 1)
   }
 }
 </script>
@@ -155,7 +182,9 @@ const handleEmailSent = async (result) => {
     <NewEmailModal
       :show="showNewEmailModal"
       @close="showNewEmailModal = false"
+      @send-started="handleNewEmailStarted"
       @sent="handleEmailSent"
+      @send-failed="handleNewEmailFailed"
     />
   </aside>
 </template>

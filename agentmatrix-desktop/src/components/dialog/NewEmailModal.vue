@@ -17,7 +17,7 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
-const emit = defineEmits(['close', 'sent'])
+const emit = defineEmits(['close', 'sent', 'send-started', 'send-failed'])
 
 // 状态
 const agents = ref([])
@@ -158,27 +158,26 @@ const sendEmail = async () => {
   if (!canSend.value) return
 
   isSending.value = true
+  const emailData = {
+    recipient: selectedAgent.value.name,
+    subject: '',
+    body: messageBody.value,
+    _localAttachments: attachments.value ? [...attachments.value] : [],
+  }
+
+  // Emit immediately so SessionList can create placeholder
+  emit('send-started', emailData)
+  emit('close')
+
   try {
-    const emailData = {
-      recipient: selectedAgent.value.name,
-      subject: '',
-      body: messageBody.value
-    }
-
-    emailData.in_reply_to = undefined
-    emailData.task_id = undefined
-
-    console.log('📤 Sending new email with data:', emailData)
-
     const result = await sessionAPI.sendEmail('new', emailData, attachments.value)
 
     console.log('✅ Email sent successfully:', result)
 
     emit('sent', result)
-    emit('close')
   } catch (error) {
     console.error('❌ Failed to send email:', error)
-    alert('Failed to send email: ' + error.message)
+    emit('send-failed', { emailData, error: error.message })
   } finally {
     isSending.value = false
   }
