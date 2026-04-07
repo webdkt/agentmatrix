@@ -2085,7 +2085,7 @@ write, send_mail, write
             if total_same_actions > 1:
                 task_context = f"""
 (第 {occurrence} 个: {action_name} Action
-**注意：用户一共提到 {total_same_actions} 次去做 '{action_name}'，这是其中的第 {occurrence} 次{action_name} 。**
+**注意：用户一共提到 {total_same_actions} 次 '{action_name}'，这是其中的第 {occurrence} 次{action_name} 。**
 
 """
                 if action_index > 0:
