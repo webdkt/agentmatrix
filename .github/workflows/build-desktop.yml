@@ -293,7 +293,7 @@ jobs:
           # Fetch latest release info from GitHub API
           RELEASE_INFO=$(curl -s https://api.github.com/repos/containers/podman/releases/latest)
           # Extract Windows package URL
-          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-setup-x64.msi") | .browser_download_url')
+          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-windows-amd64.msi") | .browser_download_url')
           echo "Downloading from: $PACKAGE_URL"
           # Download package
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi "$PACKAGE_URL"
