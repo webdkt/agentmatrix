@@ -49,7 +49,12 @@
     ],
     "externalBin": [
       "binaries/server"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "entitlements": null,
+      "hardenedRuntime": false
+    }
   },
   "plugins": {
     "shell": {
