@@ -3,9 +3,6 @@ Skill Registry - 统一的技能注册中心
 
 只支持 Python Method Skills（提供 Python 实现的 Mixin 类）。
 
-MD Document Skills 现在通过 base.list_additional_skills() 动态发现，
-不再通过 SkillRegistry 加载。
-
 Lazy Load 机制：
 - 根据 skill_name 自动发现并加载技能
 - Python Mixin: 查找 {name}_skill.py 中的 {Name}SkillMixin
