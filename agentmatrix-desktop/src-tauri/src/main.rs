@@ -640,14 +640,23 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
 
     #[cfg(target_os = "macos")]
     {
-        let dmg_path = resource_dir.join("resources").join("podman").join("Podman.dmg");
-        if !dmg_path.exists() {
-            return Err(format!("Podman installer not found in bundle. Looking for: {:?}", dmg_path));
+        // Determine the correct package based on architecture
+        let pkg_name = if cfg!(target_arch = "aarch64") {
+            "podman-installer-arm64.pkg"
+        } else if cfg!(target_arch = "x86_64") {
+            "podman-installer-x64.pkg"
+        } else {
+            return Err(format!("Unsupported macOS architecture: {}", std::env::consts::ARCH));
+        };
+
+        let pkg_path = resource_dir.join("resources").join("podman").join(pkg_name);
+        if !pkg_path.exists() {
+            return Err(format!("Podman installer not found in bundle. Looking for: {:?}", pkg_path));
         }
-        println!("Opening Podman installer: {:?}", dmg_path);
-        // Open the DMG file
+        println!("Opening Podman installer: {:?}", pkg_path);
+        // Open the PKG file - macOS will launch the installer GUI
         StdCommand::new("open")
-            .arg(&dmg_path)
+            .arg(&pkg_path)
             .spawn()
             .map_err(|e| format!("Failed to open installer: {}", e))?;
         Ok("Opened Podman installer. Please follow the installation instructions.".to_string())
@@ -655,7 +664,7 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let msi_path = resource_dir.join("resources").join("podman").join("podman.msi");
+        let msi_path = resource_dir.join("resources").join("podman").join("podman-x64.msi");
         if !msi_path.exists() {
             return Err(format!("Podman installer not found in bundle. Looking for: {:?}", msi_path));
         }

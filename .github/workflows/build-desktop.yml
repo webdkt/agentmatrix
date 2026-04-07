@@ -81,11 +81,18 @@ jobs:
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
       # ==================== Download Podman Installer ====================
-      - name: Download Podman installer (macOS)
+      - name: Download Podman installer (macOS ARM64)
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/Podman.dmg \
-            "https://github.com/containers/podman-desktop/releases/latest/download/podman-desktop-latest-mac.dmg"
+          # Fetch latest release info from GitHub API
+          RELEASE_INFO=$(curl -s https://api.github.com/repos/containers/podman/releases/latest)
+          # Extract ARM64 package URL
+          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-arm64.pkg") | .browser_download_url')
+          echo "Downloading from: $PACKAGE_URL"
+          # Download package
+          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg "$PACKAGE_URL"
+          # Verify file was downloaded
+          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg
 
       # ==================== Copy Server to Tauri Sidecar ====================
       - name: Copy server to sidecar directory
@@ -176,11 +183,18 @@ jobs:
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
       # ==================== Download Podman Installer ====================
-      - name: Download Podman installer (macOS)
+      - name: Download Podman installer (macOS x64)
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/Podman.dmg \
-            "https://github.com/containers/podman-desktop/releases/latest/download/podman-desktop-latest-mac.dmg"
+          # Fetch latest release info from GitHub API
+          RELEASE_INFO=$(curl -s https://api.github.com/repos/containers/podman/releases/latest)
+          # Extract x64 package URL
+          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-amd64.pkg") | .browser_download_url')
+          echo "Downloading from: $PACKAGE_URL"
+          # Download package
+          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg "$PACKAGE_URL"
+          # Verify file was downloaded
+          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg
 
       # ==================== Copy Server to Tauri Sidecar ====================
       - name: Copy server to sidecar directory
@@ -276,8 +290,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman.msi \
-            "https://github.com/containers/podman/releases/latest/download/podman-setup-x64.msi"
+          # Fetch latest release info from GitHub API
+          RELEASE_INFO=$(curl -s https://api.github.com/repos/containers/podman/releases/latest)
+          # Extract Windows package URL
+          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-setup-x64.msi") | .browser_download_url')
+          echo "Downloading from: $PACKAGE_URL"
+          # Download package
+          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi "$PACKAGE_URL"
+          # Verify file was downloaded
+          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi
 
       # ==================== Copy Server to Tauri Sidecar ====================
       - name: Copy server to sidecar directory
