@@ -1125,8 +1125,7 @@ class ConfigService:
         try:
             from ..skills.registry import SKILL_REGISTRY
 
-            registered = SKILL_REGISTRY.list_registered_skills()
-            return registered.get("python", []) + registered.get("md", [])
+            return SKILL_REGISTRY.list_registered_skills()
         except Exception:
             return []
 

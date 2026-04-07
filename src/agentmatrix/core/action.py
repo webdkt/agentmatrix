@@ -7,7 +7,6 @@ import json
 class SkillType(Enum):
     """Skill 类型"""
     PYTHON_METHOD = "python_method"  # Python 可执行方法
-    MD_DOCUMENT = "md_document"      # skills.md 定义的文档技能（TODO）
 
 
 @dataclass

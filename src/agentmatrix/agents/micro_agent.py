@@ -210,7 +210,7 @@ class MicroAgent(AutoLoggerMixin):
         dynamic_class = type(
             f"DynamicAgent_{self.name}",  # 类名
             (self.__class__,) + tuple(mixin_classes),  # 继承链
-            {},  # 额外的类属性（MD skills 已移除，现在通过 list_additional_skills 动态发现）
+            {},  # 额外的类属性
         )
 
         return dynamic_class
@@ -1297,15 +1297,9 @@ Start generating the Working Notes now.
         actions_list = self._format_actions_list()
         user_name = self.root_agent.runtime.user_agent_name
 
-        md_skill_count = self._get_md_skill_count()
         md_skill_section = ""
-        if md_skill_count > 0 and self._is_top_level_microagent():
-            md_skill_section = f"""#### B. 扩展技能库 (Procedural Skills)
-你有{md_skill_count}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 SKILL.md 描述文件。
-如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）
-如果名字看上去可能是你需要的，就继续读里面的SKILL.md 的开头，判断是否真的是你需要的技能
-如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行
-"""
+        if self._is_top_level_microagent():
+            md_skill_section = self._build_md_skill_section()
 
         yellow_pages_section = ""
         if self.yellow_pages:
@@ -1372,41 +1366,104 @@ Start generating the Working Notes now.
 
         return "\n".join(lines)
 
-    def _get_md_skill_count(self) -> int:
+    def _build_md_skill_section(self) -> str:
         """
-        获取 root_agent 的 MD skill 数量
+        扫描 root_agent 的 SKILLS 目录，构建 md skill 注入文本
 
-        扫描 root_agent 的 skill 目录，统计有多少个直接子目录
-        且这些子目录下直接有 SKILL.md 文件（不区分大小写）
+        约定：SKILLS 目录下每个子目录是一个 skill，目录名即 skill 名。
+        子目录内需包含 skill.md 文件（不区分大小写）。
+        从 skill.md 的 frontmatter 中提取 description 作为简介。
 
         Returns:
-            int: skill 数量，没有则返回 0
+            str: 格式化后的文本段，无 skill 时返回空字符串
         """
         try:
-            # 获取 root_agent 的 skill 目录
             skills_dir = self.root_agent.runtime.paths.get_agent_skills_dir(
                 self.root_agent.name
             )
 
-            # 如果目录不存在，返回 0
             if not skills_dir.exists():
-                return 0
+                return ""
 
-            # 扫描直接子目录
-            count = 0
+            # 扫描直接子目录，收集 (skill_name, description) 列表
+            skills = []
             for item in skills_dir.iterdir():
-                # 只处理目录
-                if item.is_dir():
-                    # 检查目录下是否有 SKILL.md 文件（不区分大小写）
-                    for file in item.iterdir():
-                        if file.is_file() and file.name.upper() == "SKILL.MD":
-                            count += 1
-                            break
+                if not item.is_dir():
+                    continue
 
-            return count
+                # 查找 skill.md（不区分大小写）
+                skill_md_path = None
+                for file in item.iterdir():
+                    if file.is_file() and file.name.upper() == "SKILL.MD":
+                        skill_md_path = file
+                        break
+
+                if skill_md_path is None:
+                    continue
+
+                # 读取 frontmatter 中的 description
+                description = self._read_skill_description(skill_md_path)
+                skills.append((item.name, description))
+
+            if not skills:
+                return ""
+
+            # 构建注入文本
+            lines = [
+                f"#### B. 扩展技能库 (Procedural Skills)",
+                f"你有{len(skills)}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。",
+                f"如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）",
+                f"如果名字看上去可能是你需要的，就继续读里面的 skill.md 的开头，判断是否真的是你需要的技能",
+                f"如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行",
+                "",
+                "可用扩展技能：",
+            ]
+            for skill_name, description in skills:
+                lines.append(f"- **{skill_name}**: {description}")
+
+            return "\n".join(lines)
+
         except Exception as e:
-            self.logger.warning(f"Failed to get MD skill count: {e}")
-            return 0
+            self.logger.warning(f"Failed to build md skill section: {e}")
+            return ""
+
+    @staticmethod
+    def _read_skill_description(skill_md_path) -> str:
+        """
+        从 skill.md 的 frontmatter 中提取 description
+
+        容错：无 frontmatter 或无 description 字段时返回提示文本
+        """
+        try:
+            with open(skill_md_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # 查找 frontmatter（--- 包裹）
+            parts = content.split("---", 2)
+            if len(parts) < 3:
+                return "（请打开 skill 文件查看详细介绍）"
+
+            frontmatter_text = parts[1]
+
+            # 在 frontmatter 中查找 description 行
+            for line in frontmatter_text.split("\n"):
+                stripped = line.strip()
+                if stripped.lower().startswith("description:"):
+                    desc = stripped[len("description:"):].strip()
+                    # 去除引号
+                    if (desc.startswith('"') and desc.endswith('"')) or \
+                       (desc.startswith("'") and desc.endswith("'")):
+                        desc = desc[1:-1]
+                    if desc:
+                        # 限制长度
+                        if len(desc) > 120:
+                            desc = desc[:117] + "..."
+                        return desc
+
+            return "（请打开 skill 文件查看详细介绍）"
+
+        except Exception:
+            return "（请打开 skill 文件查看详细介绍）"
 
     def _get_skill_description(self, skill_name: str) -> str:
         """
