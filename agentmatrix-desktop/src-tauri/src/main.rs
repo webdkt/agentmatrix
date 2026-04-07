@@ -597,32 +597,65 @@ struct RuntimeInfo {
     install_guide: Option<String>,
 }
 
+/// Find an executable by trying direct lookup first, then common install paths,
+/// and finally a login shell which inherits the user's full PATH.
+fn find_executable(name: &str) -> Option<String> {
+    // 1. Direct lookup (works if the binary is already in the process PATH)
+    if let Ok(output) = StdCommand::new(name).arg("--version").output() {
+        if output.status.success() {
+            return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+        }
+    }
+
+    // 2. Try common install locations (macOS GUI apps don't inherit shell PATH)
+    #[cfg(target_os = "macos")]
+    {
+        let paths = [
+            format!("/opt/homebrew/bin/{}", name),
+            format!("/usr/local/bin/{}", name),
+            format!("/opt/podman/bin/{}", name),
+        ];
+        for p in &paths {
+            if let Ok(output) = StdCommand::new(p).arg("--version").output() {
+                if output.status.success() {
+                    return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+                }
+            }
+        }
+        // 3. Last resort: query the user's login shell for the full PATH
+        if let Ok(output) = StdCommand::new("zsh")
+            .args(["-l", "-c", &format!("{} --version", name)])
+            .output()
+        {
+            if output.status.success() {
+                return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+            }
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 async fn check_container_runtime() -> Result<RuntimeInfo, String> {
     // Check Podman first (preferred)
-    if let Ok(output) = StdCommand::new("podman").arg("--version").output() {
-        if output.status.success() {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            println!("✅ Found Podman: {}", version);
-            return Ok(RuntimeInfo {
-                runtime: "podman".to_string(),
-                version: Some(version),
-                install_guide: None,
-            });
-        }
+    if let Some(version) = find_executable("podman") {
+        println!("✅ Found Podman: {}", version);
+        return Ok(RuntimeInfo {
+            runtime: "podman".to_string(),
+            version: Some(version),
+            install_guide: None,
+        });
     }
-    
+
     // Check Docker as fallback
-    if let Ok(output) = StdCommand::new("docker").arg("--version").output() {
-        if output.status.success() {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            println!("✅ Found Docker: {}", version);
-            return Ok(RuntimeInfo {
-                runtime: "docker".to_string(),
-                version: Some(version),
-                install_guide: None,
-            });
-        }
+    if let Some(version) = find_executable("docker") {
+        println!("✅ Found Docker: {}", version);
+        return Ok(RuntimeInfo {
+            runtime: "docker".to_string(),
+            version: Some(version),
+            install_guide: None,
+        });
     }
     
     println!("⚠️ No container runtime found");

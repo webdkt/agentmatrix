@@ -126,6 +126,7 @@ jobs:
         working-directory: agentmatrix-desktop
         run: npm run tauri:build
         env:
+          CI: true
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
