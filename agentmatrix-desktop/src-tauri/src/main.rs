@@ -462,10 +462,21 @@ async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn open_attachment_path(path: String) -> Result<(), String> {
+    // 展开 ~ 为用户主目录
+    let expanded_path = if path.starts_with("~/") {
+        if let Some(home_dir) = dirs::home_dir() {
+            path.replacen("~", &home_dir.to_string_lossy(), 1)
+        } else {
+            return Err("Failed to determine home directory".to_string());
+        }
+    } else {
+        path
+    };
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -473,7 +484,7 @@ async fn open_attachment_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
-            .args(["/c", "start", "", &path])
+            .args(["/c", "start", "", &expanded_path])
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -481,12 +492,12 @@ async fn open_attachment_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
 
-    println!("✅ Opened: {}", path);
+    println!("✅ Opened: {}", expanded_path);
     Ok(())
 }
 

@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { sessionAPI } from '@/api/session'
+import { addPendingEmail, removePendingEmail } from '@/composables/usePendingEmails'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -20,11 +21,15 @@ const props = defineProps({
   showInline: {
     type: Boolean,
     default: false
+  },
+  isLocked: {
+    type: Boolean,
+    default: false
   }
 })
 
 const { t } = useI18n()
-const emit = defineEmits(['sent', 'cancelInline'])
+const emit = defineEmits(['sent', 'cancelInline', 'send-started', 'send-failed'])
 
 // 状态
 const replyBody = ref('')
@@ -32,7 +37,7 @@ const isSending = ref(false)
 
 // 计算属性
 const canSend = computed(() => {
-  return replyBody.value.trim() && props.currentSession && !isSending.value
+  return replyBody.value.trim() && props.currentSession && !isSending.value && !props.isLocked
 })
 
 const lastEmail = computed(() => {
@@ -62,8 +67,10 @@ const sendReply = async () => {
   if (!canSend.value) return
 
   isSending.value = true
+  let emailData
+  let placeholder = null
+
   try {
-    let emailData
     let targetEmail = props.showInline ? props.inlineEmail : lastEmail.value
 
     if (!targetEmail) {
@@ -90,6 +97,13 @@ const sendReply = async () => {
       }
     }
 
+    // 创建 placeholder，立即通知父组件
+    placeholder = addPendingEmail(props.currentSession.session_id, emailData)
+    emit('send-started', { placeholder, emailData })
+
+    // 清空输入
+    replyBody.value = ''
+
     const response = await sessionAPI.sendEmail(
       props.currentSession.session_id,
       emailData
@@ -97,11 +111,14 @@ const sendReply = async () => {
 
     console.log('Reply sent:', response)
 
-    // 清空输入
-    replyBody.value = ''
-    emit('sent', response)
+    removePendingEmail(placeholder.id)
+    emit('sent', { response, placeholderId: placeholder.id })
   } catch (error) {
     console.error('Failed to send reply:', error)
+    if (placeholder) {
+      removePendingEmail(placeholder.id)
+      emit('send-failed', { placeholderId: placeholder.id, error: error.message })
+    }
     alert(`${t('emails.sendError')}: ${error.message}`)
   } finally {
     isSending.value = false
@@ -165,6 +182,7 @@ const adjustHeight = (event) => {
         @keydown="handleKeyDown"
         @input="adjustHeight"
         :placeholder="placeholder"
+        :disabled="isLocked"
         rows="1"
         class="email-reply__textarea"
       ></textarea>
@@ -183,7 +201,8 @@ const adjustHeight = (event) => {
 
     <!-- Hint -->
     <div v-if="!showInline" class="email-reply__hint">
-      <span class="email-reply__hint-text">Ctrl+Enter {{ t('emails.send') }}</span>
+      <span v-if="isLocked" class="email-reply__hint-text">Sending...</span>
+      <span v-else class="email-reply__hint-text">Ctrl+Enter {{ t('emails.send') }}</span>
     </div>
   </div>
 </template>
