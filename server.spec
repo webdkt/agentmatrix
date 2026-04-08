@@ -67,6 +67,12 @@ a = Analysis(
         'pydantic',
         'pydantic.fields',
 
+        # Podman
+        'podman',
+        'podman.client',
+        'podman.errors',
+        'podman.compat',
+
         # tmux
         'libtmux',
 

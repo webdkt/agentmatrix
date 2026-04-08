@@ -70,6 +70,7 @@ class ContainerSession:
                 runtime_cmd,
                 "exec",
                 "-i",
+                "-t",
                 self.container_name,
                 "su",
                 "-",
