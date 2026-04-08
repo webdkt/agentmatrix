@@ -26,6 +26,9 @@ a = Analysis(
         # Include the entire agentmatrix package
         ('src/agentmatrix', 'agentmatrix'),
     ],
+    # PyInstaller will automatically collect all agentmatrix submodules
+    # including skills, via the --collect-all agentmatrix option
+    # No need to manually list them here
     hiddenimports=[
         # FastAPI and related
         'fastapi',
@@ -42,17 +45,7 @@ a = Analysis(
         'aiohttp.client',
         'requests',
         'requests.exceptions',
-
-        # AgentMatrix core (PyInstaller usually finds these automatically)
-        'agentmatrix',
-
-        # Skills are loaded dynamically via importlib.import_module
-        'agentmatrix.skills.base',
-        'agentmatrix.skills.email',
-        'agentmatrix.skills.file',
-        'agentmatrix.skills.agent_admin',
-        'agentmatrix.skills.system_admin',
-        'agentmatrix.skills.deep_researcher',
+    ],
 
         # Browser dependencies
         'DrissionPage',
