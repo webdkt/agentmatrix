@@ -13,7 +13,6 @@ import logging
 import os
 import platform
 import re
-import subprocess
 from pathlib import Path
 from typing import Tuple, Dict, Optional, Any
 
@@ -513,35 +512,25 @@ class SingleContainerManager(AutoLoggerMixin):
         """
         以 root 身份在容器内执行命令。
 
+        通过容器 SDK（Docker/Podman Python SDK）执行，而不是 subprocess CLI，
+        避免在 macOS .app 环境下找不到 docker/podman CLI 的问题。
+
         Args:
             command: 要执行的命令
 
         Returns:
             Tuple[int, str]: (退出码, 输出)
         """
-        runtime_cmd = "podman" if self.runtime_type == "podman" else "docker"
-        cmd_list = [
-            runtime_cmd,
-            "exec",
-            "-u",
-            "0",
-            self.SHARED_CONTAINER_NAME,
-            "sh",
-            "-c",
-            command,
-        ]
-
         try:
-            result = subprocess.run(
-                cmd_list,
-                capture_output=True,
-                text=True,
-                timeout=30,
+            if self.container is None:
+                return -1, "容器未初始化"
+
+            exit_code, output = self.container.exec_run(
+                ["sh", "-c", command],
+                user="0",
             )
-            output = result.stdout + result.stderr
-            return result.returncode, output.strip()
-        except subprocess.TimeoutExpired:
-            return -1, "命令超时"
+            output_str = output.decode("utf-8", errors="replace") if isinstance(output, bytes) else str(output)
+            return exit_code, output_str.strip()
         except Exception as e:
             return -1, str(e)
 
