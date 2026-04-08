@@ -102,28 +102,19 @@ build-windows:
 
 ### AgentMatrix Desktop 构建需求
 
-1. **Docker Image（多架构支持）**
-   - **使用 Docker Buildx** 构建多架构镜像
-   - **QEMU 模拟器** 支持跨架构编译
-   - **构建架构**：`linux/amd64` 和 `linux/arm64`
+1. **Docker Image（x86_64 通用）**
+   - **架构决策**：使用 `linux/amd64`（x86_64）单一架构
+   - **兼容性**：
+     - macOS ARM64：通过 Rosetta 2 运行 x86_64 容器（性能损失 ~20%）
+     - macOS x86_64：原生运行
+     - Windows (WSL2)：原生运行 x86_64 容器
+   - **为什么不用多架构 Docker**：
+     - ⚠️ QEMU 模拟构建很慢（10-30分钟 vs 2-5分钟）
+     - ⚠️ GitHub Actions macOS runners 有限（macos-26-large 需要付费）
+     - ✅ x86_64 镜像在所有平台都能运行（通过 Rosetta/WSL2）
+     - ✅ 构建时间更短，成本更低
    - **文件结构**：
-     - macOS ARM64：`resources/docker/image.tar.gz` (linux/arm64)
-     - macOS x86_64：`resources/docker/image.tar.gz` (linux/amd64)
-     - Windows：`resources/docker/image.tar.gz` (linux/amd64)
-   - **技术实现**：
-     ```yaml
-     - name: Set up QEMU
-       uses: docker/setup-qemu-action@v3
-
-     - name: Set up Docker Buildx
-       uses: docker/setup-buildx-action@v3
-
-     - name: Build multi-architecture Docker image
-       run: |
-         docker buildx create --use --name multiarch-builder
-         docker buildx build --platform linux/amd64 --output type=docker,dest=artifacts/docker-image-amd64.tar .
-         docker buildx build --platform linux/arm64 --output type=docker,dest=artifacts/docker-image-arm64.tar .
-     ```
+     - 所有平台：`resources/docker/image.tar.gz` (linux/amd64)
 
 2. **Podman 安装包**
    - macOS ARM64：`resources/podman/podman-installer-arm64.pkg`
@@ -142,73 +133,42 @@ build-windows:
 
 ## 🔍 故障排除
 
-### Docker 多架构镜像
+### GitHub Actions macOS Runners (2026)
 
-#### 什么是 Docker Buildx？
+#### 当前可用状态
 
-Docker Buildx 是 Docker 的增强版构建工具，支持：
-- **多架构构建**：同时为多个 CPU 架构构建镜像
-- **QEMU 模拟**：在 x86_64 主机上构建 ARM64 镜像
-- **Manifest 列表**：将多个架构的镜像合并为一个引用
+| Runner | 架构 | 状态 | 说明 |
+|--------|------|------|------|
+| `macos-26` | ARM64 | ✅ 可用 | macOS 26 (Tahoe)，Apple Silicon 原生 |
+| `macos-26-large` | x86_64 | ✅ 可用 | macOS 26 (Tahoe)，Intel（大内存） |
+| `macos-latest` | ARM64 | ✅ 可用 | 指向最新稳定版（当前是 macos-26） |
+| `macos-14` | ARM64 | ⚠️ 废弃中 | 2026年7月6日开始废弃 |
+| `macos-13` | x86_64 | ❌ 已废弃 | 2025年12月4日退役 |
 
-#### 工作原理
+#### 重要决策
 
-```bash
-# 1. 启用 QEMU 模拟器（支持跨架构执行）
-docker run --privileged --rm tonistiigi/binfmt --install all
+**为什么使用单一 x86_64 Docker 镜像？**
 
-# 2. 创建多架构构建器
-docker buildx create --use --name multiarch-builder
+1. **性能考虑**
+   - macOS ARM64 通过 Rosetta 2 运行 x86_64 容器，性能损失约 20%
+   - QEMU 模拟构建 ARM64 镜像需要 10-30 分钟
+   - 原生 x86_64 构建只需 2-5 分钟
 
-# 3. 构建多架构镜像
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  --tag agentmatrix:latest \
-  --push \
-  .
+2. **成本考虑**
+   - `macos-26-large`（Intel）需要付费（larger runners）
+   - QEMU 模拟消耗更多计算资源
+   - 单一镜像减少构建时间和存储成本
 
-# 4. 用户拉取时自动选择对应架构
-docker pull agentmatrix:latest  # ARM64 机器自动拉取 arm64 镜像
-```
-
-#### 在 GitHub Actions 中的实现
-
-```yaml
-- name: Set up QEMU
-  uses: docker/setup-qemu-action@v3
-
-- name: Set up Docker Buildx
-  uses: docker/setup-buildx-action@v3
-
-- name: Build and export multi-arch images
-  run: |
-    # 构建并导出 linux/amd64
-    docker buildx build \
-      --platform linux/amd64 \
-      --output type=docker,dest=artifacts/docker-image-amd64.tar \
-      --tag agentmatrix:amd64 \
-      .
-
-    # 构建并导出 linux/arm64
-    docker buildx build \
-      --platform linux/arm64 \
-      --output type=docker,dest=artifacts/docker-image-arm64.tar \
-      --tag agentmatrix:arm64 \
-      .
-```
-
-#### 为什么不用 Manifest？
-
-由于我们需要将 Docker 镜像**打包到桌面应用中**，而不是推送到 registry，因此：
-- ❌ 不能使用 `--push` 推送 manifest
-- ✅ 必须分别导出各架构的 tar 文件
-- ✅ 在构建时根据目标平台选择对应的镜像
+3. **兼容性**
+   - x86_64 Docker 镜像在所有平台都能运行
+   - Windows (WSL2) 原生支持 x86_64
+   - macOS 通过 Rosetta 2 或 Intel 原生支持
 
 #### 参考资源
 
-- [Docker Multi-Platform Builds](https://docs.docker.com/build/building/multi-platform/)
-- [Multi-platform image with GitHub Actions](https://docs.docker.com/build/ci/github-actions/multi-platform/)
-- [How to Build Multi-Architecture Docker Images](https://oneuptime.com/blog/post/2026-01-06-docker-multi-architecture-images/view)
+- [GitHub Hosted Runners Reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+- [macOS-26 General Availability](https://github.blog/changelog/2026-02-26-macos-26-general-availability/)
+- [ARM64 Standard Runners](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/)
 
 ### 问题：`resource path 'binaries/server-xxx-xxx' doesn't exist`
 

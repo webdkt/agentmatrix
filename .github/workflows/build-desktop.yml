@@ -10,7 +10,7 @@ env:
   PYTHON_VERSION: '3.12'
 
 jobs:
-  # Job 1: Build multi-architecture Docker image
+  # Job 1: Build Docker image (x86_64 only for maximum compatibility)
   build-docker:
     runs-on: ubuntu-latest
 
@@ -18,57 +18,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build multi-architecture Docker image
+      - name: Build Docker image
         run: |
-          # Create builder instance with multi-arch support
-          docker buildx create --use --name multiarch-builder
+          docker build -t agentmatrix:latest .
 
-          # Build for both amd64 and arm64, but don't push (we'll export locally)
-          # Using --platform to specify multiple architectures
-          # Using --load to load the result (but this only works for single platform)
-          # Instead, we'll build each separately and export both
+      - name: Export Docker image
+        run: |
+          mkdir -p artifacts
+          docker save agentmatrix:latest | gzip > artifacts/docker-image.tar.gz
+          ls -lh artifacts/docker-image.tar.gz
 
-          # Build and export linux/amd64
-          docker buildx build \
-            --platform linux/amd64 \
-            --output type=docker,dest=artifacts/docker-image-amd64.tar \
-            --tag agentmatrix:amd64 \
-            .
-
-          # Build and export linux/arm64
-          docker buildx build \
-            --platform linux/arm64 \
-            --output type=docker,dest=artifacts/docker-image-arm64.tar \
-            --tag agentmatrix:arm64 \
-            .
-
-          # Compress both images
-          gzip -f artifacts/docker-image-amd64.tar
-          gzip -f artifacts/docker-image-arm64.tar
-
-          # Verify sizes
-          ls -lh artifacts/
-
-      - name: Upload Docker image artifacts (both architectures)
+      - name: Upload Docker image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: docker-images-multiarch
-          path: |
-            artifacts/docker-image-amd64.tar.gz
-            artifacts/docker-image-arm64.tar.gz
+          name: docker-image
+          path: artifacts/docker-image.tar.gz
           retention-days: 7
           compression-level: 6
 
   # Job 2: Build macOS ARM64
   build-macos-arm64:
     needs: build-docker
-    runs-on: macos-latest
+    runs-on: macos-26
 
     steps:
       - name: Checkout repository
@@ -101,13 +72,13 @@ jobs:
       - name: Download Docker image
         uses: actions/download-artifact@v4
         with:
-          name: docker-images-multiarch
+          name: docker-image
           path: artifacts
 
-      - name: Copy Docker image to resources (ARM64)
+      - name: Copy Docker image to resources
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          cp artifacts/docker-image-arm64.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          cp artifacts/docker-image.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
       # ==================== Download Podman Installer ====================
@@ -170,7 +141,7 @@ jobs:
   # Job 3: Build macOS x86_64
   build-macos-x64:
     needs: build-docker
-    runs-on: macos-13
+    runs-on: macos-26-large
 
     steps:
       - name: Checkout repository
@@ -203,13 +174,13 @@ jobs:
       - name: Download Docker image
         uses: actions/download-artifact@v4
         with:
-          name: docker-images-multiarch
+          name: docker-image
           path: artifacts
 
-      - name: Copy Docker image to resources (x86_64)
+      - name: Copy Docker image to resources
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          cp artifacts/docker-image-amd64.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          cp artifacts/docker-image.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
       # ==================== Download Podman Installer ====================
@@ -303,14 +274,14 @@ jobs:
       - name: Download Docker image
         uses: actions/download-artifact@v4
         with:
-          name: docker-images-multiarch
+          name: docker-image
           path: artifacts
 
-      - name: Copy Docker image to resources (x86_64)
+      - name: Copy Docker image to resources
         shell: bash
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          cp artifacts/docker-image-amd64.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
+          cp artifacts/docker-image.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
       # ==================== Download Podman Installer ====================
