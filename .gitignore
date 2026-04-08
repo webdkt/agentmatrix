@@ -240,3 +240,11 @@ agentmatrix*.tar
 src-tauri/target
 agentmatrix-desktop/src-tauri/target
 .kilo
+
+# PyInstaller build output
+dist-server/
+build/
+
+# Tauri sidecar binaries (built by CI/CD)
+agentmatrix-desktop/src-tauri/binaries/server
+agentmatrix-desktop/src-tauri/binaries/*.exe
