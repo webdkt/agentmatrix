@@ -40,7 +40,7 @@ else:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 # Import AgentMatrix
-from agentmatrix import AgentMatrix
+from agentmatrix import AgentMatrix, __version__
 from agentmatrix.services.config_service import ConfigService
 
 
@@ -463,7 +463,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AgentMatrix",
     description="An intelligent agent framework with pluggable skills and LLM integrations",
-    version="0.5.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -564,7 +564,7 @@ async def root():
     """Root endpoint - API information"""
     return {
         "message": "AgentMatrix API Server",
-        "version": "2.0.0",
+        "version": __version__,
         "status": "running",
         "desktop_app": {
             "location": "agentmatrix-desktop/",
