@@ -2300,7 +2300,7 @@ def main():
     # Args already parsed at module level
     # Access via module-level 'args' variable
     try:
-        uvicorn.run("server:app", host=args.host, port=args.port, reload=args.reload)
+        uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
     except KeyboardInterrupt:
         # Ctrl-C 正常退出，已在 lifespan shutdown 中打印告别信息
         pass
