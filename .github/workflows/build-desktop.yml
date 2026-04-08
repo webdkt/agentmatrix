@@ -95,9 +95,11 @@ jobs:
       - name: Copy server to sidecar directory
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # Copy as 'server' (Tauri will auto-append target triple)
-          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server
+          # Tauri 2.0 requires the file to be named with TARGET_TRIPLE suffix
+          # The externalBin config is 'binaries/server', but the actual file must be:
+          # binaries/server-aarch64-apple-darwin for macOS ARM64
+          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
+          chmod +x agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
           ls -lh agentmatrix-desktop/src-tauri/binaries/
 
       # ==================== Frontend Build ====================
@@ -200,8 +202,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # Copy as 'server.exe' (Tauri will auto-append target triple)
-          cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server.exe
+          # Tauri 2.0 requires the file to be named with TARGET_TRIPLE suffix
+          # The externalBin config is 'binaries/server', but the actual file must be:
+          # binaries/server-x86_64-pc-windows-msvc.exe for Windows
+          cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
           ls -lh agentmatrix-desktop/src-tauri/binaries/
 
       # ==================== Frontend Build ====================

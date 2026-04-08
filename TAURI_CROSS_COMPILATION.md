@@ -77,26 +77,47 @@ build-windows:
 
 ## ⚠️ 常见错误
 
-### ❌ 错误 1：手动添加 TARGET_TRIPLE 后缀
+### ❌ 错误 1：文件命名不包含 TARGET_TRIPLE
 
 ```yaml
 # ❌ 错误做法
 - name: Copy server to sidecar
   run: |
-    cp dist-server/server binaries/server-aarch64-apple-darwin  # 不要手动加后缀！
+    cp dist-server/server binaries/server  # 缺少 TARGET_TRIPLE 后缀！
 ```
 
-**后果**：Tauri 会再次添加后缀，导致 `server-aarch64-apple-darwin-aarch64-apple-darwin`
+**后果**：Tauri 无法找到 `binaries/server-aarch64-apple-darwin`
 
-### ❌ 错误 2：使用 Universal Binary 构建
+### ✅ 正确做法：文件名必须包含 TARGET_TRIPLE
+
+根据 Tauri 2.0 官方文档：
+
+> To make the external binary work on each supported architecture, a binary with the same name and a `-$TARGET_TRIPLE` suffix must exist on the specified path.
 
 ```yaml
-# ❌ 错误做法
-- name: Build Universal Tauri app
-  run: npm run tauri build -- --target universal-apple-darwin
+# ✅ 正确做法
+- name: Copy server to sidecar directory (macOS ARM64)
+  run: |
+    cp dist-server/server binaries/server-aarch64-apple-darwin
+    chmod +x binaries/server-aarch64-apple-darwin
+
+- name: Copy server to sidecar directory (Windows)
+  run: |
+    cp dist-server/server.exe binaries/server-x86_64-pc-windows-msvc.exe
 ```
 
-**问题**：Tauri 2.0 的 sidecar 机制不支持 Universal Binary，必须为每个架构分别构建。
+### 文件名映射表
+
+| 平台 | tauri.conf.json 配置 | 实际文件名 |
+|------|---------------------|-----------|
+| macOS ARM64 | `"binaries/server"` | `binaries/server-aarch64-apple-darwin` |
+| macOS x86_64 | `"binaries/server"` | `binaries/server-x86_64-apple-darwin` |
+| Windows x64 | `"binaries/server"` | `binaries/server-x86_64-pc-windows-msvc.exe` |
+
+**关键点**：
+- `externalBin` 配置只需基础名称：`"binaries/server"`
+- 实际文件必须包含 TARGET_TRIPLE 后缀
+- Tauri 会根据当前构建目标查找对应架构的文件
 
 ## 📋 构建架构说明
 
