@@ -8,6 +8,7 @@ import { getPlaceholdersForSession, consumeResolvedEmail } from '@/composables/u
 import EmailItem from './EmailItem.vue'
 import EmailReply from './EmailReply.vue'
 import AgentStatusCard from '../agent/AgentStatusCard.vue'
+import NewEmailModal from '@/components/dialog/NewEmailModal.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -31,9 +32,11 @@ const emails = ref([])
 const isLoading = ref(false)
 const error = ref(null)
 const messagesContainer = ref(null)
-const inlineReplyEmail = ref(null)
-const showInlineReply = ref(false)
 const showMenu = ref(false)
+
+// 回复对话框状态
+const showReplyDialog = ref(false)
+const replyEmail = ref(null)
 
 const answer = ref('')
 const hideInlineForm = ref(false)
@@ -191,27 +194,35 @@ const refreshEmails = async () => {
   }
 }
 
-const handleReplySent = async () => {
-  // Deprecated: 这个方法保留用于向后兼容，但新的实现使用 handleReplySentWithEmail
-  await refreshEmails()
-}
-
-const handleReplySendStarted = ({ placeholder }) => {
+const handleEmailSendStarted = ({ placeholder }) => {
   emails.value.push(placeholder)
   nextTick(() => scrollToBottom())
 }
 
-const handleReplySendFailed = ({ placeholderId }) => {
+const handleEmailSendFailed = ({ placeholderId }) => {
   const idx = emails.value.findIndex(e => e.id === placeholderId)
   if (idx !== -1) {
     emails.value.splice(idx, 1)
   }
 }
 
-const handleReplySentWithEmail = (email) => {
-  // 直接将邮件添加到列表，无需刷新
-  // 必须校验邮件属于当前会话，防止用户快速切换会话后邮件出现在错误的列表中
+const handleEmailSent = (payload) => {
+  // Support new { response, placeholderId } and old response format
+  const response = payload?.response || payload
+  const placeholderId = payload?.placeholderId
+  const email = response?.email
+
   if (email) {
+    if (placeholderId) {
+      // 找到 placeholder 并替换为真实邮件
+      const idx = emails.value.findIndex(e => e.id === placeholderId)
+      if (idx !== -1) {
+        emails.value.splice(idx, 1, email)
+        return
+      }
+    }
+    // Fallback: append (no placeholder found, or old code path)
+    // 必须校验邮件属于当前会话，防止用户快速切换会话后邮件出现在错误的列表中
     const emailSessionId = email.task_id || email.recipient_session_id
     const currentSessionId = currentSession.value?.session_id
     if (emailSessionId && currentSessionId && emailSessionId !== currentSessionId) {
@@ -236,17 +247,20 @@ const handleMenuAction = async (action) => {
   }
 }
 
-const handleInlineReply = (email) => {
-  inlineReplyEmail.value = email
-  showInlineReply.value = true
+// 处理显示回复对话框
+const handleShowReplyDialog = (email) => {
+  replyEmail.value = email
+  showReplyDialog.value = true
 }
 
-const cancelInlineReply = () => {
-  inlineReplyEmail.value = null
-  showInlineReply.value = false
+// 关闭回复对话框
+const handleCloseReplyDialog = () => {
+  showReplyDialog.value = false
+  replyEmail.value = null
 }
 
-const handleInlineReplySent = (payload) => {
+// 处理回复发送成功
+const handleReplySent = (payload) => {
   // Support new { response, placeholderId } and old response format
   const response = payload?.response || payload
   const placeholderId = payload?.placeholderId
@@ -254,19 +268,30 @@ const handleInlineReplySent = (payload) => {
 
   if (email) {
     if (placeholderId) {
+      // 找到 placeholder 并替换为真实邮件
       const idx = emails.value.findIndex(e => e.id === placeholderId)
       if (idx !== -1) {
         emails.value.splice(idx, 1, email)
-        inlineReplyEmail.value = null
-        showInlineReply.value = false
         return
       }
     }
     // Fallback: append (no placeholder found, or old code path)
     handleReplySentWithEmail(email)
   }
-  inlineReplyEmail.value = null
-  showInlineReply.value = false
+}
+
+// 处理回复发送失败
+const handleReplySendFailed = ({ placeholderId }) => {
+  const idx = emails.value.findIndex(e => e.id === placeholderId)
+  if (idx !== -1) {
+    emails.value.splice(idx, 1)
+  }
+}
+
+// 处理回复发送开始（添加 placeholder）
+const handleReplySendStarted = ({ placeholder }) => {
+  emails.value.push(placeholder)
+  nextTick(() => scrollToBottom())
 }
 
 const handleAgentSelected = (agentName) => {
@@ -387,7 +412,7 @@ const handleAgentQuestionSubmit = async () => {
 
       <template v-else>
         <EmailItem
-          @reply="handleInlineReply"
+          @show-reply-dialog="handleShowReplyDialog"
           v-for="email in emails"
           :key="email.id"
           :email="email"
@@ -454,15 +479,24 @@ const handleAgentQuestionSubmit = async () => {
       <EmailReply
         :current-session="currentSession"
         :emails="emails"
-        :inline-email="inlineReplyEmail"
-        :show-inline="showInlineReply"
         :is-locked="hasPlaceholderLast"
-        @send-started="handleReplySendStarted"
-        @sent="handleInlineReplySent"
-        @send-failed="handleReplySendFailed"
-        @cancel-inline="cancelInlineReply"
+        @send-started="handleEmailSendStarted"
+        @sent="handleEmailSent"
+        @send-failed="handleEmailSendFailed"
       />
     </div>
+
+    <!-- Reply Email Dialog -->
+    <NewEmailModal
+      :show="showReplyDialog"
+      mode="reply"
+      :replyToEmail="replyEmail"
+      :session="currentSession"
+      @close="handleCloseReplyDialog"
+      @send-started="handleEmailSendStarted"
+      @sent="handleEmailSent"
+      @send-failed="handleEmailSendFailed"
+    />
   </main>
 </template>
 <style scoped>

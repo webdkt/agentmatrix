@@ -375,11 +375,28 @@ export const useSessionStore = defineStore('session', {
 
         // 更新显示字段
         if (subject) updated.subject = subject
-        if (timestamp) updated.timestamp = timestamp
+        if (timestamp) {
+          updated.timestamp = timestamp
+          updated.last_email_time = timestamp  // 同时更新 last_email_time（用于 UI 显示）
+        }
 
-        // 用 splice 确保 Vue 响应式更新
-        this.sessions.splice(index, 1, updated)
-        console.log('🔄 Session updated from event:', session_id, { is_unread: updated.is_unread })
+        // 移除旧项，重新排序后插入
+        this.sessions.splice(index, 1)
+
+        // 按时间降序插入（最新的在前面）
+        const insertIndex = this.sessions.findIndex(s => {
+          return new Date(s.last_email_time || s.timestamp) < new Date(updated.last_email_time || updated.timestamp)
+        })
+
+        if (insertIndex === -1) {
+          // 没找到更晚的，追加到末尾
+          this.sessions.push(updated)
+        } else {
+          // 插入到正确位置
+          this.sessions.splice(insertIndex, 0, updated)
+        }
+
+        console.log('🔄 Session updated and re-sorted:', session_id, { is_unread: updated.is_unread, last_email_time: updated.last_email_time, position: insertIndex === -1 ? 'end' : insertIndex })
       } else {
         // session 不存在 → 跳过。新邮件场景中 handleEmailSent 已增量插入了真实 session。
         console.log('⏭️ Session not found, skipping:', session_id)
