@@ -221,71 +221,67 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 // Backend state management
 struct BackendState(Mutex<Option<Child>>);
 
-/// Get the path to the server executable (sidecar or fallback to python)
+/// Get the path to the server executable (sidecar)
+/// In production, the sidecar MUST exist at the expected location.
+/// If not found, it's a build error - not a runtime fallback situation.
 fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), String> {
-    // In dev mode, always use python server.py
-    // The sidecar placeholder in binaries/ exists only for Tauri compilation
+    // In dev mode, use python server.py
     if cfg!(dev) {
         println!("Dev mode: using python server.py");
         return Ok(("python".to_string(), vec!["server.py".to_string()]));
     }
 
-    // Try to find sidecar server executable (production)
-    // In Tauri 2.0, sidecars are placed in different locations depending on platform:
-    // - macOS: Contents/MacOS/server (next to the main executable)
-    // - Windows: Same directory as the .exe
+    // In production, Tauri 2.0 places sidecars at platform-specific locations
     let resource_path = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
 
-    // Try multiple possible sidecar locations
-    let possible_paths: Vec<std::path::PathBuf> = vec![
-        // macOS: sidecar is in MacOS directory, not Resources
-        #[cfg(target_os = "macos")]
-        resource_path.parent() // Go from Resources to Contents
+    let sidecar_path: std::path::PathBuf = if cfg!(target_os = "macos") {
+        // macOS: .app/Contents/MacOS/server (next to main executable)
+        resource_path
+            .parent()
             .and_then(|p| p.parent())
-            .and_then(|p| Some(p.join("MacOS").join("server")))
-            .unwrap_or_else(|| resource_path.join("MacOS").join("server")),
-        // Windows: sidecar is in the same directory as the main .exe
-        // resource_dir() points to resources/, so parent is install dir
-        #[cfg(target_os = "windows")]
-        resource_path.parent() // Go from resources to install directory
-            .and_then(|p| Some(p.join("server.exe")))
-            .unwrap_or_else(|| resource_path.join("server.exe")),
-        // Linux: sidecar is in the same directory as the main executable
-        #[cfg(target_os = "linux")]
-        resource_path.parent() // Go from resources to install directory
-            .and_then(|p| Some(p.join("server")))
-            .unwrap_or_else(|| resource_path.join("server")),
-        // Fallback: check binaries directory (some Tauri versions or dev builds)
-        #[cfg(not(target_os = "windows"))]
-        resource_path.join("binaries").join("server"),
-        #[cfg(target_os = "windows")]
-        resource_path.join("binaries").join("server.exe"),
-    ];
+            .map(|p| p.join("MacOS").join("server"))
+            .ok_or_else(|| format!("Failed to construct macOS sidecar path from resource_dir: {:?}", resource_path))?
+    } else if cfg!(target_os = "windows") {
+        // Windows: server.exe (same directory as main .exe)
+        resource_path
+            .parent()
+            .map(|p| p.join("server.exe"))
+            .ok_or_else(|| format!("Failed to construct Windows sidecar path from resource_dir: {:?}", resource_path))?
+    } else if cfg!(target_os = "linux") {
+        // Linux: server (same directory as main executable)
+        resource_path
+            .parent()
+            .map(|p| p.join("server"))
+            .ok_or_else(|| format!("Failed to construct Linux sidecar path from resource_dir: {:?}", resource_path))?
+    } else {
+        return Err(format!("Unsupported platform: {}", std::env::consts::OS));
+    };
 
-    println!("🔍 Searching for server sidecar...");
-    for path in &possible_paths {
-        println!("   Checking: {:?}", path);
-        if path.exists() {
-            println!("✅ Found server sidecar: {:?}", path);
-            return Ok((path.to_string_lossy().to_string(), vec![]));
-        }
+    println!("🔍 Looking for server sidecar at: {:?}", sidecar_path);
+
+    if !sidecar_path.exists() {
+        return Err(format!(
+            "❌ Server sidecar not found at expected location!\n\n\
+             Expected: {:?}\n\
+             This is a BUILD ERROR - the app was not packaged correctly.\n\n\
+             Please check:\n\
+             1. PyInstaller onefile build succeeded\n\
+             2. CI/CD copied the binary to the correct location\n\
+             3. externalBin in tauri.conf.json matches the filename",
+            sidecar_path
+        ));
     }
 
-    // Sidecar not found, provide detailed error
-    let error_msg = format!(
-        "❌ Server sidecar not found! Searched:\n{}\n\nPlease ensure the app was built correctly.",
-        possible_paths.iter()
-            .map(|p| format!("  - {:?}", p))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
-    eprintln!("{}", error_msg);
+    if !sidecar_path.is_file() {
+        return Err(format!(
+            "❌ Server sidecar exists but is not a file: {:?}",
+            sidecar_path
+        ));
+    }
 
-    // Fallback to python
-    println!("⚠️  Falling back to python server.py");
-    println!("   Note: This requires Python to be installed on your system");
-    Ok(("python3".to_string(), vec!["server.py".to_string()]))
+    println!("✅ Found server sidecar: {:?}", sidecar_path);
+    Ok((sidecar_path.to_string_lossy().to_string(), vec![]))
 }
 
 #[tauri::command]
