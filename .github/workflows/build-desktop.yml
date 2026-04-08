@@ -110,11 +110,15 @@ jobs:
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
           # PyInstaller onefile mode generates: dist-server/server (single executable)
-          # Tauri externalBin expects: binaries/server (exact name from tauri.conf.json)
+          # For cross-compilation, Tauri expects architecture-specific names
+          # macOS ARM: server-aarch64-apple-darwin
+          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
+          chmod +x agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
+          # Also copy as generic name for local development
           cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
           chmod +x agentmatrix-desktop/src-tauri/binaries/server
-          # Verify the executable
-          ls -lh agentmatrix-desktop/src-tauri/binaries/server
+          # Verify the executables
+          ls -lh agentmatrix-desktop/src-tauri/binaries/
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -229,11 +233,15 @@ jobs:
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
           # PyInstaller onefile mode generates: dist-server/server (single executable)
-          # Tauri externalBin expects: binaries/server (exact name from tauri.conf.json)
+          # For cross-compilation, Tauri expects architecture-specific names
+          # macOS x64: server-x86_64-apple-darwin
+          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
+          chmod +x agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
+          # Also copy as generic name for local development
           cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
           chmod +x agentmatrix-desktop/src-tauri/binaries/server
-          # Verify the executable
-          ls -lh agentmatrix-desktop/src-tauri/binaries/server
+          # Verify the executables
+          ls -lh agentmatrix-desktop/src-tauri/binaries/
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -350,10 +358,13 @@ jobs:
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
           # PyInstaller onefile mode generates: dist-server/server.exe (single executable)
-          # Tauri externalBin expects: binaries/server.exe (exact name from tauri.conf.json)
+          # For cross-compilation, Tauri expects architecture-specific names
+          # Windows x64: server-x86_64-pc-windows-msvc.exe
+          cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
+          # Also copy as generic name for local development
           cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server.exe
-          # Verify the executable
-          ls -lh agentmatrix-desktop/src-tauri/binaries/server.exe
+          # Verify the executables
+          ls -lh agentmatrix-desktop/src-tauri/binaries/
 
       # ==================== Frontend Build ====================
       - name: Install Node.js

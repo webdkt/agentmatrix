@@ -48,7 +48,10 @@
       "resources/docker/**/*"
     ],
     "externalBin": [
-      "binaries/server"
+      "binaries/server",
+      "binaries/server-aarch64-apple-darwin",
+      "binaries/server-x86_64-apple-darwin",
+      "binaries/server-x86_64-pc-windows-msvc.exe"
     ],
     "macOS": {
       "signingIdentity": "-",
