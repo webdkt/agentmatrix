@@ -67,16 +67,11 @@ a = Analysis(
         'agentmatrix.services.email_proxy_service',
         'agentmatrix.skills',
         'agentmatrix.skills.base',
-        'agentmatrix.skills.base.skill',
         'agentmatrix.skills.email',
-        'agentmatrix.skills.email.skill',
-        'agentmatrix.skills.file_skill',
+        'agentmatrix.skills.file',
         'agentmatrix.skills.agent_admin',
-        'agentmatrix.skills.agent_admin.skill',
         'agentmatrix.skills.system_admin',
-        'agentmatrix.skills.system_admin.skill',
         'agentmatrix.skills.deep_researcher',
-        'agentmatrix.skills.deep_researcher.skill',
 
         # Browser dependencies
         'DrissionPage',
@@ -90,8 +85,7 @@ a = Analysis(
         'fitz',  # PyMuPDF
         'html2text',
         'trafilatura',
-        'bs4',
-        'beautifulsoup4',
+        'bs4',  # beautifulsoup4 package name
 
         # Jinja2
         'jinja2',

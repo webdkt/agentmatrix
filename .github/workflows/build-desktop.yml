@@ -65,7 +65,7 @@ jobs:
 
       - name: Verify server executable
         run: |
-          ls -la dist-server/server/server
+          ls -la dist-server/server
 
       # ==================== Download Docker Image ====================
       - name: Download Docker image
@@ -183,8 +183,8 @@ jobs:
 
       - name: Verify server executable
         run: |
-          file dist-server/server/server
-          ls -la dist-server/server/server
+          file dist-server/server
+          ls -la dist-server/server
 
       # ==================== Download Docker Image ====================
       - name: Download Docker image
@@ -302,7 +302,7 @@ jobs:
       - name: Verify server executable
         shell: bash
         run: |
-          ls -la dist-server/server/server.exe
+          ls -la dist-server/server.exe
 
       # ==================== Download Docker Image ====================
       - name: Download Docker image
