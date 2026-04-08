@@ -796,6 +796,11 @@ class BaseAgent(AutoLoggerMixin):
             # 情况 2：同一 session → 投递 batch 信号
             if self.active_micro_agent:
                 email_text = f"[新邮件] 来自 {email.sender}: {email.subject}\n{email.body}"
+                if email.attachments:
+                    email_text += "\n" + "\n".join(
+                        f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
+                        for att in email.attachments
+                    )
                 self.active_micro_agent.signal_queue.put_nowait(
                     Signal(type="email", payload={
                         "text": email_text,
@@ -850,6 +855,11 @@ class BaseAgent(AutoLoggerMixin):
 
         # 首封邮件作为 batch signal 放入 queue（取代旧的 task 参数 + signal 双重路径）
         email_text = f"[新邮件] 来自 {first_email.sender}: {first_email.subject}\n{first_email.body}"
+        if first_email.attachments:
+            email_text += "\n" + "\n".join(
+                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
+                for att in first_email.attachments
+            )
         micro_agent.signal_queue.put_nowait(Signal(
             type="email",
             payload={"text": email_text, "email_ids": [first_email.id]}

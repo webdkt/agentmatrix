@@ -87,19 +87,23 @@ const handleEmailSent = (result) => {
   }
 
   // 2. 用 result 数据构造真实 session，增量插入
-  const realSessionId = result.email.sender_session_id || result.email.task_id || result.task_id
+  // result = { response, placeholderId } from NewEmailModal
+  // response = { success, task_id, email: { ... } } from backend API
+  const emailData = result.response.email
+
+  const realSessionId = emailData.sender_session_id || emailData.task_id || result.response.task_id
   const realSession = {
     session_id: realSessionId,
-    name: result.email.recipient,
-    participants: [result.email.recipient],
-    subject: result.email.subject || result.email.body.substring(0, 50),
-    timestamp: result.email.timestamp,
-    last_email_time: result.email.timestamp,
+    name: emailData.recipient,
+    participants: [emailData.recipient],
+    subject: emailData.subject || emailData.body.substring(0, 50),
+    timestamp: emailData.timestamp,
+    last_email_time: emailData.timestamp,
     is_unread: false,
   }
 
   // Store the resolved email so EmailList can use it without an API call
-  setResolvedEmailForSession(realSessionId, result.email)
+  setResolvedEmailForSession(realSessionId, emailData)
 
   sessionStore.sessions.unshift(realSession)
   sessionStore.selectSession(realSession)
@@ -281,7 +285,7 @@ const handleNewEmailFailed = ({ emailData, error }) => {
 .session-list__items {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm); /* 8px compact spacing */
@@ -289,7 +293,7 @@ const handleNewEmailFailed = ({ emailData, error }) => {
 
 /* Load More Button */
 .session-list__load-more {
-  padding: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
 }
 
 .session-list__load-more-btn {

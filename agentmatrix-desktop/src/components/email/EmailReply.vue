@@ -14,14 +14,6 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
-  inlineEmail: {
-    type: Object,
-    default: null
-  },
-  showInline: {
-    type: Boolean,
-    default: false
-  },
   isLocked: {
     type: Boolean,
     default: false
@@ -29,7 +21,7 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
-const emit = defineEmits(['sent', 'cancelInline', 'send-started', 'send-failed'])
+const emit = defineEmits(['sent', 'send-started', 'send-failed'])
 
 // 状态
 const replyBody = ref('')
@@ -46,23 +38,24 @@ const lastEmail = computed(() => {
 })
 
 const placeholder = computed(() => {
-  if (props.showInline && props.inlineEmail) {
-    const sender = props.inlineEmail.is_from_user
-      ? (props.inlineEmail.recipient || props.currentSession.name)
-      : props.inlineEmail.sender
-    return t('emails.replyTo', { name: sender })
-  }
-
   if (props.emails.length === 0) {
     return t('emails.sendMessage')
   }
-  const sender = lastEmail.value?.is_from_user
-    ? (lastEmail.value.recipient || props.currentSession.name)
-    : lastEmail.value?.sender
-  return t('emails.replyTo', { name: sender })
+  // For reply to specific email, use the same message
+  return t('emails.sendMessage')
 })
 
-// 发送回复
+// Helper function to get recipient name from email
+const getRecipient = (email) => {
+  if (!email) return ''
+  if (email.is_from_user) {
+    return email.recipient || props.currentSession?.name || 'Agent'
+  } else {
+    return email.sender || 'Agent'
+  }
+}
+
+// 发送回复（只针对最后一条邮件）
 const sendReply = async () => {
   if (!canSend.value) return
 
@@ -71,29 +64,26 @@ const sendReply = async () => {
   let placeholder = null
 
   try {
-    let targetEmail = props.showInline ? props.inlineEmail : lastEmail.value
+    // 构建邮件数据
+    if (lastEmail.value) {
+      // 回复邮件
+      const recipient = lastEmail.value.is_from_user
+        ? (lastEmail.value.recipient || props.currentSession.name)
+        : lastEmail.value.sender
 
-    if (!targetEmail) {
+      emailData = {
+        recipient,
+        subject: '',
+        body: replyBody.value,
+        in_reply_to: lastEmail.value.id,
+        task_id: lastEmail.value.task_id || props.currentSession.session_id
+      }
+    } else {
       // 没有邮件，发送给会话的 agent
       emailData = {
         recipient: props.currentSession.name,
         subject: '',
         body: replyBody.value
-      }
-    } else {
-      // 回复邮件
-      let recipient
-      if (targetEmail.is_from_user) {
-        recipient = targetEmail.recipient || props.currentSession.name
-      } else {
-        recipient = targetEmail.sender
-      }
-
-      emailData = {
-        recipient: recipient,
-        subject: '',
-        body: replyBody.value,
-        in_reply_to: targetEmail.id
       }
     }
 
@@ -104,17 +94,19 @@ const sendReply = async () => {
     // 清空输入
     replyBody.value = ''
 
+    // 调用 API 发送
     const response = await sessionAPI.sendEmail(
       props.currentSession.session_id,
       emailData
     )
 
-    console.log('Reply sent:', response)
+    console.log('✅ Reply sent:', response)
 
+    // 清理 placeholder
     removePendingEmail(placeholder.id)
     emit('sent', { response, placeholderId: placeholder.id })
   } catch (error) {
-    console.error('Failed to send reply:', error)
+    console.error('❌ Failed to send reply:', error)
     if (placeholder) {
       removePendingEmail(placeholder.id)
       emit('send-failed', { placeholderId: placeholder.id, error: error.message })
@@ -123,12 +115,6 @@ const sendReply = async () => {
   } finally {
     isSending.value = false
   }
-}
-
-// 取消内联回复
-const cancelInline = () => {
-  replyBody.value = ''
-  emit('cancelInline')
 }
 
 // 处理键盘事件：Enter 换行，Ctrl+Enter 发送
@@ -149,33 +135,21 @@ const adjustHeight = (event) => {
 </script>
 
 <template>
-  <!-- Floating Reply (bottom or inline) -->
-  <div :class="['email-reply', { 'email-reply--inline': showInline }]">
+  <!-- Floating Reply (bottom only) -->
+  <div class="email-reply">
     <!-- Reply Info (only for bottom reply) -->
-    <div v-if="!showInline && emails.length > 0" class="email-reply__info">
+    <div v-if="emails.length > 0" class="email-reply__info">
       <span class="email-reply__info-text">
         <MIcon name="arrow-back-up" />
         {{ t('emails.replyTo') }}
         <span class="email-reply__info-name">
-          {{ lastEmail?.is_from_user
-            ? (lastEmail?.recipient || currentSession.name)
-            : lastEmail?.sender }}
+          {{ getRecipient(lastEmail) }}
         </span>
       </span>
     </div>
 
     <!-- Reply Container -->
     <div class="email-reply__container">
-      <!-- Cancel button (inline only) -->
-      <button
-        v-if="showInline"
-        @click="cancelInline"
-        class="email-reply__cancel"
-        :title="t('common.cancel')"
-      >
-        <MIcon name="x" />
-      </button>
-
       <!-- Textarea -->
       <textarea
         v-model="replyBody"
@@ -200,7 +174,7 @@ const adjustHeight = (event) => {
     </div>
 
     <!-- Hint -->
-    <div v-if="!showInline" class="email-reply__hint">
+    <div class="email-reply__hint">
       <span v-if="isLocked" class="email-reply__hint-text">Sending...</span>
       <span v-else class="email-reply__hint-text">Ctrl+Enter {{ t('emails.send') }}</span>
     </div>
@@ -210,10 +184,6 @@ const adjustHeight = (event) => {
 .email-reply {
   padding: 0;
   background: transparent;
-}
-
-.email-reply--inline {
-  margin: var(--spacing-md) 0;
 }
 
 /* Info (bottom reply only) */

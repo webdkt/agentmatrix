@@ -2,7 +2,6 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
-import { useWebSocket } from '@/composables/useWebSocket'
 import { useBackendStore } from '@/stores/backend'
 import { useConfigStore } from '@/stores/config'
 import { configAPI } from '@/api/config'
@@ -11,6 +10,7 @@ import EmailList from '@/components/email/EmailList.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
 import AgentStatusPanel from '@/components/agent/AgentStatusPanel.vue'
+import ResizableDivider from '@/components/view-container/ResizableDivider.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
@@ -27,7 +27,6 @@ const sessionStore = useSessionStore()
 const websocketStore = useWebSocketStore()
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
-const { isConnected, connect, onMessage } = useWebSocket()
 
 // Computed
 const currentSession = computed(() => sessionStore.currentSession)
@@ -46,7 +45,7 @@ const showGlobalAskUserDialog = computed(() => {
 // User agent name (fetched from backend on startup)
 const userAgentName = ref('User')
 
-// Setup WebSocket listeners and email callbacks
+// Setup app after backend is ready
 async function setupAppAfterBackend() {
   try {
     // Fetch user_agent_name from backend
@@ -58,8 +57,6 @@ async function setupAppAfterBackend() {
     } catch (e) {
       console.warn('Failed to fetch user_agent_name, using default:', e)
     }
-
-    await connect()
 
     // Register email-related WebSocket listeners
     websocketStore.registerListener('email', (data) => {
@@ -92,6 +89,7 @@ const handleViewChange = (viewId) => {
 
 // Agent status panel state
 const expandedAgent = ref(null)
+const agentPanelWidth = ref(450) // Default width in pixels
 
 const handleAgentSelected = (agentName) => {
   if (expandedAgent.value === agentName) {
@@ -103,6 +101,10 @@ const handleAgentSelected = (agentName) => {
 
 const handlePanelClose = () => {
   expandedAgent.value = null
+}
+
+const handlePanelWidthUpdate = (newWidth) => {
+  agentPanelWidth.value = newWidth
 }
 
 // Reset expanded agent when session changes
@@ -126,11 +128,19 @@ onMounted(async () => {
         :selected-agent="expandedAgent"
         @agent-selected="handleAgentSelected"
       />
+      <ResizableDivider
+        v-if="expandedAgent"
+        :min-width="300"
+        :max-width="600"
+        :current-width="agentPanelWidth"
+        @update:width="handlePanelWidthUpdate"
+      />
       <Transition name="panel-slide">
         <AgentStatusPanel
           v-if="expandedAgent"
           :key="expandedAgent"
           :agent-name="expandedAgent"
+          :style="{ width: `${agentPanelWidth}px` }"
           @close="handlePanelClose"
         />
       </Transition>
@@ -241,19 +251,21 @@ onMounted(async () => {
 /* Panel slide transition */
 .panel-slide-enter-active,
 .panel-slide-leave-active {
-  transition: flex-basis 0.25s var(--ease-out), opacity 0.2s var(--ease-out);
+  transition: all 0.25s var(--ease-out), opacity 0.2s var(--ease-out);
   overflow: hidden;
 }
 
 .panel-slide-enter-from,
 .panel-slide-leave-to {
-  flex-basis: 0;
+  width: 0;
   opacity: 0;
+  flex-shrink: 0;
 }
 
 .panel-slide-enter-to,
 .panel-slide-leave-from {
-  flex-basis: 300px;
+  width: 450px;
   opacity: 1;
+  flex-shrink: 0;
 }
 </style>

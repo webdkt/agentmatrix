@@ -1,8 +1,11 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { agentAPI } from '@/api/agent'
 import { sessionAPI } from '@/api/session'
+import { addPendingEmail, removePendingEmail } from '@/composables/usePendingEmails'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { readFile } from '@tauri-apps/plugin-fs'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -10,7 +13,20 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  mode: {
+    type: String,
+    default: 'new',
+    validator: (v) => ['new', 'reply'].includes(v)
+  },
   preselectedAgent: {
+    type: Object,
+    default: null
+  },
+  replyToEmail: {
+    type: Object,
+    default: null
+  },
+  session: {
     type: Object,
     default: null
   }
@@ -31,6 +47,28 @@ const isLoadingAgents = ref(false)
 const isDragging = ref(false)
 
 // 计算属性
+const isReplyMode = computed(() => props.mode === 'reply')
+
+const currentAgent = computed(() => {
+  if (isReplyMode.value) {
+    // reply 模式：自动解析收件人
+    if (!props.replyToEmail) return null
+    const recipientName = props.replyToEmail.is_from_user
+      ? (props.replyToEmail.recipient || props.session?.name)
+      : props.replyToEmail.sender
+    return { name: recipientName }
+  }
+  // new 模式：手动选择的 agent
+  return selectedAgent.value
+})
+
+const dialogTitle = computed(() => {
+  if (isReplyMode.value) {
+    return `Reply to ${props.replyToEmail?.sender || 'Agent'}`
+  }
+  return t('sessions.newEmail')
+})
+
 const filteredAgents = computed(() => {
   if (!agentSearchQuery.value) {
     return agents.value
@@ -44,12 +82,52 @@ const filteredAgents = computed(() => {
 })
 
 const canSend = computed(() => {
-  return selectedAgent.value && messageBody.value.trim() && !isSending.value
+  return currentAgent.value && messageBody.value.trim() && !isSending.value
 })
 
 // 生命周期
+let unlistenDragDrop = null
+
+// 将 Tauri 拖放路径转换为 File 对象（FormData 需要）
+async function pathToFile(path) {
+  const name = path.split('/').pop() || path
+  const content = await readFile(path)
+  const blob = new Blob([content])
+  return new File([blob], name)
+}
+
 onMounted(async () => {
   await loadAgents()
+
+  // 监听 Tauri 文件拖放事件
+  const webview = await getCurrentWebview()
+  unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
+    if (!props.show) return
+
+    if (event.payload.type === 'over') {
+      isDragging.value = true
+    } else if (event.payload.type === 'drop') {
+      isDragging.value = false
+      const paths = event.payload.paths
+      if (paths && paths.length > 0) {
+        for (const path of paths) {
+          try {
+            const file = await pathToFile(path)
+            attachments.value.push(file)
+          } catch (e) {
+            console.error('Failed to read file:', path, e)
+          }
+        }
+        console.log(`📎 Dropped ${paths.length} file(s)`)
+      }
+    } else {
+      isDragging.value = false
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unlistenDragDrop) unlistenDragDrop()
 })
 
 // 监听 show 变化，重置表单
@@ -57,14 +135,14 @@ watch(() => props.show, async (newValue) => {
   if (newValue) {
     resetForm()
     // 如果有预选的agent，等待agents加载后自动选择
-    if (props.preselectedAgent) {
+    if (props.preselectedAgent && !isReplyMode.value) {
       // 确保agents已加载
       if (agents.value.length === 0) {
         await loadAgents()
       }
       // 查找匹配的agent（可能是对象或名称字符串）
-      const agentName = typeof props.preselectedAgent === 'string' 
-        ? props.preselectedAgent 
+      const agentName = typeof props.preselectedAgent === 'string'
+        ? props.preselectedAgent
         : props.preselectedAgent.name
       const agent = agents.value.find(a => a.name === agentName)
       if (agent) {
@@ -154,30 +232,72 @@ const resetForm = () => {
 }
 
 // 发送邮件
-const sendEmail = async () => {
+const handleSend = async () => {
   if (!canSend.value) return
 
   isSending.value = true
-  const emailData = {
-    recipient: selectedAgent.value.name,
-    subject: '',
-    body: messageBody.value,
-    _localAttachments: attachments.value ? [...attachments.value] : [],
-  }
-
-  // Emit immediately so SessionList can create placeholder
-  emit('send-started', emailData)
-  emit('close')
+  let emailData
+  let placeholder = null
 
   try {
-    const result = await sessionAPI.sendEmail('new', emailData, attachments.value)
+    if (isReplyMode.value) {
+      // reply 模式：构建回复数据
+      emailData = {
+        recipient: currentAgent.value.name,
+        subject: '',
+        body: messageBody.value,
+        in_reply_to: props.replyToEmail.id,
+        task_id: props.replyToEmail.task_id || props.session?.session_id
+      }
 
-    console.log('✅ Email sent successfully:', result)
+      // 创建 placeholder
+      placeholder = addPendingEmail(props.session.session_id, emailData)
+      emit('send-started', { placeholder, emailData })
+    } else {
+      // new 模式：构建新邮件数据
+      emailData = {
+        recipient: selectedAgent.value.name,
+        subject: '',
+        body: messageBody.value
+      }
 
-    emit('sent', result)
+      // new 模式：不创建 placeholder（SessionList 会处理）
+      emit('send-started', emailData)
+    }
+
+    // 清空输入
+    messageBody.value = ''
+
+    // 关闭对话框（优化体验）
+    emit('close')
+
+    // 调用 API 发送
+    const response = await sessionAPI.sendEmail(
+      isReplyMode.value ? props.session.session_id : 'new',
+      emailData,
+      attachments.value
+    )
+
+    console.log('✅ Email sent successfully:', response)
+
+    // 清理 placeholder
+    if (placeholder) {
+      removePendingEmail(placeholder.id)
+    }
+
+    emit('sent', { response, placeholderId: placeholder?.id })
   } catch (error) {
     console.error('❌ Failed to send email:', error)
-    emit('send-failed', { emailData, error: error.message })
+
+    // 清理 placeholder
+    if (placeholder) {
+      removePendingEmail(placeholder.id)
+      emit('send-failed', { placeholderId: placeholder.id, error: error.message })
+    } else {
+      emit('send-failed', { error: error.message })
+    }
+
+    alert(`Failed to send email: ${error.message}`)
   } finally {
     isSending.value = false
   }
@@ -205,7 +325,7 @@ const close = () => {
       >
         <!-- Header -->
         <div class="new-email-modal__header">
-          <h2 class="new-email-modal__title">{{ t('sessions.newEmail') }}</h2>
+          <h2 class="new-email-modal__title">{{ dialogTitle }}</h2>
           <button
             @click="close"
             class="new-email-modal__close"
@@ -216,8 +336,8 @@ const close = () => {
 
         <!-- Form -->
         <div class="new-email-modal__form">
-          <!-- Recipient -->
-          <div class="new-email-modal__field">
+          <!-- Recipient (new mode only) -->
+          <div v-if="!isReplyMode" class="new-email-modal__field">
             <label class="new-email-modal__label">{{ t('emails.to') }}</label>
             <div class="new-email-modal__input-wrapper">
               <MIcon name="at" class="new-email-modal__input-icon" />
@@ -235,9 +355,9 @@ const close = () => {
               >
                 <MIcon name="x" />
               </button>
-            </div>
+              </div>
 
-            <!-- Dropdown -->
+              <!-- Dropdown -->
             <div
               v-show="showAgentDropdown && (filteredAgents.length > 0 || agentSearchQuery)"
               class="new-email-modal__dropdown"
@@ -258,6 +378,15 @@ const close = () => {
               >
                 No agents found
               </div>
+            </div>
+          </div>
+
+          <!-- Recipient Display (reply mode only) -->
+          <div v-else class="new-email-modal__field">
+            <label class="new-email-modal__label">{{ t('emails.to') }}</label>
+            <div class="new-email-modal__recipient-display">
+              <MIcon name="at" class="new-email-modal__input-icon" />
+              <span class="new-email-modal__recipient-name">{{ currentAgent?.name }}</span>
             </div>
           </div>
 
@@ -337,7 +466,7 @@ const close = () => {
             {{ t('common.cancel') }}
           </button>
           <button
-            @click="sendEmail"
+            @click="handleSend"
             :disabled="!canSend"
             class="new-email-modal__btn new-email-modal__btn--primary"
           >
@@ -383,8 +512,8 @@ const close = () => {
 }
 
 .new-email-modal__content--dragging {
-  border: 2px dashed var(--accent);
-  background: rgba(194, 59, 34, 0.05);
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
 }
 
 /* Header */
@@ -548,6 +677,25 @@ const close = () => {
   color: var(--neutral-400);
 }
 
+/* Recipient Display (reply mode) */
+.new-email-modal__recipient-display {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-sm);
+  min-height: var(--input-height-md);
+}
+
+.new-email-modal__recipient-name {
+  flex: 1;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--neutral-700);
+}
+
 /* Message */
 .new-email-modal__message {
   flex: 1;
@@ -593,11 +741,12 @@ const close = () => {
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  background: rgba(194, 59, 34, 0.9);
-  color: white;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--neutral-600);
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
   border-radius: var(--radius-sm);
+  border: 2px dashed var(--accent);
   pointer-events: none;
 }
 

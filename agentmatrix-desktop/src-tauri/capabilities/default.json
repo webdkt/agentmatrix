@@ -8,6 +8,8 @@
     "notification:allow-is-permission-granted",
     "notification:default",
     "shell:allow-open",
-    "shell:default"
+    "shell:default",
+    "fs:allow-read-file",
+    "fs:read-files"
   ]
 }

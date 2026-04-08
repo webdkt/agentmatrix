@@ -79,7 +79,7 @@ const displayName = computed(() => {
 // 操作处理函数
 const handleReply = () => {
   console.log('Reply to email:', props.email.id)
-  emit('reply', props.email)
+  emit('show-reply-dialog', props.email)
 }
 
 const handleCopy = async () => {
