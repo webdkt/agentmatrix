@@ -23,12 +23,11 @@ a = Analysis(
     pathex=[str(project_root)],
     binaries=[],
     datas=[
-        # Include the entire agentmatrix package
+        # Include the entire agentmatrix package (all submodules, including skills)
         ('src/agentmatrix', 'agentmatrix'),
     ],
-    # PyInstaller will automatically collect all agentmatrix submodules
-    # including skills, via the --collect-all agentmatrix option
-    # No need to manually list them here
+    # Note: All agentmatrix submodules are included via the datas directive above
+    # PyInstaller will analyze Python imports and bundle dependencies automatically
     hiddenimports=[
         # FastAPI and related
         'fastapi',
@@ -45,7 +44,6 @@ a = Analysis(
         'aiohttp.client',
         'requests',
         'requests.exceptions',
-    ],
 
         # Browser dependencies
         'DrissionPage',
@@ -87,6 +85,28 @@ a = Analysis(
         'markdown_it.renderer',
         'sqlite3',
         'pathlib',
+
+        # Skills module (dynamic loading support)
+        'agentmatrix.skills',
+        'agentmatrix.skills.registry',
+
+        # Skills that use dynamic imports (ensure they're included in PyInstaller)
+        # These modules are loaded dynamically via importlib.util.spec_from_file_location
+        # We list them here to ensure PyInstaller includes them in the bundle
+        'agentmatrix.skills.base',
+        'agentmatrix.skills.file_skill',
+        'agentmatrix.skills.new_web_search',
+        'agentmatrix.skills.memory',
+        'agentmatrix.skills.markdown',
+        'agentmatrix.skills.agent_admin',
+        'agentmatrix.skills.system_admin',
+        'agentmatrix.skills.email',
+        'agentmatrix.skills.scheduler',
+        'agentmatrix.skills.deep_researcher',
+
+        # Importlib (for dynamic skill loading)
+        'importlib.util',
+        'importlib.machinery',
     ],
     excludes=[
         # Exclude browser-use (not needed)

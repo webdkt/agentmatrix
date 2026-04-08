@@ -61,7 +61,7 @@ jobs:
 
       - name: Build Python backend with PyInstaller
         run: |
-          pyinstaller --collect-all agentmatrix server.spec --distpath dist-server
+          pyinstaller server.spec --distpath dist-server
 
       - name: Verify server executable
         run: |
@@ -297,7 +297,7 @@ jobs:
 
       - name: Build Python backend with PyInstaller
         run: |
-          pyinstaller --collect-all agentmatrix server.spec --distpath dist-server
+          pyinstaller server.spec --distpath dist-server
 
       - name: Verify server executable
         shell: bash
