@@ -237,9 +237,10 @@ fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), Stri
 
     let sidecar_path: std::path::PathBuf = if cfg!(target_os = "macos") {
         // macOS: .app/Contents/MacOS/server (next to main executable)
+        // resource_dir() points to Contents/Resources
+        // parent() gives us Contents/, then join MacOS/server
         resource_path
             .parent()
-            .and_then(|p| p.parent())
             .map(|p| p.join("MacOS").join("server"))
             .ok_or_else(|| format!("Failed to construct macOS sidecar path from resource_dir: {:?}", resource_path))?
     } else if cfg!(target_os = "windows") {
