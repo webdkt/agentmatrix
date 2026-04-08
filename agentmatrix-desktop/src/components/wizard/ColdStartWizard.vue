@@ -814,11 +814,18 @@ onUnmounted(() => {
 
 .me-error-msg {
   margin-top: 16px;
-  padding: 8px 16px;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 480px;
+  padding: 12px 16px;
   background: var(--fault-muted);
   color: var(--fault);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
   border-radius: 2px;
+  border-left: 3px solid var(--fault);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Back indicator */

@@ -231,23 +231,50 @@ fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), Stri
     }
 
     // Try to find sidecar server executable (production)
+    // In Tauri 2.0, sidecars are placed in different locations depending on platform:
+    // - macOS: Contents/MacOS/server (next to the main executable)
+    // - Windows: Same directory as the .exe
     let resource_path = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-    
-    #[cfg(not(target_os = "windows"))]
-    let sidecar_path = resource_path.join("binaries").join("server");
 
-    #[cfg(target_os = "windows")]
-    let sidecar_path = resource_path.join("binaries").join("server.exe");
-    
-    if sidecar_path.exists() {
-        println!("Using sidecar server: {:?}", sidecar_path);
-        return Ok((sidecar_path.to_string_lossy().to_string(), vec![]));
+    // Try multiple possible sidecar locations
+    let possible_paths: Vec<std::path::PathBuf> = vec![
+        // macOS: sidecar is in MacOS directory, not Resources
+        #[cfg(target_os = "macos")]
+        resource_path.parent() // Go from Resources to Contents
+            .and_then(|p| p.parent())
+            .and_then(|p| Some(p.join("MacOS").join("server")))
+            .unwrap_or_else(|| resource_path.join("MacOS").join("server")),
+        // Fallback: check binaries directory (some Tauri versions)
+        #[cfg(not(target_os = "windows"))]
+        resource_path.join("binaries").join("server"),
+        #[cfg(target_os = "windows")]
+        resource_path.join("binaries").join("server.exe"),
+    ];
+
+    println!("🔍 Searching for server sidecar...");
+    for path in &possible_paths {
+        println!("   Checking: {:?}", path);
+        if path.exists() {
+            println!("✅ Found server sidecar: {:?}", path);
+            return Ok((path.to_string_lossy().to_string(), vec![]));
+        }
     }
-    
+
+    // Sidecar not found, provide detailed error
+    let error_msg = format!(
+        "❌ Server sidecar not found! Searched:\n{}\n\nPlease ensure the app was built correctly.",
+        possible_paths.iter()
+            .map(|p| format!("  - {:?}", p))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    eprintln!("{}", error_msg);
+
     // Fallback to python
-    println!("Sidecar not found, using python server.py");
-    Ok(("python".to_string(), vec!["server.py".to_string()]))
+    println!("⚠️  Falling back to python server.py");
+    println!("   Note: This requires Python to be installed on your system");
+    Ok(("python3".to_string(), vec!["server.py".to_string()]))
 }
 
 #[tauri::command]

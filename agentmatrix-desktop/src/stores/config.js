@@ -187,17 +187,26 @@ export const useConfigStore = defineStore('config', {
       const name = this.wizardData.user_name
 
       try {
+        console.log('🚀 Starting wizard submission...')
+        console.log('MatrixWorld path:', path)
+        console.log('User name:', name)
+
         // 1. 创建目录和模板（Tauri，不需要后端）
+        console.log('📁 Step 1: Creating matrix world from template...')
         await invoke('init_matrix_world', { matrixWorldPath: path, userName: name })
+        console.log('✅ Matrix world created')
 
         // 2. 保存 .env（存放真实的 API key）
+        console.log('🔐 Step 2: Saving .env file...')
         const envVars = {
           LLM_API_KEY: this.wizardData.default_llm.api_key,
           SLM_API_KEY: this.wizardData.default_slm.api_key,
         }
         await invoke('save_env_file', { matrixWorldPath: path, envVars })
+        console.log('✅ .env saved')
 
         // 3. 保存 LLM 配置（API key 位置固定为环境变量名）
+        console.log('⚙️  Step 3: Saving LLM config...')
         const llmConfig = {
           default_llm: {
             url: this.wizardData.default_llm.url,
@@ -211,56 +220,100 @@ export const useConfigStore = defineStore('config', {
           },
         }
         await invoke('save_llm_config', { matrixWorldPath: path, llmConfig })
+        console.log('✅ LLM config saved')
 
         // 4. 保存 Email Proxy 配置（如果有）
         if (this.wizardData.email_proxy.enabled) {
+          console.log('📧 Step 4: Saving email proxy config...')
           await invoke('save_email_proxy_config_cmd', {
             matrixWorldPath: path,
             emailProxy: this.wizardData.email_proxy,
           })
+          console.log('✅ Email proxy config saved')
         }
 
         // 5. 启动后端（此时目录和文件已存在）
-        await invoke('start_backend')
+        console.log('🔧 Step 5: Starting backend server...')
+        try {
+          await invoke('start_backend')
+          console.log('✅ Backend server started')
+        } catch (backendError) {
+          console.error('❌ Failed to start backend:', backendError)
+          throw new Error(
+            `Failed to start backend server: ${backendError}\n\n` +
+            'This usually means the Python server executable could not be found.\n' +
+            'Please check the console logs for details.'
+          )
+        }
 
         // 等待后端启动
+        console.log('⏳ Waiting for backend to be ready...')
         await new Promise(resolve => setTimeout(resolve, 3000))
 
         // 健康检查，最多重试 3 次
+        let backendReady = false
         for (let i = 0; i < 3; i++) {
+          console.log(`   Health check attempt ${i + 1}/3...`)
           const isRunning = await invoke('check_backend')
-          if (isRunning) break
-          if (i === 2) throw new Error('Backend failed to start')
-          await new Promise(resolve => setTimeout(resolve, 2000))
+          if (isRunning) {
+            console.log('✅ Backend is ready!')
+            backendReady = true
+            break
+          }
+          if (i < 2) {
+            console.log('   Backend not ready, waiting 2 more seconds...')
+            await new Promise(resolve => setTimeout(resolve, 2000))
+          }
+        }
+
+        if (!backendReady) {
+          throw new Error(
+            'Backend server failed to start or is not responding.\n\n' +
+            'The server may have crashed. Please check:\n' +
+            '1. Python is installed on your system\n' +
+            '2. All dependencies are available\n' +
+            '3. The MatrixWorld directory is valid'
+          )
         }
 
         // 6. 通知后端初始化 runtime（读取已有文件）
+        console.log('🎯 Step 6: Initializing runtime...')
         const result = await configAPI.initRuntime({ matrix_world_path: path })
 
         if (!result.success) {
-          throw new Error(result.message || 'Runtime initialization failed')
+          throw new Error(
+            `Runtime initialization failed: ${result.message || 'Unknown error'}\n\n` +
+            'Please check that all configuration files are valid.'
+          )
         }
+        console.log('✅ Runtime initialized')
 
         this.submitResult = result
 
         // 5.5 首次运行专属操作（仅冷启动时执行一次）
         try {
+          console.log('🎉 Performing first-run initialization...')
           await configAPI.firstRunInit({
             matrix_world_path: path,
             user_name: name,
           })
+          console.log('✅ First-run init complete')
         } catch (e) {
-          console.warn('First-run init failed (non-blocking):', e)
+          console.warn('⚠️  First-run init failed (non-blocking):', e)
         }
 
         // 6. 标记已配置
+        console.log('💾 Saving configuration...')
         await invoke('mark_configured', { matrixWorldPath: path })
+        console.log('✅ Configuration saved')
 
         this.isFirstRun = false
+        console.log('🎊 Wizard completed successfully!')
         return result
       } catch (error) {
-        console.error('Failed to submit wizard:', error)
-        this.submitError = error.message
+        console.error('❌ Wizard submission failed:', error)
+        console.error('Error stack:', error.stack)
+        this.submitError = error.message || String(error)
         throw error
       } finally {
         this.isSubmitting = false
