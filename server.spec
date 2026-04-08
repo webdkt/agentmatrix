@@ -43,29 +43,10 @@ a = Analysis(
         'requests',
         'requests.exceptions',
 
-        # AgentMatrix modules
+        # AgentMatrix core (PyInstaller usually finds these automatically)
         'agentmatrix',
-        'agentmatrix.agents',
-        'agentmatrix.agents.base',
-        'agentmatrix.agents.micro_agent',
-        'agentmatrix.agents.user_proxy',
-        'agentmatrix.agents.post_office',
-        'agentmatrix.core',
-        'agentmatrix.core.action',
-        'agentmatrix.core.config',
-        'agentmatrix.core.config_schemas',
-        'agentmatrix.core.config_sections',
-        'agentmatrix.core.loader',
-        'agentmatrix.core.runtime',
-        'agentmatrix.core.session_manager',
-        'agentmatrix.core.message',
-        'agentmatrix.core.events',
-        'agentmatrix.core.paths',
-        'agentmatrix.core.log_util',
-        'agentmatrix.services',
-        'agentmatrix.services.config_service',
-        'agentmatrix.services.email_proxy_service',
-        'agentmatrix.skills',
+
+        # Skills are loaded dynamically via importlib.import_module
         'agentmatrix.skills.base',
         'agentmatrix.skills.email',
         'agentmatrix.skills.file',
