@@ -273,6 +273,14 @@ fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), Stri
         ));
     }
 
+    // Check if it's the placeholder script (local build)
+    if let Ok(content) = std::fs::read_to_string(&sidecar_path) {
+        if content.contains("Placeholder for Tauri sidecar binary") {
+            println!("⚠️  Detected placeholder sidecar (local build), falling back to python");
+            return Ok(("python3".to_string(), vec!["server.py".to_string()]));
+        }
+    }
+
     if !sidecar_path.is_file() {
         return Err(format!(
             "❌ Server sidecar exists but is not a file: {:?}",
