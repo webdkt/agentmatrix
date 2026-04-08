@@ -31,7 +31,13 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+# PyInstaller sets sys._MEIPASS to the temp extraction directory where data files live.
+# In dev mode, data files are at __file__/src; in PyInstaller they are at sys._MEIPASS.
+if getattr(sys, 'frozen', False):
+    # PyInstaller bundled: data files are at sys._MEIPASS
+    sys.path.insert(0, sys._MEIPASS)
+else:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 # Import AgentMatrix
 from agentmatrix import AgentMatrix
