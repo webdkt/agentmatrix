@@ -1,4 +1,5 @@
 import { ref, onMounted, onUnmounted } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 
 /**
  * WebSocket 客户端
@@ -120,10 +121,19 @@ export function useWebSocket() {
   const messageHandlers = ref([])
 
   // 初始化 WebSocket 连接
-  const connect = () => {
-    // 连接到后端 WebSocket (端口 8000)
-    // 在开发环境中，我们需要连接到 Python 后端而不是 Vite 开发服务器
-    const wsUrl = 'ws://localhost:8000/ws'
+  const connect = async () => {
+    // Try to get dynamic port from Tauri, fall back to 8000 for dev mode
+    let port = 8000
+    try {
+      const dynamicPort = await invoke('get_backend_port')
+      if (dynamicPort) {
+        port = dynamicPort
+      }
+    } catch {
+      // In dev mode (no Tauri backend), use default 8000
+    }
+
+    const wsUrl = `ws://localhost:${port}/ws`
 
     console.log('🔌 Connecting to WebSocket:', wsUrl)
 

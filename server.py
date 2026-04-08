@@ -63,7 +63,7 @@ def parse_args():
         help="Host to bind to (default: 127.0.0.1)",
     )
     parser.add_argument(
-        "--port", type=int, default=8000, help="Port to bind to (default: 8000)"
+        "--port", type=int, default=0, help="Port to bind to (default: 0 = OS-assigned)"
     )
     parser.add_argument(
         "--reload", action="store_true", help="Enable auto-reload for development"
@@ -562,6 +562,7 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/")
 async def root():
     """Root endpoint - API information"""
+    actual_port = getattr(app.state, 'actual_port', args.port)
     return {
         "message": "AgentMatrix API Server",
         "version": __version__,
@@ -573,7 +574,7 @@ async def root():
         },
         "api_docs": "/docs",
         "endpoints": {
-            "websocket": "ws://localhost:8000/ws",
+            "websocket": f"ws://localhost:{actual_port}/ws",
             "api_base": "/api",
             "health": "/api/system/status",
         },
@@ -2300,7 +2301,25 @@ def main():
     # Args already parsed at module level
     # Access via module-level 'args' variable
     try:
-        uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
+        config = uvicorn.Config(app, host=args.host, port=args.port, reload=args.reload)
+        server = uvicorn.Server(config)
+
+        # Override server startup to write port file
+        original_startup = server.startup
+        async def startup_with_port_file(sockets=None):
+            await original_startup(sockets=sockets)
+            # After sockets are bound, discover the actual port
+            if server.servers:
+                actual_port = server.servers[0].sockets[0].getsockname()[1]
+                app.state.actual_port = actual_port
+                # Write port to file so Tauri can discover it
+                port_file = matrix_world_dir / ".matrix" / "backend_port"
+                port_file.parent.mkdir(parents=True, exist_ok=True)
+                port_file.write_text(str(actual_port))
+                print(f"🔌 Backend port: {actual_port} (written to {port_file})")
+        server.startup = startup_with_port_file
+
+        server.run()
     except KeyboardInterrupt:
         # Ctrl-C 正常退出，已在 lifespan shutdown 中打印告别信息
         pass

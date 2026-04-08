@@ -3,6 +3,7 @@
 
 use std::process::{Command, Child};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::path::PathBuf;
 use tauri::{State, Manager, menu::{Menu, MenuItem}, tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState}};
 use serde_json::Value as JsonValue;
@@ -219,7 +220,10 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 }
 
 // Backend state management
-struct BackendState(Mutex<Option<Child>>);
+struct BackendState {
+    child: Mutex<Option<Child>>,
+    port: AtomicU16,
+}
 
 /// Get the path to the server executable (sidecar)
 /// In production, the sidecar MUST exist at the expected location.
@@ -324,6 +328,13 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
     // Add common arguments
     cmd.arg("--matrix-world")
        .arg(matrix_world.to_string_lossy().to_string());
+
+    // In production, use dynamic port to avoid conflicts; in dev, keep 8000 for Vite proxy
+    if cfg!(dev) {
+        cmd.arg("--port").arg("8000");
+    } else {
+        cmd.arg("--port").arg("0");
+    }
     
     // Set working directory only if using python (for server.py to find src/)
     if !server_args.is_empty() {
@@ -382,18 +393,42 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
             format!("Failed to start backend: {}", e)
         })?;
 
-    let mut state_guard = state.0.lock().unwrap();
-    *state_guard = Some(child);
+    {
+        *state.child.lock().unwrap() = Some(child);
+    }
 
-    println!("Backend started successfully");
-    Ok("Backend started".to_string())
+    // Poll for port file written by the server
+    let port_file = matrix_world.join(".matrix").join("backend_port");
+    println!("Waiting for port file: {:?}", port_file);
+    let mut actual_port: Option<u16> = None;
+    for attempt in 0..60 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if port_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&port_file) {
+                if let Ok(port) = content.trim().parse::<u16>() {
+                    println!("Port file found after {} attempts, port={}", attempt + 1, port);
+                    actual_port = Some(port);
+                    break;
+                }
+            }
+        }
+    }
+
+    let port = actual_port.ok_or_else(|| {
+        "Timed out waiting for backend port file".to_string()
+    })?;
+
+    println!("Backend started on port {}", port);
+    state.port.store(port, Ordering::SeqCst);
+
+    Ok(format!("Backend started on port {}", port))
 }
 
 #[tauri::command]
 async fn stop_backend(state: State<'_, BackendState>) -> Result<String, String> {
     println!("Stopping Python backend...");
 
-    if let Some(mut child) = state.0.lock().unwrap().take() {
+    if let Some(mut child) = state.child.lock().unwrap().take() {
         child.kill()
             .map_err(|e| format!("Failed to stop backend: {}", e))?;
         println!("Backend stopped successfully");
@@ -401,12 +436,24 @@ async fn stop_backend(state: State<'_, BackendState>) -> Result<String, String> 
         println!("No backend running");
     }
 
+    // Clear port state and port file
+    state.port.store(0, Ordering::SeqCst);
+    if let Ok(app_config) = AppConfig::load() {
+        let port_file = expand_path(&app_config.matrix_world_path).join(".matrix").join("backend_port");
+        let _ = std::fs::remove_file(&port_file);
+    }
+
     Ok("Backend stopped".to_string())
 }
 
 #[tauri::command]
-async fn check_backend() -> Result<bool, String> {
+async fn check_backend(state: State<'_, BackendState>) -> Result<bool, String> {
     use std::time::Duration;
+
+    let port = state.port.load(Ordering::SeqCst);
+    if port == 0 {
+        return Ok(false);
+    }
 
     // Try to connect to the backend
     let client = reqwest::Client::builder()
@@ -414,11 +461,21 @@ async fn check_backend() -> Result<bool, String> {
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let response = client.get("http://localhost:8000/")
+    let response = client.get(format!("http://localhost:{}/", port))
         .send()
         .await;
 
     Ok(response.is_ok())
+}
+
+#[tauri::command]
+async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>, String> {
+    let port = state.port.load(Ordering::SeqCst);
+    if port == 0 {
+        Ok(None)
+    } else {
+        Ok(Some(port))
+    }
 }
 
 #[tauri::command]
@@ -888,7 +945,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(BackendState(Mutex::new(None)))
+        .manage(BackendState { child: Mutex::new(None), port: AtomicU16::new(0) })
         .setup(|app| {
             // Setup system tray
             let show_item = MenuItem::with_id(app, "show", "Open AgentMatrix", true, None::<&str>)?;
@@ -934,6 +991,7 @@ fn main() {
             start_backend,
             stop_backend,
             check_backend,
+            get_backend_port,
             get_config,
             update_config,
             is_first_run,
