@@ -81,6 +81,7 @@ class SingleContainerManager(AutoLoggerMixin):
         runtime_type: str = None,
         parent_logger: Optional[logging.Logger] = None,
         proxy_config: Optional[Dict[str, Any]] = None,
+        adapter: ContainerAdapter = None,
     ):
         """
         初始化单容器管理器
@@ -91,6 +92,7 @@ class SingleContainerManager(AutoLoggerMixin):
             runtime_type: 运行时类型 ('docker', 'podman', 'auto')
             parent_logger: 父级 logger
             proxy_config: HTTP 代理配置
+            adapter: 已有的容器运行时适配器（避免重复检测）
         """
         self.workspace_root = workspace_root
         self.image_name = image_name or self.DEFAULT_IMAGE
@@ -102,9 +104,12 @@ class SingleContainerManager(AutoLoggerMixin):
             self._parent_logger = logging.getLogger("single_container")
 
         # 初始化容器运行时适配器
-        self.adapter: ContainerAdapter = ContainerRuntimeFactory.create(
-            runtime_type=runtime_type, logger=self.logger
-        )
+        if adapter:
+            self.adapter: ContainerAdapter = adapter
+        else:
+            self.adapter: ContainerAdapter = ContainerRuntimeFactory.create(
+                runtime_type=runtime_type, logger=self.logger
+            )
 
         # 检测运行时类型
         self.runtime_type = ContainerCompat.detect_runtime_type(self.adapter)

@@ -70,10 +70,10 @@ class ContainerSession:
                 runtime_cmd,
                 "exec",
                 "-i",
-                "-t",
                 self.container_name,
                 "su",
-                "-",
+                "-s",
+                "/bin/bash",
                 self.username,
             ]
         else:

@@ -161,7 +161,8 @@ class AgentMatrix(AutoLoggerMixin):
         self.echo(">>> 检查容器运行时状态...")
         from ..core.container.runtime_factory import ContainerRuntimeFactory
 
-        if not ContainerRuntimeFactory.ensure_running(logger=self.logger):
+        self._container_adapter = ContainerRuntimeFactory.ensure_running(logger=self.logger)
+        if not self._container_adapter:
             raise RuntimeError(
                 "容器运行时启动失败。AgentMatrix 依赖 Docker 或 Podman 运行，请确保已安装并启动。\n"
                 "下载地址: https://www.docker.com/products/docker-desktop/"
@@ -296,6 +297,7 @@ class AgentMatrix(AutoLoggerMixin):
         self.container_manager = SingleContainerManager(
             workspace_root=self.paths.workspace_dir,
             parent_logger=self.logger,
+            adapter=self._container_adapter,
         )
         # 确保容器已启动
         self.container_manager.wakeup()

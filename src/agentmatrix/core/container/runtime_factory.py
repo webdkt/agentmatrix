@@ -197,7 +197,7 @@ class ContainerRuntimeFactory:
             return False
 
     @staticmethod
-    def ensure_running(logger: logging.Logger = None) -> bool:
+    def ensure_running(logger: logging.Logger = None) -> ContainerAdapter:
         """
         确保容器运行时已启动。
 
@@ -208,17 +208,18 @@ class ContainerRuntimeFactory:
             logger: 日志记录器（可选）
 
         Returns:
-            bool: 容器运行时是否成功运行
+            ContainerAdapter: 可用的容器运行时适配器，失败返回 None
         """
         try:
             adapter = ContainerRuntimeFactory._auto_detect(logger=logger)
-            return adapter.ensure_running()
+            adapter.ensure_running()
+            return adapter
         except Exception as e:
             if logger:
                 logger.log(logging.WARNING, f"容器运行时启动失败: {e}")
             else:
                 print(f"容器运行时启动失败: {e}")
-            return False
+            return None
 
     @staticmethod
     def get_available_runtimes(logger: logging.Logger = None) -> list:
