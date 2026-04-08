@@ -245,7 +245,18 @@ fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), Stri
             .and_then(|p| p.parent())
             .and_then(|p| Some(p.join("MacOS").join("server")))
             .unwrap_or_else(|| resource_path.join("MacOS").join("server")),
-        // Fallback: check binaries directory (some Tauri versions)
+        // Windows: sidecar is in the same directory as the main .exe
+        // resource_dir() points to resources/, so parent is install dir
+        #[cfg(target_os = "windows")]
+        resource_path.parent() // Go from resources to install directory
+            .and_then(|p| Some(p.join("server.exe")))
+            .unwrap_or_else(|| resource_path.join("server.exe")),
+        // Linux: sidecar is in the same directory as the main executable
+        #[cfg(target_os = "linux")]
+        resource_path.parent() // Go from resources to install directory
+            .and_then(|p| Some(p.join("server")))
+            .unwrap_or_else(|| resource_path.join("server")),
+        // Fallback: check binaries directory (some Tauri versions or dev builds)
         #[cfg(not(target_os = "windows"))]
         resource_path.join("binaries").join("server"),
         #[cfg(target_os = "windows")]
