@@ -529,7 +529,14 @@ class SingleContainerManager(AutoLoggerMixin):
                 ["sh", "-c", command],
                 user="0",
             )
-            output_str = output.decode("utf-8", errors="replace") if isinstance(output, bytes) else str(output)
+            if isinstance(output, bytes):
+                # Strip Docker/Podman stream header (8-byte framing: type + padding + length)
+                # First byte is stream type (0x01=stdout, 0x02=stderr), followed by 7 bytes padding/length
+                if len(output) > 8 and output[0] in (0x01, 0x02):
+                    output = output[8:]
+                output_str = output.decode("utf-8", errors="replace")
+            else:
+                output_str = str(output)
             return exit_code, output_str.strip()
         except Exception as e:
             return -1, str(e)
