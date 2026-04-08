@@ -36,8 +36,8 @@ jobs:
           retention-days: 7
           compression-level: 6
 
-  # Job 2: Build macOS ARM
-  build-macos-arm:
+  # Job 2: Build macOS (Universal Binary - ARM64 + x86_64)
+  build-macos:
     needs: build-docker
     runs-on: macos-latest
 
@@ -45,7 +45,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==================== Python Backend Build ====================
+      # ==================== Python Backend Build (ARM64) ====================
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -59,13 +59,37 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Build Python backend with PyInstaller
+      - name: Build Python backend with PyInstaller (ARM64)
         run: |
-          pyinstaller server.spec --distpath dist-server
+          pyinstaller server.spec --distpath dist-server-arm64
 
-      - name: Verify server executable
+      - name: Verify ARM64 server executable
         run: |
-          ls -la dist-server/server
+          file dist-server-arm64/server
+          ls -la dist-server-arm64/server
+
+      # ==================== Python Backend Build (x86_64 via Rosetta) ====================
+      - name: Set up Python for x86_64 cross-compile
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python dependencies for x86_64
+        run: |
+          arch -x86_64 python -m pip install --upgrade pip
+          arch -x86_64 pip install pyinstaller
+          arch -x86_64 pip install -r requirements.txt
+          arch -x86_64 pip install -e .
+
+      - name: Build Python backend with PyInstaller (x86_64)
+        run: |
+          arch -x86_64 pyinstaller server.spec --distpath dist-server-x64
+
+      - name: Verify x86_64 server executable
+        run: |
+          file dist-server-x64/server
+          ls -la dist-server-x64/server
 
       # ==================== Download Docker Image ====================
       - name: Download Docker image
@@ -80,45 +104,51 @@ jobs:
           cp artifacts/docker-image-x86_64.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
           ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
 
-      # ==================== Download Podman Installer ====================
-      - name: Download Podman installer (macOS ARM64)
+      # ==================== Download Podman Installers ====================
+      - name: Download Podman installers (both architectures)
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/resources/podman
+
           # Fetch latest release info from GitHub API (use GITHUB_TOKEN to avoid rate limits)
           RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
-          # Validate response
-          if [ -z "$RELEASE_INFO" ] || echo "$RELEASE_INFO" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-            echo "ERROR: Failed to fetch Podman release info"
-            echo "$RELEASE_INFO" | head -5
-            exit 1
-          fi
-          # Extract ARM64 package URL
-          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-arm64.pkg") | .browser_download_url')
-          if [ -z "$PACKAGE_URL" ] || [ "$PACKAGE_URL" = "null" ]; then
-            echo "ERROR: Could not find podman-installer-macos-arm64.pkg in latest release"
-            echo "$RELEASE_INFO" | jq '.assets[].name'
-            exit 1
-          fi
-          echo "Downloading from: $PACKAGE_URL"
-          # Download package
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg "$PACKAGE_URL"
-          # Verify file was downloaded
-          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg
 
-      # ==================== Copy Server to Tauri Sidecar ====================
-      - name: Copy server to sidecar directory
+          # Download ARM64 version
+          PACKAGE_URL_ARM64=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-arm64.pkg") | .browser_download_url')
+          if [ -n "$PACKAGE_URL_ARM64" ] && [ "$PACKAGE_URL_ARM64" != "null" ]; then
+            echo "Downloading ARM64 from: $PACKAGE_URL_ARM64"
+            curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg "$PACKAGE_URL_ARM64"
+          fi
+
+          # Download x64 version
+          PACKAGE_URL_X64=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-amd64.pkg") | .browser_download_url')
+          if [ -n "$PACKAGE_URL_X64" ] && [ "$PACKAGE_URL_X64" != "null" ]; then
+            echo "Downloading x64 from: $PACKAGE_URL_X64"
+            curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg "$PACKAGE_URL_X64"
+          fi
+
+          # Verify downloads
+          ls -lh agentmatrix-desktop/src-tauri/resources/podman/
+
+      # ==================== Copy Server Binaries to Tauri Sidecar ====================
+      - name: Copy server binaries with architecture-specific names
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # PyInstaller onefile mode generates: dist-server/server (single executable)
-          # For cross-compilation, Tauri expects architecture-specific names
-          # macOS ARM: server-aarch64-apple-darwin
-          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
+
+          # Copy ARM64 binary with architecture suffix
+          cp dist-server-arm64/server agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
           chmod +x agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
-          # Also copy as generic name for local development
-          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server
-          # Verify the executables
+
+          # Copy x86_64 binary with architecture suffix
+          cp dist-server-x64/server agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
+          chmod +x agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
+
+          # Verify the executables (different sizes)
+          echo "=== Architecture-specific binaries ==="
           ls -lh agentmatrix-desktop/src-tauri/binaries/
+          echo ""
+          echo "=== Architecture verification ==="
+          file agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
+          file agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -128,22 +158,22 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'agentmatrix-desktop/package-lock.json'
 
-      - name: Install Rust
+      - name: Install Rust targets for macOS
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: Install frontend dependencies
         working-directory: agentmatrix-desktop
         run: npm install
 
-      # ==================== Tauri Build ====================
+      # ==================== Tauri Build (Universal) ====================
       - name: Clean .DS_Store files
         run: find . -name ".DS_Store" -delete
 
-      - name: Build Tauri application
+      - name: Build Tauri application (Universal - ARM64 + x86_64)
         working-directory: agentmatrix-desktop
-        run: npm run tauri:build
+        run: npm run tauri build -- --target universal-apple-darwin
         env:
           CI: true
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
@@ -153,131 +183,9 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: aarch64-apple-darwin-build
+          name: universal-apple-darwin-build
           path: |
-            agentmatrix-desktop/src-tauri/target/release/bundle/dmg/*.dmg
-          retention-days: 7
-
-  # Job 3: Build macOS x64 (cross-compiled from ARM runner)
-  build-macos-x64:
-    needs: build-docker
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ==================== Python Backend Build (x64 cross-compile) ====================
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r requirements.txt
-          pip install -e .
-
-      - name: Build Python backend with PyInstaller (x64)
-        run: |
-          ARCHFLAGS="-arch x86_64" pyinstaller server.spec --distpath dist-server
-
-      - name: Verify server executable
-        run: |
-          file dist-server/server
-          ls -la dist-server/server
-
-      # ==================== Download Docker Image ====================
-      - name: Download Docker image
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image-x86_64
-          path: artifacts
-
-      - name: Copy Docker image to resources
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          cp artifacts/docker-image-x86_64.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-
-      # ==================== Download Podman Installer ====================
-      - name: Download Podman installer (macOS x64)
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          # Fetch latest release info from GitHub API (use GITHUB_TOKEN to avoid rate limits)
-          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
-          # Validate response
-          if [ -z "$RELEASE_INFO" ] || echo "$RELEASE_INFO" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-            echo "ERROR: Failed to fetch Podman release info"
-            echo "$RELEASE_INFO" | head -5
-            exit 1
-          fi
-          # Extract x64 package URL
-          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-amd64.pkg") | .browser_download_url')
-          if [ -z "$PACKAGE_URL" ] || [ "$PACKAGE_URL" = "null" ]; then
-            echo "ERROR: Could not find podman-installer-macos-amd64.pkg in latest release"
-            echo "$RELEASE_INFO" | jq '.assets[].name'
-            exit 1
-          fi
-          echo "Downloading from: $PACKAGE_URL"
-          # Download package
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg "$PACKAGE_URL"
-          # Verify file was downloaded
-          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg
-
-      # ==================== Copy Server to Tauri Sidecar ====================
-      - name: Copy server to sidecar directory
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # PyInstaller onefile mode generates: dist-server/server (single executable)
-          # For cross-compilation, Tauri expects architecture-specific names
-          # macOS x64: server-x86_64-apple-darwin
-          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
-          # Also copy as generic name for local development
-          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server
-          # Verify the executables
-          ls -lh agentmatrix-desktop/src-tauri/binaries/
-
-      # ==================== Frontend Build ====================
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'agentmatrix-desktop/package-lock.json'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Install frontend dependencies
-        working-directory: agentmatrix-desktop
-        run: npm install
-
-      # ==================== Tauri Build (cross-compile to x64) ====================
-      - name: Clean .DS_Store files
-        run: find . -name ".DS_Store" -delete
-
-      - name: Build Tauri application (x64)
-        working-directory: agentmatrix-desktop
-        run: npx tauri build --target x86_64-apple-darwin
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-
-      # ==================== Upload Artifacts ====================
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-apple-darwin-build
-          path: |
-            agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            agentmatrix-desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
   # Job 4: Build Windows
@@ -404,12 +312,12 @@ jobs:
             agentmatrix-desktop/src-tauri/target/release/bundle/msi/*.msi
           retention-days: 7
 
-  # Job 5: Release (only on tag push)
+  # Job 4: Release (only on tag push)
   release:
-    needs: [build-macos-arm, build-macos-x64, build-windows]
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    permissions: 
+    permissions:
       contents: write
 
     steps:

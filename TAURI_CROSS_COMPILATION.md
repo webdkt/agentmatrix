@@ -1,132 +1,167 @@
 # Tauri 跨平台编译架构特定二进制文件配置
 
-## 🎯 问题描述
+## 🎯 核心原理
 
-在 Tauri 跨平台编译时，Tauri 会自动寻找架构特定的二进制文件名：
+根据 [Tauri 2.0 官方文档](https://v2.tauri.app/develop/sidecar/)：
 
-```
-resource path `binaries/server-x86_64-apple-darwin` doesn't exist
-```
+> To make the external binary work on each supported architecture, a binary with the same name and a `-$TARGET_TRIPLE` suffix must exist on the specified path.
+
+**关键点：**
+1. 只需在 `tauri.conf.json` 配置基础名称：`"externalBin": ["binaries/server"]`
+2. Tauri 自动根据 `TARGET_TRIPLE` 查找对应的架构特定文件
+3. 不需要配置所有架构名称，Tauri 会自动处理
 
 ## 🔧 解决方案
 
 ### 1. 架构特定文件名映射
 
-| 平台 | 架构特定文件名 | 通用文件名 |
-|------|---------------|-----------|
-| macOS ARM64 | `server-aarch64-apple-darwin` | `server` |
-| macOS x64 | `server-x86_64-apple-darwin` | `server` |
-| Windows x64 | `server-x86_64-pc-windows-msvc.exe` | `server.exe` |
+| 平台 | 架构特定文件名 | 说明 |
+|------|---------------|------|
+| macOS ARM64 | `server-aarch64-apple-darwin` | Apple Silicon (M1/M2/M3) |
+| macOS x64 | `server-x86_64-apple-darwin` | Intel Mac |
+| Windows x64 | `server-x86_64-pc-windows-msvc.exe` | Windows 64-bit |
 
-### 2. GitHub Actions 构建脚本
+### 2. Tauri 配置文件
 
-```yaml
-# macOS ARM
-- name: Copy server to sidecar directory
-  run: |
-    mkdir -p agentmatrix-desktop/src-tauri/binaries
-    # 复制架构特定文件名
-    cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
-    chmod +x agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
-    # 同时保留通用文件名
-    cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
-    chmod +x agentmatrix-desktop/src-tauri/binaries/server
-
-# macOS x64
-- name: Copy server to sidecar directory
-  run: |
-    mkdir -p agentmatrix-desktop/src-tauri/binaries
-    cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
-    chmod +x agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
-    cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
-    chmod +x agentmatrix-desktop/src-tauri/binaries/server
-
-# Windows
-- name: Copy server to sidecar directory
-  shell: bash
-  run: |
-    mkdir -p agentmatrix-desktop/src-tauri/binaries
-    cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
-    cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server.exe
-```
-
-### 3. Tauri 配置文件
-
-在 `tauri.conf.json` 中配置所有架构的二进制文件：
+**只需配置基础名称：**
 
 ```json
 {
   "bundle": {
     "externalBin": [
-      "binaries/server",
-      "binaries/server-aarch64-apple-darwin",
-      "binaries/server-x86_64-apple-darwin",
-      "binaries/server-x86_64-pc-windows-msvc.exe"
+      "binaries/server"
     ]
   }
 }
 ```
 
+**Tauri 的自动选择逻辑：**
+```rust
+// Tauri 内部逻辑（伪代码）
+let target_triple = std::env::var("TARGET").unwrap(); // e.g., "aarch64-apple-darwin"
+let binary_name = format!("binaries/server-{}", target_triple);
+// Tauri 会自动查找：binaries/server-aarch64-apple-darwin
+```
+
+### 3. macOS 通用二进制（推荐）
+
+使用单一 runner 构建通用二进制文件：
+
+```yaml
+build-macos:
+  runs-on: macos-latest
+  steps:
+    # 构建两个架构的 Python 后端
+    - name: Build ARM64 backend
+      run: pyinstaller server.spec --distpath dist-server-arm64
+
+    - name: Build x86_64 backend
+      run: arch -x86_64 pyinstaller server.spec --distpath dist-server-x64
+
+    # 复制到不同文件名
+    - name: Copy architecture-specific binaries
+      run: |
+        cp dist-server-arm64/server binaries/server-aarch64-apple-darwin
+        cp dist-server-x64/server binaries/server-x86_64-apple-darwin
+
+    # 构建 Universal 二进制（包含两个架构）
+    - name: Build Tauri app
+      run: npm run tauri build -- --target universal-apple-darwin
+```
+
+**优点：**
+- 单一 dmg 文件支持所有 Mac
+- 用户下载后自动选择正确的架构
+- 更好的用户体验
+
 ## 🚀 工作原理
 
-### Tauri 的二进制文件选择逻辑
+### Tauri Sidecar 机制
 
-1. **开发环境**：使用 `binaries/server` (通用文件名)
-2. **本地构建**：使用当前平台对应的文件
-3. **跨平台编译**：自动选择目标平台的架构特定文件名
+1. **配置阶段**：在 `tauri.conf.json` 中声明 sidecar 路径
+2. **构建阶段**：Tauri 根据 `TARGET_TRIPLE` 查找对应的架构特定文件
+3. **运行阶段**：应用启动时自动选择正确的二进制文件
 
-### 构建流程
+### macOS 交叉编译
 
-```mermaid
-graph LR
-    A[PyInstaller 构建] --> B[生成 server 可执行文件]
-    B --> C[复制为架构特定文件名]
-    C --> D[Tauri 打包]
-    D --> E[生成平台特定安装包]
-```
-
-## 📋 验证方法
-
-### 本地验证
+macOS 原生支持交叉编译：
+- **ARM64 Mac** 可以构建 x86_64 二进制文件（通过 Rosetta）
+- **x86_64 Mac** 可以构建 ARM64 二进制文件
+- 使用 `arch -x86_64` 命令强制 x86_64 环境
 
 ```bash
-# 检查 binaries 目录
-ls -la agentmatrix-desktop/src-tauri/binaries/
+# 在 ARM64 Mac 上构建 x86_64 二进制
+arch -x86_64 pyinstaller server.spec
 
-# 应该看到类似输出：
-# server
-# server-aarch64-apple-darwin  (macOS ARM)
-# server-x86_64-apple-darwin    (macOS x64)
+# 验证架构
+file dist-server/server
+# Output: Mach-O 64-bit executable x86_64
 ```
 
-### GitHub Actions 验证
+## 📋 构建流程
 
-1. 推送代码后检查 Actions 构建状态
-2. 确认所有平台（macOS ARM/x64, Windows）都成功构建
-3. 下载并测试生成的安装包
+### 完整流程图
+
+```mermaid
+graph TD
+    A[macOS-latest Runner] --> B[构建 ARM64 Python 后端]
+    A --> C[构建 x86_64 Python 后端]
+    B --> D[server-aarch64-apple-darwin]
+    C --> E[server-x86_64-apple-darwin]
+    D --> F[Tauri 通用二进制构建]
+    E --> F
+    F --> G[Universal DMG]
+```
+
+### 验证方法
+
+```bash
+# 1. 检查二进制文件架构
+file agentmatrix-desktop/src-tauri/binaries/server-*
+
+# 预期输出：
+# server-aarch64-apple-darwin: Mach-O 64-bit executable arm64
+# server-x86_64-apple-darwin: Mach-O 64-bit executable x86_64
+
+# 2. 检查 Universal 二进制
+file AgentMatrix.app/Contents/MacOS/AgentMatrix
+
+# 预期输出：
+# Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit executable x86_64] [arm64:Mach-O 64-bit executable arm64]
+```
 
 ## ⚠️ 注意事项
 
 ### 1. 文件权限
-确保复制的二进制文件有执行权限：
+
 ```bash
-chmod +x agentmatrix-desktop/src-tauri/binaries/server*
+chmod +x agentmatrix-desktop/src-tauri/binaries/server-*
 ```
 
-### 2. 平台差异
-- **Unix-like** (macOS/Linux): 无扩展名的可执行文件
-- **Windows**: `.exe` 扩展名
+### 2. 架构特定命名
 
-### 3. 架构检测
-Tauri 根据编译目标自动选择正确的二进制文件：
-```rust
-// Tauri 内部逻辑
-match target_triple {
-    "aarch64-apple-darwin" => "server-aarch64-apple-darwin",
-    "x86_64-apple-darwin" => "server-x86_64-apple-darwin",
-    "x86_64-pc-windows-msvc" => "server-x86_64-pc-windows-msvc.exe",
-    _ => "server", // 通用文件名
-}
+**不要使用通用名称：**
+- ❌ `server` (在 CI 构建中)
+- ✅ `server-aarch64-apple-darwin`
+- ✅ `server-x86_64-apple-darwin`
+
+**通用名称只在本地开发时使用。**
+
+### 3. 平台差异
+
+| 平台 | 文件扩展名 | 示例 |
+|------|-----------|------|
+| macOS | 无 | `server-aarch64-apple-darwin` |
+| Windows | `.exe` | `server-x86_64-pc-windows-msvc.exe` |
+
+### 4. TARGET_TRIPLE 查询
+
+```bash
+# 查看当前平台的 TARGET_TRIPLE
+rustc --print host-tuple
+# Output: aarch64-apple-darwin (ARM64 Mac)
+#         x86_64-apple-darwin (Intel Mac)
+#         x86_64-pc-windows-msvc (Windows)
 ```
 
 ## 🔍 故障排除
@@ -134,23 +169,28 @@ match target_triple {
 ### 常见错误
 
 1. **`resource path 'binaries/server-xxx' doesn't exist`**
-   - 确保构建脚本复制了架构特定文件名
-   - 检查文件权限设置
+   - 确保构建脚本生成了架构特定文件名
+   - 验证文件权限：`chmod +x`
 
-2. **`Permission denied`**
-   - 确保二进制文件有执行权限
-   - 在构建脚本中添加 `chmod +x`
+2. **`Wrong ELF type` / `Bad CPU type`**
+   - 二进制文件架构与目标平台不匹配
+   - 使用 `file` 命令验证架构
 
-3. **`Wrong ELF type`** (架构不匹配)
-   - 确保跨平台编译时使用正确的工具链
-   - macOS ARM runner 只能构建 ARM64 二进制文件
+3. **Universal 二进制过大**
+   - 正常现象，包含两份完整代码
+   - 可考虑分别发布 ARM64 和 x86_64 版本
 
 ## 📚 相关资源
 
-- [Tauri External Binaries](https://tauri.app/v1/guides/building/sidecar)
-- [PyInstaller Cross-Compilation](https://pyinstaller.org/en/stable/spec-files.html)
-- [GitHub Actions macOS Runners](https://github.com/actions/runner-images)
+- [Tauri 2.0 Sidecar 官方文档](https://v2.tauri.app/develop/sidecar/)
+- [Tauri 2.0 CLI 参考](https://v2.tauri.app/reference/cli/)
+- [PyInstaller 官方文档](https://pyinstaller.org/en/stable/)
+- [macOS 交叉编译指南](https://developer.apple.com/documentation/xcode/building-a-universal-macos-binary)
 
 ---
 
-**总结**: 通过配置架构特定的二进制文件名，解决了 Tauri 跨平台编译时的文件查找问题，现在所有平台都能成功构建。
+**总结**：
+1. ✅ 只需在 `tauri.conf.json` 配置基础名称
+2. ✅ Tauri 自动选择架构特定的二进制文件
+3. ✅ macOS 可在单一 runner 上构建两个架构
+4. ✅ 推荐 Universal 二进制以简化分发
