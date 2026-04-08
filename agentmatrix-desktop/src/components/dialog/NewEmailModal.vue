@@ -1,9 +1,11 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { agentAPI } from '@/api/agent'
 import { sessionAPI } from '@/api/session'
 import { addPendingEmail, removePendingEmail } from '@/composables/usePendingEmails'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { readFile } from '@tauri-apps/plugin-fs'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -84,8 +86,48 @@ const canSend = computed(() => {
 })
 
 // 生命周期
+let unlistenDragDrop = null
+
+// 将 Tauri 拖放路径转换为 File 对象（FormData 需要）
+async function pathToFile(path) {
+  const name = path.split('/').pop() || path
+  const content = await readFile(path)
+  const blob = new Blob([content])
+  return new File([blob], name)
+}
+
 onMounted(async () => {
   await loadAgents()
+
+  // 监听 Tauri 文件拖放事件
+  const webview = await getCurrentWebview()
+  unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
+    if (!props.show) return
+
+    if (event.payload.type === 'over') {
+      isDragging.value = true
+    } else if (event.payload.type === 'drop') {
+      isDragging.value = false
+      const paths = event.payload.paths
+      if (paths && paths.length > 0) {
+        for (const path of paths) {
+          try {
+            const file = await pathToFile(path)
+            attachments.value.push(file)
+          } catch (e) {
+            console.error('Failed to read file:', path, e)
+          }
+        }
+        console.log(`📎 Dropped ${paths.length} file(s)`)
+      }
+    } else {
+      isDragging.value = false
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unlistenDragDrop) unlistenDragDrop()
 })
 
 // 监听 show 变化，重置表单
@@ -470,8 +512,8 @@ const close = () => {
 }
 
 .new-email-modal__content--dragging {
-  border: 2px dashed var(--accent);
-  background: rgba(194, 59, 34, 0.05);
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
 }
 
 /* Header */
@@ -699,11 +741,12 @@ const close = () => {
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  background: rgba(194, 59, 34, 0.9);
-  color: white;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--neutral-600);
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
   border-radius: var(--radius-sm);
+  border: 2px dashed var(--accent);
   pointer-events: none;
 }
 
