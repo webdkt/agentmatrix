@@ -109,8 +109,12 @@ jobs:
       - name: Copy server to sidecar directory
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
-          cp dist-server/server/server agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
+          # PyInstaller onefile mode generates: dist-server/server (single executable)
+          # Tauri externalBin expects: binaries/server (exact name from tauri.conf.json)
+          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
+          chmod +x agentmatrix-desktop/src-tauri/binaries/server
+          # Verify the executable
+          ls -lh agentmatrix-desktop/src-tauri/binaries/server
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -224,8 +228,12 @@ jobs:
       - name: Copy server to sidecar directory
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
-          cp dist-server/server/server agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server-x86_64-apple-darwin
+          # PyInstaller onefile mode generates: dist-server/server (single executable)
+          # Tauri externalBin expects: binaries/server (exact name from tauri.conf.json)
+          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
+          chmod +x agentmatrix-desktop/src-tauri/binaries/server
+          # Verify the executable
+          ls -lh agentmatrix-desktop/src-tauri/binaries/server
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -341,7 +349,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p agentmatrix-desktop/src-tauri/binaries
-          cp dist-server/server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
+          # PyInstaller onefile mode generates: dist-server/server.exe (single executable)
+          # Tauri externalBin expects: binaries/server.exe (exact name from tauri.conf.json)
+          cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server.exe
+          # Verify the executable
+          ls -lh agentmatrix-desktop/src-tauri/binaries/server.exe
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
