@@ -5,7 +5,7 @@ Agent-Matrix is a flexible framework for building and managing AI agents
 with pluggable skills, backend LLM integrations, and message-based communication.
 """
 
-__version__ = "0.6.9.23"
+__version__ = "0.6.9.24"
 
 # Core imports
 from .core.runtime import AgentMatrix
