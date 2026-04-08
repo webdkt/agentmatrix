@@ -177,15 +177,24 @@ const isUnread = computed(() => {
 }
 
 .session-item:hover {
-  background: var(--parchment-50);
+  background: var(--parchment-100);
   border-color: transparent;
-  border-left-color: var(--neutral-300);
+  border-left-color: var(--neutral-400);
 }
 
 .session-item--active {
-  background: var(--parchment-50);
+  background: var(--parchment-100);
   border-color: transparent;
-  border-left: 3px solid var(--accent);
+  border-left: 4px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(194, 59, 34, 0.1);
+}
+
+.session-item--active .session-item__name {
+  color: var(--accent);
+}
+
+.session-item--active .session-item__date {
+  color: var(--neutral-600);
 }
 
 /* Avatar */

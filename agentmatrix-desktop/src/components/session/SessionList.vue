@@ -281,7 +281,7 @@ const handleNewEmailFailed = ({ emailData, error }) => {
 .session-list__items {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm); /* 8px compact spacing */
@@ -289,7 +289,7 @@ const handleNewEmailFailed = ({ emailData, error }) => {
 
 /* Load More Button */
 .session-list__load-more {
-  padding: var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
 }
 
 .session-list__load-more-btn {
