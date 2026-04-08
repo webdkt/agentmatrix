@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matrix-for-agents"
-version = "0.4.0"
+version = "0.6.9.2"
 description = "An intelligent agent framework with pluggable skills and LLM integrations"
 readme = "readme.md"
 requires-python = ">=3.12"
@@ -42,7 +42,6 @@ dependencies = [
     "marker-pdf==1.8.0",
     "PyMuPDF>=1.23.0",
     "libtmux>=0.52.0",
-
     "python-multipart",
     "imap-tools",
     "pydantic>=2.0.0",
