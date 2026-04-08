@@ -138,107 +138,7 @@ jobs:
             agentmatrix-desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
-  # Job 3: Build macOS x86_64
-  build-macos-x64:
-    needs: build-docker
-    runs-on: macos-26-large
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ==================== Python Backend Build ====================
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r requirements.txt
-          pip install -e .
-
-      - name: Build Python backend with PyInstaller
-        run: |
-          pyinstaller server.spec --distpath dist-server
-
-      - name: Verify server executable
-        run: |
-          file dist-server/server
-          ls -la dist-server/server
-
-      # ==================== Download Docker Image ====================
-      - name: Download Docker image
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-          path: artifacts
-
-      - name: Copy Docker image to resources
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          cp artifacts/docker-image.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-
-      # ==================== Download Podman Installer ====================
-      - name: Download Podman installer (macOS x64)
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
-          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-amd64.pkg") | .browser_download_url')
-          echo "Downloading from: $PACKAGE_URL"
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg "$PACKAGE_URL"
-          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-installer-x64.pkg
-
-      # ==================== Copy Server to Tauri Sidecar ====================
-      - name: Copy server to sidecar directory
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # Copy as 'server' (Tauri will auto-append target triple)
-          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server
-          ls -lh agentmatrix-desktop/src-tauri/binaries/
-
-      # ==================== Frontend Build ====================
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'agentmatrix-desktop/package-lock.json'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install frontend dependencies
-        working-directory: agentmatrix-desktop
-        run: npm install
-
-      # ==================== Tauri Build ====================
-      - name: Clean .DS_Store files
-        run: find . -name ".DS_Store" -delete
-
-      - name: Build Tauri application (x86_64)
-        working-directory: agentmatrix-desktop
-        run: npm run tauri:build -- --target x86_64-apple-darwin
-        env:
-          CI: true
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-
-      # ==================== Upload Artifacts ====================
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-apple-darwin-build
-          path: |
-            agentmatrix-desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-          retention-days: 7
-
-  # Job 4: Build Windows
+  # Job 3: Build Windows
   build-windows:
     needs: build-docker
     runs-on: windows-latest
@@ -342,9 +242,9 @@ jobs:
             agentmatrix-desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
           retention-days: 7
 
-  # Job 5: Release (only on tag push)
+  # Job 4: Release (only on tag push)
   release:
-    needs: [build-macos-arm64, build-macos-x64, build-windows]
+    needs: [build-macos-arm64, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
