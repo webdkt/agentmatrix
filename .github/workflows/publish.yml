@@ -1,9 +1,13 @@
 name: Publish to PyPI
 
-# 触发条件：当你创建一个新的 Release 时触发
+# 触发条件：当你创建一个新的 Release 时触发，或者推送 tag 时触发，或者手动触发
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: read
