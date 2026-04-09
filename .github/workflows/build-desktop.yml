@@ -59,14 +59,19 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Build Python backend with PyInstaller
+      - name: Build Python backend with PyInstaller (onedir mode)
         run: |
           pyinstaller server.spec --distpath dist-server
 
-      - name: Verify server executable
+      - name: Verify Python distribution
         run: |
-          file dist-server/server
-          ls -la dist-server/server
+          echo "=== Python distribution structure ==="
+          ls -la dist-server/server/
+          echo "=== Executable file ==="
+          file dist-server/server/server
+          ls -lh dist-server/server/server
+          echo "=== _internal folder ==="
+          ls -la dist-server/server/_internal/ | head -20
 
       # ==================== Download Docker Image ====================
       - name: Download Docker image
@@ -91,16 +96,15 @@ jobs:
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg "$PACKAGE_URL"
           ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg
 
-      # ==================== Copy Server to Tauri Sidecar ====================
-      - name: Copy server to sidecar directory
+      # ==================== Copy Python Distribution to Tauri Resources ====================
+      - name: Copy Python distribution to resources (onedir mode)
         run: |
-          mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # Tauri 2.0 requires the file to be named with TARGET_TRIPLE suffix
-          # The externalBin config is 'binaries/server', but the actual file must be:
-          # binaries/server-aarch64-apple-darwin for macOS ARM64
-          cp dist-server/server agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
-          chmod +x agentmatrix-desktop/src-tauri/binaries/server-aarch64-apple-darwin
-          ls -lh agentmatrix-desktop/src-tauri/binaries/
+          mkdir -p agentmatrix-desktop/src-tauri/resources
+          echo "Copying dist-server/server → resources/python_dist"
+          cp -r dist-server/server agentmatrix-desktop/src-tauri/resources/python_dist
+          echo "=== Verification ==="
+          ls -lh agentmatrix-desktop/src-tauri/resources/python_dist/server
+          du -sh agentmatrix-desktop/src-tauri/resources/python_dist
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -163,14 +167,19 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Build Python backend with PyInstaller
+      - name: Build Python backend with PyInstaller (onedir mode)
         run: |
           pyinstaller server.spec --distpath dist-server
 
-      - name: Verify server executable
+      - name: Verify Python distribution
         shell: bash
         run: |
-          ls -la dist-server/server.exe
+          echo "=== Python distribution structure ==="
+          ls -la dist-server/server/
+          echo "=== Executable file ==="
+          ls -lh dist-server/server/server.exe
+          echo "=== _internal folder ==="
+          ls -la dist-server/server/_internal/ | head -20
 
       # ==================== Download Docker Image ====================
       - name: Download Docker image
@@ -197,16 +206,16 @@ jobs:
           curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi "$PACKAGE_URL"
           ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi
 
-      # ==================== Copy Server to Tauri Sidecar ====================
-      - name: Copy server to sidecar directory
+      # ==================== Copy Python Distribution to Tauri Resources ====================
+      - name: Copy Python distribution to resources (onedir mode)
         shell: bash
         run: |
-          mkdir -p agentmatrix-desktop/src-tauri/binaries
-          # Tauri 2.0 requires the file to be named with TARGET_TRIPLE suffix
-          # The externalBin config is 'binaries/server', but the actual file must be:
-          # binaries/server-x86_64-pc-windows-msvc.exe for Windows
-          cp dist-server/server.exe agentmatrix-desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
-          ls -lh agentmatrix-desktop/src-tauri/binaries/
+          mkdir -p agentmatrix-desktop/src-tauri/resources
+          echo "Copying dist-server/server → resources/python_dist"
+          cp -r dist-server/server agentmatrix-desktop/src-tauri/resources/python_dist
+          echo "=== Verification ==="
+          ls -lh agentmatrix-desktop/src-tauri/resources/python_dist/server.exe
+          du -sh agentmatrix-desktop/src-tauri/resources/python_dist
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
