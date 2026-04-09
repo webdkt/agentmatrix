@@ -21,6 +21,8 @@ echo ""
 
 # 步骤 1: PyInstaller 构建 server
 echo "📦 步骤 1: PyInstaller 构建 server..."
+# 清理之前的构建输出，避免冲突
+rm -rf dist-server/server
 python -m PyInstaller server.spec --distpath dist-server
 echo "✅ PyInstaller 构建完成"
 ls -lh dist-server/server
