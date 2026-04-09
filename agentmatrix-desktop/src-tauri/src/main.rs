@@ -5,10 +5,12 @@ use std::process::{Command, Child};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use tauri::{State, Manager, menu::{Menu, MenuItem}, tray::TrayIconBuilder, WindowEvent};
 use serde_json::Value as JsonValue;
 
+#[cfg(unix)]
 fn kill_process_group(child: &mut Child) {
     let pid = child.id() as i32;
     // First send SIGTERM to allow graceful shutdown
@@ -30,6 +32,12 @@ fn kill_process_group(child: &mut Child) {
     unsafe {
         libc::killpg(pid, libc::SIGKILL);
     }
+    let _ = child.wait();
+}
+
+#[cfg(windows)]
+fn kill_process_group(child: &mut Child) {
+    let _ = child.kill();
     let _ = child.wait();
 }
 
@@ -455,6 +463,7 @@ async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Re
     }
 
     // Put sidecar in its own process group so we can kill the entire tree
+    #[cfg(unix)]
     cmd.process_group(0);
     let child = cmd.spawn()
         .map_err(|e| {
