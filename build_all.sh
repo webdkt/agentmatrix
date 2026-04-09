@@ -32,6 +32,9 @@ echo ""
 echo "📋 步骤 2: 复制 Python distribution 到 Tauri resources..."
 mkdir -p "$DESKTOP_DIR/src-tauri/resources"
 
+# 清理旧的 python_dist，避免复制冲突
+rm -rf "$DESKTOP_DIR/src-tauri/resources/python_dist"
+
 # 复制整个 python_dist 文件夹（onedir 模式输出）
 echo "  → 复制 dist-server/server → resources/python_dist"
 cp -r dist-server/server "$DESKTOP_DIR/src-tauri/resources/python_dist"
