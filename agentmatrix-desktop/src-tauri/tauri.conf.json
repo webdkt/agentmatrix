@@ -30,11 +30,10 @@
       "resources/matrix-template/**/*",
       "resources/podman/**/*",
       "resources/docker/**/*",
-      "splash.html"
+      "splash.html",
+      "resources/python_dist/**/*"
     ],
-    "externalBin": [
-      "binaries/server"
-    ],
+    "externalBin": [],
     "macOS": {
       "signingIdentity": "-",
       "entitlements": null,

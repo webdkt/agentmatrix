@@ -26,20 +26,25 @@ echo "✅ PyInstaller 构建完成"
 ls -lh dist-server/server
 echo ""
 
-# 步骤 2: 复制到 Tauri binaries 和 target/release
-echo "📋 步骤 2: 复制 server 到 Tauri..."
-mkdir -p "$DESKTOP_DIR/src-tauri/binaries"
-mkdir -p "$DESKTOP_DIR/src-tauri/target/release"
+# 步骤 2: 复制 Python distribution 到 Tauri resources
+echo "📋 步骤 2: 复制 Python distribution 到 Tauri resources..."
+mkdir -p "$DESKTOP_DIR/src-tauri/resources"
 
-# 复制到 binaries（用于 externalBin）
-cp dist-server/server "$DESKTOP_DIR/src-tauri/binaries/server"
-chmod +x "$DESKTOP_DIR/src-tauri/binaries/server"
-echo "  → binaries/server: $(ls -lh "$DESKTOP_DIR/src-tauri/binaries/server" | awk '{print $5}')"
+# 复制整个 python_dist 文件夹（onedir 模式输出）
+echo "  → 复制 dist-server/server → resources/python_dist"
+cp -r dist-server/server "$DESKTOP_DIR/src-tauri/resources/python_dist"
 
-# 复制到 target/release（覆盖占位符）
-cp dist-server/server "$DESKTOP_DIR/src-tauri/target/release/server"
-chmod +x "$DESKTOP_DIR/src-tauri/target/release/server"
-echo "  → target/release/server: $(ls -lh "$DESKTOP_DIR/src-tauri/target/release/server" | awk '{print $5}')"
+# 验证可执行文件存在
+if [ ! -f "$DESKTOP_DIR/src-tauri/resources/python_dist/server" ]; then
+    echo "❌ Error: Python executable not found!"
+    echo "   Expected: $DESKTOP_DIR/src-tauri/resources/python_dist/server"
+    exit 1
+fi
+
+chmod +x "$DESKTOP_DIR/src-tauri/resources/python_dist/server"
+echo "  ✅ resources/python_dist/server: $(ls -lh "$DESKTOP_DIR/src-tauri/resources/python_dist/server" | awk '{print $5}')"
+echo "  📁 Python distribution folder contents:"
+ls -la "$DESKTOP_DIR/src-tauri/resources/python_dist" | head -20
 echo ""
 
 # 步骤 3: Tauri 构建
@@ -51,7 +56,10 @@ echo "============================================"
 echo "✅ 构建完成！"
 echo "============================================"
 echo ""
-echo "📍 最终 .app 中的 server:"
-ls -lh "$DESKTOP_DIR/src-tauri/target/release/bundle/macos/AgentMatrix.app/Contents/MacOS/server"
+echo "📍 最终 .app 中的 Python distribution:"
+ls -lh "$DESKTOP_DIR/src-tauri/target/release/bundle/macos/AgentMatrix.app/Contents/resources/python_dist/server"
+echo ""
+echo "📁 Python distribution 在 .app 中的结构:"
+ls -la "$DESKTOP_DIR/src-tauri/target/release/bundle/macos/AgentMatrix.app/Contents/resources/python_dist" | head -20
 echo ""
 

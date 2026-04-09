@@ -270,76 +270,65 @@ struct BackendState {
     port: AtomicU16,
 }
 
-/// Get the path to the server executable (sidecar)
-/// In production, the sidecar MUST exist at the expected location.
+/// Get the path to the server executable from Python distribution
+/// In production, the Python distribution (onedir mode) MUST exist in resources.
 /// If not found, it's a build error - not a runtime fallback situation.
 fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), String> {
-    // In dev mode, use python server.py
+    // Dev mode: use python server.py
     if cfg!(dev) {
         println!("Dev mode: using python server.py");
         return Ok(("python".to_string(), vec!["server.py".to_string()]));
     }
 
-    // In production, Tauri 2.0 places sidecars at platform-specific locations
-    let resource_path = app.path().resource_dir()
+    // Production: use Python executable from resources
+    let resource_dir = app.path().resource_dir()
         .map_err(|e| format!("Failed to get resource dir: {}", e))?;
 
-    let sidecar_path: std::path::PathBuf = if cfg!(target_os = "macos") {
-        // macOS: .app/Contents/MacOS/server (next to main executable)
-        // resource_dir() points to Contents/Resources
-        // parent() gives us Contents/, then join MacOS/server
-        resource_path
-            .parent()
-            .map(|p| p.join("MacOS").join("server"))
-            .ok_or_else(|| format!("Failed to construct macOS sidecar path from resource_dir: {:?}", resource_path))?
-    } else if cfg!(target_os = "windows") {
-        // Windows: server.exe (same directory as main .exe)
-        resource_path
-            .parent()
-            .map(|p| p.join("server.exe"))
-            .ok_or_else(|| format!("Failed to construct Windows sidecar path from resource_dir: {:?}", resource_path))?
-    } else if cfg!(target_os = "linux") {
-        // Linux: server (same directory as main executable)
-        resource_path
-            .parent()
-            .map(|p| p.join("server"))
-            .ok_or_else(|| format!("Failed to construct Linux sidecar path from resource_dir: {:?}", resource_path))?
-    } else {
-        return Err(format!("Unsupported platform: {}", std::env::consts::OS));
-    };
+    // Python distribution is in resources/python_dist/
+    let python_dist_dir = resource_dir.join("resources").join("python_dist");
 
-    println!("🔍 Looking for server sidecar at: {:?}", sidecar_path);
+    println!("🔍 Looking for Python distribution at: {:?}", python_dist_dir);
 
-    if !sidecar_path.exists() {
+    if !python_dist_dir.exists() {
         return Err(format!(
-            "❌ Server sidecar not found at expected location!\n\n\
+            "❌ Python distribution not found!\n\n\
              Expected: {:?}\n\
              This is a BUILD ERROR - the app was not packaged correctly.\n\n\
              Please check:\n\
-             1. PyInstaller onefile build succeeded\n\
-             2. CI/CD copied the binary to the correct location\n\
-             3. externalBin in tauri.conf.json matches the filename",
-            sidecar_path
+             1. PyInstaller onedir build succeeded\n\
+             2. build_all.sh copied python_dist to resources/",
+            python_dist_dir
         ));
     }
 
-    // Check if it's the placeholder script (local build)
-    if let Ok(content) = std::fs::read_to_string(&sidecar_path) {
-        if content.contains("Placeholder for Tauri sidecar binary") {
-            println!("⚠️  Detected placeholder sidecar (local build), falling back to python");
-            return Ok(("python3".to_string(), vec!["server.py".to_string()]));
-        }
-    }
+    // Executable name varies by platform
+    let exe_name = if cfg!(target_os = "windows") {
+        "server.exe"
+    } else {
+        "server"
+    };
 
-    if !sidecar_path.is_file() {
+    let server_exe = python_dist_dir.join(exe_name);
+
+    if !server_exe.exists() {
         return Err(format!(
-            "❌ Server sidecar exists but is not a file: {:?}",
-            sidecar_path
+            "❌ Server executable not found in Python distribution!\n\n\
+             Expected: {:?}\n\
+             Please check PyInstaller build.",
+            server_exe
         ));
     }
 
-    println!("✅ Found server sidecar: {:?}", sidecar_path);
-    Ok((sidecar_path.to_string_lossy().to_string(), vec![]))
+    println!("✅ Found Python server: {:?}", server_exe);
+
+    // Set working directory to Python dist dir for library loading
+    // This is critical for onedir mode to find .so/.dylib/.dll files
+    std::env::set_current_dir(&python_dist_dir)
+        .map_err(|e| format!("Failed to set working directory to {:?}: {}", python_dist_dir, e))?;
+
+    println!("📂 Working directory set to: {:?}", std::env::current_dir());
+
+    Ok((server_exe.to_string_lossy().to_string(), vec![]))
 }
 
 /// Core backend startup logic, reusable by both setup() and tray/commands.

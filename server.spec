@@ -170,25 +170,34 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# Use onefile mode for single-file executable (easier for Tauri sidecar)
-# All dependencies are bundled into the executable
+# Use onedir mode for fast startup (no extraction needed)
+# All dependencies are in a folder alongside the executable
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,  # Include binaries in the EXE (onefile mode)
-    a.zipfiles,
-    a.datas,     # Include data files in the EXE (onefile mode)
-    [],
+    [],  # Exclude binaries, zipfiles, datas from EXE (onedir mode)
+    exclude_binaries=True,  # Important: don't bundle binaries into EXE
     name='server',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+# COLLECT: collect all binaries, datas, and the EXE into a folder
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='server',  # Folder name will be 'server'
 )
