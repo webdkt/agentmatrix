@@ -4,6 +4,9 @@ Container Session - 持久容器内 Shell 会话
 维护一个常驻的 shell 进程，保持工作目录和环境变量状态。
 """
 
+import os
+import platform
+import shutil
 import subprocess
 import threading
 import time
@@ -54,6 +57,44 @@ class ContainerSession:
         self._start_marker = f"__SESSION_{self.session_id}_START__"
         self._end_marker = f"__SESSION_{self.session_id}_END__"
 
+    @staticmethod
+    def _find_runtime_cmd(runtime_type: str) -> str:
+        """查找容器运行时 CLI 的绝对路径。
+
+        打包后的 app 中 PATH 不完整，直接用 "podman"/"docker" 可能找不到。
+        先用 shutil.which 查，再检查常见安装路径。
+        """
+        name = "podman" if runtime_type == "podman" else "docker"
+
+        # 1. shutil.which (尊重 PATH)
+        path = shutil.which(name)
+        if path:
+            return path
+
+        # 2. 常见安装路径 fallback
+        platform_name = platform.system()
+        if platform_name == "Darwin":
+            candidates = [
+                f"/opt/homebrew/bin/{name}",
+                f"/usr/local/bin/{name}",
+                f"/opt/podman/bin/{name}",
+            ]
+        elif platform_name == "Linux":
+            candidates = [
+                f"/usr/bin/{name}",
+                f"/usr/local/bin/{name}",
+                f"/snap/bin/{name}",
+            ]
+        else:  # Windows or others
+            candidates = []
+
+        for candidate in candidates:
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+
+        # 3. 全部失败，返回原名让 Popen 报错
+        return name
+
     def start(self) -> None:
         """
         启动持久 shell 会话
@@ -64,7 +105,8 @@ class ContainerSession:
             self.logger.warning(f"Session {self.session_id} 已经在运行")
             return
 
-        runtime_cmd = "podman" if self.runtime_type == "podman" else "docker"
+        runtime_cmd = self._find_runtime_cmd(self.runtime_type)
+
         if self.username:
             cmd = [
                 runtime_cmd,

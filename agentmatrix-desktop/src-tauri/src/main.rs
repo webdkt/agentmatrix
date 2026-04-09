@@ -399,6 +399,8 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
 
     // Poll for port file written by the server
     let port_file = matrix_world.join(".matrix").join("backend_port");
+    // Remove stale port file from previous runs before waiting
+    let _ = std::fs::remove_file(&port_file);
     println!("Waiting for port file: {:?}", port_file);
     let mut actual_port: Option<u16> = None;
     for attempt in 0..60 {
