@@ -1212,51 +1212,91 @@ fn main() {
                 .decorations(false)
                 .build()?;
 
-            // Auto-start backend, then create main window and close splash
+            // Check if cold start wizard is needed BEFORE starting backend
+            let needs_cold_start = AppConfig::load()
+                .map(|config| config.is_first_run())
+                .unwrap_or(true);
+
+            println!("🎯 Cold start check: needs_wizard = {}", needs_cold_start);
+
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let state = app_handle.state::<BackendState>();
-                match start_backend_logic(&app_handle, &state).await {
-                    Ok(_port) => {
-                        println!("Backend ready, creating main window");
-                        // Create main window with real frontend URL
-                        let main_url = if cfg!(dev) {
-                            tauri::WebviewUrl::External(
-                                "http://localhost:5173".parse().unwrap()
-                            )
-                        } else {
-                            tauri::WebviewUrl::App("index.html".into())
-                        };
-                        let _main = tauri::WebviewWindowBuilder::new(
-                            &app_handle, "main", main_url,
+                if needs_cold_start {
+                    // Cold start: create main window WITHOUT starting backend
+                    // Vue app will detect is_first_run=true and show wizard
+                    println!("🧙 Cold start required, showing wizard (no backend)");
+
+                    let main_url = if cfg!(dev) {
+                        tauri::WebviewUrl::External(
+                            "http://localhost:5173".parse().unwrap()
                         )
-                        .title("AgentMatrix")
-                        .inner_size(1200.0, 800.0)
-                        .min_inner_size(800.0, 600.0)
-                        .center()
-                        .resizable(true)
-                        .fullscreen(false)
-                        .devtools(true)
-                        .build();
-                        // Close splash
-                        if let Some(splash) = app_handle.get_webview_window("splash") {
-                            let _ = splash.close();
-                        }
+                    } else {
+                        tauri::WebviewUrl::App("index.html".into())
+                    };
+
+                    let _main = tauri::WebviewWindowBuilder::new(
+                        &app_handle, "main", main_url,
+                    )
+                    .title("AgentMatrix")
+                    .inner_size(1200.0, 800.0)
+                    .min_inner_size(800.0, 600.0)
+                    .center()
+                    .resizable(true)
+                    .fullscreen(false)
+                    .devtools(true)
+                    .build();
+
+                    // Close splash
+                    if let Some(splash) = app_handle.get_webview_window("splash") {
+                        let _ = splash.close();
                     }
-                    Err(e) => {
-                        eprintln!("Failed to start backend on launch: {}", e);
-                        // Close splash
-                        if let Some(splash) = app_handle.get_webview_window("splash") {
-                            let _ = splash.close();
+                } else {
+                    // Normal startup: start backend first, then create main window
+                    println!("🚀 Normal startup, starting backend...");
+
+                    let state = app_handle.state::<BackendState>();
+                    match start_backend_logic(&app_handle, &state).await {
+                        Ok(_port) => {
+                            println!("Backend ready, creating main window");
+                            // Create main window with real frontend URL
+                            let main_url = if cfg!(dev) {
+                                tauri::WebviewUrl::External(
+                                    "http://localhost:5173".parse().unwrap()
+                                )
+                            } else {
+                                tauri::WebviewUrl::App("index.html".into())
+                            };
+                            let _main = tauri::WebviewWindowBuilder::new(
+                                &app_handle, "main", main_url,
+                            )
+                            .title("AgentMatrix")
+                            .inner_size(1200.0, 800.0)
+                            .min_inner_size(800.0, 600.0)
+                            .center()
+                            .resizable(true)
+                            .fullscreen(false)
+                            .devtools(true)
+                            .build();
+                            // Close splash
+                            if let Some(splash) = app_handle.get_webview_window("splash") {
+                                let _ = splash.close();
+                            }
                         }
-                        use tauri_plugin_dialog::DialogExt;
-                        app_handle.dialog()
-                            .message(format!(
-                                "Failed to start backend:\n\n{}\n\nYou can try starting it manually from the tray icon.",
-                                e
-                            ))
-                            .title("AgentMatrix - Startup Error")
-                            .show(|_| {});
+                        Err(e) => {
+                            eprintln!("Failed to start backend on launch: {}", e);
+                            // Close splash
+                            if let Some(splash) = app_handle.get_webview_window("splash") {
+                                let _ = splash.close();
+                            }
+                            use tauri_plugin_dialog::DialogExt;
+                            app_handle.dialog()
+                                .message(format!(
+                                    "Failed to start backend:\n\n{}\n\nYou can try starting it manually from the tray icon.",
+                                    e
+                                ))
+                                .title("AgentMatrix - Startup Error")
+                                .show(|_| {});
+                        }
                     }
                 }
             });
@@ -1294,6 +1334,23 @@ fn main() {
             is_window_focused,
             show_window,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            match event {
+                // macOS: 用户点击 Dock 图标时重新显示窗口
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    println!("🖥️  Dock icon clicked, has_visible_windows={}", has_visible_windows);
+
+                    if !has_visible_windows {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            println!("📍 Showing main window...");
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        });
 }
