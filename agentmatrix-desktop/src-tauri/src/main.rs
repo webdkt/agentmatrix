@@ -1063,10 +1063,11 @@ fn main() {
         .manage(BackendState { child: Mutex::new(None), port: AtomicU16::new(0) })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // Hide instead of close — backend keeps running independently
-                println!("Window closing, hiding instead of destroying...");
-                window.hide().ok();
-                api.prevent_close();
+                if window.label() == "main" {
+                    println!("Window closing, hiding instead of destroying...");
+                    window.hide().ok();
+                    api.prevent_close();
+                }
             }
         })
         .setup(|app| {
@@ -1193,44 +1194,63 @@ fn main() {
                 })
                 .build(app)?;
 
-            // Show splash screen immediately, then start backend in background
-            if let Some(window) = app.get_webview_window("main") {
-                // Load splash HTML (static, no server needed)
-                let splash_path = if cfg!(dev) {
-                    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-                    manifest_dir.join("splash.html")
-                } else {
-                    app.path().resource_dir()
-                        .map(|d| d.join("splash.html"))
-                        .unwrap_or_else(|_| std::path::PathBuf::from("splash.html"))
-                };
-                let splash_url: url::Url = format!("file://{}", splash_path.to_string_lossy())
-                    .parse().expect("Invalid splash URL");
-                let _ = window.navigate(splash_url);
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            // Create splash window immediately
+            let splash_path = if cfg!(dev) {
+                let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+                manifest_dir.join("splash.html")
+            } else {
+                app.path().resource_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .join("splash.html")
+            };
+            let splash_url = tauri::WebviewUrl::External(
+                format!("file://{}", splash_path.to_string_lossy()).parse().unwrap()
+            );
+            let _splash = tauri::WebviewWindowBuilder::new(app, "splash", splash_url)
+                .title("AgentMatrix")
+                .inner_size(400.0, 280.0)
+                .center()
+                .resizable(false)
+                .decorations(false)
+                .build()?;
 
-            // Auto-start backend, then navigate to real frontend on success
+            // Auto-start backend, then create main window and close splash
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<BackendState>();
                 match start_backend_logic(&app_handle, &state).await {
                     Ok(_port) => {
-                        println!("Backend ready, navigating to frontend");
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            if cfg!(dev) {
-                                let frontend_url: url::Url = "http://localhost:5173"
-                                    .parse().unwrap();
-                                let _ = window.navigate(frontend_url);
-                            } else {
-                                // Production: reload to app protocol URL
-                                let _ = window.eval("window.location.replace('index.html')");
-                            }
+                        println!("Backend ready, creating main window");
+                        // Create main window with real frontend URL
+                        let main_url = if cfg!(dev) {
+                            tauri::WebviewUrl::External(
+                                "http://localhost:5173".parse().unwrap()
+                            )
+                        } else {
+                            tauri::WebviewUrl::App("index.html".into())
+                        };
+                        let _main = tauri::WebviewWindowBuilder::new(
+                            &app_handle, "main", main_url,
+                        )
+                        .title("AgentMatrix")
+                        .inner_size(1200.0, 800.0)
+                        .min_inner_size(800.0, 600.0)
+                        .center()
+                        .resizable(true)
+                        .fullscreen(false)
+                        .devtools(true)
+                        .build();
+                        // Close splash
+                        if let Some(splash) = app_handle.get_webview_window("splash") {
+                            let _ = splash.close();
                         }
                     }
                     Err(e) => {
                         eprintln!("Failed to start backend on launch: {}", e);
+                        // Close splash
+                        if let Some(splash) = app_handle.get_webview_window("splash") {
+                            let _ = splash.close();
+                        }
                         use tauri_plugin_dialog::DialogExt;
                         app_handle.dialog()
                             .message(format!(
