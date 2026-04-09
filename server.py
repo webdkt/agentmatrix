@@ -297,6 +297,23 @@ async def graceful_shutdown():
             traceback.print_exc()
         finally:
             print("🧹 Cleaning up runtime resources...")
+            # Prevent __del__ from trying to re-clean after module teardown
+            # (critical for PyInstaller onefile where __del__ runs after cleanup)
+            try:
+                if hasattr(matrix_runtime, "container_manager"):
+                    cm = matrix_runtime.container_manager
+                    if hasattr(cm, "_container_sessions"):
+                        for session in cm._container_sessions.values():
+                            if hasattr(session, "process") and session.process:
+                                try:
+                                    session.process.kill()
+                                except Exception:
+                                    pass
+                                session.process = None
+                            session.is_active = False
+                        cm._container_sessions.clear()
+            except Exception:
+                pass
             # 强制清理，防止内存泄漏
             matrix_runtime = None
             print("✅ Runtime cleaned up")
@@ -465,6 +482,16 @@ app = FastAPI(
     description="An intelligent agent framework with pluggable skills and LLM integrations",
     version=__version__,
     lifespan=lifespan,
+)
+
+# CORS middleware for Tauri desktop app (webview origin differs from localhost)
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -2291,6 +2318,7 @@ async def submit_user_input(agent_name: str, request: Request):
 def main():
     """Main entry point"""
     import uvicorn
+    import signal
 
     print("""
     ╔═══════════════════════════════════════╗
@@ -2303,6 +2331,13 @@ def main():
     try:
         config = uvicorn.Config(app, host=args.host, port=args.port, reload=args.reload)
         server = uvicorn.Server(config)
+
+        # Handle SIGTERM/SIGINT gracefully — set uvicorn's should_exit flag
+        def handle_signal(signum, frame):
+            print(f"\n🔔 Received signal {signum}, initiating graceful shutdown...")
+            server.should_exit = True
+        signal.signal(signal.SIGTERM, handle_signal)
+        signal.signal(signal.SIGINT, handle_signal)
 
         # Override server startup to write port file
         original_startup = server.startup
@@ -2321,10 +2356,8 @@ def main():
 
         server.run()
     except KeyboardInterrupt:
-        # Ctrl-C 正常退出，已在 lifespan shutdown 中打印告别信息
         pass
     except asyncio.CancelledError:
-        # 异步任务取消（正常 shutdown 的一部分）
         pass
 
 

@@ -5,8 +5,45 @@ use std::process::{Command, Child};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::path::PathBuf;
-use tauri::{State, Manager, menu::{Menu, MenuItem}, tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState}};
+use std::os::unix::process::CommandExt;
+use tauri::{State, Manager, menu::{Menu, MenuItem}, tray::TrayIconBuilder, WindowEvent};
 use serde_json::Value as JsonValue;
+
+fn kill_process_group(child: &mut Child) {
+    let pid = child.id() as i32;
+    // First send SIGTERM to allow graceful shutdown
+    unsafe {
+        libc::killpg(pid, libc::SIGTERM);
+    }
+    // Wait up to 30 seconds for the process to exit, then force kill
+    for _ in 0..300 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                println!("Backend exited gracefully: {}", status);
+                return;
+            }
+            _ => continue,
+        }
+    }
+    println!("Backend did not exit in time, force killing...");
+    unsafe {
+        libc::killpg(pid, libc::SIGKILL);
+    }
+    let _ = child.wait();
+}
+
+fn read_port_from_file(matrix_world: &std::path::Path) -> Option<u16> {
+    let port_file = matrix_world.join(".matrix").join("backend_port");
+    if let Ok(content) = std::fs::read_to_string(&port_file) {
+        if let Ok(port) = content.trim().parse::<u16>() {
+            if port > 0 {
+                return Some(port);
+            }
+        }
+    }
+    None
+}
 
 mod config;
 use config::AppConfig;
@@ -297,8 +334,38 @@ fn get_server_path(app: &tauri::AppHandle) -> Result<(String, Vec<String>), Stri
     Ok((sidecar_path.to_string_lossy().to_string(), vec![]))
 }
 
-#[tauri::command]
-async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) -> Result<String, String> {
+/// Core backend startup logic, reusable by both setup() and tray/commands.
+/// Returns the port number on success.
+async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<u16, String> {
+    // Check if backend is already running (in-memory child handle)
+    if let Some(ref child) = *state.child.lock().unwrap() {
+        if child.id() > 0 {
+            println!("Backend already running (PID {}), skipping start", child.id());
+            let port = state.port.load(Ordering::SeqCst);
+            if port > 0 {
+                return Ok(port);
+            }
+        }
+    }
+
+    // Also check if a backend from a previous session is already running
+    let app_config_check = AppConfig::load()
+        .map_err(|e| format!("Failed to load config: {}", e))?;
+    let matrix_world_check = app_config_check.get_matrix_world_path();
+    if let Some(existing_port) = read_port_from_file(&matrix_world_check) {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        let response = client.get(format!("http://localhost:{}/", existing_port))
+            .send().await;
+        if response.is_ok() {
+            println!("Backend already running on port {} (from port file), skipping start", existing_port);
+            state.port.store(existing_port, Ordering::SeqCst);
+            return Ok(existing_port);
+        }
+    }
+
     println!("Starting Python backend...");
 
     // Load configuration
@@ -316,15 +383,15 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
     }
 
     // Get server path (sidecar or python fallback)
-    let (server_bin, server_args) = get_server_path(&app)?;
-    
+    let (server_bin, server_args) = get_server_path(app)?;
+
     let mut cmd = Command::new(&server_bin);
-    
+
     // Add server.py if using python fallback
     for arg in &server_args {
         cmd.arg(arg);
     }
-    
+
     // Add common arguments
     cmd.arg("--matrix-world")
        .arg(matrix_world.to_string_lossy().to_string());
@@ -335,24 +402,24 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
     } else {
         cmd.arg("--port").arg("0");
     }
-    
+
     // Set working directory only if using python (for server.py to find src/)
     if !server_args.is_empty() {
         let project_root = if cfg!(dev) {
             // Dev mode: use CARGO_MANIFEST_DIR to find project root
             // This works correctly in Git worktrees because it's not affected by symlinks
             let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            
+
             // CARGO_MANIFEST_DIR is src-tauri/, go up 2 levels to reach project root
             let project_root = manifest_dir.parent()
                 .and_then(|p| p.parent())
                 .unwrap_or(&manifest_dir);
-            
+
             // Verify server.py exists at expected location
             if !project_root.join("server.py").exists() {
                 eprintln!("Warning: server.py not found at {:?}", project_root.join("server.py"));
                 eprintln!("Searching from parent directories...");
-                
+
                 // Fallback: search from parent directories
                 let mut dir = manifest_dir.as_path();
                 let mut found = None;
@@ -386,7 +453,9 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
         cmd.current_dir(&project_root);
         println!("Working directory: {:?}", project_root);
     }
-    
+
+    // Put sidecar in its own process group so we can kill the entire tree
+    cmd.process_group(0);
     let child = cmd.spawn()
         .map_err(|e| {
             eprintln!("Failed to start backend: {}", e);
@@ -402,27 +471,50 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
     // Remove stale port file from previous runs before waiting
     let _ = std::fs::remove_file(&port_file);
     println!("Waiting for port file: {:?}", port_file);
-    let mut actual_port: Option<u16> = None;
-    for attempt in 0..60 {
+    let mut attempt = 0u32;
+    let port = loop {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        attempt += 1;
         if port_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&port_file) {
                 if let Ok(port) = content.trim().parse::<u16>() {
-                    println!("Port file found after {} attempts, port={}", attempt + 1, port);
-                    actual_port = Some(port);
-                    break;
+                    println!("Port file found after {} attempts, port={}", attempt, port);
+                    break port;
                 }
             }
         }
+        if attempt % 20 == 0 {
+            println!("Still waiting for port file ({}s)...", attempt / 2);
+        }
+    };
+
+    println!("Port file ready, waiting for HTTP health check on port {}...", port);
+
+    // Wait for server to actually accept HTTP connections
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    attempt = 0;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        attempt += 1;
+        let response = client.get(format!("http://localhost:{}/", port))
+            .send().await;
+        if response.is_ok() {
+            println!("Backend healthy on port {} after {} health checks", port, attempt);
+            state.port.store(port, Ordering::SeqCst);
+            return Ok(port);
+        }
+        if attempt % 20 == 0 {
+            println!("Still waiting for backend health check on port {} ({}s)...", port, attempt / 2);
+        }
     }
+}
 
-    let port = actual_port.ok_or_else(|| {
-        "Timed out waiting for backend port file".to_string()
-    })?;
-
-    println!("Backend started on port {}", port);
-    state.port.store(port, Ordering::SeqCst);
-
+#[tauri::command]
+async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) -> Result<String, String> {
+    let port = start_backend_logic(&app, &state).await?;
     Ok(format!("Backend started on port {}", port))
 }
 
@@ -431,8 +523,7 @@ async fn stop_backend(state: State<'_, BackendState>) -> Result<String, String> 
     println!("Stopping Python backend...");
 
     if let Some(mut child) = state.child.lock().unwrap().take() {
-        child.kill()
-            .map_err(|e| format!("Failed to stop backend: {}", e))?;
+        kill_process_group(&mut child);
         println!("Backend stopped successfully");
     } else {
         println!("No backend running");
@@ -453,9 +544,22 @@ async fn check_backend(state: State<'_, BackendState>) -> Result<bool, String> {
     use std::time::Duration;
 
     let port = state.port.load(Ordering::SeqCst);
-    if port == 0 {
-        return Ok(false);
-    }
+    let port = if port > 0 {
+        port
+    } else {
+        // Fallback: read port file (backend might have been started externally)
+        let app_config = AppConfig::load()
+            .map_err(|e| format!("Failed to load config: {}", e))?;
+        let matrix_world = expand_path(&app_config.matrix_world_path);
+        match read_port_from_file(&matrix_world) {
+            Some(p) => {
+                // Store it so future calls don't need to read file
+                state.port.store(p, Ordering::SeqCst);
+                p
+            }
+            None => return Ok(false),
+        }
+    };
 
     // Try to connect to the backend
     let client = reqwest::Client::builder()
@@ -473,10 +577,19 @@ async fn check_backend(state: State<'_, BackendState>) -> Result<bool, String> {
 #[tauri::command]
 async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>, String> {
     let port = state.port.load(Ordering::SeqCst);
-    if port == 0 {
-        Ok(None)
-    } else {
-        Ok(Some(port))
+    if port > 0 {
+        return Ok(Some(port));
+    }
+    // Fallback: read port file
+    let app_config = AppConfig::load()
+        .map_err(|e| format!("Failed to load config: {}", e))?;
+    let matrix_world = expand_path(&app_config.matrix_world_path);
+    match read_port_from_file(&matrix_world) {
+        Some(p) => {
+            state.port.store(p, Ordering::SeqCst);
+            Ok(Some(p))
+        }
+        None => Ok(None),
     }
 }
 
@@ -948,45 +1061,194 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(BackendState { child: Mutex::new(None), port: AtomicU16::new(0) })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Hide instead of close — backend keeps running independently
+                println!("Window closing, hiding instead of destroying...");
+                window.hide().ok();
+                api.prevent_close();
+            }
+        })
         .setup(|app| {
             // Setup system tray
             let show_item = MenuItem::with_id(app, "show", "Open AgentMatrix", true, None::<&str>)?;
+            let start_item = MenuItem::with_id(app, "start_backend", "Start Backend", true, None::<&str>)?;
+            let stop_item = MenuItem::with_id(app, "stop_backend", "Stop Backend", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-            
+            let menu = Menu::with_items(app, &[&show_item, &start_item, &stop_item, &quit_item])?;
+
+            let tray_icon = app.default_window_icon()
+                .expect("No default window icon available")
+                .clone();
+
             let _tray = TrayIconBuilder::new()
+                .icon(tray_icon)
                 .menu(&menu)
+                .show_menu_on_left_click(true)
                 .tooltip("AgentMatrix")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                            // Check if backend is reachable before showing window
+                            let state = app.state::<BackendState>();
+                            let port = state.port.load(Ordering::SeqCst);
+                            if port > 0 {
+                                if let Some(window) = app.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            } else {
+                                // Backend not running — try reading port file as fallback
+                                if let Ok(config) = AppConfig::load() {
+                                    let mw = expand_path(&config.matrix_world_path);
+                                    if read_port_from_file(&mw).is_some() {
+                                        if let Some(window) = app.get_webview_window("main") {
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
+                                        return;
+                                    }
+                                }
+                                // Show error dialog
+                                use tauri_plugin_dialog::DialogExt;
+                                app.dialog()
+                                    .message("Backend is not running. Please start it first from the tray menu.")
+                                    .title("AgentMatrix")
+                                    .show(|_| {});
                             }
                         }
+                        "start_backend" => {
+                            println!("Tray: Start Backend requested");
+                            let app_handle = app.clone();
+                            // Check if already running (using app.state inside the closure is fine)
+                            {
+                                let state = app.state::<BackendState>();
+                                if state.child.lock().unwrap().is_some() {
+                                    println!("Backend already running, showing window");
+                                    if let Some(window) = app_handle.get_webview_window("main") {
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
+                                    return;
+                                }
+                            }
+                            tauri::async_runtime::spawn(async move {
+                                let state = app_handle.state::<BackendState>();
+                                match start_backend_logic(&app_handle, &state).await {
+                                    Ok(_port) => {
+                                        if let Some(window) = app_handle.get_webview_window("main") {
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Tray: Failed to start backend: {}", e);
+                                        use tauri_plugin_dialog::DialogExt;
+                                        app_handle.dialog()
+                                            .message(format!("Failed to start backend:\n\n{}", e))
+                                            .title("AgentMatrix - Error")
+                                            .show(|_| {});
+                                    }
+                                }
+                            });
+                        }
+                        "stop_backend" => {
+                            println!("Tray: Stop Backend requested");
+                            let state = app.state::<BackendState>();
+                            if let Some(mut child) = state.child.lock().unwrap().take() {
+                                kill_process_group(&mut child);
+                            }
+                            state.port.store(0, Ordering::SeqCst);
+                            // Remove port file
+                            if let Ok(app_config) = AppConfig::load() {
+                                let port_file = expand_path(&app_config.matrix_world_path)
+                                    .join(".matrix").join("backend_port");
+                                let _ = std::fs::remove_file(&port_file);
+                            }
+                            println!("Backend stopped");
+                        }
                         "quit" => {
-                            app.exit(0);
+                            // Hide window first so user sees it close immediately
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                            // Stop backend in a separate thread so hide() can render
+                            let app_handle = app.clone();
+                            std::thread::spawn(move || {
+                                let state = app_handle.state::<BackendState>();
+                                if let Some(mut child) = state.child.lock().unwrap().take() {
+                                    kill_process_group(&mut child);
+                                }
+                                state.port.store(0, Ordering::SeqCst);
+                                if let Ok(app_config) = AppConfig::load() {
+                                    let port_file = expand_path(&app_config.matrix_world_path)
+                                        .join(".matrix").join("backend_port");
+                                    let _ = std::fs::remove_file(&port_file);
+                                }
+                                app_handle.exit(0);
+                            });
                         }
                         _ => {}
                     }
                 })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
                 .build(app)?;
 
-            // Auto-setup container runtime on app start
+            // Show splash screen immediately, then start backend in background
+            if let Some(window) = app.get_webview_window("main") {
+                // Load splash HTML (static, no server needed)
+                let splash_path = if cfg!(dev) {
+                    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+                    manifest_dir.join("splash.html")
+                } else {
+                    app.path().resource_dir()
+                        .map(|d| d.join("splash.html"))
+                        .unwrap_or_else(|_| std::path::PathBuf::from("splash.html"))
+                };
+                let splash_url: url::Url = format!("file://{}", splash_path.to_string_lossy())
+                    .parse().expect("Invalid splash URL");
+                let _ = window.navigate(splash_url);
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
+            // Auto-start backend, then navigate to real frontend on success
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                auto_setup_container_runtime(app_handle).await;
+                let state = app_handle.state::<BackendState>();
+                match start_backend_logic(&app_handle, &state).await {
+                    Ok(_port) => {
+                        println!("Backend ready, navigating to frontend");
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            if cfg!(dev) {
+                                let frontend_url: url::Url = "http://localhost:5173"
+                                    .parse().unwrap();
+                                let _ = window.navigate(frontend_url);
+                            } else {
+                                // Production: reload to app protocol URL
+                                let _ = window.eval("window.location.replace('index.html')");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to start backend on launch: {}", e);
+                        use tauri_plugin_dialog::DialogExt;
+                        app_handle.dialog()
+                            .message(format!(
+                                "Failed to start backend:\n\n{}\n\nYou can try starting it manually from the tray icon.",
+                                e
+                            ))
+                            .title("AgentMatrix - Startup Error")
+                            .show(|_| {});
+                    }
+                }
             });
+
+            // Auto-setup container runtime on app start
+            let app_handle2 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                auto_setup_container_runtime(app_handle2).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

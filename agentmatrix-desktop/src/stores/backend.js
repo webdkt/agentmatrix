@@ -169,21 +169,31 @@ export const useBackendStore = defineStore('backend', {
       this.isStopping = false
       this.isRunning = false
 
-      // Check if backend is already running
+      // Server is already running (started by Rust setup before frontend loads)
       const isRunning = await this.checkBackendInternal()
-
-      if (!isRunning && this.autoStartEnabled) {
-        console.log('Auto-starting backend...')
-        try {
-          await this.startBackend()
-        } catch (error) {
-          console.error('Auto-start failed, user will need to start manually:', error)
-          // Don't throw - let user handle manually
-        }
-      } else if (isRunning) {
-        console.log('Backend already running')
+      if (isRunning) {
+        console.log('✅ Backend is running')
         this.startHealthMonitoring()
+      } else {
+        console.warn('Backend not detected, will retry via health monitoring')
+        this.startWaitingForBackend()
       }
+    },
+
+    startWaitingForBackend() {
+      if (this.healthCheckInterval) {
+        clearInterval(this.healthCheckInterval)
+      }
+      console.log('Waiting for backend to start...')
+      this.healthCheckInterval = setInterval(async () => {
+        const isRunning = await this.checkBackendInternal()
+        if (isRunning) {
+          console.log('✅ Backend detected, switching to health monitoring')
+          clearInterval(this.healthCheckInterval)
+          this.healthCheckInterval = null
+          this.startHealthMonitoring()
+        }
+      }, 3000)
     },
 
     async showNotification(title, body) {

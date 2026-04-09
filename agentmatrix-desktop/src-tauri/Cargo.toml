@@ -13,7 +13,7 @@ edition = "2021"
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.0", features = ["tray-icon", "image-png"] }
+tauri = { version = "2.0", features = ["tray-icon", "image-png", "devtools"] }
 tauri-plugin-shell = "2.0"
 tauri-plugin-notification = "2.0"
 tauri-plugin-dialog = "2.0"
@@ -23,7 +23,9 @@ serde_json = "1"
 serde_yaml = "0.9"
 reqwest = { version = "0.11", features = ["json"] }
 dirs = "5.0"
+url = "2"
 tokio = { version = "1", features = ["time"] }
+libc = "0.2"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

@@ -6,6 +6,19 @@ class APIClient {
     this.baseURL = ''
   }
 
+  async _resolveBaseURL() {
+    if (this.baseURL) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const port = await invoke('get_backend_port')
+      if (port) {
+        this.baseURL = `http://localhost:${port}`
+      }
+    } catch {
+      // Dev mode or Tauri not available — baseURL stays ''
+    }
+  }
+
   /**
    * 通用请求方法
    * @param {string} url - 请求路径
@@ -13,6 +26,7 @@ class APIClient {
    * @returns {Promise<any>}
    */
   async request(url, options = {}) {
+    await this._resolveBaseURL()
     const config = {
       method: options.method || 'GET',
       headers: {

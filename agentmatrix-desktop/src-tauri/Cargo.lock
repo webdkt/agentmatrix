@@ -13,6 +13,7 @@ name = "agentmatrix"
 version = "1.0.0"
 dependencies = [
  "dirs 5.0.1",
+ "libc",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -24,6 +25,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-shell",
  "tokio",
+ "url",
 ]
 
 [[package]]
