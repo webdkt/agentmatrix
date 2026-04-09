@@ -245,6 +245,11 @@ agentmatrix-desktop/src-tauri/target
 dist-server/
 build/
 
+# Tauri resources (built by CI/CD or local builds)
+agentmatrix-desktop/src-tauri/resources/python_dist/
+agentmatrix-desktop/src-tauri/resources/podman/
+agentmatrix-desktop/src-tauri/resources/docker/
+
 # Tauri sidecar binaries (built by CI/CD)
 agentmatrix-desktop/src-tauri/binaries/server
 agentmatrix-desktop/src-tauri/binaries/*.exe
