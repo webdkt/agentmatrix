@@ -34,29 +34,75 @@ echo "✅ 缓存目录: $CACHE_DIR"
 echo ""
 
 # ========================================
-# 步骤 1: 构建 Docker 镜像
+# 步骤 1: 构建容器镜像（Docker 或 Podman）
 # ========================================
 echo "============================================"
-echo "步骤 1/2: 构建 Docker 镜像"
+echo "步骤 1/2: 构建容器镜像"
 echo "============================================"
 echo ""
 
-if command -v docker &> /dev/null; then
-    echo "🐳 构建 Docker 镜像..."
+# 检测可用的容器运行时
+CONTAINER_CMD=""
+if command -v podman &> /dev/null; then
+    # 检查 Podman 是否正在运行
+    if podman info &> /dev/null; then
+        CONTAINER_CMD="podman"
+        echo "✅ 检测到 Podman 正在运行"
+    else
+        echo "⚠️  Podman 已安装但未运行"
+        echo "   尝试启动 Podman..."
+        if podman machine start &> /dev/null; then
+            echo "✅ Podman VM 已启动"
+            CONTAINER_CMD="podman"
+        else
+            echo "❌ 无法启动 Podman VM"
+        fi
+    fi
+elif command -v docker &> /dev/null; then
+    # 检查 Docker 是否正在运行
+    if docker info &> /dev/null; then
+        CONTAINER_CMD="docker"
+        echo "✅ 检测到 Docker 正在运行"
+    else
+        echo "⚠️  Docker 已安装但未运行"
+        echo "   请启动 Docker Desktop:"
+        echo "   open /Applications/Docker.app"
+    fi
+fi
+
+if [ -n "$CONTAINER_CMD" ]; then
+    echo "🐳 使用 $CONTAINER_CMD 构建镜像..."
     cd "$PROJECT_ROOT"
-    docker build -t agentmatrix:latest .
+    $CONTAINER_CMD build -t agentmatrix:latest .
 
     echo ""
     echo "📦 导出镜像到缓存..."
-    docker save agentmatrix:latest | gzip > "$CACHE_DIR/docker/image.tar.gz"
+    $CONTAINER_CMD save agentmatrix:latest | gzip > "$CACHE_DIR/docker/image.tar.gz"
 
     IMAGE_SIZE=$(du -h "$CACHE_DIR/docker/image.tar.gz" | cut -f1)
-    echo "✅ Docker 镜像已缓存: $IMAGE_SIZE"
+    echo "✅ 容器镜像已缓存: $IMAGE_SIZE"
     echo "   路径: $CACHE_DIR/docker/image.tar.gz"
 else
-    echo "⚠️  Docker 未安装，跳过 Docker 镜像构建"
-    echo "   如需构建容器镜像，请先安装 Docker:"
-    echo "   brew install docker docker-compose"
+    echo "⚠️  没有可用的容器运行时"
+    echo ""
+    echo "请选择以下方式之一："
+    echo ""
+    echo "  选项 1: 启动 Docker Desktop"
+    echo "    open /Applications/Docker.app"
+    echo ""
+    echo "  选项 2: 启动 Podman"
+    echo "    podman machine start"
+    echo ""
+    echo "  选项 3: 跳过镜像构建"
+    echo "    (需要手动准备 image.tar.gz)"
+    echo ""
+    read -p "是否继续（跳过镜像构建）? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "❌ 已取消"
+        exit 1
+    fi
+    echo "⚠️  将跳过容器镜像构建"
 fi
 echo ""
 
