@@ -43,14 +43,6 @@
   "plugins": {
     "shell": {
       "open": true
-    },
-    "dialog": {
-      "all": true,
-      "confirm": true,
-      "message": true,
-      "ask": true,
-      "save": true,
-      "open": true
     }
   }
 }
