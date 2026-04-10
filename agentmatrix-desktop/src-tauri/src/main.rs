@@ -1335,22 +1335,19 @@ fn main() {
             show_window,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
+        .expect("error with building tauri application")
         .run(|app_handle, event| {
-            match event {
-                // macOS: 用户点击 Dock 图标时重新显示窗口
-                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
-                    println!("🖥️  Dock icon clicked, has_visible_windows={}", has_visible_windows);
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+                println!("🖥️  Dock icon clicked, has_visible_windows={}", has_visible_windows);
 
-                    if !has_visible_windows {
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            println!("📍 Showing main window...");
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                if !has_visible_windows {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        println!("📍 Showing main window...");
+                        let _ = window.show();
+                        let _ = window.set_focus();
                     }
                 }
-                _ => {}
             }
         });
 }
