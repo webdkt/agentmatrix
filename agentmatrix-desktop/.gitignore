@@ -25,3 +25,4 @@ dist-ssr
 
 # Tauri sidecar binaries
 src-tauri/binaries/
+build-cache/
