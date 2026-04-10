@@ -10,6 +10,9 @@
     "shell:allow-open",
     "shell:default",
     "fs:allow-read-file",
-    "fs:read-files"
+    "fs:read-files",
+    "dialog:allow-confirm",
+    "dialog:allow-message",
+    "dialog:default"
   ]
 }

@@ -1039,16 +1039,37 @@ async fn init_podman_vm() -> Result<String, String> {
         println!("✅ Podman VM already initialized");
     }
 
-    // Start VM
-    println!("▶️ Starting Podman VM...");
-    let start_output = StdCommand::new("podman")
-        .args(["machine", "start"])
+    // Check if VM is already running
+    let vm_running = StdCommand::new("podman")
+        .args(["machine", "list"])
         .output()
-        .map_err(|e| format!("Failed to start Podman VM: {}", e))?;
+        .map(|o| {
+            if o.status.success() {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                stdout.contains("Currently running")
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false);
 
-    if !start_output.status.success() {
-        let stderr = String::from_utf8_lossy(&start_output.stderr);
-        return Err(format!("Failed to start Podman VM: {}", stderr));
+    // Start VM only if not already running
+    if vm_running {
+        println!("✅ Podman VM is already running");
+    } else {
+        println!("▶️ Starting Podman VM...");
+        let start_output = StdCommand::new("podman")
+            .args(["machine", "start"])
+            .output()
+            .map_err(|e| format!("Failed to start Podman VM: {}", e))?;
+
+        if !start_output.status.success() {
+            let stderr = String::from_utf8_lossy(&start_output.stderr);
+            // Ignore "already running" error
+            if !stderr.contains("already running") {
+                return Err(format!("Failed to start Podman VM: {}", stderr));
+            }
+        }
     }
 
     // Wait for Podman to be ready
