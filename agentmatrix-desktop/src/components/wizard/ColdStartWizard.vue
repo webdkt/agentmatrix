@@ -269,10 +269,18 @@ function onClickStep(e) {
 
 // ─── Submit ───
 async function handleSubmit() {
+  // Clear any previous errors
+  configStore.submitError = null
+
   try {
     await configStore.submitWizard()
     emit('complete')
   } catch (error) { /* handled in store */ }
+}
+
+// Clear error when clicking on it
+function clearError() {
+  configStore.submitError = null
 }
 
 // ─── Init ───
@@ -393,7 +401,21 @@ onUnmounted(() => {
         <div class="me-summary" v-if="isStepValid(1) && isStepValid(2) && isStepValid(3)">
           {{ configStore.wizardData.user_name }} // {{ configStore.wizardData.default_llm.model_name }} / {{ configStore.wizardData.default_slm.model_name }}
         </div>
-        <div v-if="configStore.submitError" class="me-error-msg">{{ configStore.submitError }}</div>
+        <div
+          v-if="configStore.submitError"
+          :class="['me-status-msg', { 'me-info-msg': configStore.submitError === 'PODMAN_INSTALL_REQUIRED' }]"
+          @click="clearError"
+          style="cursor: pointer"
+          title="Click to dismiss"
+        >
+          <template v-if="configStore.submitError === 'PODMAN_INSTALL_REQUIRED'">
+            ✅ Podman installer has been launched!<br><br>
+            Please complete the installation, then click <strong>Initialize Matrix</strong> again.
+          </template>
+          <template v-else>
+            {{ configStore.submitError }}
+          </template>
+        </div>
       </div>
     </div>
 
@@ -826,6 +848,25 @@ onUnmounted(() => {
   border-left: 3px solid var(--fault);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.me-status-msg {
+  margin-top: 16px;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 480px;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 2px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.me-info-msg {
+  background: var(--verdant-muted);
+  color: var(--verdant);
+  border-left: 3px solid var(--verdant);
 }
 
 /* Back indicator */

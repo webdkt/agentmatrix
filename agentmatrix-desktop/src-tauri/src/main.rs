@@ -951,6 +951,29 @@ async fn auto_setup_container_runtime(app: tauri::AppHandle) {
     match runtime_info {
         Ok(info) if info.runtime != "none" => {
             println!("✅ Container runtime found: {} {}", info.runtime, info.version.unwrap_or_default());
+
+            // Check if Docker image needs to be loaded
+            println!("🔍 Checking if container image is loaded...");
+            match check_image().await {
+                Ok(image_info) if image_info.exists => {
+                    println!("✅ Container image already loaded: {} ({})", "agentmatrix:latest", image_info.size.unwrap_or_default());
+                }
+                Ok(_) => {
+                    println!("📦 Container image not found, loading from bundle...");
+                    match load_image(app.clone()).await {
+                        Ok(msg) => {
+                            println!("✅ Container image loaded successfully");
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Failed to load container image: {}", e);
+                            eprintln!("⚠️  The application may not work correctly without the container image.");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Error checking container image: {}", e);
+                }
+            }
         }
         Ok(_) => {
             println!("⚠️  No container runtime found. Attempting to install Podman...");
@@ -970,6 +993,101 @@ async fn auto_setup_container_runtime(app: tauri::AppHandle) {
             eprintln!("❌ Error checking container runtime: {}", e);
         }
     }
+}
+
+// ─── Initialize Podman VM (for cold start wizard) ───
+
+#[tauri::command]
+async fn init_podman_vm() -> Result<String, String> {
+    println!("🔄 Initializing Podman VM...");
+
+    // Check if Podman is installed
+    let runtime_info = check_container_runtime().await;
+    let runtime_info = runtime_info.map_err(|e| e.to_string())?;
+
+    if runtime_info.runtime != "podman" {
+        return Err(format!("Podman is not installed. Runtime: {}", runtime_info.runtime));
+    }
+
+    // Check if VM is already initialized
+    let list_output = StdCommand::new("podman")
+        .args(["machine", "list"])
+        .output()
+        .map_err(|e| format!("Failed to list Podman machines: {}", e))?;
+
+    let vm_exists = if list_output.status.success() {
+        let stdout = String::from_utf8_lossy(&list_output.stdout);
+        stdout.trim().lines().count() > 1  // Header + at least one machine
+    } else {
+        false
+    };
+
+    // Initialize VM if needed
+    if !vm_exists {
+        println!("📦 Podman VM not initialized, running 'podman machine init'...");
+        let init_output = StdCommand::new("podman")
+            .args(["machine", "init"])
+            .output()
+            .map_err(|e| format!("Failed to initialize Podman VM: {}", e))?;
+
+        if !init_output.status.success() {
+            let stderr = String::from_utf8_lossy(&init_output.stderr);
+            return Err(format!("Failed to initialize Podman VM: {}", stderr));
+        }
+        println!("✅ Podman VM initialized");
+    } else {
+        println!("✅ Podman VM already initialized");
+    }
+
+    // Start VM
+    println!("▶️ Starting Podman VM...");
+    let start_output = StdCommand::new("podman")
+        .args(["machine", "start"])
+        .output()
+        .map_err(|e| format!("Failed to start Podman VM: {}", e))?;
+
+    if !start_output.status.success() {
+        let stderr = String::from_utf8_lossy(&start_output.stderr);
+        return Err(format!("Failed to start Podman VM: {}", stderr));
+    }
+
+    // Wait for Podman to be ready
+    for i in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        if StdCommand::new("podman")
+            .args(["info"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            println!("✅ Podman VM is ready (took {}s)", i + 1);
+            return Ok("Podman VM initialized and started successfully".to_string());
+        }
+    }
+
+    Err("Podman VM did not become ready after 30 seconds".to_string())
+}
+
+// ─── Ensure Container Image (for cold start wizard) ───
+
+#[tauri::command]
+async fn ensure_container_image(app: tauri::AppHandle) -> Result<String, String> {
+    println!("🔍 Checking container image...");
+
+    // Check if image exists
+    let image_info = check_image().await.map_err(|e| e.to_string())?;
+
+    if image_info.exists {
+        println!("✅ Container image already loaded: {} ({})", "agentmatrix:latest", image_info.size.unwrap_or_default());
+        return Ok("Container image already loaded".to_string());
+    }
+
+    // Load image
+    println!("📦 Loading container image from bundle...");
+    load_image(app).await?;
+    println!("✅ Container image loaded successfully");
+
+    Ok("Container image loaded successfully".to_string())
 }
 
 // ─── Docker Image Management ───
@@ -1301,11 +1419,8 @@ fn main() {
                 }
             });
 
-            // Auto-setup container runtime on app start
-            let app_handle2 = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                auto_setup_container_runtime(app_handle2).await;
-            });
+            // NOTE: Container runtime setup is now only done during cold start wizard,
+            // not on app startup. This gives users better control and visibility.
 
             Ok(())
         })
@@ -1331,6 +1446,8 @@ fn main() {
             install_podman,
             check_image,
             load_image,
+            init_podman_vm,
+            ensure_container_image,
             is_window_focused,
             show_window,
         ])

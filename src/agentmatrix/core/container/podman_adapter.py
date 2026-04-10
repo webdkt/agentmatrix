@@ -220,7 +220,26 @@ class PodmanAdapter(ContainerAdapter):
 
         try:
             if system == "Darwin":  # macOS
-                log("🔍 检测到 macOS，尝试启动 Podman VM...")
+                log("🔍 检测到 macOS，检查 Podman VM 状态...")
+
+                # 检查虚拟机是否已初始化
+                check_result = subprocess.run(
+                    ["podman", "machine", "list"],
+                    capture_output=True,
+                    text=True
+                )
+
+                # 如果没有虚拟机，先初始化
+                if check_result.returncode == 0 and not check_result.stdout.strip():
+                    log("📦 Podman VM 未初始化，正在初始化...")
+                    subprocess.run(
+                        ["podman", "machine", "init"],
+                        check=True,
+                        capture_output=True
+                    )
+                    log("✅ Podman VM 初始化完成")
+
+                log("▶️ 正在启动 Podman VM...")
                 subprocess.run(
                     ["podman", "machine", "start"],
                     check=True,
@@ -270,9 +289,30 @@ class PodmanAdapter(ContainerAdapter):
                     return False
 
             elif system == "Windows":
-                log("🔍 检测到 Windows，尝试启动 Podman...")
+                log("🔍 检测到 Windows，检查 Podman VM 状态...")
+
                 # Windows 上 Podman 通常通过 WSL2 运行
                 try:
+                    # 检查虚拟机是否已初始化
+                    check_result = subprocess.run(
+                        ["podman", "machine", "list"],
+                        capture_output=True,
+                        text=True,
+                        shell=True
+                    )
+
+                    # 如果没有虚拟机，先初始化
+                    if check_result.returncode == 0 and not check_result.stdout.strip():
+                        log("📦 Podman VM 未初始化，正在初始化...")
+                        subprocess.run(
+                            ["podman", "machine", "init"],
+                            check=True,
+                            capture_output=True,
+                            shell=True
+                        )
+                        log("✅ Podman VM 初始化完成")
+
+                    log("▶️ 正在启动 Podman...")
                     subprocess.run(
                         ["podman", "machine", "start"],
                         check=True,

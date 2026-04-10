@@ -232,8 +232,76 @@ export const useConfigStore = defineStore('config', {
           console.log('✅ Email proxy config saved')
         }
 
-        // 5. 启动后端（此时目录和文件已存在）
-        console.log('🔧 Step 5: Starting backend server...')
+        // 5. 初始化容器运行时（在后端启动之前）
+        console.log('🐋 Step 5: Initializing container runtime...')
+
+        try {
+          // 5.1 检查并安装容器运行时（如果需要）
+          const runtimeInfo = await invoke('check_container_runtime')
+          console.log('   Runtime status:', runtimeInfo)
+
+          if (runtimeInfo.runtime === 'none') {
+            console.log('   ⚠️ No container runtime found')
+
+            // 弹出确认对话框
+            const userConfirmed = await this._showPodmanInstallDialog()
+            if (!userConfirmed) {
+              // 用户取消，显示友好的提示
+              this.submitError = 'Matrix requires Podman to run. Installation was cancelled.'
+              throw new Error('User cancelled Podman installation')
+            }
+
+            console.log('   📦 User confirmed, launching Podman installer...')
+            await invoke('install_podman')
+            console.log('   ✅ Podman installer launched')
+
+            // 设置特殊的错误消息，让 UI 知道这是安装程序启动
+            this.submitError = 'PODMAN_INSTALL_REQUIRED'
+
+            throw new Error(
+              'PODMAN_INSTALL_REQUIRED\n\n' +
+              '✅ Podman installer has been launched!\n\n' +
+              'Please complete the installation:\n' +
+              '1. Follow the installation wizard\n' +
+              '2. Once installed, click "Initialize Matrix" again\n\n' +
+              'Note: You may need to restart this application after installation.'
+            )
+          }
+
+          // 5.2 初始化并启动 Podman VM
+          if (runtimeInfo.runtime === 'podman') {
+            console.log('   🔄 Initializing Podman VM...')
+            try {
+              await invoke('init_podman_vm')
+              console.log('   ✅ Podman VM ready')
+            } catch (vmError) {
+              console.error('   ❌ Failed to initialize Podman VM:', vmError)
+              throw new Error(
+                `Failed to initialize Podman VM: ${vmError}\n\n` +
+                'Please ensure Podman is installed correctly and try again.'
+              )
+            }
+          }
+
+          // 5.3 确保容器镜像已加载
+          console.log('   🖼️ Ensuring container image is loaded...')
+          try {
+            await invoke('ensure_container_image')
+            console.log('   ✅ Container image ready')
+          } catch (imageError) {
+            console.error('   ❌ Failed to load container image:', imageError)
+            throw new Error(
+              `Failed to load container image: ${imageError}\n\n` +
+              'The application cannot function without the container image.'
+            )
+          }
+        } catch (runtimeError) {
+          console.error('❌ Container runtime initialization failed:', runtimeError)
+          throw runtimeError
+        }
+
+        // 6. 启动后端（此时容器运行时已就绪）
+        console.log('🔧 Step 6: Starting backend server...')
         try {
           await invoke('start_backend')
           console.log('✅ Backend server started')
@@ -276,8 +344,8 @@ export const useConfigStore = defineStore('config', {
           )
         }
 
-        // 6. 通知后端初始化 runtime（读取已有文件）
-        console.log('🎯 Step 6: Initializing runtime...')
+        // 7. 通知后端初始化 runtime（读取已有文件）
+        console.log('🎯 Step 7: Initializing runtime...')
         const result = await configAPI.initRuntime({ matrix_world_path: path })
 
         if (!result.success) {
@@ -290,7 +358,7 @@ export const useConfigStore = defineStore('config', {
 
         this.submitResult = result
 
-        // 5.5 首次运行专属操作（仅冷启动时执行一次）
+        // 8. 首次运行专属操作（仅冷启动时执行一次）
         try {
           console.log('🎉 Performing first-run initialization...')
           await configAPI.firstRunInit({
@@ -302,7 +370,7 @@ export const useConfigStore = defineStore('config', {
           console.warn('⚠️  First-run init failed (non-blocking):', e)
         }
 
-        // 6. 标记已配置
+        // 9. 标记已配置
         console.log('💾 Saving configuration...')
         await invoke('mark_configured', { matrixWorldPath: path })
         console.log('✅ Configuration saved')
@@ -328,6 +396,25 @@ export const useConfigStore = defineStore('config', {
       this.submitError = null
       this.submitResult = null
       this.isSubmitting = false
+    },
+
+    /**
+     * 显示 Podman 安装确认对话框
+     * @returns {Promise<boolean>} 用户是否确认安装
+     */
+    async _showPodmanInstallDialog() {
+      return new Promise((resolve) => {
+        // 使用原生 confirm 对话框
+        // TODO: 后续可以改成自定义的模态对话框
+        const confirmed = confirm(
+          'Matrix requires Podman to run containers.\n\n' +
+          'Podman is not installed on your system.\n\n' +
+          'Would you like to install Podman now?\n\n' +
+          'Click OK to launch the Podman installer,\n' +
+          'or Cancel to abort the initialization.'
+        )
+        resolve(confirmed)
+      })
     },
   },
 })
