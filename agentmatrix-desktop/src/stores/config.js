@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
+import { confirm } from '@tauri-apps/plugin-dialog'
 import { configAPI } from '@/api/config'
 import llmPresets from '@/assets/llm-presets.json'
 
@@ -403,18 +404,14 @@ export const useConfigStore = defineStore('config', {
      * @returns {Promise<boolean>} 用户是否确认安装
      */
     async _showPodmanInstallDialog() {
-      return new Promise((resolve) => {
-        // 使用原生 confirm 对话框
-        // TODO: 后续可以改成自定义的模态对话框
-        const confirmed = confirm(
-          'Matrix requires Podman to run containers.\n\n' +
-          'Podman is not installed on your system.\n\n' +
-          'Would you like to install Podman now?\n\n' +
-          'Click OK to launch the Podman installer,\n' +
-          'or Cancel to abort the initialization.'
-        )
-        resolve(confirmed)
-      })
+      return await confirm(
+        'Matrix requires Podman to run containers.\n\n' +
+        'Podman is not installed on your system.\n\n' +
+        'Would you like to install Podman now?\n\n' +
+        'Click OK to launch the Podman installer,\n' +
+        'or Cancel to abort the initialization.',
+        { title: 'Install Podman', kind: 'warning' }
+      )
     },
   },
 })
