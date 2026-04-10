@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
 import { confirm } from '@tauri-apps/plugin-dialog'
-import { configAPI } from '@/api/config'
 import llmPresets from '@/assets/llm-presets.json'
 
 /**
@@ -189,199 +188,67 @@ export const useConfigStore = defineStore('config', {
 
       try {
         console.log('🚀 Starting wizard submission...')
-        console.log('MatrixWorld path:', path)
-        console.log('User name:', name)
 
-        // 1. 创建目录和模板（Tauri，不需要后端）
-        console.log('📁 Step 1: Creating matrix world from template...')
+        // 0. 检查容器运行时（冷启动时 podman 可能还没装）
+        const runtimeInfo = await invoke('check_container_runtime')
+        if (runtimeInfo.runtime === 'none') {
+          const userConfirmed = await confirm(
+            'Matrix requires Podman to run containers.\n\n' +
+            'Podman is not installed on your system.\n\n' +
+            'Would you like to install Podman now?',
+            { title: 'Install Podman', kind: 'warning' }
+          )
+          if (userConfirmed) {
+            await invoke('install_podman')
+          }
+          this.submitError = 'PODMAN_INSTALL_REQUIRED'
+          throw new Error('PODMAN_INSTALL_REQUIRED')
+        }
+
+        // 1. 创建目录和模板
         await invoke('init_matrix_world', { matrixWorldPath: path, userName: name })
-        console.log('✅ Matrix world created')
 
-        // 2. 保存 .env（存放真实的 API key）
-        console.log('🔐 Step 2: Saving .env file...')
-        const envVars = {
-          LLM_API_KEY: this.wizardData.default_llm.api_key,
-          SLM_API_KEY: this.wizardData.default_slm.api_key,
-        }
-        await invoke('save_env_file', { matrixWorldPath: path, envVars })
-        console.log('✅ .env saved')
+        // 2. 保存 .env
+        await invoke('save_env_file', {
+          matrixWorldPath: path,
+          envVars: {
+            LLM_API_KEY: this.wizardData.default_llm.api_key,
+            SLM_API_KEY: this.wizardData.default_slm.api_key,
+          },
+        })
 
-        // 3. 保存 LLM 配置（API key 位置固定为环境变量名）
-        console.log('⚙️  Step 3: Saving LLM config...')
-        const llmConfig = {
-          default_llm: {
-            url: this.wizardData.default_llm.url,
-            API_KEY: 'LLM_API_KEY',
-            model_name: this.wizardData.default_llm.model_name,
+        // 3. 保存 LLM 配置
+        await invoke('save_llm_config', {
+          matrixWorldPath: path,
+          llmConfig: {
+            default_llm: {
+              url: this.wizardData.default_llm.url,
+              API_KEY: 'LLM_API_KEY',
+              model_name: this.wizardData.default_llm.model_name,
+            },
+            default_slm: {
+              url: this.wizardData.default_slm.url,
+              API_KEY: 'SLM_API_KEY',
+              model_name: this.wizardData.default_slm.model_name,
+            },
           },
-          default_slm: {
-            url: this.wizardData.default_slm.url,
-            API_KEY: 'SLM_API_KEY',
-            model_name: this.wizardData.default_slm.model_name,
-          },
-        }
-        await invoke('save_llm_config', { matrixWorldPath: path, llmConfig })
-        console.log('✅ LLM config saved')
+        })
 
         // 4. 保存 Email Proxy 配置（如果有）
         if (this.wizardData.email_proxy.enabled) {
-          console.log('📧 Step 4: Saving email proxy config...')
           await invoke('save_email_proxy_config_cmd', {
             matrixWorldPath: path,
             emailProxy: this.wizardData.email_proxy,
           })
-          console.log('✅ Email proxy config saved')
         }
 
-        // 5. 初始化容器运行时（在后端启动之前）
-        console.log('🐋 Step 5: Initializing container runtime...')
-
-        try {
-          // 5.1 检查并安装容器运行时（如果需要）
-          const runtimeInfo = await invoke('check_container_runtime')
-          console.log('   Runtime status:', runtimeInfo)
-
-          if (runtimeInfo.runtime === 'none') {
-            console.log('   ⚠️ No container runtime found')
-
-            // 弹出确认对话框
-            const userConfirmed = await this._showPodmanInstallDialog()
-            if (!userConfirmed) {
-              // 用户取消，显示友好的提示
-              this.submitError = 'Matrix requires Podman to run. Installation was cancelled.'
-              throw new Error('User cancelled Podman installation')
-            }
-
-            console.log('   📦 User confirmed, launching Podman installer...')
-            await invoke('install_podman')
-            console.log('   ✅ Podman installer launched')
-
-            // 设置特殊的错误消息，让 UI 知道这是安装程序启动
-            this.submitError = 'PODMAN_INSTALL_REQUIRED'
-
-            throw new Error(
-              'PODMAN_INSTALL_REQUIRED\n\n' +
-              '✅ Podman installer has been launched!\n\n' +
-              'Please complete the installation:\n' +
-              '1. Follow the installation wizard\n' +
-              '2. Once installed, click "Initialize Matrix" again\n\n' +
-              'Note: You may need to restart this application after installation.'
-            )
-          }
-
-          // 5.2 初始化并启动 Podman VM
-          if (runtimeInfo.runtime === 'podman') {
-            console.log('   🔄 Initializing Podman VM...')
-            try {
-              await invoke('init_podman_vm')
-              console.log('   ✅ Podman VM ready')
-            } catch (vmError) {
-              console.error('   ❌ Failed to initialize Podman VM:', vmError)
-              throw new Error(
-                `Failed to initialize Podman VM: ${vmError}\n\n` +
-                'Please ensure Podman is installed correctly and try again.'
-              )
-            }
-          }
-
-          // 5.3 确保容器镜像已加载
-          console.log('   🖼️ Ensuring container image is loaded...')
-          try {
-            await invoke('ensure_container_image')
-            console.log('   ✅ Container image ready')
-          } catch (imageError) {
-            console.error('   ❌ Failed to load container image:', imageError)
-            throw new Error(
-              `Failed to load container image: ${imageError}\n\n` +
-              'The application cannot function without the container image.'
-            )
-          }
-        } catch (runtimeError) {
-          console.error('❌ Container runtime initialization failed:', runtimeError)
-          throw runtimeError
-        }
-
-        // 6. 启动后端（此时容器运行时已就绪）
-        console.log('🔧 Step 6: Starting backend server...')
-        try {
-          await invoke('start_backend')
-          console.log('✅ Backend server started')
-        } catch (backendError) {
-          console.error('❌ Failed to start backend:', backendError)
-          throw new Error(
-            `Failed to start backend server: ${backendError}\n\n` +
-            'This usually means the Python server executable could not be found.\n' +
-            'Please check the console logs for details.'
-          )
-        }
-
-        // 等待后端启动
-        console.log('⏳ Waiting for backend to be ready...')
-        await new Promise(resolve => setTimeout(resolve, 3000))
-
-        // 健康检查，最多重试 3 次
-        let backendReady = false
-        for (let i = 0; i < 3; i++) {
-          console.log(`   Health check attempt ${i + 1}/3...`)
-          const isRunning = await invoke('check_backend')
-          if (isRunning) {
-            console.log('✅ Backend is ready!')
-            backendReady = true
-            break
-          }
-          if (i < 2) {
-            console.log('   Backend not ready, waiting 2 more seconds...')
-            await new Promise(resolve => setTimeout(resolve, 2000))
-          }
-        }
-
-        if (!backendReady) {
-          throw new Error(
-            'Backend server failed to start or is not responding.\n\n' +
-            'The server may have crashed. Please check:\n' +
-            '1. Python is installed on your system\n' +
-            '2. All dependencies are available\n' +
-            '3. The MatrixWorld directory is valid'
-          )
-        }
-
-        // 7. 通知后端初始化 runtime（读取已有文件）
-        console.log('🎯 Step 7: Initializing runtime...')
-        const result = await configAPI.initRuntime({ matrix_world_path: path })
-
-        if (!result.success) {
-          throw new Error(
-            `Runtime initialization failed: ${result.message || 'Unknown error'}\n\n` +
-            'Please check that all configuration files are valid.'
-          )
-        }
-        console.log('✅ Runtime initialized')
-
-        this.submitResult = result
-
-        // 8. 首次运行专属操作（仅冷启动时执行一次）
-        try {
-          console.log('🎉 Performing first-run initialization...')
-          await configAPI.firstRunInit({
-            matrix_world_path: path,
-            user_name: name,
-          })
-          console.log('✅ First-run init complete')
-        } catch (e) {
-          console.warn('⚠️  First-run init failed (non-blocking):', e)
-        }
-
-        // 9. 标记已配置
-        console.log('💾 Saving configuration...')
+        // 5. 标记已配置
         await invoke('mark_configured', { matrixWorldPath: path })
-        console.log('✅ Configuration saved')
-
         this.isFirstRun = false
+
         console.log('🎊 Wizard completed successfully!')
-        return result
+        return { success: true }
       } catch (error) {
-        console.error('❌ Wizard submission failed:', error)
-        console.error('Error stack:', error.stack)
         this.submitError = error.message || String(error)
         throw error
       } finally {
@@ -397,21 +264,6 @@ export const useConfigStore = defineStore('config', {
       this.submitError = null
       this.submitResult = null
       this.isSubmitting = false
-    },
-
-    /**
-     * 显示 Podman 安装确认对话框
-     * @returns {Promise<boolean>} 用户是否确认安装
-     */
-    async _showPodmanInstallDialog() {
-      return await confirm(
-        'Matrix requires Podman to run containers.\n\n' +
-        'Podman is not installed on your system.\n\n' +
-        'Would you like to install Podman now?\n\n' +
-        'Click OK to launch the Podman installer,\n' +
-        'or Cancel to abort the initialization.',
-        { title: 'Install Podman', kind: 'warning' }
-      )
     },
   },
 })

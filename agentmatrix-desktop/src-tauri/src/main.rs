@@ -807,6 +807,7 @@ use std::process::Command as StdCommand;
 struct RuntimeInfo {
     runtime: String,  // "docker", "podman", or "none"
     version: Option<String>,
+    path: Option<String>,  // absolute path to the executable
     install_guide: Option<String>,
 }
 
@@ -816,7 +817,7 @@ fn find_executable(name: &str) -> Option<String> {
     // 1. Direct lookup (works if the binary is already in the process PATH)
     if let Ok(output) = StdCommand::new(name).arg("--version").output() {
         if output.status.success() {
-            return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+            return Some(name.to_string());
         }
     }
 
@@ -831,17 +832,22 @@ fn find_executable(name: &str) -> Option<String> {
         for p in &paths {
             if let Ok(output) = StdCommand::new(p).arg("--version").output() {
                 if output.status.success() {
-                    return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+                    return Some(p.clone());
                 }
             }
         }
         // 3. Last resort: query the user's login shell for the full PATH
+        //    Use `which` to resolve the absolute path so callers can execute
+        //    it directly without relying on a full shell PATH.
         if let Ok(output) = StdCommand::new("zsh")
-            .args(["-l", "-c", &format!("{} --version", name)])
+            .args(["-l", "-c", &format!("which {}", name)])
             .output()
         {
             if output.status.success() {
-                return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() {
+                    return Some(path);
+                }
             }
         }
     }
@@ -852,21 +858,23 @@ fn find_executable(name: &str) -> Option<String> {
 #[tauri::command]
 async fn check_container_runtime() -> Result<RuntimeInfo, String> {
     // Check Podman first (preferred)
-    if let Some(version) = find_executable("podman") {
-        println!("✅ Found Podman: {}", version);
+    if let Some(path) = find_executable("podman") {
+        println!("✅ Found Podman at: {}", path);
         return Ok(RuntimeInfo {
             runtime: "podman".to_string(),
-            version: Some(version),
+            version: None,
+            path: Some(path),
             install_guide: None,
         });
     }
 
     // Check Docker as fallback
-    if let Some(version) = find_executable("docker") {
-        println!("✅ Found Docker: {}", version);
+    if let Some(path) = find_executable("docker") {
+        println!("✅ Found Docker at: {}", path);
         return Ok(RuntimeInfo {
             runtime: "docker".to_string(),
-            version: Some(version),
+            version: None,
+            path: Some(path),
             install_guide: None,
         });
     }
@@ -886,6 +894,7 @@ async fn check_container_runtime() -> Result<RuntimeInfo, String> {
     Ok(RuntimeInfo {
         runtime: "none".to_string(),
         version: None,
+        path: None,
         install_guide,
     })
 }
@@ -940,60 +949,6 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
-// ─── Auto Setup Container Runtime ───
-
-async fn auto_setup_container_runtime(app: tauri::AppHandle) {
-    println!("🔍 Checking container runtime...");
-
-    // Check if Docker or Podman is already installed
-    let runtime_info = check_container_runtime().await;
-
-    match runtime_info {
-        Ok(info) if info.runtime != "none" => {
-            println!("✅ Container runtime found: {} {}", info.runtime, info.version.unwrap_or_default());
-
-            // Check if Docker image needs to be loaded
-            println!("🔍 Checking if container image is loaded...");
-            match check_image().await {
-                Ok(image_info) if image_info.exists => {
-                    println!("✅ Container image already loaded: {} ({})", "agentmatrix:latest", image_info.size.unwrap_or_default());
-                }
-                Ok(_) => {
-                    println!("📦 Container image not found, loading from bundle...");
-                    match load_image(app.clone()).await {
-                        Ok(msg) => {
-                            println!("✅ Container image loaded successfully");
-                        }
-                        Err(e) => {
-                            eprintln!("❌ Failed to load container image: {}", e);
-                            eprintln!("⚠️  The application may not work correctly without the container image.");
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("❌ Error checking container image: {}", e);
-                }
-            }
-        }
-        Ok(_) => {
-            println!("⚠️  No container runtime found. Attempting to install Podman...");
-
-            // Try to auto-install Podman
-            match install_podman(app).await {
-                Ok(msg) => {
-                    println!("📦 Podman installation initiated: {}", msg);
-                }
-                Err(e) => {
-                    eprintln!("❌ Failed to install Podman: {}", e);
-                    eprintln!("⚠️  Please install Podman manually to use container features.");
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("❌ Error checking container runtime: {}", e);
-        }
-    }
-}
 
 // ─── Initialize Podman VM (for cold start wizard) ───
 
@@ -1009,8 +964,11 @@ async fn init_podman_vm() -> Result<String, String> {
         return Err(format!("Podman is not installed. Runtime: {}", runtime_info.runtime));
     }
 
+    // Use the resolved absolute path so we don't depend on the process PATH
+    let podman_bin = runtime_info.path.unwrap_or_else(|| "podman".to_string());
+
     // Check if VM is already initialized
-    let list_output = StdCommand::new("podman")
+    let list_output = StdCommand::new(&podman_bin)
         .args(["machine", "list"])
         .output()
         .map_err(|e| format!("Failed to list Podman machines: {}", e))?;
@@ -1025,7 +983,7 @@ async fn init_podman_vm() -> Result<String, String> {
     // Initialize VM if needed
     if !vm_exists {
         println!("📦 Podman VM not initialized, running 'podman machine init'...");
-        let init_output = StdCommand::new("podman")
+        let init_output = StdCommand::new(&podman_bin)
             .args(["machine", "init"])
             .output()
             .map_err(|e| format!("Failed to initialize Podman VM: {}", e))?;
@@ -1040,7 +998,7 @@ async fn init_podman_vm() -> Result<String, String> {
     }
 
     // Check if VM is already running
-    let vm_running = StdCommand::new("podman")
+    let vm_running = StdCommand::new(&podman_bin)
         .args(["machine", "list"])
         .output()
         .map(|o| {
@@ -1058,7 +1016,7 @@ async fn init_podman_vm() -> Result<String, String> {
         println!("✅ Podman VM is already running");
     } else {
         println!("▶️ Starting Podman VM...");
-        let start_output = StdCommand::new("podman")
+        let start_output = StdCommand::new(&podman_bin)
             .args(["machine", "start"])
             .output()
             .map_err(|e| format!("Failed to start Podman VM: {}", e))?;
@@ -1075,7 +1033,7 @@ async fn init_podman_vm() -> Result<String, String> {
     // Wait for Podman to be ready
     for i in 0..30 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        if StdCommand::new("podman")
+        if StdCommand::new(&podman_bin)
             .args(["info"])
             .output()
             .map(|o| o.status.success())
@@ -1111,6 +1069,57 @@ async fn ensure_container_image(app: tauri::AppHandle) -> Result<String, String>
     Ok("Container image loaded successfully".to_string())
 }
 
+// ─── Ensure Environment (unified startup: container runtime + backend) ───
+
+async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
+    let runtime_info = check_container_runtime().await?;
+    if runtime_info.runtime == "none" {
+        return Err("No container runtime found. Please install Podman.".to_string());
+    }
+    if runtime_info.runtime == "podman" {
+        init_podman_vm().await?;
+    }
+    ensure_container_image(app.clone()).await?;
+    start_backend_logic(app, state).await?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn wizard_complete(app: tauri::AppHandle, state: State<'_, BackendState>) -> Result<(), String> {
+    // Close wizard window
+    if let Some(wizard) = app.get_webview_window("wizard") {
+        let _ = wizard.close();
+    }
+    // Show splash
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.show();
+    }
+    // Ensure environment
+    match ensure_environment_logic(&app, &state.inner()).await {
+        Ok(_) => {
+            if let Some(splash) = app.get_webview_window("splash") {
+                let _ = splash.close();
+            }
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.set_focus();
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if let Some(splash) = app.get_webview_window("splash") {
+                let _ = splash.close();
+            }
+            use tauri_plugin_dialog::DialogExt;
+            app.dialog()
+                .message(format!("Failed to start:\n\n{}\n\nYou can try starting it manually from the tray icon.", e))
+                .title("AgentMatrix - Startup Error")
+                .show(|_| {});
+            Err(e)
+        }
+    }
+}
+
 // ─── Docker Image Management ───
 
 #[derive(serde::Serialize)]
@@ -1121,8 +1130,11 @@ struct ImageInfo {
 
 #[tauri::command]
 async fn check_image() -> Result<ImageInfo, String> {
+    // Resolve podman path (GUI apps don't inherit shell PATH on macOS)
+    let podman_bin = find_executable("podman").unwrap_or_else(|| "podman".to_string());
+
     // Check if agentmatrix:latest image exists
-    if let Ok(output) = StdCommand::new("podman")
+    if let Ok(output) = StdCommand::new(&podman_bin)
         .args(["images", "--format", "{{.Size}}", "agentmatrix:latest"])
         .output()
     {
@@ -1155,15 +1167,18 @@ async fn load_image(app: tauri::AppHandle) -> Result<String, String> {
 
     println!("Loading Docker image from: {:?}", image_path);
 
+    // Resolve podman path (GUI apps don't inherit shell PATH on macOS)
+    let podman_bin = find_executable("podman").unwrap_or_else(|| "podman".to_string());
+
     // Load image: gunzip | podman load
     let output = if cfg!(target_os = "windows") {
         StdCommand::new("cmd")
-            .args(["/c", "type", &image_path.to_string_lossy(), "|", "gzip", "-d", "|", "podman", "load"])
+            .args(["/c", "type", &image_path.to_string_lossy(), "|", "gzip", "-d", "|", &podman_bin, "load"])
             .output()
             .map_err(|e| format!("Failed to load image: {}", e))?
     } else {
         StdCommand::new("sh")
-            .args(["-c", &format!("gunzip -c '{}' | podman load", image_path.to_string_lossy())])
+            .args(["-c", &format!("gunzip -c '{}' | '{}' load", image_path.to_string_lossy(), podman_bin)])
             .output()
             .map_err(|e| format!("Failed to load image: {}", e))?
     };
@@ -1331,27 +1346,7 @@ fn main() {
                 })
                 .build(app)?;
 
-            // Create splash window immediately
-            let splash_path = if cfg!(dev) {
-                let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-                manifest_dir.join("splash.html")
-            } else {
-                app.path().resource_dir()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                    .join("splash.html")
-            };
-            let splash_url = tauri::WebviewUrl::External(
-                format!("file://{}", splash_path.to_string_lossy()).parse().unwrap()
-            );
-            let _splash = tauri::WebviewWindowBuilder::new(app, "splash", splash_url)
-                .title("AgentMatrix")
-                .inner_size(400.0, 280.0)
-                .center()
-                .resizable(false)
-                .decorations(false)
-                .build()?;
-
-            // Check if cold start wizard is needed BEFORE starting backend
+            // Check if cold start wizard is needed
             let needs_cold_start = AppConfig::load()
                 .map(|config| config.is_first_run())
                 .unwrap_or(true);
@@ -1361,76 +1356,40 @@ fn main() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if needs_cold_start {
-                    // Cold start: create main window WITHOUT starting backend
-                    // Vue app will detect is_first_run=true and show wizard
-                    println!("🧙 Cold start required, showing wizard (no backend)");
-
-                    let main_url = if cfg!(dev) {
-                        tauri::WebviewUrl::External(
-                            "http://localhost:5173".parse().unwrap()
-                        )
-                    } else {
-                        tauri::WebviewUrl::App("index.html".into())
-                    };
-
-                    let _main = tauri::WebviewWindowBuilder::new(
-                        &app_handle, "main", main_url,
-                    )
-                    .title("AgentMatrix")
-                    .inner_size(1200.0, 800.0)
-                    .min_inner_size(800.0, 600.0)
-                    .center()
-                    .resizable(true)
-                    .fullscreen(false)
-                    .devtools(true)
-                    .build();
-
-                    // Close splash
-                    if let Some(splash) = app_handle.get_webview_window("splash") {
-                        let _ = splash.close();
+                    // Cold start: show wizard window
+                    println!("🧙 Cold start required, showing wizard");
+                    if let Some(wizard) = app_handle.get_webview_window("wizard") {
+                        let _ = wizard.show();
+                        let _ = wizard.set_focus();
                     }
                 } else {
-                    // Normal startup: start backend first, then create main window
-                    println!("🚀 Normal startup, starting backend...");
+                    // Normal startup: show splash, then ensure environment
+                    if let Some(splash) = app_handle.get_webview_window("splash") {
+                        let _ = splash.show();
+                    }
 
+                    println!("🚀 Starting environment...");
                     let state = app_handle.state::<BackendState>();
-                    match start_backend_logic(&app_handle, &state).await {
-                        Ok(_port) => {
-                            println!("Backend ready, creating main window");
-                            // Create main window with real frontend URL
-                            let main_url = if cfg!(dev) {
-                                tauri::WebviewUrl::External(
-                                    "http://localhost:5173".parse().unwrap()
-                                )
-                            } else {
-                                tauri::WebviewUrl::App("index.html".into())
-                            };
-                            let _main = tauri::WebviewWindowBuilder::new(
-                                &app_handle, "main", main_url,
-                            )
-                            .title("AgentMatrix")
-                            .inner_size(1200.0, 800.0)
-                            .min_inner_size(800.0, 600.0)
-                            .center()
-                            .resizable(true)
-                            .fullscreen(false)
-                            .devtools(true)
-                            .build();
-                            // Close splash
+                    match ensure_environment_logic(&app_handle, &state).await {
+                        Ok(_) => {
+                            println!("✅ Environment ready, showing main window");
                             if let Some(splash) = app_handle.get_webview_window("splash") {
                                 let _ = splash.close();
                             }
+                            if let Some(main) = app_handle.get_webview_window("main") {
+                                let _ = main.show();
+                                let _ = main.set_focus();
+                            }
                         }
                         Err(e) => {
-                            eprintln!("Failed to start backend on launch: {}", e);
-                            // Close splash
+                            eprintln!("Failed to start environment: {}", e);
                             if let Some(splash) = app_handle.get_webview_window("splash") {
                                 let _ = splash.close();
                             }
                             use tauri_plugin_dialog::DialogExt;
                             app_handle.dialog()
                                 .message(format!(
-                                    "Failed to start backend:\n\n{}\n\nYou can try starting it manually from the tray icon.",
+                                    "Failed to start:\n\n{}\n\nYou can try starting it manually from the tray icon.",
                                     e
                                 ))
                                 .title("AgentMatrix - Startup Error")
@@ -1439,9 +1398,6 @@ fn main() {
                     }
                 }
             });
-
-            // NOTE: Container runtime setup is now only done during cold start wizard,
-            // not on app startup. This gives users better control and visibility.
 
             Ok(())
         })
@@ -1469,6 +1425,7 @@ fn main() {
             load_image,
             init_podman_vm,
             ensure_container_image,
+            wizard_complete,
             is_window_focused,
             show_window,
         ])

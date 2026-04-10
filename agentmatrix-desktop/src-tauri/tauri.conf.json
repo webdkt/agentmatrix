@@ -10,7 +10,37 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [],
+    "windows": [
+      {
+        "label": "splash",
+        "url": "splash.html",
+        "width": 400,
+        "height": 280,
+        "resizable": false,
+        "decorations": false,
+        "visible": false
+      },
+      {
+        "label": "wizard",
+        "title": "AgentMatrix",
+        "url": "index.html",
+        "width": 900,
+        "height": 700,
+        "resizable": false,
+        "visible": false
+      },
+      {
+        "label": "main",
+        "title": "AgentMatrix",
+        "url": "index.html",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "visible": false
+      }
+    ],
     "security": {
       "csp": null
     },
@@ -30,7 +60,6 @@
       "resources/matrix-template/**/*",
       "resources/podman/**/*",
       "resources/docker/**/*",
-      "splash.html",
       "resources/python_dist/**/*"
     ],
     "externalBin": [],

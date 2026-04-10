@@ -1,5 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useBackendStore } from '@/stores/backend'
 import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
@@ -13,6 +15,7 @@ import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
 import EmailToast from '@/components/toast/EmailToast.vue'
 import { sessionAPI } from '@/api/session'
 
+const windowLabel = getCurrentWebviewWindow().label
 const currentView = ref('email')
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
@@ -47,13 +50,8 @@ async function handleEmailToastClick(emailData) {
 }
 
 async function initializeWebSocket() {
-  console.log('🔌 Initializing WebSocket connection...')
-
   if (backendStore.isRunning) {
-    console.log('✅ Backend is running, connecting WebSocket...')
     connect()
-  } else {
-    console.log('⏳ Backend not running yet, will connect when ready')
   }
 
   onMessage((data) => {
@@ -64,51 +62,40 @@ async function initializeWebSocket() {
     const { session_id, direction, is_read, sender, subject } = data
     const isCurrentSession = session_id === currentSession.value?.session_id
 
-    // 更新本地 session 状态
     sessionStore.updateSessionFromEvent(data)
 
     if (direction === 'inbound' && is_read === 0) {
-      // 收到新邮件
       if (currentView.value === 'email') {
         if (isCurrentSession) {
-          // 当前在看这个 session：刷新邮件列表，延迟标记已读
           sessionStore.selectSession(currentSession.value, true)
           setTimeout(() => {
             sessionStore.markSessionRead(session_id)
             sessionAPI.markAsRead(session_id)
           }, 3000)
         }
-        // 在 Email View 但其他 session：不弹窗，只更新 sidebar 样式（由 updateSessionFromEvent 处理）
       } else {
-        // 不在 Email View：toast + OS 通知
         uiStore.emailToast = { show: true, emailData: data }
         showNotification('新邮件', `来自 ${sender}: ${subject}`)
       }
     }
-    // direction='outbound'（用户发件）：不触发任何通知，只更新 UI 状态（已由 updateSessionFromEvent 处理）
   })
 }
 
 async function handleWizardComplete() {
-  appState.value = 'ready'
-  await backendStore.initializeBackend()
-  await initializeWebSocket()
+  // submitWizard 已完成（配置文件 + mark_configured）
+  // 通知 Rust 关闭向导 → 显示 splash → 启动环境 → 显示主窗口
+  await invoke('wizard_complete')
 }
 
 onMounted(async () => {
-  try {
-    const isFirstRun = await configStore.checkFirstRun()
-    if (isFirstRun) {
-      appState.value = 'wizard'
-      return
-    }
-    await backendStore.initializeBackend()
-    await initializeWebSocket()
-    appState.value = 'ready'
-  } catch (error) {
-    console.error('Failed to initialize:', error)
-    appState.value = 'ready'
+  if (windowLabel === 'wizard') {
+    appState.value = 'wizard'
+    return
   }
+  // Main window: backend is already running (started by Rust setup)
+  await backendStore.initializeBackend()
+  await initializeWebSocket()
+  appState.value = 'ready'
 })
 
 onUnmounted(() => {

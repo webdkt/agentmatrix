@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 20px;
+      background: #FDFCF9;
+      color: #1A1A1A;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+
+    .title {
+      font-family: "Source Serif 4", "Noto Serif SC", "Songti SC", Georgia, serif;
+      font-size: 20px;
+      font-weight: 600;
+      color: #1A1A1A;
+      letter-spacing: 0.02em;
+    }
+
+    .label {
+      font-size: 12px;
+      color: #8A8A8A;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-variant: small-caps;
+    }
+
+    /* Thinking bar — vermillion 2px progress bar, oscillating */
+    .thinking-bar {
+      width: 120px;
+      height: 2px;
+      background: #EDE9E1;
+      border-radius: 1px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .thinking-bar::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 40%;
+      height: 100%;
+      background: #C23B22;
+      border-radius: 1px;
+      animation: oscillate 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes oscillate {
+      0%   { left: -40%; }
+      50%  { left: 100%; }
+      100% { left: -40%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="title">AgentMatrix</div>
+  <div class="thinking-bar"></div>
+  <div class="label">Starting backend server</div>
+</body>
+</html>
