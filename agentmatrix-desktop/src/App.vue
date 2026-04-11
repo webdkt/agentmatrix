@@ -14,6 +14,7 @@ import ViewContainer from '@/components/view-container/ViewContainer.vue'
 import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
 import EmailToast from '@/components/toast/EmailToast.vue'
 import { sessionAPI } from '@/api/session'
+import { configAPI } from '@/api/config'
 
 const windowLabel = getCurrentWebviewWindow().label
 const currentView = ref('email')
@@ -50,9 +51,8 @@ async function handleEmailToastClick(emailData) {
 }
 
 async function initializeWebSocket() {
-  if (backendStore.isRunning) {
-    connect()
-  }
+  // Backend is guaranteed running at this point (initializeBackend blocks until ready)
+  connect()
 
   onMessage((data) => {
     websocketStore.handle_message(data)
@@ -85,6 +85,14 @@ async function handleWizardComplete() {
   // submitWizard 已完成（配置文件 + mark_configured）
   // 通知 Rust 关闭向导 → 显示 splash → 启动环境 → 显示主窗口
   await invoke('wizard_complete')
+  // 后端已启动，触发首次运行初始化（向 SystemAdmin 发送欢迎邮件）
+  try {
+    await configAPI.firstRunInit({
+      user_name: configStore.wizardData.user_name,
+    })
+  } catch (error) {
+    console.error('First-run init failed (non-critical):', error)
+  }
 }
 
 onMounted(async () => {
