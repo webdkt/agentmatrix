@@ -44,9 +44,10 @@ export const emailAPI = {
       })
     }
 
-    // 使用 fetch 直接发送 FormData
+    // 使用 API 客户端的 baseURL 发送 FormData（Tauri 中不能用相对路径）
     try {
-      const response = await fetch(`/api/sessions/${sessionId}/emails`, {
+      await API._resolveBaseURL()
+      const response = await fetch(`${API.baseURL}/api/sessions/${sessionId}/emails`, {
         method: 'POST',
         body: formData
       })
