@@ -167,8 +167,9 @@ class BaseAgent(AutoLoggerMixin):
 
         # 2. 在容器内更新软链接（Agent 用户可以操作自己的软链接，不需要 root）
         # ~/current_task 是固定的软链接，指向当前任务目录
-        # ln -sf 会自动覆盖已存在的软链接，不会删除目标目录内容
-        cmd = f"ln -sf /data/agents/{self.name}/work_files/{task_id} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
+        # 先删除旧的 symlink 再创建，避免部分容器环境（如 BusyBox）下 ln -sf 不替换已有 symlink 的问题
+        symlink_target = f"/data/agents/{self.name}/work_files/{task_id}"
+        cmd = f"rm -f ~/current_task && ln -s {symlink_target} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
         self.logger.info(f"🔧 switch_workspace 命令: {cmd}")
         self.logger.info(f"🔧 宿主机目录存在: {task_dir.exists()}")
         exit_code, stdout, stderr = await asyncio.to_thread(
