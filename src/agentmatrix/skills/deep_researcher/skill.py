@@ -1,37 +1,48 @@
 """
-Deep Researcher Skill - 深度研究协调者
+Deep Researcher Skill - 深度研究顶层 actions
 
-三个 phase actions：
-- do_planning:  创建 Planning MicroAgent 完成规划
-- do_research:  创建 Research MicroAgent 完成研究
-- do_writing:   创建 Writing MicroAgent 完成写作
+扁平化架构：顶层 agent 直接拥有所有工具，通过 set_mindset 动态切换思维模式。
 
-子 MicroAgent 使用 deep_researcher_helper skill（take_note, write_chapter_draft, polish_chapter, assemble_report）。
-
-阶段转换由子 MicroAgent 通过 prompt 指令直接写 phase.md 文件完成。
+Actions:
+- set_mindset:             设置当前思维模式 (planning/research/writing)
+- take_note:               记录笔记到 sqlite 数据库（自动去重检查）
+- search_note_w_keyword:   关键词搜索笔记
+- search_note_w_natural_lang: 自然语言搜索笔记
+- verify_notes_format:        整理和验证笔记及草稿
+- finalize_report:         组装最终报告
 """
 
+import re
 from pathlib import Path
 from ...core.action import register_action
-from ...agents.micro_agent import MicroAgent
 from .helpers import (
-    read_work_file,
-    write_work_file,
+    duplicate_check_parser,
+    nl_search_answer_parser,
     format_prompt,
-    persona_parser,
+    init_note_db,
+    normalize_tags,
+    insert_note,
+    fix_all_note_tags,
+    search_notes_by_keyword,
+    search_notes_by_keywords,
+    find_similar_notes,
+    get_notes_by_chapter,
+    get_all_notes,
 )
 from .prompts import ResearchPrompts
 
-# 读取文件系统规范
-_FS_SPEC_PATH = Path(__file__).parent / "filesystem_spec.md"
-_FILESYSTEM_SPEC = _FS_SPEC_PATH.read_text(encoding="utf-8")
+
 
 
 class Deep_researcherSkillMixin:
     """Deep Researcher 深度研究协调者"""
 
-    _skill_description = "深度研究技能，对指定主题进行深度研究并生成完整报告, 先执行规划，然后研究，最后写作"
-    _skill_dependencies = ["simple_web_search"]
+    _skill_description = "深度研究技能，对指定主题进行深度研究并生成完整报告。先规划，再研究，最后写作。"
+    _skill_dependencies = []
+
+    # ==========================================
+    # 工具方法
+    # ==========================================
 
     def _get_work_dir(self) -> str:
         task_id = self.root_agent.current_task_id or "default"
@@ -41,234 +52,505 @@ class Deep_researcherSkillMixin:
             )
         )
 
-    def _read_file(self, rel_path: str) -> str:
-        return read_work_file(self._get_work_dir(), rel_path)
-
-    def _write_file(self, rel_path: str, content: str) -> None:
-        write_work_file(self._get_work_dir(), rel_path, content)
+    def _get_note_db_path(self) -> str:
+        return str(Path(self._get_work_dir()) / "note.db")
 
     # ==========================================
-    # Phase actions
+    # Actions
     # ==========================================
 
     @register_action(
-        short_desc="规划研究（写清楚研究的标题，和研究目的需求描述）",
-        description="执行研究规划阶段。制定研究计划、章节大纲。完成后进入 research 阶段。",
-        param_infos={
-            "research_title": "研究的标题（简短描述）",
-            "research_purpose": "研究的目的和需求",
-        },
+        short_desc="设置当前思维模式(planning/research/writing)",
+        description=(
+            "切换工作阶段的思维模式。不同模式有不同的工作流程和思考方式。"
+            "规划阶段聚焦于建立研究蓝图和计划；"
+            "研究阶段聚焦于搜索资料和记笔记；"
+            "写作阶段聚焦于撰写和组装报告。"
+        ),
+        param_infos={"mindset": "思维模式，可选值: planning, research, writing"},
     )
-    async def do_planning(self, research_title: str, research_purpose: str) -> str:
+    async def set_mindset(self, mindset: str) -> str:
+        valid = {"planning", "research", "writing"}
+        mindset_lower = mindset.lower().strip()
+        if mindset_lower not in valid:
+            return f"无效的 mindset: '{mindset}'。可选值: {', '.join(sorted(valid))}"
+
+        # 获取新 mindset 文本
+        mindset_text = getattr(ResearchPrompts, f"{mindset_lower.upper()}_MINDSET")
+
+        # 替换 persona 中的 [Mindset]...[End of Mindset] 块
+        pattern = r"\[Mindset\].*?\[End of Mindset\]"
+        replacement = f"[Mindset]\n{mindset_text}\n[End of Mindset]"
+        self.persona = re.sub(pattern, replacement, self.persona, flags=re.DOTALL)
+
+        # 更新 system prompt（如果 messages 已初始化且第一条是 system）
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0]["content"] = self._build_system_prompt()
+
+        # 更新 phase.md（通过 file.write action 或直接写）
         work_dir = Path(self._get_work_dir())
         state_dir = work_dir / "research_state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "phase.md").write_text(mindset_lower, encoding="utf-8")
 
-        # 初始化或恢复
-        if state_dir.exists() and self._read_file("research_state/phase.md").strip():
-            phase = self._read_file("research_state/phase.md").strip()
-            if phase == "done":
-                return "研究已完成，报告在 final_report.md"
-            self.logger.info(f"恢复研究，当前阶段: {phase}")
-        else:
-            state_dir.mkdir(parents=True, exist_ok=True)
-            (work_dir / "notebook").mkdir(parents=True, exist_ok=True)
-            (work_dir / "drafts").mkdir(parents=True, exist_ok=True)
-            self._write_file("research_state/phase.md", "planning")
-            self._write_file("research_state/research_title.md", research_title)
-            self._write_file("research_state/research_purpose.md", research_purpose)
-
-        # 生成人设（如果还没有）
-        if not self._read_file("research_state/personas.md"):
-            await self._generate_personas(research_title, research_purpose)
-
-        personas = self._read_file("research_state/personas.md")
-        researcher_persona = self._extract_persona(personas, "Researcher")
-
-        self._write_file("research_state/phase.md", "planning")
-        self.logger.info("进入规划阶段")
-
-        planner = MicroAgent(
-            parent=self.root_agent,
-            name="ResearchPlanner",
-            available_skills=["simple_web_search", "file", "deep_researcher_helper"],
-        )
-
-        planning_task = f"""
-{_FILESYSTEM_SPEC}
-
-你正在为 [{research_title}] 项目制定研究蓝图。
-
-研究目的：{research_purpose}
-
-你需要完成以下工作：
-
-1. 探索主题：用 web_search 搜索相关信息，了解研究背景
-2. 制定研究蓝图：用 write 写入 research_state/blueprint_overview.md
-3. 制定研究任务列表：用 write 写入 research_state/research_plan.md，格式参见上方 File Formats 中 research_plan.md 的约定
-4. 制定章节大纲：用 write 写入 research_state/chapter_outline.md，格式参见上方 File Formats 中 chapter_outline.md 的约定
-
-可以用 consult_with_director 咨询导师建议。
-
-当规划完成后：
-- 把 research_state/phase.md 的内容改为 research（用 write action）
-- 然后结束（无需调用任何 action，回复即可）
-"""
-        await planner.execute(
-            run_label="planning",
-            persona=researcher_persona,
-            task=planning_task
-        )
-
-        return "规划阶段执行完毕"
+        return f"思维模式已切换到: {mindset_lower}"
 
     @register_action(
-        short_desc="执行研究",
-        description="执行研究阶段。逐个完成研究任务，搜索资料、记笔记。完成后自动进入 writing 阶段。",
+        short_desc="记录研究笔记到数据库(自动去重检查)，提供笔记文本，所属chapter_name(可选）， 逗号分隔的tags(可选）",
+        description=(
+            "记录研究笔记到 sqlite 数据库 note.db。"
+            "自动标准化 tags（小写、去特殊字符、排序、最多3个）。"
+            "自动检查是否有内容重复的已有笔记。"
+        ),
+        param_infos={
+            "note_text": "笔记内容",
+            "chapter_name": "用途章节（可选，留空表示未确定归属）",
+            "tags": "逗号分隔的关键词，最多3个（如: ai,transformer,attention）",
+        },
+    )
+    async def take_note(self, note_text: str, chapter_name: str = "", tags: str = "") -> str:
+        db_path = self._get_note_db_path()
+
+        # 标准化 tags
+        original_tags = tags
+        normalized_tags = normalize_tags(tags)
+        tag_warning = ""
+        if original_tags:
+            # 比较时去掉逗号包裹，只看内容差异
+            display_norm = normalized_tags.strip(",") if normalized_tags else ""
+            original_clean = original_tags.strip().lower().replace(" ", "-")
+            if display_norm != original_clean:
+                tag_warning = f" (tags 已标准化: '{original_tags}' → '{display_norm}')"
+
+        # 确保数据库存在
+        init_note_db(db_path)
+
+        # 重复检查：分 batch 判断
+        if normalized_tags:
+            similar = find_similar_notes(db_path, normalized_tags)
+            if similar:
+                batch_size = 20
+                duplicate_found = False
+                for i in range(0, len(similar), batch_size):
+                    batch = similar[i : i + batch_size]
+                    candidate_text = "\n".join(
+                        f"[ID={r[0]}] tags=[{r[3].strip(',') if r[3] else ''}]\n{r[1]}"
+                        for r in batch
+                    )
+                    prompt = format_prompt(
+                        ResearchPrompts.DUPLICATE_CHECK_PROMPT,
+                        new_note_text=note_text,
+                        candidate_notes=candidate_text,
+                    )
+                    try:
+                        result = await self.root_agent.cerebellum.backend.think_with_retry(
+                            prompt, duplicate_check_parser
+                        )
+                        if isinstance(result, dict) and result.get("duplicate"):
+                            dup_id = result.get("duplicate_id", "?")
+                            reason = result.get("reason", "语义重复")
+                            # 找到原文
+                            original_text = ""
+                            for r in batch:
+                                if r[0] == dup_id:
+                                    original_text = r[1]
+                                    break
+                            return (
+                                f"发现 ID={dup_id} 的笔记与要增加的笔记语义重复。\n"
+                                f"原因: {reason}\n"
+                                f"原文: {original_text}\n"
+                                f"如果要更新或继续插入请自行直接操作数据库。"
+                            )
+                    except Exception as e:
+                        self.logger.exception(e)
+                        continue  # 该 batch 判断失败，继续下一个 batch
+
+        # 无重复，正常插入
+        note_id = insert_note(db_path, note_text, chapter_name, normalized_tags)
+
+        result_msg = f"笔记已记录 (ID={note_id})"
+        if chapter_name:
+            result_msg += f", chapter={chapter_name}"
+        if normalized_tags:
+            result_msg += f", tags=[{normalized_tags}]"
+        result_msg += tag_warning
+        return result_msg
+
+    @register_action(
+        short_desc="关键词搜索笔记(全文搜索note_text和tags)",
+        description=(
+            "对笔记进行关键词全文搜索。搜索 note_text 和 tags 字段，"
+            "tags 需完全匹配某一个 tag。"
+        ),
+        param_infos={"search_query": "搜索关键词"},
+    )
+    async def search_note_w_keyword(self, search_query: str) -> str:
+        db_path = self._get_note_db_path()
+        results = search_notes_by_keyword(db_path, search_query)
+
+        if not results:
+            return f"未找到匹配 '{search_query}' 的笔记"
+
+        def format_note(r):
+            note_id, text, chapter, tags = r
+            chapter_str = f" | chapter={chapter}" if chapter else ""
+            tags_str = f" | tags=[{tags.strip(',') if tags else ''}]"
+            return f"[ID={note_id}]{chapter_str}{tags_str}\n  {text}\n"
+
+        total = len(results)
+        if total <= 10:
+            lines = [f"搜索 '{search_query}' 找到 {total} 条结果：\n"]
+            lines.extend(format_note(r) for r in results)
+        else:
+            lines = [f"搜索 '{search_query}' 找到 {total} 条结果，列出前10条：\n"]
+            lines.extend(format_note(r) for r in results[:10])
+            lines.append(f"共找到 {total} 条，如需要进一步列出更多请直接访问数据库。")
+
+        return "\n".join(lines)
+
+    @register_action(
+        short_desc="[问题] 通过搜索笔记内容来回答自然语言问题",
+        description=(
+            "用自然语言问题搜索笔记。自动拆解问题为多个搜索组合，"
+            "逐步搜索并用 LLM 判断结果是否能回答问题。"
+        ),
+        param_infos={"question": "要搜索的自然语言问题"},
+    )
+    async def search_note_w_natural_lang(self, question: str) -> str:
+        db_path = self._get_note_db_path()
+
+        # Step 1: 用 LLM 生成搜索组合
+        query_prompt = format_prompt(
+            ResearchPrompts.NL_SEARCH_QUERY_PROMPT, question=question
+        )
+        query_result = await self.root_agent.cerebellum.backend.think_with_retry(
+            query_prompt, lambda x: {"status": "success", "content": x}
+        )
+
+        if query_result and isinstance(query_result, dict):
+            query_content = query_result.get("content", "")
+        else:
+            query_content = str(query_result)
+
+        # 解析 [QUERIES] 块，支持引号包裹的 keyword
+        queries = []
+        if "[QUERIES]" in query_content:
+            queries_section = query_content[query_content.index("[QUERIES]"):]
+            for line in queries_section.split("\n"):
+                line = line.strip().lstrip("-").strip()
+                if line and "[" not in line and not line.startswith("[QUERIES"):
+                    # 提取关键词：按逗号分，支持 "quoted phrase"
+                    parts = [p.strip() for p in line.split(",")]
+                    parsed = []
+                    for p in parts:
+                        if p.startswith('"') and p.endswith('"'):
+                            parsed.append(p[1:-1])
+                        elif p:
+                            parsed.append(p)
+                    if parsed:
+                        queries.append(parsed)
+
+        if not queries:
+            queries = [[question]]
+
+        # Step 2: 逐组合搜索，用 LLM JSON 判断，累积有用 notes
+        useful_note_ids = set()
+        useful_notes_text = {}  # id -> preview text
+
+        for keywords in queries:
+            # SQL AND 搜索：所有 keywords 都必须命中
+            all_results = search_notes_by_keywords(db_path, keywords)
+            if not all_results:
+                continue
+
+            # 分 batch 给 LLM 判断
+            batch_size = 20
+            for i in range(0, len(all_results), batch_size):
+                batch = all_results[i : i + batch_size]
+
+                # 格式化当前批次（给 ID + 全文）
+                current_notes_text = "\n\n".join(
+                    f"[ID={r[0]}] {r[1]}" for r in batch
+                )
+
+                # 格式化已有有用 notes（只给文本，不给ID）
+                existing_section = ""
+                if useful_notes_text:
+                    existing_section = "\n".join(
+                        f"- {text}" for text in useful_notes_text.values()
+                    )
+
+                # 用 LLM JSON 判断
+                answer_prompt = format_prompt(
+                    ResearchPrompts.NL_SEARCH_ANSWER_PROMPT,
+                    question=question,
+                    existing_answer_section=existing_section,
+                    current_notes=current_notes_text,
+                )
+                try:
+                    answer_result = await self.brain.think_with_retry(
+                        answer_prompt, nl_search_answer_parser
+                    )
+                except Exception:
+                    continue
+
+                if not isinstance(answer_result, dict):
+                    continue
+
+                if answer_result.get("answered"):
+                    return f"找到答案：\n{answer_result['answer']}"
+
+                # 累积有用 notes
+                for nid in answer_result.get("useful_ids", []):
+                    if nid not in useful_note_ids:
+                        useful_note_ids.add(nid)
+                        for r in batch:
+                            if r[0] == nid:
+                                useful_notes_text[nid] = r[1][:150]
+                                break
+
+                # 超过 20 条有用 notes 还没回答，放弃
+                if len(useful_note_ids) >= 20:
+                    break
+
+            if len(useful_note_ids) >= 20:
+                break
+
+        # 所有搜索组合都未能回答
+        if useful_note_ids:
+            useful_summary = "\n".join(
+                f"  [ID={nid}] {useful_notes_text.get(nid, '')}..."
+                for nid in sorted(useful_note_ids)[:10]
+            )
+            return f"现有笔记无法完全回答该问题。以下是相关笔记：\n{useful_summary}"
+        else:
+            return "现有笔记中未找到与该问题相关的内容"
+
+    @register_action(
+        short_desc="验证研究工作区结构完整性",
+        description=(
+            "检查 research_state/ 目录和 drafts/ 目录的结构完整性。"
+            "验证 research_state 各文件是否存在，"
+            "drafts 一级目录是否与 chapter_outline 匹配，"
+            "所有子目录和文件是否以数字编号开头。"
+        ),
         param_infos={},
     )
-    async def do_research(self) -> str:
-        personas = self._read_file("research_state/personas.md") or ""
-        researcher_persona = self._extract_persona(personas, "Researcher")
-        plan_text = self._read_file("research_state/research_plan.md") or ""
-        overall_summary = (
-            self._read_file("research_state/research_overall_summary.md") or "无"
-        )
-        chapter_outline = self._read_file("research_state/chapter_outline.md") or ""
+    async def verify_structure(self) -> str:
+        work_dir = Path(self._get_work_dir())
+        state_dir = work_dir / "research_state"
+        drafts_dir = work_dir / "drafts"
 
-        # 提取有效章节名
+        lines = []
+
+        # 1. 检查 research_state 文件
+        expected_state_files = [
+            "phase.md", "research_title.md", "blueprint.md",
+            "plan.md", "chapter_outline.md", "writing_schema.md",
+        ]
+        lines.append("## research_state/")
+        for f in expected_state_files:
+            exists = (state_dir / f).exists()
+            lines.append(f"  {'✓' if exists else '✗'} {f}")
+
+        # 2. 读取 chapter_outline
+        outline_file = state_dir / "chapter_outline.md"
         chapters = []
-        for line in chapter_outline.strip().split("\n"):
+        if outline_file.exists():
+            for line in outline_file.read_text(encoding="utf-8").strip().split("\n"):
+                line = line.strip()
+                if line.startswith("# "):
+                    chapters.append(line[2:].strip())
+
+        # 3. 检查 drafts 目录
+        lines.append("\n## drafts/")
+        if not drafts_dir.exists():
+            lines.append("  drafts/ 目录不存在")
+        elif not chapters:
+            lines.append("  chapter_outline.md 不存在或无章节定义，无法校验匹配")
+        else:
+            draft_dirs = sorted(d.name for d in drafts_dir.iterdir() if d.is_dir())
+            # 去掉数字前缀（如 "1-引言" → "引言"）再比较
+            def strip_number_prefix(name):
+                m = re.match(r"^\d+[-_](.+)$", name)
+                return m.group(1) if m else name
+
+            draft_chapters = {strip_number_prefix(d): d for d in draft_dirs}
+            chapter_set = set(chapters)
+            draft_name_set = set(draft_chapters.keys())
+
+            missing = chapter_set - draft_name_set
+            extra = draft_name_set - chapter_set
+
+            if missing:
+                for m in sorted(missing):
+                    lines.append(f"  ✗ 缺少章节目录: {m}")
+            if extra:
+                for e in sorted(extra):
+                    orig = draft_chapters[e]
+                    lines.append(f"  ✗ 多余目录（不在大纲中）: {orig}")
+            if not missing and not extra:
+                lines.append(f"  ✓ 一级目录与 chapter_outline 完全匹配 ({len(chapters)} 章)")
+
+            # 4. 递归检查所有子目录和文件是否以数字编号开头
+            naming_issues = []
+            for d in sorted(drafts_dir.rglob("*")):
+                rel = d.relative_to(drafts_dir)
+                name = d.name
+                if name and not name[0].isdigit():
+                    kind = "目录" if d.is_dir() else "文件"
+                    naming_issues.append(f"  ✗ {kind} '{rel}' 未以数字编号开头")
+
+            if naming_issues:
+                lines.append("\n## 命名规范问题")
+                lines.extend(naming_issues)
+            else:
+                lines.append("  ✓ 所有子目录和文件均以数字编号开头")
+
+        return "\n".join(lines)
+
+    @register_action(
+        short_desc="整理和验证笔记数据库（统计、查错、自动修复tags）",
+        description=(
+            "对笔记数据库进行统计汇总和格式检查。"
+            "输出每章笔记数量统计，发现错误章节名，自动修复 tags 格式。"
+        ),
+        param_infos={},
+    )
+    async def verify_notes_format(self) -> str:
+        work_dir = Path(self._get_work_dir())
+        db_path = self._get_note_db_path()
+
+        # 1. 读取有效章节名
+        outline_file = work_dir / "research_state" / "chapter_outline.md"
+        valid_chapters = set()
+        if outline_file.exists():
+            for line in outline_file.read_text(encoding="utf-8").strip().split("\n"):
+                line = line.strip()
+                if line.startswith("# "):
+                    valid_chapters.add(line[2:].strip())
+
+        # 2. 自动修复 tags（静默执行）
+        tags_fixed = fix_all_note_tags(db_path)
+
+        # 3. 汇总统计
+        all_notes = get_all_notes(db_path)
+        total = len(all_notes)
+
+        chapter_counts = {}   # chapter_name -> count
+        invalid_chapters = {} # invalid chapter_name -> count
+        unassigned = 0
+
+        for note in all_notes:
+            _, _, chapter, _ = note
+            if not chapter:
+                unassigned += 1
+            elif chapter in valid_chapters:
+                chapter_counts[chapter] = chapter_counts.get(chapter, 0) + 1
+            else:
+                invalid_chapters[chapter] = invalid_chapters.get(chapter, 0) + 1
+
+        # 4. 组装输出
+        parts = []
+
+        # --- 统计汇总 ---
+        summary_lines = [f"## 笔记统计 (共 {total} 条)"]
+        for ch in sorted(valid_chapters):
+            count = chapter_counts.get(ch, 0)
+            summary_lines.append(f"  - {ch}: {count} 条")
+        summary_lines.append(f"  - 未分配章节: {unassigned} 条")
+        no_notes = [ch for ch in sorted(valid_chapters) if chapter_counts.get(ch, 0) == 0]
+        if no_notes:
+            summary_lines.append(f"  ⚠ 以下 {len(no_notes)} 章没有笔记: {', '.join(no_notes)}")
+        parts.append("\n".join(summary_lines))
+
+        # --- 问题发现 ---
+        issues = []
+        if invalid_chapters:
+            lines = [f"## 错误章节名 ({sum(invalid_chapters.values())} 条)"]
+            for ch, count in sorted(invalid_chapters.items()):
+                lines.append(f"  - '{ch}': {count} 条")
+            issues.append("\n".join(lines))
+        if not issues:
+            parts.append("## 问题检查: 通过")
+        else:
+            parts.append("\n\n".join(issues))
+
+        return "\n\n".join(parts)
+
+    
+
+    @register_action(
+        short_desc="组装最终报告(完成所有章节后调用)",
+        description=(
+            "将所有章节草稿组装成完整的研究报告。"
+        ),
+        param_infos={},
+    )
+    async def finalize_report(self) -> str:
+        work_dir = Path(self._get_work_dir())
+
+        # 读取 title
+        title_file = work_dir / "research_state" / "research_title.md"
+        title = title_file.read_text(encoding="utf-8").strip() if title_file.exists() else "研究报告"
+
+        # 读取 chapter outline
+        outline_file = work_dir / "research_state" / "chapter_outline.md"
+        if not outline_file.exists():
+            return "章节大纲不存在，无法组装报告"
+
+        chapters = []
+        for line in outline_file.read_text(encoding="utf-8").strip().split("\n"):
             line = line.strip()
             if line.startswith("# "):
                 chapters.append(line[2:].strip())
-        chapters_hint = "、".join(chapters) if chapters else "（未定义）"
 
-        self._write_file("research_state/phase.md", "research")
-        self.logger.info("进入研究阶段")
+        if not chapters:
+            return "章节大纲为空，无法组装报告"
 
-        researcher = MicroAgent(
-            parent=self.root_agent,
-            name="Researcher",
-            available_skills=["simple_web_search", "deep_researcher_helper", "file"],
-        )
+        # 组装报告
+        report_parts = [f"# {title}\n"]
 
-        research_task = f"""
-{_FILESYSTEM_SPEC}
+        for chapter_name in chapters:
+            # 优先找合并后的 md 文件
+            merged_file = work_dir / "drafts" / f"{chapter_name}.md"
+            if merged_file.exists():
+                report_parts.append(merged_file.read_text(encoding="utf-8"))
+                report_parts.append("\n---\n")
+            else:
+                # 找目录结构
+                chapter_dir = work_dir / "drafts" / chapter_name
+                if chapter_dir.exists():
+                    content = self._merge_directory(chapter_dir, level=2)
+                    report_parts.append(content)
+                    report_parts.append("\n---\n")
+                else:
+                    report_parts.append(f"\n## {chapter_name}\n\n[待撰写]\n\n---\n")
 
-你是一个深度研究员。你的任务是逐个完成研究计划中的所有任务。
+        final_report = "\n".join(report_parts)
+        (work_dir / f"{title}.md").write_text(final_report, encoding="utf-8")
 
-研究计划：
-{plan_text}
+        # 更新 phase
+        (work_dir / "research_state" / "phase.md").write_text("done", encoding="utf-8")
 
-整体总结：{overall_summary}
+        self.logger.info(f"组装最终报告完成: {title}.md ({len(chapters)} 章)")
+        return f"最终报告已生成: {title}.md ({len(chapters)} 章)"
 
-有效章节名: {chapters_hint}
+    def _merge_directory(self, dir_path: Path, level: int = 2) -> str:
+        """递归合并目录中的 .md 文件和子目录，按编号顺序排列"""
+        parts = []
+        prefix = "#" * level
 
-工作流程：
-1. 用 read 读取 research_plan.md 找到第一个 [pending] 的任务
-2. 搜索资料（web_search），记笔记（take_note），把重要内容记录到 notebook/ 下对应的章节文件
-3. 如果研究充分，编辑 research_plan.md 把当前任务的 [pending] 改为 [completed]
-   并把下一个 [pending] 改为 [in_progress]（用 replace_string_in_file 或 write 覆写整个文件）
-   状态值域：pending | in_progress | completed
-4. 继续下一个 pending 任务
-5. 所有任务完成后，用 write 把 research_state/phase.md 改为 writing，然后结束（无需调用任何 action，回复即可）
+        def _sort_key(p: Path):
+            m = re.match(r"(\d+)", p.name)
+            return (int(m.group(1)) if m else 0, p.name)
 
-重要：
-- 好记性不如烂笔头，务必勤记笔记（take_note）
-- take_note 的 chapter_name 参数使用上面的有效章节名
-- 每完成一个重要任务，用 write 更新 research_state/research_overall_summary.md
-- 可以用 read 读取 research_state/chapter_outline.md 查看当前章节列表
-- 可以用 consult_with_director 向导师请教
-"""
-        await researcher.execute(
-            run_label="research",
-            persona=researcher_persona,
-            task=research_task,
-        )
+        items = sorted(dir_path.iterdir(), key=_sort_key)
+        for item in items:
+            if item.is_file() and item.suffix == ".md":
+                parts.append(item.read_text(encoding="utf-8"))
+            elif item.is_dir():
+                parts.append(f"\n{prefix} {item.name}\n")
+                parts.append(self._merge_directory(item, level + 1))
 
-        return "研究阶段执行完毕"
-
-    @register_action(
-        short_desc="执行写作",
-        description="执行写作阶段。根据研究笔记撰写报告各章节，组装最终报告。完成后自动标记 done。",
-        param_infos={},
-    )
-    async def do_writing(self) -> str:
-        title = self._read_file("research_state/research_title.md").strip()
-        personas = self._read_file("research_state/personas.md") or ""
-        researcher_persona = self._extract_persona(personas, "Researcher")
-        outline = self._read_file("research_state/chapter_outline.md") or ""
-
-        self._write_file("research_state/phase.md", "writing")
-        self.logger.info("进入写作阶段")
-
-        writer = MicroAgent(
-            parent=self.root_agent,
-            name="ReportWriter",
-            available_skills=["deep_researcher_helper", "file"],
-        )
-
-        writing_task = f"""
-{_FILESYSTEM_SPEC}
-
-请根据收集的研究笔记撰写完整的研究报告。
-
-研究主题：{title}
-
-章节大纲：
-{outline}
-
-工作流程：
-1. 用 read 读取章节大纲，了解需要撰写的章节（格式：每行一个 # 章节标题）
-2. 逐章撰写草稿（write_chapter_draft），草稿保存到 drafts/{{chapter_name}}.md
-3. 逐章润色（polish_chapter）
-4. 所有章节完成后，调用 assemble_report 组装最终报告，报告保存为 final_report.md
-"""
-        await writer.execute(
-            run_label="writing",
-            persona=researcher_persona,
-            task=writing_task
-        )
-
-        return "写作阶段执行完毕"
-
-    # ==========================================
-    # 工具方法
-    # ==========================================
-
-    async def _generate_personas(self, title: str, purpose: str):
-        """生成 Director 和 Researcher 人设"""
-        director_prompt = format_prompt(
-            ResearchPrompts.DIRECTOR_PERSONA_DESIGNER,
-            {"research_title": title, "research_purpose": purpose},
-        )
-        director_persona = await self.root_agent.brain.think_with_retry(
-            director_prompt, persona_parser, header="[正式文稿]"
-        )
-
-        researcher_prompt = format_prompt(
-            ResearchPrompts.RESEARCHER_PERSONA_DESIGNER,
-            {"research_title": title, "research_purpose": purpose},
-            director_persona=director_persona,
-        )
-        researcher_persona = await self.root_agent.brain.think_with_retry(
-            researcher_prompt, persona_parser, header="[正式文稿]"
-        )
-
-        personas_content = f"## Director Persona\n{director_persona}\n\n## Researcher Persona\n{researcher_persona}\n"
-        self._write_file("research_state/personas.md", personas_content)
-        self.logger.info("人设生成完成")
-
-    def _extract_persona(self, personas_text: str, role: str) -> str:
-        """从 personas.md 中提取指定角色的人设"""
-        if not personas_text:
-            return ""
-
-        import re
-
-        pattern = rf"## {role} Persona\s*\n(.*?)(?=\n## |\Z)"
-        match = re.search(pattern, personas_text, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-
-        return personas_text
+        return "\n\n".join(parts)

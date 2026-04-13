@@ -88,6 +88,46 @@ async def extract_search_results(adapter, tab):
     return results
 
 
+async def extract_knowledge_card(tab):
+    """
+    Extract Bing AI knowledge card content if present.
+
+    Steps:
+    1. Find div.qna_tlgacont (may not exist)
+    2. Find <a> with <span>Read more</span> inside and click it
+    3. Wait for expansion
+    4. Extract text from div.qna_tlgacont div.gs_p
+
+    Returns the card text, or None if no card is found.
+    """
+    try:
+        card_container = await asyncio.to_thread(
+            tab.ele, "css:div.qna_tlgacont", timeout=3
+        )
+        if not card_container:
+            return None
+
+        # Find and click the "Read more" button
+        read_more = await asyncio.to_thread(
+            card_container.ele, "@tag()=a@@text():Read more", timeout=2
+        )
+        if read_more:
+            await asyncio.to_thread(read_more.click, by_js=True)
+            await asyncio.sleep(2)
+
+        # Extract the expanded content
+        gs_p = await asyncio.to_thread(
+            card_container.ele, "css:div.gs_p", timeout=3
+        )
+        if gs_p and gs_p.text.strip():
+            return gs_p.text.strip()
+
+        return None
+
+    except Exception:
+        return None
+
+
 async def search_bing(adapter, tab, query, max_pages=1):
     """
     Perform a Bing search using human-like behavior.

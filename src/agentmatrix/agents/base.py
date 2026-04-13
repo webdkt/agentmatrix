@@ -313,19 +313,14 @@ class BaseAgent(AutoLoggerMixin):
         self.update_status(new_status=AgentStatus.PAUSED, new_message="⏸️ Agent已暂停")
 
     async def resume(self):
-        """恢复 Agent 执行（智能区分 stop / pause）"""
-        if self._stopped:
-            self._stopped = False
-            self._stop_event.set()
-            self.logger.info(f"▶️ Agent {self.name} 从停止状态恢复")
-            self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已从停止状态恢复")
-        elif self._paused:
+        """恢复 Agent 执行（用于 pause 恢复）"""
+        if self._paused:
             self._paused = False
             self._pause_event.set()
             self.logger.info(f"▶️ Agent {self.name} 从暂停状态恢复")
             self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已从暂停状态恢复")
         else:
-            self.logger.warning(f"Agent {self.name} 未停止也未暂停")
+            self.logger.warning(f"Agent {self.name} 未暂停")
 
     async def _checkpoint(self):
         """
@@ -351,12 +346,10 @@ class BaseAgent(AutoLoggerMixin):
 
     def stop(self):
         """
-        停止 Agent：停止当前 session，并且不再处理新邮件。
+        停止 Agent：取消当前 active session。
 
-        需要调用 resume() 恢复。
+        Agent 继续运行 main loop，新邮件到达时会自动触发新的 session 处理。
         """
-        self._stopped = True
-        self._stop_event.clear()
         self._is_stopping = True
 
         # 取消所有 running action tasks
@@ -728,12 +721,6 @@ class BaseAgent(AutoLoggerMixin):
 
         try:
             while True:
-                # 🛑 停止状态：阻塞等待 resume
-                if self._stopped:
-                    self.logger.info("🛑 Main loop 已停止，等待恢复...")
-                    await self._stop_event.wait()
-                    self.logger.info("▶️ Main loop 从停止状态恢复")
-
                 # 暂停状态：阻塞等待 resume
                 if self._paused:
                     self.logger.info("⏸️ Main loop 已暂停，等待恢复...")
@@ -949,9 +936,8 @@ class BaseAgent(AutoLoggerMixin):
 
         self.logger.info(f"✅ Session {session_id[:8]} 已停用")
 
-        # 非 stop 状态：自动处理 waiting emails
-        # stop 状态下不 pick，等 resume 后 _main_loop 自然恢复
-        if not self._stopped and self.waiting_emails:
+        # 自动处理 waiting emails
+        if self.waiting_emails:
             next_email = self.waiting_emails.pop(0)
             self.logger.info(f"📬 处理下一个 waiting email")
             try:
