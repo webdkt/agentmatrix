@@ -942,6 +942,7 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
 
 // ─── Auto Setup Container Runtime ───
 
+#[allow(dead_code)]
 async fn auto_setup_container_runtime(app: tauri::AppHandle) {
     println!("🔍 Checking container runtime...");
 
@@ -961,7 +962,7 @@ async fn auto_setup_container_runtime(app: tauri::AppHandle) {
                 Ok(_) => {
                     println!("📦 Container image not found, loading from bundle...");
                     match load_image(app.clone()).await {
-                        Ok(msg) => {
+                        Ok(_msg) => {
                             println!("✅ Container image loaded successfully");
                         }
                         Err(e) => {
