@@ -242,11 +242,11 @@ class New_web_searchSkillMixin:
                     visited = visited_map.get(url, False)
 
                     tag = " [已访问]" if visited else ""
-                    lines.append(f"{i}. {title}{tag}")
+                    lines.append(f"{i + offset}. {title}{tag}")
                     lines.append(f"   {domain}")
                     if snippet and snippet != "No description available":
                         lines.append(f"   {snippet}")
-                    lines.append(f"   link_to_result{i}")
+                    lines.append(f"   link_to_result{i + offset}")
                     lines.append("")
 
                 self.logger.info(
