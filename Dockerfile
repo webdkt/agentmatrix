@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     ssh \
     make \
     gcc \
+    # SQLite 命令行工具
+    sqlite3 \
     # Office 文档处理依赖
     libxml2 \
     libxslt1.1 \
