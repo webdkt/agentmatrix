@@ -73,12 +73,15 @@ class Cerebellum(AutoLoggerMixin):
             {param_def}
 
             [Instructions]:
-            0. Always judge first, if user wants to run "{action_name}"
+            0. Determine whether the intent is **calling** "{action_name}" or merely **mentioning** it by name.
+               - Calling = the intent intends to execute this action now. Extract parameters.
+               - Mentioning = the intent only references "{action_name}" in passing (e.g. recalling a past step, comparing with another action). Output NOT_TO_RUN.
+               - Default assumption: if "{action_name}" appears with parameters or as an action call, treat it as CALLING.
             1. Look at the intent and find information related to "{action_name}"
             2. IGNORE information for other actions
-            3. Extract ALL required parameters for "{action_name}". 
+            3. Extract ALL required parameters for "{action_name}".
             4. DECISION:
-               - If NOT TO run: Output JSON {{"status": "NOT_TO_RUN", "reason": "reason_for_not_running"}}
+               - If NOT TO run (only mentioning, not calling): Output JSON {{"status": "NOT_TO_RUN", "reason": "reason_for_not_running"}}
                - If READY: Output JSON {{"status": "READY", "action_label": "短描述", "params": {{"param1": "value1", "param2": "value2", ...}}}}
                - If MISSING: Output JSON {{"status": "ASK", "question": "What is the value for [param_name] of {action_name}?"}}
                - If AMBIGUOUS: Output JSON {{"status": "ASK", "question": "Clarification needed for [param_name] of {action_name}..."}}

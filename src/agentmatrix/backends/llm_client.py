@@ -86,7 +86,7 @@ class LLMClient(AutoLoggerMixin):
             #如果messages 是string,就包装成open ai chat messages 的格式
             messages =[{"role": "user", "content": initial_messages}]
         else:
-            messages = initial_messages
+            messages = list(initial_messages)
 
         if debug:
             self.logger.debug(f"=== think_with_retry DEBUG START ===")
