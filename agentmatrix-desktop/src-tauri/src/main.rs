@@ -1074,7 +1074,7 @@ async fn ensure_container_image(app: tauri::AppHandle) -> Result<String, String>
 async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
     let runtime_info = check_container_runtime().await?;
     if runtime_info.runtime == "none" {
-        return Err("No container runtime found. Please install Podman.".to_string());
+        return Err("No container runtime found. Please install Docker or Podman.".to_string());
     }
     if runtime_info.runtime == "podman" {
         init_podman_vm().await?;
@@ -1128,13 +1128,20 @@ struct ImageInfo {
     size: Option<String>,
 }
 
+/// Resolve the available container runtime binary (podman preferred, then docker).
+fn find_container_runtime() -> Result<String, String> {
+    find_executable("podman")
+        .or_else(|| find_executable("docker"))
+        .ok_or_else(|| "No container runtime (podman/docker) found".to_string())
+}
+
 #[tauri::command]
 async fn check_image() -> Result<ImageInfo, String> {
-    // Resolve podman path (GUI apps don't inherit shell PATH on macOS)
-    let podman_bin = find_executable("podman").unwrap_or_else(|| "podman".to_string());
+    // Resolve runtime path (GUI apps don't inherit shell PATH on macOS)
+    let runtime_bin = find_container_runtime()?;
 
     // Check if agentmatrix:latest image exists
-    if let Ok(output) = StdCommand::new(&podman_bin)
+    if let Ok(output) = StdCommand::new(&runtime_bin)
         .args(["images", "--format", "{{.Size}}", "agentmatrix:latest"])
         .output()
     {
@@ -1148,7 +1155,7 @@ async fn check_image() -> Result<ImageInfo, String> {
             }
         }
     }
-    
+
     Ok(ImageInfo {
         exists: false,
         size: None,
@@ -1167,18 +1174,18 @@ async fn load_image(app: tauri::AppHandle) -> Result<String, String> {
 
     println!("Loading Docker image from: {:?}", image_path);
 
-    // Resolve podman path (GUI apps don't inherit shell PATH on macOS)
-    let podman_bin = find_executable("podman").unwrap_or_else(|| "podman".to_string());
+    // Resolve runtime path (GUI apps don't inherit shell PATH on macOS)
+    let runtime_bin = find_container_runtime()?;
 
-    // Load image: gunzip | podman load
+    // Load image: gunzip | runtime load
     let output = if cfg!(target_os = "windows") {
         StdCommand::new("cmd")
-            .args(["/c", "type", &image_path.to_string_lossy(), "|", "gzip", "-d", "|", &podman_bin, "load"])
+            .args(["/c", "type", &image_path.to_string_lossy(), "|", "gzip", "-d", "|", &runtime_bin, "load"])
             .output()
             .map_err(|e| format!("Failed to load image: {}", e))?
     } else {
         StdCommand::new("sh")
-            .args(["-c", &format!("gunzip -c '{}' | '{}' load", image_path.to_string_lossy(), podman_bin)])
+            .args(["-c", &format!("gunzip -c '{}' | '{}' load", image_path.to_string_lossy(), runtime_bin)])
             .output()
             .map_err(|e| format!("Failed to load image: {}", e))?
     };

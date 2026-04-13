@@ -193,10 +193,11 @@ export const useConfigStore = defineStore('config', {
         const runtimeInfo = await invoke('check_container_runtime')
         if (runtimeInfo.runtime === 'none') {
           const userConfirmed = await confirm(
-            'Matrix requires Podman to run containers.\n\n' +
-            'Podman is not installed on your system.\n\n' +
-            'Would you like to install Podman now?',
-            { title: 'Install Podman', kind: 'warning' }
+            'Matrix requires Docker or Podman to run containers.\n\n' +
+            'Neither is installed on your system.\n\n' +
+            'Would you like to install Podman now?\n' +
+            '(Alternatively, you can install Docker Desktop.)',
+            { title: 'Install Container Runtime', kind: 'warning' }
           )
           if (userConfirmed) {
             await invoke('install_podman')

@@ -233,8 +233,10 @@ class EmailSkillMixin:
         if not runtime or not runtime.container_manager:
             return False, "容器管理器不可用"
 
+        from ...core.container.container_session import ContainerSession
+
         cm = runtime.container_manager
-        runtime_cmd = cm.runtime_type  # "podman" or "docker"
+        runtime_cmd = ContainerSession._find_runtime_cmd(cm.runtime_type)
         container_name = cm.SHARED_CONTAINER_NAME
 
         cmd = [
@@ -287,18 +289,18 @@ class EmailSkillMixin:
         agent_name = self.root_agent.name
         path = Path(container_path)
 
-        # 情况 1: 相对路径 → 基于当前任务目录
-        if not path.is_absolute():
-            return str(
-                runtime.paths.get_agent_work_files_dir(agent_name, task_id)
-                / container_path
-            )
-
-        # 情况 2: ~/current_task/... 展开为绝对路径
+        # 情况 1: ~/current_task/... 展开为绝对路径（必须先于相对路径检查）
         if container_path.startswith("~"):
             rel = container_path.lstrip("~/")
             return str(
                 runtime.paths.get_agent_work_files_dir(agent_name, task_id) / rel
+            )
+
+        # 情况 2: 相对路径 → 基于当前任务目录
+        if not path.is_absolute():
+            return str(
+                runtime.paths.get_agent_work_files_dir(agent_name, task_id)
+                / container_path
             )
 
         # 情况 3: /data/agents/{username}/... → workspace/agent_files/{username}/...
