@@ -949,6 +949,61 @@ async fn install_podman(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+// ─── Auto Setup Container Runtime ───
+
+#[allow(dead_code)]
+async fn auto_setup_container_runtime(app: tauri::AppHandle) {
+    println!("🔍 Checking container runtime...");
+
+    // Check if Docker or Podman is already installed
+    let runtime_info = check_container_runtime().await;
+
+    match runtime_info {
+        Ok(info) if info.runtime != "none" => {
+            println!("✅ Container runtime found: {} {}", info.runtime, info.version.unwrap_or_default());
+
+            // Check if Docker image needs to be loaded
+            println!("🔍 Checking if container image is loaded...");
+            match check_image().await {
+                Ok(image_info) if image_info.exists => {
+                    println!("✅ Container image already loaded: {} ({})", "agentmatrix:latest", image_info.size.unwrap_or_default());
+                }
+                Ok(_) => {
+                    println!("📦 Container image not found, loading from bundle...");
+                    match load_image(app.clone()).await {
+                        Ok(_msg) => {
+                            println!("✅ Container image loaded successfully");
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Failed to load container image: {}", e);
+                            eprintln!("⚠️  The application may not work correctly without the container image.");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Error checking container image: {}", e);
+                }
+            }
+        }
+        Ok(_) => {
+            println!("⚠️  No container runtime found. Attempting to install Podman...");
+
+            // Try to auto-install Podman
+            match install_podman(app).await {
+                Ok(msg) => {
+                    println!("📦 Podman installation initiated: {}", msg);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to install Podman: {}", e);
+                    eprintln!("⚠️  Please install Podman manually to use container features.");
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Error checking container runtime: {}", e);
+        }
+    }
+}
 
 // ─── Initialize Podman VM (for cold start wizard) ───
 

@@ -3,8 +3,61 @@
 包含可复用的 parser 函数，用于 think_with_retry
 """
 
+import json
 import re
 from typing import Any, Dict, List
+
+
+# ==========================================
+# JSON 解析工具
+# ==========================================
+
+
+def extract_json(raw_reply: str):
+    """
+    从 LLM 输出中提取 JSON 对象
+
+    自动处理 markdown code block 包裹。
+    返回 (data_dict, error_feedback_str)，成功时 error 为 None。
+    """
+    json_str = raw_reply.strip()
+
+    if "```json" in json_str:
+        match = re.search(r'```json\s*(.*?)\s*```', json_str, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+    elif "```" in json_str:
+        match = re.search(r'```\s*(.*?)\s*```', json_str, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        return None, f"无效的 JSON 格式：{str(e)}。请输出纯 JSON。"
+
+    if not isinstance(data, dict):
+        return None, "输出必须是一个 JSON 对象"
+
+    return data, None
+
+
+def validate_json_fields(data: dict, required: dict) -> str | None:
+    """
+    校验 JSON 字段类型
+
+    required 格式：{"field_name": (type_or_types, "error message")}
+    例：{"duplicate": (bool, "'duplicate' 必须是 true/false")}
+
+    返回 None 表示通过，否则返回错误 feedback 字符串。
+    """
+    for field_name, (expected_type, error_msg) in required.items():
+        if field_name not in data:
+            return f"JSON 必须包含 '{field_name}' 字段"
+        value = data[field_name]
+        if expected_type is not None and not isinstance(value, expected_type):
+            return error_msg
+    return None
 
 
 def multi_section_parser(

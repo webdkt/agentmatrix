@@ -101,6 +101,11 @@ fi
 mkdir -p "$SCRIPT_DIR/src-tauri/resources/podman"
 touch "$SCRIPT_DIR/src-tauri/resources/podman/.gitkeep" 2>/dev/null || true
 
+# python_dist is only needed for production builds (PyInstaller output)
+# Dev mode uses 'python server.py' directly, but tauri.conf.json glob requires the dir to exist
+mkdir -p "$SCRIPT_DIR/src-tauri/resources/python_dist"
+touch "$SCRIPT_DIR/src-tauri/resources/python_dist/.gitkeep" 2>/dev/null || true
+
 # Copy template to where Tauri expects it in dev mode
 TEMPLATE_SRC="$SCRIPT_DIR/src-tauri/resources/matrix-template"
 TEMPLATE_DST="$SCRIPT_DIR/src-tauri/target/debug/matrix-template"

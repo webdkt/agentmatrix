@@ -193,6 +193,13 @@ class New_web_searchSkillMixin:
                 if not raw_results:
                     return f'搜索 "{query}" 未找到任何结果。'
 
+                # 提取 Bing AI 知识卡片（如有）
+                knowledge_card = None
+                if search_engine == "bing":
+                    from ...core.browser.bing import extract_knowledge_card
+
+                    knowledge_card = await extract_knowledge_card(tab)
+
                 # 检测 visited 状态
                 urls = [r["url"] for r in raw_results if r.get("url")]
                 visited_map = await detect_visited_links(tab, ns["browser"], urls)
@@ -218,6 +225,14 @@ class New_web_searchSkillMixin:
                     f'搜索 "{query}" (第{search_number}次, 第{current_page}页{total_str})',
                     "",
                 ]
+
+                # 如果有知识卡片，放在结果前面
+                if knowledge_card:
+                    lines.append("[AI知识卡片]")
+                    lines.append(knowledge_card)
+                    lines.append("")
+                    lines.append("---")
+                    lines.append("")
 
                 for i, r in enumerate(raw_results, start=1):
                     title = r.get("title", "").strip()

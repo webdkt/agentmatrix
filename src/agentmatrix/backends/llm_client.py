@@ -86,7 +86,7 @@ class LLMClient(AutoLoggerMixin):
             #如果messages 是string,就包装成open ai chat messages 的格式
             messages =[{"role": "user", "content": initial_messages}]
         else:
-            messages = initial_messages
+            messages = list(initial_messages)
 
         if debug:
             self.logger.debug(f"=== think_with_retry DEBUG START ===")
@@ -98,11 +98,21 @@ class LLMClient(AutoLoggerMixin):
             try:
                 response = await self.think(messages=messages)
                 raw_reply = response['reply']
-                
+
                 if debug:
                     self.logger.debug(f"\nLLM Response (raw_reply):")
                     self.logger.debug(f"  {raw_reply[:500]}...")
-                    
+
+
+                # Handle empty/whitespace-only LLM replies — retry directly
+                # instead of letting the parser treat it as a valid "no action" response.
+                if not raw_reply or not raw_reply.strip():
+                    self.logger.warning(
+                        f"LLM returned empty response on attempt {attempt + 1}/{max_retries}"
+                    )
+                    if attempt == max_retries - 1:
+                        raise ValueError("LLM returned empty response after all retries.")
+                    continue
 
                 # Delegate parsing to the provided parser function
                 parsed_result = parser(raw_reply, **parser_kwargs)
