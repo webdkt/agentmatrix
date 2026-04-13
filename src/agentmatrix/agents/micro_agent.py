@@ -139,6 +139,7 @@ class MicroAgent(AutoLoggerMixin):
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"task": Task, "label": str}}
         self._action_counter: int = 0
         self._pending_processed_ids: List[str] = []
+        self._no_action_reflected: bool = False  # 是否已经 reflect 过"无 action"的情况
 
         # 日志
         self.logger.info(
@@ -273,6 +274,48 @@ class MicroAgent(AutoLoggerMixin):
         else:
             return "当前没有正在运行的操作"
 
+    def _build_no_action_reflect_message(self, action_section_text: str) -> Optional[str]:
+        """
+        检查 [ACTION] 文本中是否有疑似幻觉的函数调用 pattern，构造 reflect 消息。
+
+        如果 [ACTION] 文本匹配 func_name(...) 或 func.name(...) 格式，
+        但没有匹配到任何注册的 action，说明 LLM 幻觉了函数名。
+
+        Returns:
+            reflect 消息字符串，如果没有疑似幻觉则返回 None
+        """
+        if not action_section_text or not action_section_text.strip():
+            # 完全没有 [ACTION] 内容，不需要 reflect
+            return None
+
+        import re
+
+        # 匹配 func_name(...) 或 func.name(...) 格式
+        call_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\('
+        matches = re.findall(call_pattern, action_section_text)
+
+        if not matches:
+            return None
+
+        # 找到不在 registry 中的函数名
+        invalid_names = []
+        for name in matches:
+            name_lower = name.lower()
+            if name_lower not in self.action_registry["_flat"]:
+                invalid_names.append(name)
+
+        if not invalid_names:
+            # 所有提到的函数名都在 registry 中，不是幻觉问题
+            return None
+
+        invalid_str = ", ".join(f"`{n}`" for n in invalid_names)
+        return (
+            f"No action was detected from your [ACTION] section. "
+            f"The function name(s) {invalid_str} do not match any available actions. "
+            f"If you intended to execute an action, please check the available actions and correct the name. "
+            f"If you have nothing to execute, reply without an [ACTION] section."
+        )
+
     def _inject_signal(self, signal):
         """将信号注入为 messages，让 agent 在下一轮 think 中看到"""
         if signal.type == "email":
@@ -305,6 +348,9 @@ class MicroAgent(AutoLoggerMixin):
         elif signal.type == "actions_completed":
             combined = signal.payload["combined"]
             self._add_message("user", f"{combined}")
+        elif signal.type == "no_action_reflect":
+            msg = signal.payload["message"]
+            self._add_message("user", msg)
 
     def _on_action_done(self, action_id, action_name, task):
         """单个 action task 完成后的回调 - 投递信号到 signal_queue"""
@@ -1686,6 +1732,18 @@ Start generating the Working Notes now.
 
                 # 声明式退出：没有新 action 要执行，且没有 running action 在跑
                 if not action_names and not self._running_actions:
+                    # 检查 [ACTION] 文本中是否有疑似幻觉的函数调用 pattern
+                    if not self._no_action_reflected:
+                        reflect_msg = self._build_no_action_reflect_message(action_section_text)
+                        if reflect_msg:
+                            # 有疑似幻觉 → 给 LLM 一次 reflect 机会
+                            self._no_action_reflected = True
+                            self.signal_queue.put_nowait(Signal(
+                                type="no_action_reflect",
+                                payload={"message": reflect_msg},
+                            ))
+                            continue
+                    # 没有疑似幻觉，或者已经 reflect 过 → 真正退出
                     break
 
                 # 回到循环顶部，signal_queue.get() 等待
