@@ -1926,27 +1926,11 @@ Start generating the Working Notes now.
             content = {"[ACTION]": actions_text, "[RAW_REPLY]": raw_reply}
             return {"status": "success", "content": content}
 
-        # 规则2：没有 [ACTION] section，检查全文是否有 action name
-        # 正则提取所有 action names
-        action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
-        matches = re.finditer(action_pattern, raw_reply)
-
-        detected_actions = set()
-        for match in matches:
-            action_name = match.group(1).lower()
-            if action_name in action_registry:
-                detected_actions.add(action_name)
-
-        # 检查数量
-        if len(detected_actions) >= 1:
-            # 有 action，验证通过（把全文当作 [ACTION] 内容）
-            content = {"[ACTION]": raw_reply, "[RAW_REPLY]": raw_reply}
-            return {"status": "success", "content": content}
-
-        else:
-            # 0 个 action 也 OK — 合法的"无 action"回复
-            content = {"[ACTION]": "", "[RAW_REPLY]": raw_reply}
-            return {"status": "success", "content": content}
+        # 规则2：没有 [ACTION] section → 当作无 action 回复
+        # [ACTION] 标记是强制的，没有就表示没有 action 要执行
+        # 这样可以避免从错误消息、代码片段等文本中误提取 action 名字
+        content = {"[ACTION]": "", "[RAW_REPLY]": raw_reply}
+        return {"status": "success", "content": content}
 
     def _extract_mentioned_actions(self, thought: str) -> List[str]:
         """
