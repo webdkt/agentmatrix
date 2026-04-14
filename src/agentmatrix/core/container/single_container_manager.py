@@ -281,10 +281,12 @@ class SingleContainerManager(AutoLoggerMixin):
         # 宿主机创建的目录会自动出现在容器内
         agent_home = self.agents_root / agent_name / "home"
         agent_work = self.agents_root / agent_name / "work_files"
+        agent_skills = agent_home / "SKILLS"
 
-        self.logger.debug(f"Creating directories on host: home={agent_home}, work={agent_work}")
+        self.logger.debug(f"Creating directories on host: home={agent_home}, work={agent_work}, skills={agent_skills}")
         agent_home.mkdir(parents=True, exist_ok=True)
         agent_work.mkdir(parents=True, exist_ok=True)
+        agent_skills.mkdir(parents=True, exist_ok=True)
 
         # 验证目录是否创建成功
         if not agent_home.exists():
