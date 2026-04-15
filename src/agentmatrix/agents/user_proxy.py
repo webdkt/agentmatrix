@@ -29,6 +29,7 @@ class UserProxyAgent(BaseAgent):
         old_session_id: str,
         new_task_id: str,
         new_session_id: str,
+        recipient: str = None,
     ):
         """
         重命名或创建 task 和 session 目录
@@ -41,6 +42,7 @@ class UserProxyAgent(BaseAgent):
             old_session_id: 旧的 session_id
             new_task_id: 新的 task_id
             new_session_id: 新的 session_id
+            recipient: 收件人名称（如果是 Agent，也需要重命名其目录）
         """
         try:
             # 1. 获取目录路径
@@ -80,6 +82,21 @@ class UserProxyAgent(BaseAgent):
                 # 旧目录不存在：创建新目录
                 new_session_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.info(f"✅ Created session: {new_session_id}")
+
+            # 4. 如果收件人是 Agent（非 User），也需要重命名收件人的 work_files 目录
+            #    因为 server.py 已经在 UUID 路径下创建了附件目录
+            if recipient and recipient != self.name:
+                old_recipient_work_dir = self.runtime.paths.get_agent_work_files_dir(
+                    recipient, old_task_id
+                )
+                new_recipient_work_dir = self.runtime.paths.get_agent_work_files_dir(
+                    recipient, new_task_id
+                )
+                if old_recipient_work_dir.exists() and old_recipient_work_dir != new_recipient_work_dir:
+                    shutil.move(str(old_recipient_work_dir), str(new_recipient_work_dir))
+                    self.logger.info(
+                        f"✅ Moved recipient work_files ({recipient}): {old_task_id[:8]} → {new_task_id}"
+                    )
 
         except Exception as e:
             self.logger.error(
@@ -221,9 +238,9 @@ class UserProxyAgent(BaseAgent):
             new_task_id = readable_id
             new_session_id = readable_id
 
-            # 4. 重命名目录
+            # 4. 重命名目录（包括收件人的目录）
             await self._rename_task_and_session_directories(
-                old_task_id, old_session_id, new_task_id, new_session_id
+                old_task_id, old_session_id, new_task_id, new_session_id, recipient=to
             )
 
             # 5. 更新 session 字典中的 ID

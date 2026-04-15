@@ -123,7 +123,7 @@ class MicroAgent(AutoLoggerMixin):
         self.scratchpad_limit: int = 8  # scratchpad 积累到此条数时触发自动压缩
 
         # ========== 🆕 压缩相关（默认开启，无需配置）==========
-        self.compression_token_threshold = 32000  # 32K tokens
+        self.compression_token_threshold = 64000  # 64K tokens
         # self.last_compression_step = 0  # 上次压缩时的步数
 
         # ========== 🆕 记录自己的 system prompt（构建后自动填充）==========
@@ -274,18 +274,49 @@ class MicroAgent(AutoLoggerMixin):
         else:
             return "当前没有正在运行的操作"
 
-    def _build_no_action_reflect_message(self, action_section_text: str) -> Optional[str]:
+    def _build_no_action_reflect_message(self, action_section_text: str, raw_reply: str = "") -> Optional[str]:
         """
         检查 [ACTION] 文本中是否有疑似幻觉的函数调用 pattern，构造 reflect 消息。
 
         如果 [ACTION] 文本匹配 func_name(...) 或 func.name(...) 格式，
         但没有匹配到任何注册的 action，说明 LLM 幻觉了函数名。
 
+        同时检查 raw_reply：当 [ACTION] 为空但 raw_reply 中包含 JSON action 格式
+        或函数调用 pattern 时，说明 LLM 试图输出 action 但格式不对（缺少 [ACTION] 标记）。
+
         Returns:
             reflect 消息字符串，如果没有疑似幻觉则返回 None
         """
+        import re
+
         if not action_section_text or not action_section_text.strip():
-            # 完全没有 [ACTION] 内容，不需要 reflect
+            # [ACTION] 区为空，但检查 raw_reply 中是否有疑似 action 的内容
+            if raw_reply:
+                # 检查 JSON 格式的 action: "action": "xxx"
+                json_action_pattern = r'"action"\s*:\s*"([a-zA-Z_.]*)"'
+                json_matches = re.findall(json_action_pattern, raw_reply)
+                if json_matches:
+                    return (
+                        f"No [ACTION] section was found in your reply, but JSON action patterns "
+                        f"were detected (e.g. {', '.join(f'`{n}`' for n in json_matches[:3])}). "
+                        f"Please use the [ACTION] section format to declare actions, e.g.:\n"
+                        f"[ACTION]\naction_name(args)"
+                    )
+
+                # 检查函数调用 pattern
+                call_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\('
+                call_matches = re.findall(call_pattern, raw_reply)
+                if call_matches:
+                    invalid_names = [n for n in call_matches if n.lower() not in self.action_registry["_flat"]]
+                    if invalid_names:
+                        return (
+                            f"No [ACTION] section was found, but function call patterns "
+                            f"(e.g. {', '.join(f'`{n}`' for n in invalid_names[:3])}) "
+                            f"were detected in your reply. If you intended to execute an action, "
+                            f"please use the [ACTION] section format."
+                        )
+
+            # 确实没有疑似 action 的内容
             return None
 
         import re
@@ -739,7 +770,7 @@ class MicroAgent(AutoLoggerMixin):
         判断是否应该压缩 messages
 
         双通道触发：
-        1. token 阈值（32K tokens）— 被动阈值
+        1. token 阈值（64K tokens）— 被动阈值
         2. scratchpad 积累量 — 主动信号，LLM 自己认为已产生足够多值得总结的信息
 
         Returns:
@@ -1734,7 +1765,7 @@ Start generating the Working Notes now.
                 if not action_names and not self._running_actions:
                     # 检查 [ACTION] 文本中是否有疑似幻觉的函数调用 pattern
                     if not self._no_action_reflected:
-                        reflect_msg = self._build_no_action_reflect_message(action_section_text)
+                        reflect_msg = self._build_no_action_reflect_message(action_section_text, raw_reply or "")
                         if reflect_msg:
                             # 有疑似幻觉 → 给 LLM 一次 reflect 机会
                             self._no_action_reflected = True
