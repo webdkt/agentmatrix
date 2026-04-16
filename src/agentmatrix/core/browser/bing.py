@@ -111,6 +111,10 @@ async def extract_knowledge_card(tab):
         read_more = await asyncio.to_thread(
             card_container.ele, "@tag()=a@@text():Read more", timeout=2
         )
+        if not read_more:
+            read_more = await asyncio.to_thread(
+                card_container.ele, "@tag()=a@@text():阅读更多", timeout=2
+            )
         if read_more:
             await asyncio.to_thread(read_more.click, by_js=True)
             await asyncio.sleep(2)
