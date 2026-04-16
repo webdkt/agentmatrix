@@ -494,38 +494,49 @@ class Deep_researcherSkillMixin:
         title_file = work_dir / "research_state" / "research_title.md"
         title = title_file.read_text(encoding="utf-8").strip() if title_file.exists() else "研究报告"
 
-        # 读取 chapter outline
+        # 读取 chapter outline（用于排序）
+        outline_text = ""
         outline_file = work_dir / "research_state" / "chapter_outline.md"
-        if not outline_file.exists():
-            return "章节大纲不存在，无法组装报告"
+        if outline_file.exists():
+            outline_text = outline_file.read_text(encoding="utf-8")
 
+        # 遍历 drafts 下的一级子目录和 md 文件，作为实际章节
+        drafts_dir = work_dir / "drafts"
+        if not drafts_dir.exists():
+            return "drafts 目录不存在，无法组装报告"
+
+        # 收集所有章节项：(排序行号, 名称, 路径)
         chapters = []
-        for line in outline_file.read_text(encoding="utf-8").strip().split("\n"):
-            line = line.strip()
-            if line.startswith("# "):
-                chapters.append(line[2:].strip())
+        for item in drafts_dir.iterdir():
+            if item.name.startswith("."):
+                continue
+            if item.is_dir():
+                # 跳过递归最深层也没有 .md 文件的空目录
+                if not any(item.rglob("*.md")):
+                    continue
+                # 在 chapter_outline 中搜索该目录名，取行号作为排序依据
+                order = self._find_chapter_order(outline_text, item.name)
+                chapters.append((order, item.name, "dir", item))
+            elif item.is_file() and item.suffix == ".md":
+                order = self._find_chapter_order(outline_text, item.stem)
+                chapters.append((order, item.stem, "file", item))
 
         if not chapters:
-            return "章节大纲为空，无法组装报告"
+            return "drafts 目录为空，无法组装报告"
+
+        # 按行号排序（未匹配到的排到最后）
+        chapters.sort(key=lambda x: (x[0] == 0, x[0]))
 
         # 组装报告
         report_parts = [f"# {title}\n"]
 
-        for chapter_name in chapters:
-            # 优先找合并后的 md 文件
-            merged_file = work_dir / "drafts" / f"{chapter_name}.md"
-            if merged_file.exists():
-                report_parts.append(merged_file.read_text(encoding="utf-8"))
-                report_parts.append("\n---\n")
-            else:
-                # 找目录结构
-                chapter_dir = work_dir / "drafts" / chapter_name
-                if chapter_dir.exists():
-                    content = self._merge_directory(chapter_dir, level=2)
-                    report_parts.append(content)
-                    report_parts.append("\n---\n")
-                else:
-                    report_parts.append(f"\n## {chapter_name}\n\n[待撰写]\n\n---\n")
+        for order, name, kind, path in chapters:
+            if kind == "file":
+                report_parts.append(path.read_text(encoding="utf-8"))
+            elif kind == "dir":
+                content = self._merge_directory(path, level=2)
+                report_parts.append(content)
+            report_parts.append("\n---\n")
 
         final_report = "\n".join(report_parts)
         (work_dir / f"{title}.md").write_text(final_report, encoding="utf-8")
@@ -535,6 +546,13 @@ class Deep_researcherSkillMixin:
 
         self.logger.info(f"组装最终报告完成: {title}.md ({len(chapters)} 章)")
         return f"最终报告已生成: {title}.md ({len(chapters)} 章)"
+
+    def _find_chapter_order(self, outline_text: str, chapter_name: str) -> int:
+        """在 chapter_outline 中搜索章节名，返回首次出现的行号（1-based），未找到返回0"""
+        for i, line in enumerate(outline_text.split("\n"), 1):
+            if chapter_name in line:
+                return i
+        return 0
 
     def _merge_directory(self, dir_path: Path, level: int = 2) -> str:
         """递归合并目录中的 .md 文件和子目录，按编号顺序排列"""
