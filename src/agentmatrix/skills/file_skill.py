@@ -171,8 +171,8 @@ class FileSkillMixin:
         if file_exists and mode == "overwrite" and not allow_overwrite:
             return f"错误：文件已存在，如果要覆盖请设置 allow_overwrite=True\n  文件: {file_path}"
 
-        # 创建目录
-        dir_cmd = f"mkdir -p $(dirname {file_path})"
+        # 创建目录（用 shell 变量赋值 + ${var%/*} 提取父目录，确保 ~ 被正确展开）
+        dir_cmd = f"p={file_path}; mkdir -p \"${{p%/*}}\""
         await asyncio.to_thread(container_session.execute, dir_cmd)
 
         # 写入文件

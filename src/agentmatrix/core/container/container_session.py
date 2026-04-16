@@ -105,21 +105,21 @@ class ContainerSession:
             self.logger.warning(f"Session {self.session_id} 已经在运行")
             return
 
+        if not self.username:
+            raise ValueError("ContainerSession.start() 需要 username")
+
         runtime_cmd = self._find_runtime_cmd(self.runtime_type)
 
-        if self.username:
-            cmd = [
-                runtime_cmd,
-                "exec",
-                "-i",
-                self.container_name,
-                "su",
-                "-s",
-                "/bin/bash",
-                self.username,
-            ]
-        else:
-            cmd = [runtime_cmd, "exec", "-i", self.container_name, "sh"]
+        cmd = [
+            runtime_cmd,
+            "exec",
+            "-i",
+            self.container_name,
+            "su",
+            "-s",
+            "/bin/bash",
+            self.username,
+        ]
 
         self.logger.info(f"启动持久会话: {' '.join(cmd)}")
 
