@@ -349,6 +349,7 @@ class MicroAgent(AutoLoggerMixin):
 
     def _inject_signal(self, signal):
         """将信号注入为 messages，让 agent 在下一轮 think 中看到"""
+        self.logger.info(f"Injecting signal: {signal.type}")
         if signal.type == "email":
             batch = signal.payload
             # batch = {"text": "combined email text", "email_ids": ["id1", "id2"]}
@@ -359,6 +360,7 @@ class MicroAgent(AutoLoggerMixin):
                     aid.rsplit("_", 1)[0] for aid in self._running_actions
                 )
                 text += f"\n\n**Action {running} Still Running**"
+            
             self._add_message("user", text)
             # 收集待标记 processed 的 email ids
             self._pending_processed_ids.extend(batch.get("email_ids", []))
@@ -368,6 +370,7 @@ class MicroAgent(AutoLoggerMixin):
             result = signal.payload["result"]
             display_name = f"{action_name}: {action_label}" if action_label else action_name
             msg = f"[{display_name} Done]: {result}"
+            self.root_agent.update_status(msg)
             self._add_message("user", msg)
         elif signal.type == "action_failed":
             action_name = signal.payload["action_name"]
@@ -375,12 +378,15 @@ class MicroAgent(AutoLoggerMixin):
             error = signal.payload["error"]
             display_name = f"{action_name}: {action_label}" if action_label else action_name
             msg = f"[{display_name} Failed]: {error}"
+            self.root_agent.update_status(msg)
             self._add_message("user", msg)
         elif signal.type == "actions_completed":
             combined = signal.payload["combined"]
+            self.root_agent.update_status(combined)
             self._add_message("user", f"{combined}")
         elif signal.type == "no_action_reflect":
             msg = signal.payload["message"]
+            self.root_agent.update_status(msg)
             self._add_message("user", msg)
 
     def _on_action_done(self, action_id, action_name, task):
@@ -950,9 +956,10 @@ Start generating the Working Notes now.
         Returns:
             str: 生成的 working_notes
         """
-        # 压缩前：保存待总结 messages（仅 top-level）
-        if self._is_top_level_microagent():
-            self._push_pending_summary()
+        # 压缩前：保存待总结 messages（仅 top-level）//这部分应该不要了
+        
+        #if self._is_top_level_microagent():
+        #    self._push_pending_summary()
 
         working_notes = await self._generate_working_notes(self.messages)
 
@@ -1348,20 +1355,22 @@ Start generating the Working Notes now.
         """构建 System Prompt"""
         from string import Template
 
-        # 简化模式：只保留 persona + 可用工具 + 黄页（不使用模板）
+        # 简化模式：使用 simple_mode.md 模板
         if getattr(self, "simple_mode", False):
-            prompt = f""" {self.persona}
+            template_str = self.root_agent.runtime.prompt_registry.SIMPLE_MODE
+            actions_list = self._format_actions_list()
 
-### 可用工具
+            md_skill_section = ""
+            if self._is_top_level_microagent():
+                md_skill_section = self._build_md_skill_section()
 
-{self._format_actions_list()}
-"""
-            # 简化模式下，仍然添加黄页（如果有）
-            if self.yellow_pages:
-                prompt += f"""### 其他助手
+            template = Template(template_str)
+            prompt = template.safe_substitute(
+                persona=self.persona,
+                actions_list=actions_list,
+                md_skill_section=md_skill_section,
+            )
 
-{self.yellow_pages}
-"""
             self.system_prompt = prompt
             if self._is_top_level_microagent():
                 self.root_agent.last_system_prompt = prompt
@@ -1672,6 +1681,7 @@ Start generating the Working Notes now.
                     action_registry=self.action_registry["_flat"],
                     max_retries=3,
                 )
+                self.logger.info(thought)
 
                 # ✅ 状态更新：LLM 返回内容（"[ACTION]" 之前的部分）
                 if raw_reply := thought.get("[RAW_REPLY]"):
@@ -1685,6 +1695,8 @@ Start generating the Working Notes now.
 
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
+                
+                
 
                 # self.logger.debug(f"THOUGHTS: {raw_reply}")
                 # self.logger.debug(f"ACTIONS: {action_thougth}")
@@ -1692,7 +1704,7 @@ Start generating the Working Notes now.
                 # 2. 检测 actions（多个，保持顺序）
                 action_names = await self._detect_actions(action_section_text)
 
-                self.logger.debug(f"Detected actions: {action_names}")
+                self.logger.info(f"Detected actions: {action_names}")
 
                 # ✅ 状态更新：开始执行 actions
                 if action_names:
@@ -1716,6 +1728,7 @@ Start generating the Working Notes now.
 
                 if exit_action_name:
                     # exit_action 仍然同步执行，执行完直接退出循环
+                    self.logger.info(f"Executing exit action: {exit_action_name}")
                     self.return_action_name = exit_action_name
                     try:
                         result = await self._execute_action(
@@ -1728,6 +1741,7 @@ Start generating the Working Notes now.
                     should_break_loop = True
                 elif len(action_names) == 1:
                     # 单个 action：直接后台执行，保留 action 本身的名称
+                    self.logger.info(f"Launching action: {action_names[0]}")
                     self._action_counter += 1
                     action_id = f"{action_names[0]}_{self._action_counter}"
                     action_task = asyncio.create_task(
@@ -1743,6 +1757,7 @@ Start generating the Working Notes now.
                     )
                 elif action_names:
                     # 多个 actions：打包成一个后台 task 顺序执行
+                    self.logger.info(f"Launching batch actions: {action_names}")
                     self._action_counter += 1
                     action_id = f"batch_{self._action_counter}"
                     batch_task = asyncio.create_task(
@@ -1759,6 +1774,7 @@ Start generating the Working Notes now.
 
                 # 5. 检查是否需要退出主循环
                 if should_break_loop:
+                    self.logger.info(f"Loop exit: exit action '{exit_action_name}' completed")
                     break
 
                 # 声明式退出：没有新 action 要执行，且没有 running action 在跑
@@ -1768,6 +1784,7 @@ Start generating the Working Notes now.
                         reflect_msg = self._build_no_action_reflect_message(action_section_text, raw_reply or "")
                         if reflect_msg:
                             # 有疑似幻觉 → 给 LLM 一次 reflect 机会
+                            self.logger.info("No action detected but hallucination pattern found, sending reflect prompt")
                             self._no_action_reflected = True
                             self.signal_queue.put_nowait(Signal(
                                 type="no_action_reflect",
@@ -1775,6 +1792,7 @@ Start generating the Working Notes now.
                             ))
                             continue
                     # 没有疑似幻觉，或者已经 reflect 过 → 真正退出
+                    self.logger.info("Loop exit: no actions detected, no running actions")
                     break
 
                 # 回到循环顶部，signal_queue.get() 等待
@@ -2262,7 +2280,7 @@ write, send_mail, write
 
         # 3. 执行方法（✅ 直接调用，无需动态绑定）
         self._log(
-            logging.DEBUG,
+            logging.INFO,
             f"[{self.run_label}] Executing {action_name} (task {action_index}/{len(action_list)})",
         )
         result = ""
