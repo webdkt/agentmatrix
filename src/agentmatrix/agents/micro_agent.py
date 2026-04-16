@@ -1681,7 +1681,7 @@ Start generating the Working Notes now.
                     action_registry=self.action_registry["_flat"],
                     max_retries=3,
                 )
-                self.logger.info(thought)
+                
 
                 # ✅ 状态更新：LLM 返回内容（"[ACTION]" 之前的部分）
                 if raw_reply := thought.get("[RAW_REPLY]"):
@@ -1695,6 +1695,7 @@ Start generating the Working Notes now.
 
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
+                self.logger.debug(f"Raw LLM reply:\n{raw_reply}")
                 
                 
 
