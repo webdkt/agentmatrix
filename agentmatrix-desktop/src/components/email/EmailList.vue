@@ -296,7 +296,9 @@ const handleReplySendStarted = ({ placeholder }) => {
 
 const handleAgentSelected = (agentName) => {
   const agentData = agentStore.getAgent(agentName)
-  const isWorkingOnOther = agentData?.current_user_session_id && agentData.current_user_session_id !== currentSession.value?.session_id
+  const agentStatus = agentStore.getAgentStatus(agentName)
+  const isBusy = agentStatus && agentStatus !== 'IDLE'
+  const isWorkingOnOther = isBusy && agentData?.current_user_session_id && agentData.current_user_session_id !== currentSession.value?.session_id
 
   if (isWorkingOnOther) {
     // Switch to the session the agent is working on

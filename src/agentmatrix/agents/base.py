@@ -933,6 +933,7 @@ class BaseAgent(AutoLoggerMixin):
         self._session_task = None
         self._execute_task = None
         if not self._is_stopping:
+            self.current_user_session_id = None
             self.update_status(new_status=AgentStatus.IDLE)
 
         self.logger.info(f"✅ Session {session_id[:8]} 已停用")
