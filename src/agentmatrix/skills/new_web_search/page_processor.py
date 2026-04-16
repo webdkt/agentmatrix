@@ -7,7 +7,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 
 
-async def extract_markdown(tab, browser, url: str = None) -> str:
+async def extract_markdown(tab, browser, url: str = None, save_dir: str = None) -> str:
     """
     从页面提取 Markdown，自动识别 HTML/PDF
 
@@ -20,13 +20,14 @@ async def extract_markdown(tab, browser, url: str = None) -> str:
         tab: 浏览器标签页
         browser: BrowserAdapter 实例
         url: 页面 URL（可选，用于 PDF 处理）
+        save_dir: PDF 下载保存目录（可选）
     """
     from ...core.browser.browser_adapter import PageType
 
     content_type = await browser.analyze_page_type(tab)
 
     if content_type == PageType.STATIC_ASSET:
-        return await _pdf_to_markdown(tab, browser, url)
+        return await _pdf_to_markdown(tab, browser, url, save_dir=save_dir)
     else:
         return await _html_to_markdown(tab, browser)
 
@@ -63,13 +64,13 @@ async def _html_to_markdown(tab, browser) -> str:
     return markdown or ""
 
 
-async def _pdf_to_markdown(tab, browser, original_url: str = None) -> str:
+async def _pdf_to_markdown(tab, browser, original_url: str = None, save_dir: str = None) -> str:
     """
     PDF → Markdown（使用 marker）
     """
     import asyncio as aio
 
-    pdf_path = await browser.save_static_asset(tab, original_url)
+    pdf_path = await browser.save_static_asset(tab, original_url, save_dir=save_dir)
 
     # 修复可能卡在 PDF viewer 的 tab
     current_url = tab.url if hasattr(tab, "url") else ""

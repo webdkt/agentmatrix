@@ -1040,7 +1040,7 @@ class DrissionPageAdapter(BrowserAdapter, AutoLoggerMixin):
         pass
 
     async def save_static_asset(
-        self, tab: TabHandle, original_url: str = None
+        self, tab: TabHandle, original_url: str = None, save_dir: str = None
     ) -> Optional[str]:
         """
         [针对 STATIC_ASSET]
@@ -1054,6 +1054,7 @@ class DrissionPageAdapter(BrowserAdapter, AutoLoggerMixin):
         Args:
             tab: 浏览器标签页
             original_url: 原始URL（可选，用于处理Chrome PDF viewer等转换后的URL）
+            save_dir: 保存目录（可选，优先级最高）。如果未提供，回退到 self.download_path，再回退到 "downloads"
 
         Returns:
             保存的文件路径，失败返回 None
@@ -1089,8 +1090,8 @@ class DrissionPageAdapter(BrowserAdapter, AutoLoggerMixin):
                     )
 
             # 3. 确定保存目录
-            save_dir = self.download_path if self.download_path else "downloads"
-            Path(save_dir).mkdir(parents=True, exist_ok=True)
+            effective_save_dir = save_dir or self.download_path or "downloads"
+            Path(effective_save_dir).mkdir(parents=True, exist_ok=True)
 
             # 4. 解析 URL 获取文件名
             parsed_url = urlparse(url)
@@ -1103,7 +1104,7 @@ class DrissionPageAdapter(BrowserAdapter, AutoLoggerMixin):
                 filename = f"{uuid.uuid4().hex[:8]}{ext}"
 
             # 5. 判断资源类型并保存
-            file_path = os.path.join(save_dir, filename)
+            file_path = os.path.join(effective_save_dir, filename)
 
             # 判断是否是文本类型
             if self._is_text_content_type(url):

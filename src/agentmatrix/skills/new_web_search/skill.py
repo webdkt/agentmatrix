@@ -367,7 +367,18 @@ class New_web_searchSkillMixin:
             # 提取 markdown
             is_pdf = page_type == PageType.STATIC_ASSET
             try:
-                markdown = await extract_markdown(tab, ns["browser"], url)
+                # 构造 PDF 下载目录：基于 agent 的 work_files/task_id/downloads
+                pdf_save_dir = None
+                if is_pdf and self.current_task_id and hasattr(self, "runtime"):
+                    pdf_save_dir = str(
+                        self.runtime.paths.get_agent_work_files_dir(
+                            self.name, self.current_task_id
+                        )
+                        / "downloads"
+                    )
+                markdown = await extract_markdown(
+                    tab, ns["browser"], url, save_dir=pdf_save_dir
+                )
             except Exception as e:
                 self.logger.error(f"Failed to extract markdown: {e}")
                 markdown = ""
@@ -451,7 +462,17 @@ instruction 参数要求：明确说明要提取什么，越具体越好。如"�
                 self.logger.info(f"Using cached markdown ({len(markdown)} chars)")
             else:
                 self.logger.info("No cache, extracting markdown...")
-                markdown = await extract_markdown(tab, ns["browser"], url)
+                pdf_save_dir = None
+                if self.current_task_id and hasattr(self, "runtime"):
+                    pdf_save_dir = str(
+                        self.runtime.paths.get_agent_work_files_dir(
+                            self.name, self.current_task_id
+                        )
+                        / "downloads"
+                    )
+                markdown = await extract_markdown(
+                    tab, ns["browser"], url, save_dir=pdf_save_dir
+                )
                 ns["page_cache"][url] = markdown
 
             if not markdown or len(markdown.strip()) < 50:
