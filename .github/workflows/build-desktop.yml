@@ -18,14 +18,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build minimal Docker image
+      - name: Build Docker image
         run: |
-          docker build -f Dockerfile.minimal -t agentmatrix:minimal .
+          docker build -f Dockerfile.minimal -t agentmatrix:latest .
 
-      - name: Export minimal Docker image
+      - name: Export Docker image
         run: |
           mkdir -p artifacts
-          docker save agentmatrix:minimal | gzip > artifacts/docker-image.tar.gz
+          docker save agentmatrix:latest | gzip > artifacts/docker-image.tar.gz
           ls -lh artifacts/docker-image.tar.gz
 
       - name: Upload Docker image artifact
