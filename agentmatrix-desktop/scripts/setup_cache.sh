@@ -71,16 +71,16 @@ elif command -v docker &> /dev/null; then
 fi
 
 if [ -n "$CONTAINER_CMD" ]; then
-    echo "🐳 使用 $CONTAINER_CMD 构建镜像..."
+    echo "🐳 使用 $CONTAINER_CMD 构建极简镜像..."
     cd "$PROJECT_ROOT"
-    $CONTAINER_CMD build -t agentmatrix:latest .
+    $CONTAINER_CMD build -f Dockerfile.minimal -t agentmatrix:minimal .
 
     echo ""
-    echo "📦 导出镜像到缓存..."
-    $CONTAINER_CMD save agentmatrix:latest | gzip > "$CACHE_DIR/docker/image.tar.gz"
+    echo "📦 导出极简镜像到缓存..."
+    $CONTAINER_CMD save agentmatrix:minimal | gzip > "$CACHE_DIR/docker/image.tar.gz"
 
     IMAGE_SIZE=$(du -h "$CACHE_DIR/docker/image.tar.gz" | cut -f1)
-    echo "✅ 容器镜像已缓存: $IMAGE_SIZE"
+    echo "✅ 极简容器镜像已缓存: $IMAGE_SIZE"
     echo "   路径: $CACHE_DIR/docker/image.tar.gz"
 else
     echo "⚠️  没有可用的容器运行时"

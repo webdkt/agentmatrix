@@ -335,6 +335,9 @@ class SingleContainerManager(AutoLoggerMixin):
                     break
                 self.logger.warning(f"命令失败 [{cmd}]: {output}")
 
+        # 【新增】为新用户设置 Playwright 浏览器缓存链接
+        self._setup_user_playwright(username)
+
         self._registered_users.add(username)
         self.logger.info(
             f"用户已创建: {username} (agent: {agent_name}), home={agent_home}"
@@ -547,6 +550,39 @@ class SingleContainerManager(AutoLoggerMixin):
             return exit_code, output_str.strip()
         except Exception as e:
             return -1, str(e)
+
+    def _setup_user_playwright(self, username: str) -> None:
+        """
+        为新用户设置 Playwright 浏览器缓存链接。
+
+        Playwright 浏览器安装到 /opt/ms-playwright（所有用户共享），
+        为每个用户创建符号链接 ~/.cache/ms-playwright -> /opt/ms-playwright
+
+        Args:
+            username: Linux 用户名
+        """
+        try:
+            # 检查符号链接是否已存在
+            check_cmd = f'su - {username} -c \'test -L "$HOME/.cache/ms-playwright" && echo "exists"\''
+            exit_code, output = self._exec_as_root(check_cmd)
+
+            if exit_code == 0 and "exists" in output:
+                self.logger.debug(f"用户 {username} 的 Playwright 缓存已设置")
+                return
+
+            # 创建符号链接
+            self.logger.info(f"为用户 {username} 设置 Playwright 浏览器缓存链接")
+
+            link_cmd = f'su - {username} -c \'mkdir -p "$HOME/.cache" && ln -s /opt/ms-playwright "$HOME/.cache/ms-playwright"\''
+            exit_code, output = self._exec_as_root(link_cmd)
+
+            if exit_code == 0:
+                self.logger.info(f"✅ 用户 {username} 的 Playwright 缓存已设置")
+            else:
+                self.logger.warning(f"⚠️ 设置 Playwright 缓存失败: {output}")
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ 设置用户 {username} 的 Playwright 缓存时出错: {e}")
 
     def __del__(self):
         """析构函数：清理资源"""

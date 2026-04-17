@@ -1124,6 +1124,177 @@ async fn ensure_container_image(app: tauri::AppHandle) -> Result<String, String>
     Ok("Container image loaded successfully".to_string())
 }
 
+// ─── Initialize Container Packages (for lazy loading) ───
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct InstallProgress {
+    stage: String,        // core, libreoffice, browsers, npm, complete
+    percent: u8,          // 0-100
+    message: String,
+}
+
+/// 解析安装脚本的 PROGRESS 输出
+/// 输入格式: PROGRESS:stage:stage_name:percent:message
+fn parse_progress_line(line: &str) -> Option<InstallProgress> {
+    if !line.starts_with("PROGRESS:") {
+        return None;
+    }
+
+    let parts: Vec<&str> = line.trim_start_matches("PROGRESS:").split(':').collect();
+    if parts.len() < 4 {
+        return None;
+    }
+
+    let stage = parts.get(1)?.to_string();
+    let percent = parts.get(2)?.parse::<u8>().ok()?;
+    let message = parts.get(3)?.to_string();
+
+    Some(InstallProgress {
+        stage,
+        percent,
+        message,
+    })
+}
+
+/// 初始化容器包（延迟加载）
+/// 在容器启动阶段执行，在 Python backend 启动之前
+async fn initialize_container_packages(
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    println!("📦 检查是否需要初始化容器包...");
+
+    // 1. 检测是否为极简镜像（需要初始化）
+    let runtime_info = check_container_runtime().await.map_err(|e| e.to_string())?;
+    let runtime_bin = runtime_info.path.unwrap_or_else(|| runtime_info.runtime.clone());
+
+    // 检查是否存在 LibreOffice（作为完整镜像的标志）
+    let check_output = StdCommand::new(&runtime_bin)
+        .args(["run", "--rm", "agentmatrix:minimal", "which", "libreoffice"])
+        .output();
+
+    let is_minimal_image = if let Ok(output) = check_output {
+        !output.status.success()
+    } else {
+        true // 假设是极简镜像
+    };
+
+    if !is_minimal_image {
+        println!("✅ 检测到完整镜像，跳过初始化");
+        return Ok(());
+    }
+
+    println!("🚀 检测到极简镜像，开始初始化...");
+
+    // 2. 启动临时容器执行初始化脚本
+    let container_name = format!("agentmatrix-init-{}", std::process::id());
+
+    println!("📥 启动初始化容器: {}", container_name);
+
+    // 创建临时容器
+    let create_output = StdCommand::new(&runtime_bin)
+        .args([
+            "run",
+            "--name", &container_name,
+            "--rm",
+            "-d",
+            "agentmatrix:minimal",
+            "sleep", "3600",  // 保持容器运行
+        ])
+        .output()
+        .map_err(|e| format!("Failed to start init container: {}", e))?;
+
+    if !create_output.status.success() {
+        let stderr = String::from_utf8_lossy(&create_output.stderr);
+        return Err(format!("Failed to create init container: {}", stderr));
+    }
+
+    // 3. 拷贝初始化脚本到容器
+    let script_path = if cfg!(dev) {
+        // Dev mode: 使用源代码中的脚本
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("container-init-scripts")
+            .join("install_packages.sh")
+    } else {
+        // Production: 使用打包的脚本
+        let resource_dir = app.path().resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+        resource_dir.join("container-init-scripts").join("install_packages.sh")
+    };
+
+    if !script_path.exists() {
+        // 如果脚本不存在，尝试使用内嵌的脚本内容
+        println!("⚠️  脚本文件不存在: {:?}，使用内嵌脚本", script_path);
+        // 这里可以内嵌脚本内容，或者返回错误
+    } else {
+        // 拷贝脚本到容器
+        let copy_output = StdCommand::new(&runtime_bin)
+            .args(["cp", script_path.to_str().unwrap(), &format!("{}:/tmp/", container_name)])
+            .output();
+
+        if let Err(e) = copy_output {
+            println!("⚠️  警告: 拷贝脚本失败: {}", e);
+        }
+    }
+
+    // 4. 执行初始化脚本并监控进度
+    println!("⚙️  执行初始化脚本...");
+
+    let mut child = StdCommand::new(&runtime_bin)
+        .args(["exec", &container_name, "bash", "/tmp/container-init-scripts/install_packages.sh"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to exec install script: {}", e))?;
+
+    // 读取输出并发送进度事件
+    if let Some(stdout) = child.stdout.take() {
+        use std::io::{BufRead, BufReader};
+        let reader = BufReader::new(stdout);
+
+        for line in reader.lines() {
+            if let Ok(line_text) = line {
+                if let Some(progress) = parse_progress_line(&line_text) {
+                    println!("📊 进度: {} - {}% - {}", progress.stage, progress.percent, progress.message);
+
+                    // 发送 Tauri 事件到前端
+                    let _ = app.emit("installation-progress", &progress);
+                }
+            }
+        }
+    }
+
+    // 5. 等待脚本完成
+    let status = child.wait()
+        .map_err(|e| format!("Failed to wait for install script: {}", e))?;
+
+    if !status.success() {
+        return Err("核心组件安装失败，无法继续".to_string());
+    }
+
+    // 6. 将初始化后的容器提交为新镜像
+    println!("💾 保存初始化后的镜像...");
+
+    let commit_output = StdCommand::new(&runtime_bin)
+        .args(["commit", &container_name, "agentmatrix:initialized"])
+        .output()
+        .map_err(|e| format!("Failed to commit initialized image: {}", e))?;
+
+    if !commit_output.status.success() {
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        println!("⚠️  警告: 保存镜像失败: {}", stderr);
+    }
+
+    println!("✅ 容器包初始化完成");
+
+    // 7. 停止临时容器
+    let _ = StdCommand::new(&runtime_bin)
+        .args(["stop", &container_name])
+        .output();
+
+    Ok(())
+}
+
 // ─── Ensure Environment (unified startup: container runtime + backend) ───
 
 async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
@@ -1134,8 +1305,16 @@ async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) 
     if runtime_info.runtime == "podman" {
         init_podman_vm().await?;
     }
+
+    // 1. 确保容器镜像存在（极简镜像）
     ensure_container_image(app.clone()).await?;
+
+    // 2. 初始化容器包（延迟加载）- 在 backend 启动之前
+    initialize_container_packages(app).await?;
+
+    // 3. 启动 backend（现在容器已初始化完成）
     start_backend_logic(app, state).await?;
+
     Ok(())
 }
 

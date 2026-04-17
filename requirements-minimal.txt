@@ -1,0 +1,25 @@
+# 最小 Python 依赖 - 仅包含核心框架
+# 用于极简基础镜像（Dockerfile.minimal）
+# 重型依赖（PDF处理、Office等）在容器首次运行时通过 install_packages.sh 安装
+
+# === 核心框架 ===
+fastapi>=0.100.0
+uvicorn>=0.23.0
+websockets>=11.0
+
+# === 配置管理 ===
+pyyaml>=6.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# === 容器管理 ===
+docker>=6.0.0
+podman>=4.0.0
+
+# === 网络请求 ===
+requests>=2.31.0
+aiohttp>=3.8.0
+
+# === 基础工具 ===
+python-multipart
+aioconsole>=0.6.0
