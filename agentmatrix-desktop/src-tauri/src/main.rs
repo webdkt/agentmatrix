@@ -1157,45 +1157,39 @@ fn parse_progress_line(line: &str) -> Option<InstallProgress> {
 }
 
 /// 初始化容器包（延迟加载）
-/// 在容器启动阶段执行，在 Python backend 启动之前
+/// 在 cold start 流程中执行一次，安装重型依赖
+/// 注意：此函数只在 cold start 时调用，不需要检查是否已初始化
 async fn initialize_container_packages(
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
-    println!("📦 检查是否需要初始化容器包...");
+    println!("📦 开始容器初始化（安装重型依赖）...");
 
-    // 1. 检测是否为极简镜像（需要初始化）
+    // 1. 获取容器运行时
     let runtime_info = check_container_runtime().await.map_err(|e| e.to_string())?;
     let runtime_bin = runtime_info.path.unwrap_or_else(|| runtime_info.runtime.clone());
 
-    // 检查实际加载的镜像（agentmatrix:latest）是否存在 LibreOffice（作为完整镜像的标志）
-    let check_output = StdCommand::new(&runtime_bin)
-        .args(["run", "--rm", "agentmatrix:latest", "which", "libreoffice"])
-        .output();
-
-    let is_minimal_image = if let Ok(output) = check_output {
-        !output.status.success()
-    } else {
-        true // 假设是极简镜像
-    };
-
-    if !is_minimal_image {
-        println!("✅ 检测到完整镜像，跳过初始化");
-        return Ok(());
-    }
-
-    println!("🚀 检测到极简镜像，开始初始化...");
+    // 2. 启动临时容器执行初始化脚本
 
     // 2. 启动临时容器执行初始化脚本
     let container_name = format!("agentmatrix-init-{}", std::process::id());
-
     println!("📥 启动初始化容器: {}", container_name);
 
-    // 创建临时容器
+    // 清理函数：确保容器总是被删除
+    let cleanup_container = |bin: &str, name: &str| {
+        println!("🧹 清理临时容器: {}", name);
+        let _ = StdCommand::new(bin)
+            .args(["stop", "-t", "2", name])  // -t: 等待2秒后强制停止
+            .output();
+        let _ = StdCommand::new(bin)
+            .args(["rm", "-f", name])  // -f: 强制删除
+            .output();
+    };
+
+    // 创建临时容器（注意：这里不用 --rm，因为我们手动管理清理）
     let create_output = StdCommand::new(&runtime_bin)
         .args([
             "run",
             "--name", &container_name,
-            "--rm",
             "-d",
             "agentmatrix:latest",
             "sleep", "3600",  // 保持容器运行
@@ -1205,6 +1199,7 @@ async fn initialize_container_packages(
 
     if !create_output.status.success() {
         let stderr = String::from_utf8_lossy(&create_output.stderr);
+        cleanup_container(&runtime_bin, &container_name);  // 确保清理
         return Err(format!("Failed to create init container: {}", stderr));
     }
 
@@ -1259,7 +1254,10 @@ async fn initialize_container_packages(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to exec install script: {}", e))?;
+        .map_err(|e| {
+            cleanup_container(&runtime_bin, &container_name);  // 确保清理
+            format!("Failed to exec install script: {}", e)
+        })?;
 
     // 读取输出并发送进度事件
     if let Some(stdout) = child.stdout.take() {
@@ -1283,28 +1281,14 @@ async fn initialize_container_packages(
         .map_err(|e| format!("Failed to wait for install script: {}", e))?;
 
     if !status.success() {
+        cleanup_container(&runtime_bin, &container_name);  // 确保清理
         return Err("核心组件安装失败，无法继续".to_string());
-    }
-
-    // 6. 将初始化后的容器提交为新镜像
-    println!("💾 保存初始化后的镜像...");
-
-    let commit_output = StdCommand::new(&runtime_bin)
-        .args(["commit", &container_name, "agentmatrix:initialized"])
-        .output()
-        .map_err(|e| format!("Failed to commit initialized image: {}", e))?;
-
-    if !commit_output.status.success() {
-        let stderr = String::from_utf8_lossy(&commit_output.stderr);
-        println!("⚠️  警告: 保存镜像失败: {}", stderr);
     }
 
     println!("✅ 容器包初始化完成");
 
-    // 7. 停止临时容器
-    let _ = StdCommand::new(&runtime_bin)
-        .args(["stop", &container_name])
-        .output();
+    // 6. 清理临时容器
+    cleanup_container(&runtime_bin, &container_name);
 
     Ok(())
 }
@@ -1320,13 +1304,13 @@ async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) 
         init_podman_vm().await?;
     }
 
-    // 1. 确保容器镜像存在（极简镜像）
+    // 1. 确保容器镜像存在
     ensure_container_image(app.clone()).await?;
 
-    // 2. 初始化容器包（延迟加载）- 在 backend 启动之前
+    // 2. 初始化容器包（仅在 cold start 时执行一次）
     initialize_container_packages(app).await?;
 
-    // 3. 启动 backend（现在容器已初始化完成）
+    // 3. 启动 backend
     start_backend_logic(app, state).await?;
 
     Ok(())
