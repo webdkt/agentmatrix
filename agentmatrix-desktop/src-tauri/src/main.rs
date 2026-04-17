@@ -1276,8 +1276,13 @@ async fn initialize_container_packages(
                 if let Some(progress) = parse_progress_line(&line_text) {
                     println!("📊 进度: {} - {}% - {}", progress.stage, progress.percent, progress.message);
 
-                    // 发送 Tauri 事件到前端
-                    let _ = app.emit("installation-progress", &progress);
+                    // 发送 Tauri 事件到 splash 窗口
+                    if let Some(splash) = app.get_webview_window("splash") {
+                        let _ = splash.emit("installation-progress", &progress);
+                    } else {
+                        // 如果 splash 窗口不存在，使用全局广播作为后备
+                        let _ = app.emit("installation-progress", &progress);
+                    }
                 } else if !line_text.is_empty() {
                     // 打印所有输出，方便调试
                     println!("📄 {}", line_text);

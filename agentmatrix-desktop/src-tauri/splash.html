@@ -204,9 +204,14 @@
   <div class="label" id="status-label">正在启动...</div>
 
   <script>
+    console.log('🔍 Splash screen loaded');
+
     // 监听来自 Tauri 的安装进度事件
     if (window.__TAURI__) {
+      console.log('✅ Tauri API available');
+
       window.__TAURI__.event.listen('installation-progress', (event) => {
+        console.log('📊 Received installation-progress event:', event.payload);
         const progress = event.payload;
 
         // 显示安装进度区域
@@ -239,6 +244,10 @@
           }, 1500);
         }
       });
+
+      console.log('✅ Event listener registered');
+    } else {
+      console.warn('⚠️ Tauri API not available');
     }
 
     /**
