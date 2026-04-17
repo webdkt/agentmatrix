@@ -10,6 +10,7 @@ set -e
 # Auto-detect project root from script location
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT_DIR="$(dirname "$PROJECT_DIR")"  # 指向 agentmatrix 根目录
 cd "$SCRIPT_DIR"
 
 echo "🚀 Starting AgentMatrix Desktop Development Environment..."
@@ -34,7 +35,7 @@ echo "🐍 PYTHONPATH set to: $PROJECT_DIR/src"
 echo "📁 PROJECT_DIR: $PROJECT_DIR"
 
 # Copy matrix-template to configured locations
-MATRIX_TEMPLATE_SRC="$PROJECT_DIR/matrix-template"
+MATRIX_TEMPLATE_SRC="$PROJECT_ROOT_DIR/matrix-template"
 SETTINGS_FILE="$HOME/.agentmatrix/settings.json"
 
 if [ -d "$MATRIX_TEMPLATE_SRC" ]; then
