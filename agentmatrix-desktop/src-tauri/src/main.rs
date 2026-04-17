@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use tauri::{State, Manager, menu::{Menu, MenuItem}, tray::TrayIconBuilder, WindowEvent};
+use tauri::{State, Manager, Emitter, menu::{Menu, MenuItem}, tray::TrayIconBuilder, WindowEvent};
 use serde_json::Value as JsonValue;
 
 #[cfg(unix)]
