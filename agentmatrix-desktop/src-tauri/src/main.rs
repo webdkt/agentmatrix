@@ -1167,9 +1167,9 @@ async fn initialize_container_packages(
     let runtime_info = check_container_runtime().await.map_err(|e| e.to_string())?;
     let runtime_bin = runtime_info.path.unwrap_or_else(|| runtime_info.runtime.clone());
 
-    // 检查是否存在 LibreOffice（作为完整镜像的标志）
+    // 检查实际加载的镜像（agentmatrix:latest）是否存在 LibreOffice（作为完整镜像的标志）
     let check_output = StdCommand::new(&runtime_bin)
-        .args(["run", "--rm", "agentmatrix:minimal", "which", "libreoffice"])
+        .args(["run", "--rm", "agentmatrix:latest", "which", "libreoffice"])
         .output();
 
     let is_minimal_image = if let Ok(output) = check_output {
@@ -1197,7 +1197,7 @@ async fn initialize_container_packages(
             "--name", &container_name,
             "--rm",
             "-d",
-            "agentmatrix:minimal",
+            "agentmatrix:latest",
             "sleep", "3600",  // 保持容器运行
         ])
         .output()
@@ -1222,18 +1222,32 @@ async fn initialize_container_packages(
         resource_dir.join("container-init-scripts").join("install_packages.sh")
     };
 
+    let container_script_path = "/tmp/install_packages.sh";
+
     if !script_path.exists() {
-        // 如果脚本不存在，尝试使用内嵌的脚本内容
-        println!("⚠️  脚本文件不存在: {:?}，使用内嵌脚本", script_path);
-        // 这里可以内嵌脚本内容，或者返回错误
+        // 如果脚本不存在，尝试直接在容器中使用 apt-get 等命令
+        println!("⚠️  脚本文件不存在: {:?}，直接在容器内执行命令", script_path);
+        // 这里可以使用更简单的方式：直接在容器内执行安装命令
+        // 或者返回错误
     } else {
+        println!("📄 拷贝脚本到容器: {:?} -> {}", script_path, container_script_path);
+
         // 拷贝脚本到容器
         let copy_output = StdCommand::new(&runtime_bin)
-            .args(["cp", script_path.to_str().unwrap(), &format!("{}:/tmp/", container_name)])
+            .args(["cp", script_path.to_str().unwrap(), &format!("{}:{}", container_name, container_script_path)])
             .output();
 
-        if let Err(e) = copy_output {
-            println!("⚠️  警告: 拷贝脚本失败: {}", e);
+        match copy_output {
+            Ok(output) if !output.status.success() => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                println!("⚠️  警告: 拷贝脚本失败: {}", stderr);
+            }
+            Err(e) => {
+                println!("⚠️  警告: 拷贝脚本失败: {}", e);
+            }
+            _ => {
+                println!("✅ 脚本已拷贝到容器");
+            }
         }
     }
 
@@ -1241,7 +1255,7 @@ async fn initialize_container_packages(
     println!("⚙️  执行初始化脚本...");
 
     let mut child = StdCommand::new(&runtime_bin)
-        .args(["exec", &container_name, "bash", "/tmp/container-init-scripts/install_packages.sh"])
+        .args(["exec", &container_name, "bash", container_script_path])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
