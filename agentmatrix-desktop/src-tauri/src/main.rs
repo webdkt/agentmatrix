@@ -1248,6 +1248,7 @@ async fn initialize_container_packages(
 
     // 4. 执行初始化脚本并监控进度
     println!("⚙️  执行初始化脚本...");
+    println!("🔧 脚本路径: {}", container_script_path);
 
     let mut child = StdCommand::new(&runtime_bin)
         .args(["exec", &container_name, "bash", container_script_path])
@@ -1255,22 +1256,47 @@ async fn initialize_container_packages(
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
-            cleanup_container(&runtime_bin, &container_name);  // 确保清理
+            cleanup_container(&runtime_bin, &container_name);
             format!("Failed to exec install script: {}", e)
         })?;
 
     // 读取输出并发送进度事件
+    let mut stderr_output = String::new();
+    let mut stdout_output = String::new();
+
     if let Some(stdout) = child.stdout.take() {
         use std::io::{BufRead, BufReader};
         let reader = BufReader::new(stdout);
 
         for line in reader.lines() {
             if let Ok(line_text) = line {
+                stdout_output.push_str(&line_text);
+                stdout_output.push('\n');
+
                 if let Some(progress) = parse_progress_line(&line_text) {
                     println!("📊 进度: {} - {}% - {}", progress.stage, progress.percent, progress.message);
 
                     // 发送 Tauri 事件到前端
                     let _ = app.emit("installation-progress", &progress);
+                } else if !line_text.is_empty() {
+                    // 打印所有输出，方便调试
+                    println!("📄 {}", line_text);
+                }
+            }
+        }
+    }
+
+    // 读取 stderr（错误信息）
+    if let Some(stderr) = child.stderr.take() {
+        use std::io::{BufRead, BufReader};
+        let reader = BufReader::new(stderr);
+
+        for line in reader.lines() {
+            if let Ok(line_text) = line {
+                stderr_output.push_str(&line_text);
+                stderr_output.push('\n');
+                if !line_text.is_empty() {
+                    println!("⚠️  STDERR: {}", line_text);
                 }
             }
         }
@@ -1281,8 +1307,15 @@ async fn initialize_container_packages(
         .map_err(|e| format!("Failed to wait for install script: {}", e))?;
 
     if !status.success() {
-        cleanup_container(&runtime_bin, &container_name);  // 确保清理
-        return Err("核心组件安装失败，无法继续".to_string());
+        cleanup_container(&runtime_bin, &container_name);
+
+        // 构建详细的错误信息
+        let mut error_msg = format!("核心组件安装失败 (退出码: {:?})\n", status.code());
+        error_msg.push_str(&format!("\n📤 标准输出:\n{}\n", stdout_output));
+        error_msg.push_str(&format!("\n⚠️  错误输出:\n{}\n", stderr_output));
+
+        println!("{}", error_msg);
+        return Err(error_msg);
     }
 
     println!("✅ 容器包初始化完成");
