@@ -1156,6 +1156,87 @@ fn parse_progress_line(line: &str) -> Option<InstallProgress> {
     })
 }
 
+/// 过滤安装输出，提取有用的信息
+/// 返回简化的消息，None 表示忽略此行
+fn filter_install_output(line: &str) -> Option<String> {
+    let line = line.trim();
+
+    // 过滤掉无用的行
+    if line.is_empty() {
+        return None;
+    }
+
+    // 过滤掉进度条相关的行（如 [###.......]）
+    if line.contains('[') && line.contains("...") && line.contains(']') {
+        return None;
+    }
+
+    // 过滤掉纯百分比行
+    if line.chars().all(|c| c.is_numeric() || c == '%' || c.is_whitespace()) {
+        return None;
+    }
+
+    // apt-get 输出过滤
+    if line.starts_with("Selecting ") || line.starts_with("Preparing ") || line.starts_with("Unpacking ") {
+        // 提取包名
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if let Some(name) = parts.last() {
+            return Some(format!("正在安装: {}", name.trim_end_matches(':')));
+        }
+    }
+
+    if line.starts_with("Setting up ") {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if let Some(name) = parts.get(2) {
+            return Some(format!("配置中: {}", name.trim_end_matches(':')));
+        }
+    }
+
+    // pip 输出过滤
+    if line.contains("Collecting ") {
+        if let Some(pkg) = line.split("Collecting ").nth(1) {
+            return Some(format!("下载中: {}", pkg.trim()));
+        }
+    }
+
+    if line.contains("Downloading ") {
+        if let Some(pkg) = line.split("Downloading ").nth(1) {
+            let pkg_name = pkg.split_whitespace().next().unwrap_or("");
+            return Some(format!("下载: {}", pkg_name));
+        }
+    }
+
+    if line.contains("Installing collected packages") {
+        return Some("正在安装已下载的包...".to_string());
+    }
+
+    if line.starts_with("Successfully installed ") {
+        return Some("✅ 安装成功".to_string());
+    }
+
+    // npm 输出过滤
+    if line.contains("added ") && line.contains("package") {
+        return Some("npm 包安装完成".to_string());
+    }
+
+    if line.starts_with("+ ") {
+        let pkg = line.trim_start_matches("+ ").trim();
+        return Some(format!("npm: {}", pkg));
+    }
+
+    // Playwright 输出过滤
+    if line.contains("Chromium") {
+        return Some(format!("Playwright: {}", line.trim()));
+    }
+
+    // 默认：返回原始行（但限制长度）
+    if line.len() > 100 {
+        Some(format!("{}...", &line[..97]))
+    } else {
+        Some(line.to_string())
+    }
+}
+
 /// 初始化容器包（延迟加载）
 /// 在 cold start 流程中执行一次，安装重型依赖
 /// 注意：此函数只在 cold start 时调用，不需要检查是否已初始化
@@ -1284,8 +1365,25 @@ async fn initialize_container_packages(
                         let _ = app.emit("installation-progress", &progress);
                     }
                 } else if !line_text.is_empty() {
-                    // 打印所有输出，方便调试
-                    println!("📄 {}", line_text);
+                    // 过滤并发送有用的安装输出
+                    let filtered = filter_install_output(&line_text);
+                    if let Some(message) = filtered {
+                        println!("📄 {}", message);
+
+                        // 发送真实安装进度到前端
+                        let progress = InstallProgress {
+                            stage: "install".to_string(),
+                            percent: 0,
+                            message,
+                        };
+
+                        if let Some(splash) = app.get_webview_window("splash") {
+                            let _ = splash.emit("installation-progress", &progress);
+                        }
+                    } else {
+                        // 打印所有输出，方便调试
+                        println!("📄 {}", line_text);
+                    }
                 }
             }
         }

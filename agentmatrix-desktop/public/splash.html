@@ -25,15 +25,7 @@
       letter-spacing: 0.02em;
     }
 
-    .label {
-      font-size: 12px;
-      color: #8A8A8A;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      font-variant: small-caps;
-    }
-
-    /* Thinking bar — vermillion 2px progress bar, oscillating */
+    /* 震荡进度条 */
     .thinking-bar {
       width: 120px;
       height: 2px;
@@ -60,11 +52,77 @@
       50%  { left: 100%; }
       100% { left: -40%; }
     }
+
+    /* 进度文字 */
+    .status {
+      font-size: 13px;
+      color: #666;
+      text-align: center;
+      min-height: 20px;
+      max-width: 300px;
+      line-height: 1.5;
+    }
+
+    .status .percent {
+      font-weight: 600;
+      color: #1A1A1A;
+      margin-right: 4px;
+    }
   </style>
 </head>
 <body>
   <div class="title">AgentMatrix</div>
   <div class="thinking-bar"></div>
-  <div class="label">Starting backend server</div>
+  <div class="status" id="status">正在启动...</div>
+
+  <script>
+    console.log('🔍 Splash screen loaded');
+
+    // 监听来自 Tauri 的安装进度事件
+    if (window.__TAURI__) {
+      console.log('✅ Tauri API available');
+
+      window.__TAURI__.event.listen('installation-progress', (event) => {
+        console.log('📊 Received installation-progress event:', event.payload);
+        const progress = event.payload;
+
+        // 更新进度文字
+        updateStatus(progress);
+      });
+
+      console.log('✅ Event listener registered');
+    } else {
+      console.warn('⚠️ Tauri API not available');
+    }
+
+    /**
+     * 更新进度文字显示
+     * @param {Object} progress - 进度对象 {stage, percent, message}
+     */
+    function updateStatus(progress) {
+      const statusEl = document.getElementById('status');
+      const { stage, percent, message } = progress;
+
+      // 完成状态
+      if (stage === 'complete') {
+        statusEl.innerHTML = '✅ 初始化完成，正在启动...';
+        setTimeout(() => {
+          statusEl.innerHTML = '启动后端服务...';
+        }, 2000);
+        return;
+      }
+
+      // 构建显示文字
+      let text = '';
+      if (percent > 0) {
+        text += `<span class="percent">${percent}%</span>`;
+      }
+      if (message) {
+        text += message;
+      }
+
+      statusEl.innerHTML = text;
+    }
+  </script>
 </body>
 </html>
