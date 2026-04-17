@@ -1249,42 +1249,57 @@ async fn initialize_container_packages(
     let runtime_info = check_container_runtime().await.map_err(|e| e.to_string())?;
     let runtime_bin = runtime_info.path.unwrap_or_else(|| runtime_info.runtime.clone());
 
-    // 2. 启动临时容器执行初始化脚本
+    // 2. 在主容器中执行初始化脚本
+    let container_name = "agentmatrix_shared";
+    println!("📥 在主容器中执行初始化: {}", container_name);
 
-    // 2. 启动临时容器执行初始化脚本
-    let container_name = format!("agentmatrix-init-{}", std::process::id());
-    println!("📥 启动初始化容器: {}", container_name);
+    // 检查主容器是否存在，不存在则创建
+    let check_output = StdCommand::new(&runtime_bin)
+        .args(["ps", "-a", "-q", "-f", &format!("name={}", container_name)])
+        .output();
 
-    // 清理函数：确保容器总是被删除
-    let cleanup_container = |bin: &str, name: &str| {
-        println!("🧹 清理临时容器: {}", name);
-        let _ = StdCommand::new(bin)
-            .args(["stop", "-t", "2", name])  // -t: 等待2秒后强制停止
-            .output();
-        let _ = StdCommand::new(bin)
-            .args(["rm", "-f", name])  // -f: 强制删除
-            .output();
+    let container_exists = match check_output {
+        Ok(output) => output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        Err(_) => false,
     };
 
-    // 创建临时容器（注意：这里不用 --rm，因为我们手动管理清理）
-    let create_output = StdCommand::new(&runtime_bin)
-        .args([
-            "run",
-            "--name", &container_name,
-            "-d",
-            "agentmatrix:latest",
-            "sleep", "3600",  // 保持容器运行
-        ])
-        .output()
-        .map_err(|e| format!("Failed to start init container: {}", e))?;
+    if !container_exists {
+        println!("🔧 主容器不存在，先创建主容器...");
+        let create_output = StdCommand::new(&runtime_bin)
+            .args([
+                "run",
+                "-d",
+                "--name", container_name,
+                "agentmatrix:latest",
+                "tail", "-f", "/dev/null",
+            ])
+            .output()
+            .map_err(|e| format!("Failed to create main container: {}", e))?;
 
-    if !create_output.status.success() {
-        let stderr = String::from_utf8_lossy(&create_output.stderr);
-        cleanup_container(&runtime_bin, &container_name);  // 确保清理
-        return Err(format!("Failed to create init container: {}", stderr));
+        if !create_output.status.success() {
+            let stderr = String::from_utf8_lossy(&create_output.stderr);
+            return Err(format!("Failed to create main container: {}", stderr));
+        }
+        println!("✅ 主容器已创建");
+    } else {
+        // 检查容器状态
+        let status_output = StdCommand::new(&runtime_bin)
+            .args(["inspect", "-f", "{{.State.Status}}", container_name])
+            .output();
+
+        if let Ok(output) = status_output {
+            let status = String::from_utf8_lossy(&output.stdout);
+            let status = status.trim();
+            if status != "running" {
+                println!("🔄 主容器未运行，启动中...");
+                let _ = StdCommand::new(&runtime_bin)
+                    .args(["start", container_name])
+                    .output();
+            }
+        }
     }
 
-    // 3. 拷贝初始化脚本到容器
+    // 3. 拷贝并执行初始化脚本
     let script_path = if cfg!(dev) {
         // Dev mode: 使用源代码中的脚本
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1301,45 +1316,33 @@ async fn initialize_container_packages(
     let container_script_path = "/tmp/install_packages.sh";
 
     if !script_path.exists() {
-        // 如果脚本不存在，尝试直接在容器中使用 apt-get 等命令
-        println!("⚠️  脚本文件不存在: {:?}，直接在容器内执行命令", script_path);
-        // 这里可以使用更简单的方式：直接在容器内执行安装命令
-        // 或者返回错误
-    } else {
-        println!("📄 拷贝脚本到容器: {:?} -> {}", script_path, container_script_path);
-
-        // 拷贝脚本到容器
-        let copy_output = StdCommand::new(&runtime_bin)
-            .args(["cp", script_path.to_str().unwrap(), &format!("{}:{}", container_name, container_script_path)])
-            .output();
-
-        match copy_output {
-            Ok(output) if !output.status.success() => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("⚠️  警告: 拷贝脚本失败: {}", stderr);
-            }
-            Err(e) => {
-                println!("⚠️  警告: 拷贝脚本失败: {}", e);
-            }
-            _ => {
-                println!("✅ 脚本已拷贝到容器");
-            }
-        }
+        return Err(format!("脚本文件不存在: {:?}", script_path));
     }
 
+    println!("📄 拷贝脚本到主容器: {:?} -> {}", script_path, container_script_path);
+
+    // 拷贝脚本到主容器
+    let copy_output = StdCommand::new(&runtime_bin)
+        .args(["cp", script_path.to_str().unwrap(), &format!("{}:{}", container_name, container_script_path)])
+        .output()
+        .map_err(|e| format!("Failed to copy script: {}", e))?;
+
+    if !copy_output.status.success() {
+        let stderr = String::from_utf8_lossy(&copy_output.stderr);
+        return Err(format!("拷贝脚本失败: {}", stderr));
+    }
+
+    println!("✅ 脚本已拷贝到主容器");
+
     // 4. 执行初始化脚本并监控进度
-    println!("⚙️  执行初始化脚本...");
-    println!("🔧 脚本路径: {}", container_script_path);
+    println!("⚙️  在主容器中执行初始化脚本...");
 
     let mut child = StdCommand::new(&runtime_bin)
-        .args(["exec", &container_name, "bash", container_script_path])
+        .args(["exec", container_name, "bash", container_script_path])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| {
-            cleanup_container(&runtime_bin, &container_name);
-            format!("Failed to exec install script: {}", e)
-        })?;
+        .map_err(|e| format!("Failed to exec install script: {}", e))?;
 
     // 读取输出并发送进度事件
     let mut stderr_output = String::new();
@@ -1410,8 +1413,6 @@ async fn initialize_container_packages(
         .map_err(|e| format!("Failed to wait for install script: {}", e))?;
 
     if !status.success() {
-        cleanup_container(&runtime_bin, &container_name);
-
         // 构建详细的错误信息
         let mut error_msg = format!("核心组件安装失败 (退出码: {:?})\n", status.code());
         error_msg.push_str(&format!("\n📤 标准输出:\n{}\n", stdout_output));
@@ -1421,17 +1422,14 @@ async fn initialize_container_packages(
         return Err(error_msg);
     }
 
-    println!("✅ 容器包初始化完成");
-
-    // 6. 清理临时容器
-    cleanup_container(&runtime_bin, &container_name);
+    println!("✅ 主容器初始化完成，所有依赖已安装");
 
     Ok(())
 }
 
 // ─── Ensure Environment (unified startup: container runtime + backend) ───
 
-async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
+async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState, init_packages: bool) -> Result<(), String> {
     let runtime_info = check_container_runtime().await?;
     if runtime_info.runtime == "none" {
         return Err("No container runtime found. Please install Docker or Podman.".to_string());
@@ -1443,8 +1441,10 @@ async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) 
     // 1. 确保容器镜像存在
     ensure_container_image(app.clone()).await?;
 
-    // 2. 初始化容器包（仅在 cold start 时执行一次）
-    initialize_container_packages(app).await?;
+    // 2. 初始化容器包（仅在 cold start 时执行，由 init_packages 参数控制）
+    if init_packages {
+        initialize_container_packages(app).await?;
+    }
 
     // 3. 启动 backend
     start_backend_logic(app, state).await?;
@@ -1462,8 +1462,8 @@ async fn wizard_complete(app: tauri::AppHandle, state: State<'_, BackendState>) 
     if let Some(splash) = app.get_webview_window("splash") {
         let _ = splash.show();
     }
-    // Ensure environment
-    match ensure_environment_logic(&app, &state.inner()).await {
+    // Ensure environment (cold start: init packages)
+    match ensure_environment_logic(&app, &state.inner(), true).await {
         Ok(_) => {
             if let Some(splash) = app.get_webview_window("splash") {
                 let _ = splash.close();
@@ -1745,7 +1745,7 @@ fn main() {
 
                     println!("🚀 Starting environment...");
                     let state = app_handle.state::<BackendState>();
-                    match ensure_environment_logic(&app_handle, &state).await {
+                    match ensure_environment_logic(&app_handle, &state, false).await {
                         Ok(_) => {
                             println!("✅ Environment ready, showing main window");
                             if let Some(splash) = app_handle.get_webview_window("splash") {
