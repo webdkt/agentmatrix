@@ -39,6 +39,12 @@ pillow>=10.0.0         # 图像处理
 pdfplumber>=0.10.0     # PDF 解析
 
 
+# === 安全 ===
+defusedxml>=0.7.1      # 安全 XML 解析
+
+# === 文档转换 ===
+markitdown[pptx]>=0.1.0  # PPT/文档文本提取
+
 # === 其他实用工具 ===
 pydantic>=2.0.0        # 数据验证
 python-multipart>=0.0.6  # 多部分表单数据
