@@ -51,7 +51,7 @@ print_progress "core" "10" "已更新 apt 缓存"
 # 安装系统依赖（PDF 处理核心）
 apt-get install -y --no-install-recommends \
     poppler-utils \
-    libpoppler-cpp \
+    libpoppler-cpp-dev \
     libxml2 \
     libxslt1.1 \
     > /dev/null 2>&1
@@ -59,8 +59,8 @@ print_progress "core" "30" "已安装系统依赖"
 
 # 安装 Python 核心依赖（PDF/文本处理）
 pip install --no-cache-dir --quiet \
-    marker-pdf==1.8.0 \
     PyMuPDF>=1.23.0 \
+    pdfplumber>=0.10.0 \
     beautifulsoup4>=4.12.0 \
     html2text>=2020.1.16 \
     trafilatura>=1.6.0
