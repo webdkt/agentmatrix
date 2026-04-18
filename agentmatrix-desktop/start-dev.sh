@@ -35,7 +35,7 @@ echo "🐍 PYTHONPATH set to: $PROJECT_DIR/src"
 echo "📁 PROJECT_DIR: $PROJECT_DIR"
 
 # Copy matrix-template to configured locations
-MATRIX_TEMPLATE_SRC="$PROJECT_ROOT_DIR/matrix-template"
+MATRIX_TEMPLATE_SRC="$PROJECT_DIR/matrix-template"
 SETTINGS_FILE="$HOME/.agentmatrix/settings.json"
 
 if [ -d "$MATRIX_TEMPLATE_SRC" ]; then

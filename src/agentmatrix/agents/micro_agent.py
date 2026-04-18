@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable, Any, TYPE_CHECKING, Union
 import logging
 import time
+import json
 
 
 @dataclass
@@ -360,37 +361,41 @@ class MicroAgent(AutoLoggerMixin):
                     aid.rsplit("_", 1)[0] for aid in self._running_actions
                 )
                 text += f"\n\n**Action {running} Still Running**"
-            
+
             self._add_message("user", text)
             # 收集待标记 processed 的 email ids
             self._pending_processed_ids.extend(batch.get("email_ids", []))
-        elif signal.type == "action_completed":
-            action_name = signal.payload["action_name"]
-            action_label = signal.payload.get("action_label", "")
-            result = signal.payload["result"]
-            display_name = f"{action_name}: {action_label}" if action_label else action_name
-            msg = f"[{display_name} Done]: {result}"
-            self.root_agent.update_status(msg)
-            self._add_message("user", msg)
-        elif signal.type == "action_failed":
-            action_name = signal.payload["action_name"]
-            action_label = signal.payload.get("action_label", "")
-            error = signal.payload["error"]
-            display_name = f"{action_name}: {action_label}" if action_label else action_name
-            msg = f"[{display_name} Failed]: {error}"
-            self.root_agent.update_status(msg)
-            self._add_message("user", msg)
-        elif signal.type == "actions_completed":
-            combined = signal.payload["combined"]
-            self.root_agent.update_status(combined)
-            self._add_message("user", f"{combined}")
+        elif signal.type in ["action_completed", "actions_completed"]:
+            # 统一处理单个和多个 actions
+            results = signal.payload.get("results", [])
+
+            # 第一步：处理所有的 visual_results（添加多模态消息）
+            for r in results:
+                if r["status"] == "ok":
+                    result = r["result"]
+                    # 检查是否是 visual_result
+                    try:
+                        result_data = json.loads(result)
+                        if result_data.get("__type__") == "visual_result":
+                            # 添加多模态消息
+                            self._process_visual_result(result_data)
+                            continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass  # 普通结果，继续处理
+
+            # 第二步：格式化所有结果为显示文本
+            combined_text = self._format_combined_results(results)
+
+            # 第三步：添加显示文本消息
+            self.root_agent.update_status(combined_text)
+            self._add_message("user", combined_text)
         elif signal.type == "no_action_reflect":
             msg = signal.payload["message"]
             self.root_agent.update_status(msg)
             self._add_message("user", msg)
 
     def _on_action_done(self, action_id, action_name, task):
-        """单个 action task 完成后的回调 - 投递信号到 signal_queue"""
+        """单个 action task 完成后的回调 - 使用统一的 payload 结构"""
         # 如果 entry 已被 cancel_action 移除，跳过信号（取消结果由 cancel_action 统一报告）
         info = self._running_actions.pop(action_id, None)
         if info is None:
@@ -401,36 +406,58 @@ class MicroAgent(AutoLoggerMixin):
             result = task.result()
             if result == "NOT_TO_RUN":
                 return
+            # 使用与 batch 相同的 payload 结构
             self.signal_queue.put_nowait(Signal(
                 type="action_completed",
-                payload={"action_name": action_name, "action_label": action_label, "result": str(result)}
+                payload={
+                    "results": [{
+                        "action_name": action_name,
+                        "label": action_label,
+                        "result": str(result),
+                        "status": "ok"
+                    }]
+                }
             ))
         except asyncio.CancelledError:
             self.signal_queue.put_nowait(Signal(
                 type="action_completed",
-                payload={"action_name": action_name, "action_label": action_label, "result": f"[{display_name} 已被取消]"}
+                payload={
+                    "results": [{
+                        "action_name": action_name,
+                        "label": action_label,
+                        "result": f"[{display_name} 已被取消]",
+                        "status": "canceled"
+                    }]
+                }
             ))
         except Exception as e:
             self.signal_queue.put_nowait(Signal(
-                type="action_failed",
-                payload={"action_name": action_name, "action_label": action_label, "error": str(e)}
+                type="action_completed",
+                payload={
+                    "results": [{
+                        "action_name": action_name,
+                        "label": action_label,
+                        "error": str(e),
+                        "status": "error"
+                    }]
+                }
             ))
 
     def _on_batch_done(self, action_id, task):
-        """batch task 完成后的回调 - 直接投 combined 结果，不加额外包装"""
+        """batch task 完成后的回调 - 发送原始 results 数组"""
         info = self._running_actions.pop(action_id, None)
         if info is None:
             return
         try:
-            combined = task.result()
+            results = task.result()  # 获取 results 数组
             self.signal_queue.put_nowait(Signal(
                 type="actions_completed",
-                payload={"combined": combined}
+                payload={"results": results}
             ))
         except Exception as e:
             self.signal_queue.put_nowait(Signal(
                 type="actions_completed",
-                payload={"combined": f"Batch 执行异常: {e}"}
+                payload={"results": [{"action_name": "batch", "label": "", "error": str(e), "status": "error"}]}
             ))
 
     @register_action(
@@ -1717,6 +1744,9 @@ Start generating the Working Notes now.
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply)
 
+                # 3.5 清理图片内容（已被 LLM 看过，避免后续 token 消耗）
+                self._cleanup_multimodal_messages()
+
                 # 4. 分发 actions
                 should_break_loop = False
 
@@ -1885,8 +1915,19 @@ Start generating the Working Notes now.
         for r in results:
             label = r.get("label", "")
             display_name = f"{r['action_name']}: {label}" if label else r["action_name"]
+
             if r["status"] == "ok":
-                lines.append(f"[{display_name} Done]: {r['result']}")
+                # 对于 visual_result，使用 message 字段
+                result = r['result']
+                try:
+                    result_data = json.loads(result)
+                    if result_data.get("__type__") == "visual_result":
+                        lines.append(f"[{display_name} Done]: {result_data.get('message', result)}")
+                        continue
+                except (json.JSONDecodeError, TypeError):
+                    pass  # 普通结果
+                lines.append(f"[{display_name} Done]: {result}")
+
             elif r["status"] == "canceled":
                 lines.append(f"[{display_name} Canceled]")
             else:
@@ -2163,12 +2204,11 @@ write, send_mail, write
 
     async def _run_actions_batch(
         self, action_names: List[str], thought: str
-    ) -> str:
+    ) -> list:
         """
-        后台顺序执行一批 actions，返回组合结果字符串。
+        后台顺序执行一批 actions，返回原始 results 数组
 
-        正常完成：所有 action 的结果拼接。
-        被取消：已完成的标记 ok，被中断的标记 canceled。
+        返回: results 数组（不格式化）
         """
         results = []
         for idx, action_name in enumerate(action_names, start=1):
@@ -2193,8 +2233,7 @@ write, send_mail, write
             except Exception as e:
                 results.append({"action_name": action_name, "label": "", "error": str(e), "status": "error"})
 
-        combined = self._format_combined_results(results)
-        return combined
+        return results  # 直接返回数组，不格式化
 
     async def _execute_action(
         self, action_name: str, thought: str, action_index: int, action_list: List[str]
@@ -2311,18 +2350,161 @@ write, send_mail, write
         """
         添加消息到对话历史
 
-        如果最后一条消息是同 role，追加到其后（避免连续多个 user/assistant）。
+        智能处理：
+        - 如果最后一条 message role 不同 → 直接添加新 message
+        - 如果 role 相同：
+           a. 如果最后一条 content 是 str → 直接拼接字符串
+           b. 如果最后一条 content 是 list（多模态）→ 找到text部分并追加
+
         如果有 session，自动保存到 session
         """
-        if self.messages and self.messages[-1]["role"] == role:
-            self.messages[-1]["content"] += "\n\n" + content
-        else:
+        if not self.messages or self.messages[-1]["role"] != role:
+            # 没有前一条消息，或 role 不同 → 直接添加
             self.messages.append({"role": role, "content": content})
+        else:
+            # role 相同，需要检查 content 类型
+            last_content = self.messages[-1]["content"]
+
+            if isinstance(last_content, str):
+                # 最后一条是纯文本 → 直接拼接
+                self.messages[-1]["content"] += "\n\n" + content
+            elif isinstance(last_content, list):
+                # 最后一条是多模态 → 找到text部分并追加
+                text_item = next((item for item in last_content if item.get("type") == "text"), None)
+                if text_item:
+                    # 找到了text项，追加到它的text字段
+                    text_item["text"] += "\n\n" + content
+                else:
+                    # 没有text项，创建一个新的text项
+                    last_content.append({"type": "text", "text": content})
+            else:
+                # 异常情况，直接替换
+                self.messages[-1]["content"] = content
 
         # 如果有 session，自动保存
         if self.session and self.session_manager:
             self.session["history"] = self.messages.copy()
             # 创建异步任务来保存（不阻塞主流程）
+            asyncio.create_task(self.session_manager.save_session(self.session))
+
+    def _process_visual_result(self, visual_data):
+        """处理 visual_result，添加多模态消息"""
+        file_path = visual_data["file_path"]
+        mime_type = visual_data["mime_type"]
+        base64_data = visual_data["base64_data"]
+        message = visual_data.get("message", f"Image: {file_path}")
+
+        multimodal_content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{base64_data}"
+                }
+            },
+            {
+                "type": "text",
+                "text": f"[{message}]"
+            }
+        ]
+
+        self._add_multimodal_message("user", multimodal_content)
+
+    def _add_multimodal_message(self, role: str, content: list):
+        """
+        添加多模态消息（文本 + 图片）到对话历史
+
+        智能处理：
+        1. 如果最后一条 message role 不同 → 直接添加新 message
+        2. 如果 role 相同：
+           a. 如果最后一条是纯文本 → 转换为多模态，追加新内容
+           b. 如果最后一条是多模态：
+              - 如果两者都有图片 → 分割为新 message（避免 API 限制）
+              - 否则合并内容
+
+        Args:
+            role: 消息角色 ("user" 或 "assistant")
+            content: 内容块列表，格式为 [{"type": "text"|"image_url", ...}, ...]
+        """
+        # 提取新 content 中的图片和文本
+        new_images = [item for item in content if item.get("type") == "image_url"]
+        new_text_items = [item for item in content if item.get("type") == "text"]
+
+        if not self.messages or self.messages[-1]["role"] != role:
+            # 没有前一条消息，或 role 不同 → 直接添加
+            self.messages.append({"role": role, "content": content})
+        else:
+            # role 相同，需要智能合并
+            last_content = self.messages[-1]["content"]
+
+            if isinstance(last_content, str):
+                # 最后一条是纯文本 → 转换为多模态格式
+                converted_content = [{"type": "text", "text": last_content}]
+
+                if len(new_images) > 1:
+                    # 新内容有多个图片 → 只追加文本和第一个图片
+                    converted_content.extend(new_text_items)
+                    if new_images:
+                        converted_content.append(new_images[0])
+                    self.messages[-1]["content"] = converted_content
+
+                    # 剩余的图片作为新的 message（避免 API 限制）
+                    for img in new_images[1:]:
+                        self.messages.append({"role": role, "content": [img]})
+                else:
+                    # 新内容只有一个或没有图片 → 直接追加
+                    converted_content.extend(content)
+                    self.messages[-1]["content"] = converted_content
+
+            elif isinstance(last_content, list):
+                # 最后一条已经是多模态
+                last_images = [item for item in last_content if item.get("type") == "image_url"]
+
+                if last_images and new_images:
+                    # 两者都有图片 → 分割为新 message（避免 API 限制）
+                    self.messages.append({"role": role, "content": content})
+                else:
+                    # 至少有一个没有图片 → 可以合并
+                    last_content.extend(content)
+
+        # 如果有 session，自动保存
+        if self.session and self.session_manager:
+            self.session["history"] = self.messages.copy()
+            asyncio.create_task(self.session_manager.save_session(self.session))
+
+    def _cleanup_multimodal_messages(self):
+        """
+        清理图片内容（已被 LLM 看过后）
+
+        遍历 messages，移除所有 image_url 内容，避免后续 token 消耗
+        只保留文本内容，如果消息变成纯文本，转换为简单字符串
+        """
+        cleaned_count = 0
+        for msg in self.messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                # 这是多模态消息，提取所有 text 内容
+                text_parts = []
+                for item in content:
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+
+                # 移除图片内容，只保留文本
+                if text_parts:
+                    # 合并所有文本部分
+                    combined_text = "\n\n".join(text_parts)
+                    msg["content"] = combined_text
+                else:
+                    # 如果没有文本，设置一个占位符
+                    msg["content"] = "[Image content removed after processing]"
+
+                cleaned_count += 1
+
+        if cleaned_count > 0:
+            self.logger.info(f"Cleaned {cleaned_count} multimodal messages (removed images)")
+
+        # 如果有 session，保存清理后的 messages
+        if self.session and self.session_manager:
+            self.session["history"] = self.messages.copy()
             asyncio.create_task(self.session_manager.save_session(self.session))
 
     def deprecated_get_history(self) -> List[Dict]:
