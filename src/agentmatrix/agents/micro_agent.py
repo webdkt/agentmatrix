@@ -242,8 +242,8 @@ class MicroAgent(AutoLoggerMixin):
                 result += self._BASH_CANCEL_HINT
             return result
         elif self._running_actions:
-            # pop 所有 entries（除了自己），这样被取消 action 的 _on_action_done 回调触发时会跳过信号
-            # 保留自己的 entry，让 _on_action_done 能正确 put cancel 结果信号
+            # pop 所有 entries（除了自己），这样被取消 action 的 callback 触发时会跳过信号
+            # 保留自己的 entry，让 callback 能正确 put cancel 结果信号
             current = asyncio.current_task()
             entries = {}
             to_keep = {}
@@ -393,55 +393,6 @@ class MicroAgent(AutoLoggerMixin):
             msg = signal.payload["message"]
             self.root_agent.update_status(msg)
             self._add_message("user", msg)
-
-    def _on_action_done(self, action_id, action_name, task):
-        """单个 action task 完成后的回调 - 使用统一的 payload 结构"""
-        # 如果 entry 已被 cancel_action 移除，跳过信号（取消结果由 cancel_action 统一报告）
-        info = self._running_actions.pop(action_id, None)
-        if info is None:
-            return
-        action_label = info.get("label", "") if isinstance(info, dict) else ""
-        display_name = f"{action_name}: {action_label}" if action_label else action_name
-        try:
-            result = task.result()
-            if result == "NOT_TO_RUN":
-                return
-            # 使用与 batch 相同的 payload 结构
-            self.signal_queue.put_nowait(Signal(
-                type="action_completed",
-                payload={
-                    "results": [{
-                        "action_name": action_name,
-                        "label": action_label,
-                        "result": str(result),
-                        "status": "ok"
-                    }]
-                }
-            ))
-        except asyncio.CancelledError:
-            self.signal_queue.put_nowait(Signal(
-                type="action_completed",
-                payload={
-                    "results": [{
-                        "action_name": action_name,
-                        "label": action_label,
-                        "result": f"[{display_name} 已被取消]",
-                        "status": "canceled"
-                    }]
-                }
-            ))
-        except Exception as e:
-            self.signal_queue.put_nowait(Signal(
-                type="action_completed",
-                payload={
-                    "results": [{
-                        "action_name": action_name,
-                        "label": action_label,
-                        "error": str(e),
-                        "status": "error"
-                    }]
-                }
-            ))
 
     def _on_batch_done(self, action_id, task):
         """batch task 完成后的回调 - 发送原始 results 数组"""
@@ -1770,25 +1721,11 @@ Start generating the Working Notes now.
                     except Exception:
                         pass
                     should_break_loop = True
-                elif len(action_names) == 1:
-                    # 单个 action：直接后台执行，保留 action 本身的名称
-                    self.logger.info(f"Launching action: {action_names[0]}")
-                    self._action_counter += 1
-                    action_id = f"{action_names[0]}_{self._action_counter}"
-                    action_task = asyncio.create_task(
-                        self._execute_action(action_names[0], action_section_text, 1, action_names)
-                    )
-                    self._running_actions[action_id] = {
-                        "task": action_task,
-                        "label": "",
-                        "action_names": action_names,
-                    }
-                    action_task.add_done_callback(
-                        lambda t, aid=action_id, an=action_names[0]: self._on_action_done(aid, an, t)
-                    )
                 elif action_names:
-                    # 多个 actions：打包成一个后台 task 顺序执行
-                    self.logger.info(f"Launching batch actions: {action_names}")
+                    # 统一使用 batch 执行方式（即使是单个 action）
+                    action_count = len(action_names)
+                    action_desc = f"{action_count} action{'s' if action_count > 1 else ''}"
+                    self.logger.info(f"Launching {action_desc}: {action_names}")
                     self._action_counter += 1
                     action_id = f"batch_{self._action_counter}"
                     batch_task = asyncio.create_task(
@@ -2338,7 +2275,7 @@ write, send_mail, write
                 # 调用 root_agent.ask_user（会挂起等待用户输入）
                 result = await self.root_agent.ask_user(question)
             else:
-                # 普通 action：正常调用（异常由 _on_action_done callback 处理）
+                # 普通 action：正常调用（异常由 _on_batch_done callback 处理）
                 result = await method(**params)
         finally:
             # 记录最后执行的 action 名字
