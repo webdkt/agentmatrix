@@ -3,8 +3,8 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useAgentStore } from '@/stores/agent'
 import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
+import { agentAPI } from '@/api/agent'
 import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-shell'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -37,7 +37,7 @@ const collabFileName = computed(() => {
 const openCollabFile = async () => {
   if (!collabFile.value) return
   try {
-    await open(collabFile.value)
+    await invoke('open_folder', { path: collabFile.value })
   } catch (err) {
     console.error('Failed to open collab file:', err)
   }
@@ -97,7 +97,7 @@ const openEntry = async (entry) => {
   } else {
     // Open file with system default app
     try {
-      await open(entry.path)
+      await invoke('open_folder', { path: entry.path })
     } catch (err) {
       console.error('Failed to open file:', err)
     }
@@ -122,6 +122,44 @@ const goRoot = async () => {
   await loadFiles()
 }
 
+// ---- Vertical resize (Task Files / Terminal) ----
+
+const filesSectionHeight = ref(0) // 0 means use flex ratio
+const isResizingVertical = ref(false)
+let verticalStartY = 0
+let verticalStartHeight = 0
+
+function onVerticalDividerDown(e) {
+  isResizingVertical.value = true
+  verticalStartY = e.clientY
+  // Get current pixel height of the files section
+  const filesEl = e.target.previousElementSibling
+  verticalStartHeight = filesEl?.offsetHeight || 200
+  document.addEventListener('mousemove', onVerticalDividerMove)
+  document.addEventListener('mouseup', onVerticalDividerUp)
+  e.preventDefault()
+}
+
+function onVerticalDividerMove(e) {
+  if (!isResizingVertical.value) return
+  const delta = e.clientY - verticalStartY
+  const newHeight = Math.max(80, verticalStartHeight + delta)
+  filesSectionHeight.value = newHeight
+}
+
+function onVerticalDividerUp() {
+  isResizingVertical.value = false
+  document.removeEventListener('mousemove', onVerticalDividerMove)
+  document.removeEventListener('mouseup', onVerticalDividerUp)
+}
+
+const filesSectionStyle = computed(() => {
+  if (filesSectionHeight.value > 0) {
+    return { flex: 'none', height: `${filesSectionHeight.value}px` }
+  }
+  return {}
+})
+
 const formatFileSize = (bytes) => {
   if (!bytes) return ''
   const k = 1024
@@ -132,22 +170,104 @@ const formatFileSize = (bytes) => {
 
 // ---- Agent Terminal ----
 
+// Each line: { type: 'stdin'|'stdout'|'stderr', text: string }
 const terminalLines = ref([])
 const terminalContainer = ref(null)
 const MAX_TERMINAL_LINES = 500
 
+const STDIN_MAX_CHARS = 200
+const OUTPUT_MAX_LINES = 15
+
 const handleBashOutput = (data) => {
+  const stream = data?.data?.stream
   const line = data?.data?.line
   if (!line) return
-  terminalLines.value.push(line)
+
+  const entry = { type: stream || 'stdout', text: line, truncated: false, collapsed: true }
+
+  // Truncate long stdin commands
+  if (entry.type === 'stdin' && line.length > STDIN_MAX_CHARS) {
+    entry.truncated = true
+    entry.shortText = line.slice(0, STDIN_MAX_CHARS) + '...'
+  }
+
+  // Truncate long output: accumulate and collapse
+  if (entry.type !== 'stdin' && line.split('\n').length > 1) {
+    const lines = line.split('\n')
+    if (lines.length > OUTPUT_MAX_LINES) {
+      entry.truncated = true
+      entry.shortText = lines.slice(0, OUTPUT_MAX_LINES).join('\n')
+      entry.hiddenLines = lines.length - OUTPUT_MAX_LINES
+    }
+  }
+
+  terminalLines.value.push(entry)
   if (terminalLines.value.length > MAX_TERMINAL_LINES) {
     terminalLines.value = terminalLines.value.slice(-MAX_TERMINAL_LINES)
   }
-  nextTick(() => {
-    if (terminalContainer.value) {
-      terminalContainer.value.scrollTop = terminalContainer.value.scrollHeight
+  nextTick(scrollTerminalToBottom)
+}
+
+// ---- Terminal Input ----
+
+const userInput = ref('')
+const isExecuting = ref(false)
+
+const INTERACTIVE_BLACKLIST = [
+  'vi', 'vim', 'nvim', 'nano', 'emacs',
+  'top', 'htop', 'btop', 'iotop',
+  'less', 'more', 'man',
+  'watch', 'tail -f',
+  'python', 'python3', 'node', 'irb', 'php -a',
+  'ssh', 'telnet', 'ftp', 'sftp',
+]
+
+const isBlacklisted = (cmd) => {
+  const first = cmd.trim().split(/\s+/)[0].toLowerCase()
+  return INTERACTIVE_BLACKLIST.includes(first)
+}
+
+const handleTerminalSubmit = async () => {
+  const cmd = userInput.value.trim()
+  if (!cmd || !props.agentName || isExecuting.value) return
+
+  if (isBlacklisted(cmd)) {
+    terminalLines.value.push({
+      type: 'stderr',
+      text: `Command '${cmd.split(/\s+/)[0]}' is not supported (interactive programs require a real terminal)`
+    })
+    userInput.value = ''
+    return
+  }
+
+  isExecuting.value = true
+  userInput.value = ''
+  // stdin line is mirrored by backend via _output_callback, no need to push here
+
+  try {
+    const result = await agentAPI.terminalExec(props.agentName, cmd)
+    if (result.timeout) {
+      terminalLines.value.push({
+        type: 'stderr',
+        text: '[Command timed out after 10s]'
+      })
     }
-  })
+    // Note: stdout/stderr output already arrives via WebSocket mirror
+    // We only need to handle timeout here
+  } catch (err) {
+    terminalLines.value.push({
+      type: 'stderr',
+      text: `[Error: ${err.message}]`
+    })
+  } finally {
+    isExecuting.value = false
+  }
+}
+
+function scrollTerminalToBottom() {
+  if (terminalContainer.value) {
+    terminalContainer.value.scrollTop = terminalContainer.value.scrollHeight
+  }
 }
 
 // ---- Lifecycle ----
@@ -192,7 +312,7 @@ onMounted(() => {
     </section>
 
     <!-- Current Task Files -->
-    <section class="collab-panel__section collab-panel__files">
+    <section class="collab-panel__section collab-panel__files" :style="filesSectionStyle">
       <div class="collab-panel__section-header">
         <MIcon name="folder" />
         <span class="collab-panel__section-title">Task Files</span>
@@ -242,6 +362,15 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- Vertical divider between Task Files and Terminal -->
+    <div
+      class="collab-panel__vdivider"
+      :class="{ 'collab-panel__vdivider--dragging': isResizingVertical }"
+      @mousedown="onVerticalDividerDown"
+    >
+      <div class="collab-panel__vdivider-handle"></div>
+    </div>
+
     <!-- Agent Terminal -->
     <section class="collab-panel__section collab-panel__terminal">
       <div class="collab-panel__section-header">
@@ -249,10 +378,51 @@ onMounted(() => {
         <span class="collab-panel__section-title">Terminal</span>
       </div>
       <div ref="terminalContainer" class="collab-panel__terminal-output">
-        <pre v-if="terminalLines.length > 0" class="collab-panel__terminal-pre">{{ terminalLines.join('') }}</pre>
-        <div v-else class="collab-panel__empty-hint">
-          No output
+        <div v-if="terminalLines.length > 0" class="collab-panel__terminal-pre">
+          <div
+            v-for="(entry, i) in terminalLines"
+            :key="i"
+            :class="['terminal-line', `terminal-line--${entry.type}`]"
+          >
+            <!-- Long stdin: truncated with expand -->
+            <template v-if="entry.type === 'stdin' && entry.truncated">
+              <span class="terminal-line__typewriter">{{ entry.collapsed ? entry.shortText : entry.text }}</span>
+              <span class="terminal-line__toggle" @click="entry.collapsed = !entry.collapsed">
+                {{ entry.collapsed ? '[show more]' : '[collapse]' }}
+              </span>
+            </template>
+            <!-- Normal stdin -->
+            <span v-else-if="entry.type === 'stdin'" class="terminal-line__typewriter">{{ entry.text }}</span>
+            <!-- Long output: truncated with expand -->
+            <template v-else-if="entry.truncated">
+              {{ entry.collapsed ? entry.shortText : entry.text }}
+              <span class="terminal-line__toggle" @click="entry.collapsed = !entry.collapsed">
+                {{ entry.collapsed ? `[+${entry.hiddenLines} more lines]` : '[collapse]' }}
+              </span>
+            </template>
+            <!-- Normal output -->
+            <template v-else>{{ entry.text }}</template>
+          </div>
+          <!-- Active prompt line (only when not executing) -->
+          <div v-if="!isExecuting" class="terminal-line terminal-line--prompt">
+            <span class="terminal-prompt-cursor">$&nbsp;<span class="terminal-cursor"></span></span>
+          </div>
         </div>
+        <div v-else class="collab-panel__terminal-empty">
+          <span class="terminal-prompt-cursor">$&nbsp;<span class="terminal-cursor"></span></span>
+        </div>
+      </div>
+      <!-- Terminal input -->
+      <div class="collab-panel__terminal-input">
+        <span class="collab-panel__terminal-prompt">$</span>
+        <input
+          v-model="userInput"
+          type="text"
+          :disabled="isExecuting"
+          :placeholder="isExecuting ? 'Agent is running...' : 'Type a command...'"
+          class="collab-panel__terminal-field"
+          @keydown.enter="handleTerminalSubmit"
+        />
       </div>
     </section>
   </aside>
@@ -283,14 +453,68 @@ onMounted(() => {
 }
 
 .collab-panel__files {
-  flex: 1;
+  flex: 2;
   min-height: 0;
   border-bottom: 1px solid var(--neutral-200);
 }
 
 .collab-panel__terminal {
-  height: 200px;
+  flex: 3;
+  min-height: 0;
   flex-shrink: 0;
+}
+
+/* Vertical divider between Task Files and Terminal */
+.collab-panel__vdivider {
+  height: 4px;
+  background: var(--neutral-200);
+  cursor: row-resize;
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.collab-panel__vdivider:hover {
+  background: var(--neutral-300);
+}
+
+.collab-panel__vdivider--dragging {
+  background: var(--accent);
+}
+
+.collab-panel__vdivider-handle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.collab-panel__vdivider-handle::before,
+.collab-panel__vdivider-handle::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 2px;
+  background: var(--ink-400);
+  border-radius: 1px;
+}
+
+.collab-panel__vdivider:hover .collab-panel__vdivider-handle,
+.collab-panel__vdivider--dragging .collab-panel__vdivider-handle {
+  opacity: 1;
+}
+
+.collab-panel__vdivider--dragging .collab-panel__vdivider-handle::before,
+.collab-panel__vdivider--dragging .collab-panel__vdivider-handle::after {
+  background: white;
 }
 
 /* Section header */
@@ -443,8 +667,19 @@ onMounted(() => {
 .collab-panel__terminal-output {
   flex: 1;
   overflow-y: auto;
-  background: var(--neutral-900);
+  background: #1e1e1e;
   padding: var(--spacing-sm);
+}
+
+.collab-panel__terminal-empty {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  color: #d4d4d4;
+  padding: var(--spacing-sm);
+}
+
+.terminal-prompt-prefix {
+  color: #569cd6;
 }
 
 .collab-panel__terminal-pre {
@@ -452,9 +687,108 @@ onMounted(() => {
   font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--neutral-200);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.terminal-line {
+  color: #d4d4d4;
+}
+
+.terminal-line--stdin {
+  color: #6a9955;
+  font-weight: var(--font-semibold);
+}
+
+.terminal-line--stderr {
+  color: #f44747;
+}
+
+.terminal-line__toggle {
+  color: #569cd6;
+  cursor: pointer;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.terminal-line__toggle:hover {
+  text-decoration: underline;
+}
+
+/* Typewriter effect for agent commands (no cursor — cursor is on the prompt line) */
+.terminal-line__typewriter {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  animation: typewriter 0.4s steps(30, end) forwards;
+  max-width: 0;
+}
+
+@keyframes typewriter {
+  from { max-width: 0 }
+  to { max-width: 100% }
+}
+
+/* Active prompt line with blinking cursor */
+.terminal-line--prompt {
+  color: #d4d4d4;
+}
+
+.terminal-prompt-cursor {
+  color: #6a9955;
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: #d4d4d4;
+  vertical-align: text-bottom;
+  animation: blink-cursor 1s step-end infinite;
+}
+
+@keyframes blink-cursor {
+  50% { opacity: 0 }
+}
+
+/* Terminal input */
+.collab-panel__terminal-input {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: #1e1e1e;
+  border-top: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.collab-panel__terminal-prompt {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  color: #6a9955;
+  padding: 6px 0 6px var(--spacing-sm);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.collab-panel__terminal-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #d4d4d4;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  padding: 6px var(--spacing-sm);
+  caret-color: #d4d4d4;
+}
+
+.collab-panel__terminal-field::placeholder {
+  color: #555;
+}
+
+.collab-panel__terminal-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Empty hint */

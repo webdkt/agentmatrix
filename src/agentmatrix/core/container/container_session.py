@@ -216,6 +216,10 @@ class ContainerSession:
 
         self.logger.debug(f"[session {self.session_id}] 执行: {command[:100]}")
 
+        # Mirror 输入到 output callback（Collab Mode 使用）
+        if self._output_callback:
+            self._output_callback("stdin", f"$ {command}\n")
+
         # 发送命令
         self._send_raw(wrapped_cmd)
 
@@ -314,7 +318,9 @@ class ContainerSession:
                     if self._output_callback:
                         try:
                             line_text = line.decode("utf-8", errors="replace")
-                            self._output_callback("stdout", line_text)
+                            # 过滤 marker 行，不 mirror 给用户
+                            if self._start_marker not in line_text and self._end_marker not in line_text:
+                                self._output_callback("stdout", line_text)
                         except Exception:
                             pass
             except Exception:
@@ -348,7 +354,8 @@ class ContainerSession:
                     if self._output_callback:
                         try:
                             line_text = line.decode("utf-8", errors="replace")
-                            self._output_callback("stderr", line_text)
+                            if self._start_marker not in line_text and self._end_marker not in line_text:
+                                self._output_callback("stderr", line_text)
                         except Exception:
                             pass
             except Exception:

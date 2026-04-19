@@ -1441,6 +1441,43 @@ async def toggle_collab_mode(agent_name: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/agents/{agent_name}/terminal/exec")
+async def terminal_exec(agent_name: str, request: Request):
+    """在 Agent 的 container session 中执行用户命令"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    if not agent.container_session or not agent.container_session.is_active:
+        raise HTTPException(status_code=400, detail="Agent container session is not active")
+
+    try:
+        body = await request.json()
+        command = body.get("command", "").strip()
+        if not command:
+            raise HTTPException(status_code=400, detail="Empty command")
+
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            agent.container_session.execute, command, 10.0
+        )
+
+        return {
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "timeout": exit_code == -1,
+        }
+    except Exception as e:
+        print(f"Error executing terminal command for '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/agents/{agent_name}/workspace")
 async def get_agent_workspace(agent_name: str):
     """获取 Agent 的 workspace 文件树"""
