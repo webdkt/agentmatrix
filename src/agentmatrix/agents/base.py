@@ -164,7 +164,8 @@ class BaseAgent(AutoLoggerMixin):
         # 🆕 Collab Mode（运行时状态，不持久化）
         self.collab_mode: bool = False
         self._collab_output_loop: Optional[asyncio.AbstractEventLoop] = None
-        self.current_preview_file: Optional[str] = None  # 当前预览的文件路径
+        self.current_collab_file: Optional[str] = None  # 当前协作的文件路径
+        self._last_deactivated_session_id: Optional[str] = None  # 上一次停用的 session_id
 
         # 🆕 记录最后一次 top-level MicroAgent 执行的 system prompt
         self.last_system_prompt = None
@@ -707,7 +708,7 @@ class BaseAgent(AutoLoggerMixin):
             "current_task_id": self.current_task_id,
             "current_user_session_id": user_session_id,
             "status_history": self.status_history.copy(),
-            "current_preview_file": self.current_preview_file,
+            "current_collab_file": self.current_collab_file,
         }
 
     def update_status(self, new_status=None, new_message=None):
@@ -984,7 +985,10 @@ class BaseAgent(AutoLoggerMixin):
         self.active_session_id = session_id
         self.current_session = session
         self.current_task_id = session["task_id"]
-        self.current_preview_file = None
+        # 只在真正切换到不同 session 时才清空 collab file
+        # 同一 session re-activate（如等待用户输入后继续）应保留 collab file
+        if self._last_deactivated_session_id != session_id:
+            self.current_collab_file = None
 
         # 设置 current_user_session_id
         if self.runtime and first_email.sender == self.runtime.get_user_agent_name():
@@ -1103,6 +1107,7 @@ class BaseAgent(AutoLoggerMixin):
             self.container_session.stop()
 
         # 清理 active 状态
+        self._last_deactivated_session_id = session_id
         self.active_session_id = None
         self.active_micro_agent = None
         self._session_task = None

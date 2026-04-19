@@ -4,6 +4,10 @@
     "tagline": "桌面应用"
   },
   "views": {
+    "collab": {
+      "title": "协作",
+      "icon": "ti-message-circle"
+    },
     "dashboard": {
       "title": "仪表盘",
       "icon": "ti-layout-dashboard"
@@ -28,6 +32,7 @@
   "sessions": {
     "title": "会话",
     "newEmail": "新邮件",
+    "newCollab": "新协作任务",
     "search": "搜索会话...",
     "loadMore": "加载更多",
     "loading": "加载中...",

@@ -18,6 +18,10 @@ const props = defineProps({
     default: 'new',
     validator: (v) => ['new', 'reply'].includes(v)
   },
+  title: {
+    type: String,
+    default: null
+  },
   preselectedAgent: {
     type: Object,
     default: null
@@ -66,7 +70,7 @@ const dialogTitle = computed(() => {
   if (isReplyMode.value) {
     return `Reply to ${props.replyToEmail?.sender || 'Agent'}`
   }
-  return t('sessions.newEmail')
+  return props.title || t('sessions.newEmail')
 })
 
 const filteredAgents = computed(() => {

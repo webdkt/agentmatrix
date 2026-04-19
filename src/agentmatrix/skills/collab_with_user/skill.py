@@ -63,21 +63,21 @@ class Collab_with_userSkillMixin:
         )
 
     @register_action(
-        short_desc="[file_path]打开文件让用户预览，每次打开预览后都MUST用ask_user询问是否看到预览，是否正常，是否有反馈等，也起到一个提醒用户预览打开了的作用。",
-        description="在宿主机用默认应用打开文件进行预览。每次只能预览一个文件，新预览会关闭旧预览。不支持可执行脚本文件。",
+        short_desc="[file_path]展示当前协作文件，每次展示后都MUST用ask_user询问是否看到文件，是否正常，是否有反馈等，也起到一个提醒用户文件已打开的作用。",
+        description="在宿主机用默认应用打开文件进行展示。每次只能展示一个文件，新文件会关闭旧文件。不支持可执行脚本文件。",
         param_infos={
-            "file_path": "要预览的文件路径（容器内路径）"
+            "file_path": "要展示的文件路径（容器内路径）"
         },
     )
-    async def open_file_for_user_preview(self, file_path: str) -> str:
+    async def show_collab_file(self, file_path: str) -> str:
         """
-        在宿主机预览容器内文件
+        在宿主机展示容器内协作文件
 
         Args:
             file_path: 容器内文件路径
 
         Returns:
-            str: 预览结果信息
+            str: 展示结果信息
         """
         container_session = self.root_agent.container_session
         task_id = self.current_task_id or "default"
@@ -99,12 +99,12 @@ class Collab_with_userSkillMixin:
             return f"预览失败：文件不存在或路径无效\n  路径: {file_path}\n  错误: {stderr.strip() if stderr else '(realpath 失败)'}"
 
         abs_path = abs_path.strip()
-        self.logger.info(f"[open_file_for_user_preview] 容器内绝对路径: {abs_path}")
+        self.logger.info(f"[show_collab_file] 容器内绝对路径: {abs_path}")
 
         # 3. 判断路径类型并复制
         if self._is_mappable_path(abs_path):
             # 情况A：可映射路径 → 直接在宿主机 copy
-            self.logger.info(f"[open_file_for_user_preview] 可映射路径，从宿主机 copy")
+            self.logger.info(f"[show_collab_file] 可映射路径，从宿主机 copy")
             host_path = self._resolve_container_abs_path_to_host(abs_path)
             if not host_path:
                 return f"预览失败：无法解析宿主机路径\n  容器路径: {abs_path}"
@@ -115,7 +115,7 @@ class Collab_with_userSkillMixin:
             tmp_path = await self._copy_file_to_temp(host_path)
         else:
             # 情况B：不可映射路径 → 从容器 copy
-            self.logger.info(f"[open_file_for_user_preview] 不可映射路径，从容器 copy")
+            self.logger.info(f"[show_collab_file] 不可映射路径，从容器 copy")
             tmp_path = await self._copy_file_from_container(abs_path)
 
         if not tmp_path:
@@ -317,8 +317,8 @@ class Collab_with_userSkillMixin:
         ctx["current_tmp_path"] = tmp_path
         ctx["current_host_path"] = tmp_path
 
-        # 同步到 root_agent 的 current_preview_file
-        self.root_agent.current_preview_file = tmp_path
+        # 同步到 root_agent 的 current_collab_file
+        self.root_agent.current_collab_file = tmp_path
 
     def _open_file_with_default_app(self, file_path: str) -> int:
         """用默认应用打开文件（跨平台）"""
@@ -380,4 +380,4 @@ class Collab_with_userSkillMixin:
             self._cleanup_temp_file(ctx["current_tmp_path"])
             ctx["current_tmp_path"] = None
         # 清除 root_agent 的 preview 状态
-        self.root_agent.current_preview_file = None
+        self.root_agent.current_collab_file = None

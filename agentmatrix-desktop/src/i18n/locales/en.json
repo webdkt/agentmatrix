@@ -4,6 +4,10 @@
     "tagline": "Desktop Application"
   },
   "views": {
+    "collab": {
+      "title": "Collab",
+      "icon": "ti-message-circle"
+    },
     "dashboard": {
       "title": "Dashboard",
       "icon": "ti-layout-dashboard"
@@ -28,6 +32,7 @@
   "sessions": {
     "title": "Sessions",
     "newEmail": "New Email",
+    "newCollab": "New Collab Task",
     "search": "Search sessions...",
     "loadMore": "Load More Sessions",
     "loading": "Loading...",

@@ -5,6 +5,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useBackendStore } from '@/stores/backend'
 import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
+import { useAgentStore } from '@/stores/agent'
 import { useUIStore } from '@/stores/ui'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
@@ -17,10 +18,11 @@ import { sessionAPI } from '@/api/session'
 import { configAPI } from '@/api/config'
 
 const windowLabel = getCurrentWebviewWindow().label
-const currentView = ref('email')
+const currentView = ref('collab')
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
 const sessionStore = useSessionStore()
+const agentStore = useAgentStore()
 const uiStore = useUIStore()
 const websocketStore = useWebSocketStore()
 const { isConnected, connect, onMessage } = useWebSocket()
@@ -37,16 +39,24 @@ const handleViewChange = (viewId) => {
 
 async function handleEmailToastClick(emailData) {
   const sessionId = emailData.recipient_session_id || emailData.receiver_session_id
+  let targetSession = null
   if (sessionId) {
-    const targetSession = sessionStore.sessions.find(
+    targetSession = sessionStore.sessions.find(
       s => s.session_id === sessionId
     )
     if (targetSession) {
       await sessionStore.selectSession(targetSession, true)
     }
   }
-  // Switch to email view
-  currentView.value = 'email'
+
+  // Route to collab if agent for this session is in collab mode
+  const agentName = targetSession?.name || targetSession?.participants?.[0]
+  const agentData = agentName ? agentStore.getAgent(agentName) : null
+  if (agentData?.collab_mode) {
+    currentView.value = 'collab'
+  } else {
+    currentView.value = 'email'
+  }
   uiStore.emailToast.show = false
 }
 
@@ -65,13 +75,18 @@ async function initializeWebSocket() {
     sessionStore.updateSessionFromEvent(data)
 
     if (direction === 'inbound' && is_read === 0) {
-      if (currentView.value === 'email') {
+      const isSessionView = ['collab', 'email'].includes(currentView.value)
+
+      if (isSessionView) {
         if (isCurrentSession) {
           sessionStore.selectSession(currentSession.value, true)
           setTimeout(() => {
             sessionStore.markSessionRead(session_id)
             sessionAPI.markAsRead(session_id)
           }, 3000)
+        } else {
+          uiStore.emailToast = { show: true, emailData: data }
+          showNotification('新邮件', `来自 ${sender}: ${subject}`)
         }
       } else {
         uiStore.emailToast = { show: true, emailData: data }

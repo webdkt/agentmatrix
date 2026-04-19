@@ -750,6 +750,58 @@ async fn open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn read_directory(path: String) -> Result<Vec<serde_json::Value>, String> {
+    let dir_path = std::path::Path::new(&path);
+    if !dir_path.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    if !dir_path.is_dir() {
+        return Err(format!("Path is not a directory: {}", path));
+    }
+
+    let mut entries = Vec::new();
+    let dir_entries = std::fs::read_dir(dir_path)
+        .map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    for entry in dir_entries {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let entry_path = entry.path();
+        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+        let size = if !is_dir {
+            entry.metadata().ok().map(|m| m.len())
+        } else {
+            None
+        };
+        let modified = entry.metadata().ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64());
+
+        entries.push(serde_json::json!({
+            "name": file_name,
+            "path": entry_path.to_string_lossy().to_string(),
+            "is_dir": is_dir,
+            "size": size,
+            "modified": modified,
+        }));
+    }
+
+    // Sort: directories first, then files, both alphabetically
+    entries.sort_by(|a, b| {
+        let a_is_dir = a["is_dir"].as_bool().unwrap_or(false);
+        let b_is_dir = b["is_dir"].as_bool().unwrap_or(false);
+        match (a_is_dir, b_is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")),
+        }
+    });
+
+    Ok(entries)
+}
+
+#[tauri::command]
 async fn open_browser_with_profile(profile_path: String) -> Result<(), String> {
     // Chrome paths by platform
     #[cfg(target_os = "macos")]
@@ -1837,6 +1889,7 @@ fn main() {
             show_notification,
             open_attachment_path,
             open_folder,
+            read_directory,
             open_browser_with_profile,
             init_matrix_world,
             save_llm_config,
