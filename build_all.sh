@@ -34,7 +34,7 @@ echo ""
 echo "🐳 步骤 1: 构建 Docker 镜像..."
 cd "$PROJECT_ROOT"
 if command -v docker &> /dev/null; then
-    docker build -t agentmatrix:latest .
+    docker build -f Dockerfile.minimal -t agentmatrix:latest .
     echo "✅ Docker 镜像构建完成"
 else
     echo "⚠️  Docker 未安装，跳过 Docker 镜像构建"

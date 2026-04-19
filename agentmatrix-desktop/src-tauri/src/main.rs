@@ -1239,49 +1239,93 @@ fn filter_install_output(line: &str) -> Option<String> {
 
 /// 初始化容器包（延迟加载）
 /// 在 cold start 流程中执行一次，安装重型依赖
-/// 注意：此函数只在 cold start 时调用，不需要检查是否已初始化
+/// 注意：此函数会检查 container_packages_initialized 标志，只在第一次安装
 async fn initialize_container_packages(
     app: &tauri::AppHandle,
+    _state: &BackendState,
 ) -> Result<(), String> {
+    // 检查是否已经初始化过，或者是否是冷启动
+    let config = AppConfig::load()?;
+    if config.container_packages_initialized {
+        println!("✅ 容器包已经初始化过，跳过安装");
+        return Ok(());
+    }
+    if !config.is_first_run() {
+        println!("✅ 非冷启动且容器包未标记已初始化，跳过安装");
+        return Ok(());
+    }
+
     println!("📦 开始容器初始化（安装重型依赖）...");
 
     // 1. 获取容器运行时
     let runtime_info = check_container_runtime().await.map_err(|e| e.to_string())?;
     let runtime_bin = runtime_info.path.unwrap_or_else(|| runtime_info.runtime.clone());
 
-    // 2. 启动临时容器执行初始化脚本
+    // 2. 使用主容器而不是临时容器
+    let container_name = "agentmatrix_shared";
+    println!("📥 在主容器中执行初始化: {}", container_name);
 
-    // 2. 启动临时容器执行初始化脚本
-    let container_name = format!("agentmatrix-init-{}", std::process::id());
-    println!("📥 启动初始化容器: {}", container_name);
+    // 获取配置信息
+    let matrix_world_path = config.get_matrix_world_path();
+    let agents_root = matrix_world_path.join("agent_files");
 
-    // 清理函数：确保容器总是被删除
-    let cleanup_container = |bin: &str, name: &str| {
-        println!("🧹 清理临时容器: {}", name);
-        let _ = StdCommand::new(bin)
-            .args(["stop", "-t", "2", name])  // -t: 等待2秒后强制停止
-            .output();
-        let _ = StdCommand::new(bin)
-            .args(["rm", "-f", name])  // -f: 强制删除
-            .output();
+    // 3. 检查主容器是否存在，不存在则创建
+    let check_output = StdCommand::new(&runtime_bin)
+        .args(["ps", "-a", "-q", "-f", &format!("name={}", container_name)])
+        .output();
+
+    let container_exists = match check_output {
+        Ok(output) => output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        Err(_) => false,
     };
 
-    // 创建临时容器（注意：这里不用 --rm，因为我们手动管理清理）
-    let create_output = StdCommand::new(&runtime_bin)
-        .args([
-            "run",
-            "--name", &container_name,
-            "-d",
-            "agentmatrix:latest",
-            "sleep", "3600",  // 保持容器运行
-        ])
-        .output()
-        .map_err(|e| format!("Failed to start init container: {}", e))?;
+    if !container_exists {
+        println!("🔧 主容器不存在，创建主容器...");
 
-    if !create_output.status.success() {
-        let stderr = String::from_utf8_lossy(&create_output.stderr);
-        cleanup_container(&runtime_bin, &container_name);  // 确保清理
-        return Err(format!("Failed to create init container: {}", stderr));
+        // 确保宿主机目录存在
+        std::fs::create_dir_all(&agents_root)
+            .map_err(|e| format!("Failed to create agents_root: {}", e))?;
+
+        // 创建主容器（使用与 Backend 相同的配置）
+        let agents_root_str = agents_root.to_str()
+            .ok_or_else(|| "Failed to convert agents_root to string".to_string())?;
+
+        let create_output = StdCommand::new(&runtime_bin)
+            .args([
+                "run",
+                "-d",
+                "--name", container_name,
+                "-v", &format!("{}:/data/agents:rw", agents_root_str),
+                "-e", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "-e", "PYTHONPATH=/data/agents:$PYTHONPATH",
+                "--tty",  // TTY 模式
+                "agentmatrix:latest",
+                "tail", "-f", "/dev/null",  // 保持容器运行
+            ])
+            .output()
+            .map_err(|e| format!("Failed to create main container: {}", e))?;
+
+        if !create_output.status.success() {
+            let stderr = String::from_utf8_lossy(&create_output.stderr);
+            return Err(format!("Failed to create main container: {}", stderr));
+        }
+        println!("✅ 主容器已创建");
+    } else {
+        // 检查容器状态，如果未运行则启动
+        let status_output = StdCommand::new(&runtime_bin)
+            .args(["inspect", "-f", "{{.State.Status}}", container_name])
+            .output();
+
+        if let Ok(output) = status_output {
+            let status = String::from_utf8_lossy(&output.stdout);
+            let status = status.trim();
+            if status != "running" {
+                println!("🔄 主容器未运行，启动中...");
+                let _ = StdCommand::new(&runtime_bin)
+                    .args(["start", container_name])
+                    .output();
+            }
+        }
     }
 
     // 3. 拷贝初始化脚本到容器
@@ -1332,12 +1376,11 @@ async fn initialize_container_packages(
     println!("🔧 脚本路径: {}", container_script_path);
 
     let mut child = StdCommand::new(&runtime_bin)
-        .args(["exec", &container_name, "bash", container_script_path])
+        .args(["exec", container_name, "bash", container_script_path])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
-            cleanup_container(&runtime_bin, &container_name);
             format!("Failed to exec install script: {}", e)
         })?;
 
@@ -1410,8 +1453,6 @@ async fn initialize_container_packages(
         .map_err(|e| format!("Failed to wait for install script: {}", e))?;
 
     if !status.success() {
-        cleanup_container(&runtime_bin, &container_name);
-
         // 构建详细的错误信息
         let mut error_msg = format!("核心组件安装失败 (退出码: {:?})\n", status.code());
         error_msg.push_str(&format!("\n📤 标准输出:\n{}\n", stdout_output));
@@ -1421,10 +1462,16 @@ async fn initialize_container_packages(
         return Err(error_msg);
     }
 
+    // 6. 安装成功后，标记为已初始化
+    let mut config = AppConfig::load()?;
+    config.container_packages_initialized = true;
+    config.save()?;
+    println!("✅ 已标记容器包为已初始化");
+
     println!("✅ 容器包初始化完成");
 
-    // 6. 清理临时容器
-    cleanup_container(&runtime_bin, &container_name);
+    // 注意：不再删除容器（去掉 cleanup_container 调用）
+    // 主容器 agentmatrix_shared 会保留，供 Backend 复用
 
     Ok(())
 }
@@ -1444,7 +1491,8 @@ async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) 
     ensure_container_image(app.clone()).await?;
 
     // 2. 初始化容器包（仅在 cold start 时执行一次）
-    initialize_container_packages(app).await?;
+    // 函数内部会检查 container_packages_initialized 标志
+    initialize_container_packages(app, state).await?;
 
     // 3. 启动 backend
     start_backend_logic(app, state).await?;

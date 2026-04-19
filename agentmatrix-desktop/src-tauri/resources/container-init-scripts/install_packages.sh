@@ -17,14 +17,14 @@ detect_network_region() {
     # 测试访问官方源的延迟
     local global_latency=$(timeout 2 curl -o /dev/null -s -w '%{time_total}\n' https://deb.debian.org 2>/dev/null || echo "999")
 
-    echo "🔍 网络延迟检测 - 清华源: ${cn_latency}s, 官方源: ${global_latency}s"
+    echo "🔍 网络延迟检测 - 清华源: ${cn_latency}s, 官方源: ${global_latency}s" >&2
 
-    # 如果国内源延迟小于 1 秒，或者明显快于官方源，则判断为国内网络
-    if (( $(echo "$cn_latency < 1.0" | bc -l) )) || (( $(echo "$cn_latency < $global_latency" | bc -l) )); then
-        echo "china"
-    else
-        echo "global"
-    fi
+    # 使用 awk 进行浮点数比较（避免 bc 依赖）
+    local is_china=$(awk -v cn="$cn_latency" -v global="$global_latency" 'BEGIN {
+        if (cn < 1.0 || cn < global) print "china"; else print "global"
+    }')
+
+    echo "$is_china"
 }
 
 # 检测网络环境
@@ -49,8 +49,8 @@ if [ "$REGION" = "china" ]; then
     # npm 镜像（npmmirror）
     npm config set registry https://registry.npmmirror.com
 
-    # Playwright 镜像
-    export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
+    # Playwright 使用官方源（npmmirror 同步不完整，经常 404）
+    unset PLAYWRIGHT_DOWNLOAD_HOST
 else
     # 国际镜像源配置（使用官方源）
     echo "🌐 使用国际官方源"
@@ -130,7 +130,9 @@ pip install --no-cache-dir \
     pdfplumber>=0.10.0 \
     beautifulsoup4>=4.12.0 \
     html2text>=2020.1.16 \
-    trafilatura>=1.6.0
+    trafilatura>=1.6.0 \
+    python-pptx>=0.6.21 \
+    markitdown[pptx]>=0.1.0
 print_progress "core" "100" "核心组件安装完成"
 
 # ═══════════════════════════════════════════════════════════════
@@ -155,8 +157,8 @@ print_progress "browsers" "0" "开始安装 Playwright 浏览器"
 mkdir -p /opt/ms-playwright
 chmod 755 /opt/ms-playwright
 
-# 安装浏览器到共享路径
-if install_with_retry "Playwright浏览器" npx playwright install chromium --with-deps; then
+# 安装浏览器到共享路径（不带 --with-deps，Dockerfile 已预装系统依赖）
+if install_with_retry "Playwright浏览器" npx playwright install chromium; then
     # 创建用户设置脚本（为新用户创建符号链接）
     cat > /usr/local/bin/setup-playwright-for-user.sh <<'EOF'
 #!/bin/bash

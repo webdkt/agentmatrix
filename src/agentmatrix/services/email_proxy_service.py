@@ -33,6 +33,7 @@ from ..core.id_generator import IDGenerator
 from ..core.message import Email
 from ..core.log_util import AutoLoggerMixin
 from ..db.agent_matrix_db import AgentMatrixDB
+from ..agents.base import AskUserQuestion
 
 
 class EmailProxyService(AutoLoggerMixin):
@@ -865,7 +866,7 @@ AgentMatrix 自动回复
         await self.send_to_external(email)
 
     async def send_ask_user_email(
-        self, agent_name: str, agent_session_id: str, question: str
+        self, agent_name: str, agent_session_id: str, question: AskUserQuestion
     ):
         """
         发送 ask_user 特殊邮件（不经过 PostOffice）
@@ -875,28 +876,39 @@ AgentMatrix 自动回复
         Args:
             agent_name: Agent 名称
             agent_session_id: Agent 的 session_id
-            question: 问题内容
+            question: AskUserQuestion 对象（包含问题、选项、图片等信息）
         """
         try:
             # 截断过长的问题
             question_preview = (
-                question[:100] + "..." if len(question) > 100 else question
+                question.question[:100] + "..."
+                if len(question.question) > 100
+                else question.question
             )
             subject = f"请回答问题 #ASK_USER#{agent_name}#{agent_session_id}#"
 
             # 构造邮件正文
-            body = f"""你好，
+            body_parts = [f"你好，\n\n{agent_name} 有一个问题需要你回答：\n\n"]
 
-{agent_name} 有一个问题需要你回答：
+            # 问题文本
+            body_parts.append(f"问题：{question.question}\n")
 
-问题：{question}
+            # 选项文本（邮件无法显示按钮，格式化为列表）
+            if question.options:
+                body_parts.append("\n可选选项：\n")
+                for i, option in enumerate(question.options, 1):
+                    body_parts.append(f"  {i}. {option}\n")
 
----
-请直接回复此邮件来回答问题。
+                if question.multiple:
+                    body_parts.append("（可以多选，请回复选项编号，如：1,3）\n")
+                else:
+                    body_parts.append("（请回复选项编号，如：2）\n")
 
----
-AgentMatrix 自动回复
-"""
+            body_parts.append("\n---\n请直接回复此邮件来回答问题。\n")
+            body_parts.append("如果不想选择预设选项，可以直接输入自定义回答。\n")
+            body_parts.append("\n---\nAgentMatrix 自动回复\n")
+
+            body = "".join(body_parts)
 
             # 构造邮件
             msg = MIMEMultipart()
@@ -910,6 +922,12 @@ AgentMatrix 自动回复
 
             # 添加正文
             msg.attach(MIMEText(body, "plain", "utf-8"))
+
+            # 添加图片附件
+            if question.image_path:
+                await self._add_question_image(
+                    msg, question.image_path, agent_name, agent_session_id
+                )
 
             # 发送
             with smtplib.SMTP_SSL(
@@ -932,6 +950,40 @@ AgentMatrix 自动回复
 
         except Exception as e:
             self.logger.error(f"❌ 发送 ask_user 邮件失败: {e}", exc_info=True)
+
+    async def _add_question_image(
+        self, msg: MIMEMultipart, image_filename: str, agent_name: str, agent_session_id: str
+    ):
+        """添加问题图片到邮件"""
+        try:
+            from pathlib import Path
+
+            # 构建图片路径（在 agent 的 attachments 目录）
+            image_dir = self.paths.get_agent_attachments_dir(agent_name, agent_session_id)
+            image_path = image_dir / image_filename
+
+            if not image_path.exists():
+                self.logger.warning(f"⚠️ 图片不存在: {image_path}")
+                return
+
+            # 读取并添加图片
+            with open(image_path, "rb") as f:
+                image_data = f.read()
+
+            image_part = MIMEApplication(image_data)
+
+            # 添加附件头
+            image_part.add_header(
+                "Content-Disposition",
+                "attachment",
+                filename=image_filename
+            )
+            msg.attach(image_part)
+
+            self.logger.info(f"✅ 添加图片附件: {image_filename}")
+
+        except Exception as e:
+            self.logger.error(f"❌ 添加图片附件失败: {e}", exc_info=True)
 
     async def send_to_external(self, email: Email):
         """发送内部邮件到外部邮箱"""

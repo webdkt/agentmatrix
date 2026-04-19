@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub enable_notifications: bool,
     #[serde(default)]
     pub log_level: String,
+    #[serde(default)]
+    pub container_packages_initialized: bool,
 }
 
 impl Default for AppConfig {
@@ -23,6 +25,7 @@ impl Default for AppConfig {
             auto_start_backend: true,
             enable_notifications: true,
             log_level: "INFO".to_string(),
+            container_packages_initialized: false,
         }
     }
 }
