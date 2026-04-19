@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 from queue import Queue, Empty
 
 
@@ -56,6 +56,16 @@ class ContainerSession:
         # 分隔符（唯一标识）
         self._start_marker = f"__SESSION_{self.session_id}_START__"
         self._end_marker = f"__SESSION_{self.session_id}_END__"
+
+        # Output mirror callback（Collab Mode 使用）
+        # callback(stream_type: str, line_text: str) -> None
+        # stream_type: "stdout" or "stderr"
+        # 注意：callback 在 reader 线程中同步调用，不能直接调 asyncio 代码
+        self._output_callback: Optional[Callable[[str, str], None]] = None
+
+    def set_output_callback(self, callback: Optional[Callable[[str, str], None]]) -> None:
+        """设置 output mirror callback（None 表示取消）"""
+        self._output_callback = callback
 
     @staticmethod
     def _find_runtime_cmd(runtime_type: str) -> str:
@@ -286,6 +296,11 @@ class ContainerSession:
                     # 管道关闭，输出残留数据
                     if buf:
                         self._output_queue.put(buf)
+                        if self._output_callback:
+                            try:
+                                self._output_callback("stdout", buf.decode("utf-8", errors="replace"))
+                            except Exception:
+                                pass
                     break
                 buf += chunk
                 # 按换行分割，将完整行放入队列
@@ -296,6 +311,12 @@ class ContainerSession:
                     line = buf[:idx]
                     buf = buf[idx + 1 :]
                     self._output_queue.put(line)
+                    if self._output_callback:
+                        try:
+                            line_text = line.decode("utf-8", errors="replace")
+                            self._output_callback("stdout", line_text)
+                        except Exception:
+                            pass
             except Exception:
                 if buf:
                     self._output_queue.put(buf)
@@ -310,6 +331,11 @@ class ContainerSession:
                 if not chunk:
                     if buf:
                         self._stderr_queue.put(buf)
+                        if self._output_callback:
+                            try:
+                                self._output_callback("stderr", buf.decode("utf-8", errors="replace"))
+                            except Exception:
+                                pass
                     break
                 buf += chunk
                 while True:
@@ -319,6 +345,12 @@ class ContainerSession:
                     line = buf[:idx]
                     buf = buf[idx + 1 :]
                     self._stderr_queue.put(line)
+                    if self._output_callback:
+                        try:
+                            line_text = line.decode("utf-8", errors="replace")
+                            self._output_callback("stderr", line_text)
+                        except Exception:
+                            pass
             except Exception:
                 if buf:
                     self._stderr_queue.put(buf)

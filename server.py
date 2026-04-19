@@ -1412,6 +1412,70 @@ async def resume_agent(agent_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/agents/{agent_name}/collab")
+async def toggle_collab_mode(agent_name: str, request: Request):
+    """开启/关闭 Collab Mode"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    try:
+        body = await request.json()
+        enabled = body.get("enabled", True)
+        agent.collab_mode = enabled
+
+        if enabled:
+            agent._setup_collab_output_mirror()
+        else:
+            agent._teardown_collab_output_mirror()
+
+        return {"status": "ok", "collab_mode": agent.collab_mode}
+    except Exception as e:
+        print(f"Error toggling collab mode for '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{agent_name}/workspace")
+async def get_agent_workspace(agent_name: str):
+    """获取 Agent 的 workspace 文件树"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    try:
+        workspace = agent.private_workspace
+        if not workspace or not workspace.exists():
+            return {"files": []}
+
+        files = []
+        for item in sorted(workspace.iterdir()):
+            stat = item.stat()
+            files.append({
+                "name": item.name,
+                "path": str(item),
+                "is_dir": item.is_dir(),
+                "size": stat.st_size if item.is_file() else None,
+                "modified": stat.st_mtime,
+            })
+
+        return {"files": files, "workspace_path": str(workspace)}
+    except Exception as e:
+        print(f"Error getting workspace for '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/files")
 async def get_files(path: str = ""):
     """Get files in workspace"""
@@ -2310,6 +2374,76 @@ async def submit_user_input(agent_name: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{agent_name}/question_image")
+async def get_question_image(
+    agent_name: str,
+    session_id: str,
+    filename: str
+):
+    """
+    获取 ask_user 问题的图片
+
+    Args:
+        agent_name: Agent 名称
+        session_id: Agent 的 session_id（必须匹配 Agent 的当前 session）
+        filename: 图片文件名
+
+    安全说明：
+    - 验证 session_id 是否匹配 Agent 的当前 session
+    - 防止跨 session 访问图片
+    - 如果 Agent 已经切换到其他 session，拒绝访问
+    """
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not available")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    # 🔒 验证 session_id（关键安全检查）
+    if not agent.current_session:
+        raise HTTPException(status_code=400, detail="Agent has no active session")
+
+    current_session_id = agent.current_session.get("session_id")
+    if session_id != current_session_id:
+        # Agent 已经切换到其他 session，拒绝访问
+        raise HTTPException(
+            status_code=409,  # Conflict
+            detail=f"Session mismatch: requested {session_id}, current {current_session_id}. "
+                   f"Agent may have moved to a different session."
+        )
+
+    # 🔒 验证是否有 pending_question（防止滥用）
+    if not hasattr(agent, '_pending_user_question') or not agent._pending_user_question:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending question found for this agent"
+        )
+
+    # 构建图片路径
+    image_dir = agent.runtime.paths.get_agent_attachments_dir(
+        agent_name, session_id
+    )
+    image_path = image_dir / filename
+
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # 判断 media type
+    import mimetypes
+    media_type = mimetypes.guess_type(filename)[0] or "image/png"
+
+    # 返回文件
+    return FileResponse(
+        path=str(image_path),
+        media_type=media_type,
+        filename=filename,
+    )
 
 
 # === Main Entry Point ===

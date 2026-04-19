@@ -282,7 +282,7 @@ class MicroAgent(AutoLoggerMixin):
         如果 [ACTION] 文本匹配 func_name(...) 或 func.name(...) 格式，
         但没有匹配到任何注册的 action，说明 LLM 幻觉了函数名。
 
-        同时检查 raw_reply：当 [ACTION] 为空但 raw_reply 中包含 JSON action 格式
+        同时检查 raw_reply：当 [ACTION] 为空但 raw_reply 中包含 JSON/XML action 格式
         或函数调用 pattern 时，说明 LLM 试图输出 action 但格式不对（缺少 [ACTION] 标记）。
 
         Returns:
@@ -296,26 +296,23 @@ class MicroAgent(AutoLoggerMixin):
                 # 检查 JSON 格式的 action: "action": "xxx"
                 json_action_pattern = r'"action"\s*:\s*"([a-zA-Z_.]*)"'
                 json_matches = re.findall(json_action_pattern, raw_reply)
-                if json_matches:
-                    return (
-                        f"No [ACTION] section was found in your reply, but JSON action patterns "
-                        f"were detected (e.g. {', '.join(f'`{n}`' for n in json_matches[:3])}). "
-                        f"Please use the [ACTION] section format to declare actions, e.g.:\n"
-                        f"[ACTION]\naction_name(args)"
-                    )
+
+                # 检查 XML 格式的 action: <function>xxx</function>
+                xml_action_pattern = r'<function>\s*(\w+(?:\.\w+)*)\s*</function>'
+                xml_matches = re.findall(xml_action_pattern, raw_reply)
 
                 # 检查函数调用 pattern
                 call_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\('
                 call_matches = re.findall(call_pattern, raw_reply)
-                if call_matches:
-                    invalid_names = [n for n in call_matches if n.lower() not in self.action_registry["_flat"]]
-                    if invalid_names:
-                        return (
-                            f"No [ACTION] section was found, but function call patterns "
-                            f"(e.g. {', '.join(f'`{n}`' for n in invalid_names[:3])}) "
-                            f"were detected in your reply. If you intended to execute an action, "
-                            f"please use the [ACTION] section format."
-                        )
+
+                # 验证是否包含有效的 action（忽略大小写）
+                valid_actions = []
+                for name in (json_matches + xml_matches + call_matches):
+                    if name.lower() in self.action_registry["_flat"]:
+                        valid_actions.append(name)
+
+                if valid_actions:
+                    return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明。确认没什么要执行的可以回复'确定'。"
 
             # 确实没有疑似 action 的内容
             return None
@@ -340,13 +337,7 @@ class MicroAgent(AutoLoggerMixin):
             # 所有提到的函数名都在 registry 中，不是幻觉问题
             return None
 
-        invalid_str = ", ".join(f"`{n}`" for n in invalid_names)
-        return (
-            f"No action was detected from your [ACTION] section. "
-            f"The function name(s) {invalid_str} do not match any available actions. "
-            f"If you intended to execute an action, please check the available actions and correct the name. "
-            f"If you have nothing to execute, reply without an [ACTION] section."
-        )
+        return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明，请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
 
     def _inject_signal(self, signal):
         """将信号注入为 messages，让 agent 在下一轮 think 中看到"""
@@ -1336,6 +1327,27 @@ Start generating the Working Notes now.
         # 简化模式：使用 simple_mode.md 模板
         if getattr(self, "simple_mode", False):
             template_str = self.root_agent.runtime.prompt_registry.SIMPLE_MODE
+            actions_list = self._format_actions_list()
+
+            md_skill_section = ""
+            if self._is_top_level_microagent():
+                md_skill_section = self._build_md_skill_section()
+
+            template = Template(template_str)
+            prompt = template.safe_substitute(
+                persona=self.persona,
+                actions_list=actions_list,
+                md_skill_section=md_skill_section,
+            )
+
+            self.system_prompt = prompt
+            if self._is_top_level_microagent():
+                self.root_agent.last_system_prompt = prompt
+            return prompt
+
+        # Collab 模式：使用 collab_mode.md 模板
+        if getattr(self.root_agent, "collab_mode", False):
+            template_str = self.root_agent.runtime.prompt_registry.COLLAB_MODE
             actions_list = self._format_actions_list()
 
             md_skill_section = ""
