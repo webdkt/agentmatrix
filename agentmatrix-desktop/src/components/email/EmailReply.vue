@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, inject, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { sessionAPI } from '@/api/session'
 import { addPendingEmail, removePendingEmail } from '@/composables/usePendingEmails'
@@ -26,6 +26,22 @@ const emit = defineEmits(['sent', 'send-started', 'send-failed'])
 // 状态
 const replyBody = ref('')
 const isSending = ref(false)
+const textareaRef = ref(null)
+
+// Collab draft message — set by CollabPanel on file drop
+const collabDraftMessage = inject('collabDraftMessage', null)
+watch(collabDraftMessage, (val) => {
+  if (val) {
+    replyBody.value = val
+    collabDraftMessage.value = ''
+    nextTick(() => {
+      if (textareaRef.value) {
+        textareaRef.value.style.height = 'auto'
+        textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 200) + 'px'
+      }
+    })
+  }
+})
 
 // 计算属性
 const canSend = computed(() => {
@@ -152,6 +168,7 @@ const adjustHeight = (event) => {
     <div class="email-reply__container">
       <!-- Textarea -->
       <textarea
+        ref="textareaRef"
         v-model="replyBody"
         @keydown="handleKeyDown"
         @input="adjustHeight"

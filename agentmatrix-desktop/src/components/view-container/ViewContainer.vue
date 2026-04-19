@@ -95,6 +95,10 @@ const handleViewChange = (viewId) => {
   emit('view-change', viewId)
 }
 
+// Collab draft message — set by CollabPanel on file drop, consumed by EmailReply
+const collabDraftMessage = ref('')
+provide('collabDraftMessage', collabDraftMessage)
+
 // Agent status panel state
 const expandedAgent = ref(null)
 const agentPanelWidth = ref(450) // Default width in pixels

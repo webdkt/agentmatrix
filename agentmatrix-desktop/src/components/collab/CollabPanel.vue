@@ -1,10 +1,12 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, inject } from 'vue'
 import { useAgentStore } from '@/stores/agent'
 import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { agentAPI } from '@/api/agent'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { Command } from '@tauri-apps/plugin-shell'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -168,6 +170,43 @@ const formatFileSize = (bytes) => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
 
+// ---- File Drop Upload ----
+
+const collabDraftMessage = inject('collabDraftMessage', null)
+const isDragging = ref(false)
+let unlistenDragDrop = null
+
+const handleFilesDrop = async (filePaths) => {
+  if (!currentDir.value) return
+
+  const isWindows = navigator.platform.startsWith('Win')
+  const fileNames = []
+  for (const srcPath of filePaths) {
+    const fileName = srcPath.split('/').pop()
+    const destPath = `${currentDir.value}/${fileName}`
+    try {
+      const cmd = isWindows
+        ? Command.create('copy-file', ['cmd', '/C', 'copy', srcPath, destPath])
+        : Command.create('copy-file', ['cp', srcPath, destPath])
+      const output = await cmd.execute()
+      if (output.code === 0) {
+        fileNames.push(fileName)
+      } else {
+        console.error(`Failed to copy ${fileName}:`, output.stderr)
+      }
+    } catch (err) {
+      console.error(`Failed to copy ${fileName}:`, err)
+    }
+  }
+
+  if (fileNames.length > 0) {
+    await loadFiles()
+    if (collabDraftMessage) {
+      collabDraftMessage.value = `I've uploaded these files:\n${fileNames.map(n => `- ${n}`).join('\n')}\n`
+    }
+  }
+}
+
 // ---- Agent Terminal ----
 
 // Each line: { type: 'stdin'|'stdout'|'stderr', text: string }
@@ -284,9 +323,28 @@ watch([() => props.agentName, currentSessionId], ([agentName, sessionId]) => {
   }
 }, { immediate: true })
 
-// Register COLLAB_BASH_OUTPUT listener
-onMounted(() => {
+// Register COLLAB_BASH_OUTPUT listener + Tauri drag-drop
+onMounted(async () => {
   websocketStore.registerListener('COLLAB_BASH_OUTPUT', handleBashOutput)
+
+  const webview = await getCurrentWebview()
+  unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
+    if (event.payload.type === 'over') {
+      isDragging.value = true
+    } else if (event.payload.type === 'drop') {
+      isDragging.value = false
+      const paths = event.payload.paths
+      if (paths?.length > 0) {
+        await handleFilesDrop(paths)
+      }
+    } else {
+      isDragging.value = false
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unlistenDragDrop) unlistenDragDrop()
 })
 </script>
 
@@ -359,6 +417,11 @@ onMounted(() => {
         <div v-if="filesLoading" class="collab-panel__empty-hint">
           Loading...
         </div>
+      </div>
+      <!-- Drag-drop overlay -->
+      <div v-if="isDragging" class="collab-panel__drop-overlay">
+        <MIcon name="upload" />
+        <span>Drop files to upload</span>
       </div>
     </section>
 
@@ -456,6 +519,7 @@ onMounted(() => {
   flex: 2;
   min-height: 0;
   border-bottom: 1px solid var(--neutral-200);
+  position: relative;
 }
 
 .collab-panel__terminal {
@@ -797,6 +861,25 @@ onMounted(() => {
   font-size: var(--font-xs);
   color: var(--neutral-400);
   font-style: italic;
+}
+
+/* Drag-drop overlay */
+.collab-panel__drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--accent);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  z-index: 10;
+  pointer-events: none;
 }
 
 .animate-spin {
