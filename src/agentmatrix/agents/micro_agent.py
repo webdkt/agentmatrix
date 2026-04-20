@@ -339,7 +339,7 @@ class MicroAgent(AutoLoggerMixin):
 
         return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明，请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
 
-    def _inject_signal(self, signal):
+    async def _inject_signal(self, signal):
         """将信号注入为 messages，让 agent 在下一轮 think 中看到"""
         self.logger.info(f"Injecting signal: {signal.type}")
         if signal.type == "email":
@@ -356,6 +356,16 @@ class MicroAgent(AutoLoggerMixin):
             self._add_message("user", text)
             # 收集待标记 processed 的 email ids
             self._pending_processed_ids.extend(batch.get("email_ids", []))
+
+            # 📝 写入 session event: email.received
+            await self._log_event("email", "received", {
+                "email_ids": batch.get("email_ids", []),
+                "sender": batch.get("sender"),
+                "recipient": batch.get("recipient"),
+                "subject": batch.get("subject", ""),
+                "body_preview": text[:200],
+                "has_more": len(text) > 200,
+            })
         elif signal.type in ["action_completed", "actions_completed"]:
             # 统一处理单个和多个 actions
             results = signal.payload.get("results", [])
@@ -378,11 +388,9 @@ class MicroAgent(AutoLoggerMixin):
             combined_text = self._format_combined_results(results)
 
             # 第三步：添加显示文本消息
-            self.root_agent.update_status(combined_text)
             self._add_message("user", combined_text)
         elif signal.type == "no_action_reflect":
             msg = signal.payload["message"]
-            self.root_agent.update_status(msg)
             self._add_message("user", msg)
 
     def _on_batch_done(self, action_id, task):
@@ -931,6 +939,12 @@ Start generating the Working Notes now.
         #    self._push_pending_summary()
 
         working_notes = await self._generate_working_notes(self.messages)
+
+        # 📝 写入 session event: session.message_auto_compress
+        await self._log_event("session", "message_auto_compress", {
+            "step_count": self.step_count,
+            "working_notes_preview": working_notes[:500] if working_notes else None,
+        })
 
         # ========== 1. 处理 system message ==========
         has_system = self.messages and self.messages[0].get("role") == "system"
@@ -1645,25 +1659,18 @@ Start generating the Working Notes now.
 
             # 注入信号为 messages
             for sig in signals:
-                self._inject_signal(sig)
+                await self._inject_signal(sig)
 
             # 批量标记邮件已处理（内容已通过 _add_message 写入 session history）
             if self._pending_processed_ids:
                 ids = self._pending_processed_ids.copy()
                 self._pending_processed_ids.clear()
-                asyncio.create_task(
-                    asyncio.to_thread(
-                        self.root_agent.post_office.email_db.mark_emails_processed,
-                        ids
-                    )
-                )
+                await self.root_agent.post_office.email_db.mark_emails_processed(ids)
 
             try:
                 # 1. Think（使用 think_with_retry + actions parser）
-                # ✅ 状态更新：Thinking
-                self.root_agent.update_status(
-                    new_status="THINKING", new_message="Thinking..."
-                )
+                # ✅ 状态更新：Thinking（纯状态，内容由 session_events 的 think.brain 记录）
+                self.root_agent.update_status(new_status="THINKING")
 
                 thought = await self.brain.think_with_retry(
                     initial_messages=self.messages,
@@ -1673,15 +1680,7 @@ Start generating the Working Notes now.
                 )
                 
 
-                # ✅ 状态更新：LLM 返回内容（"[ACTION]" 之前的部分）
-                if raw_reply := thought.get("[RAW_REPLY]"):
-                    # 提取 "[ACTION]" 之前的部分
-                    if "[ACTION]" in raw_reply:
-                        thinking_part = raw_reply.split("[ACTION]")[0].strip()
-                        self.root_agent.update_status(new_message=thinking_part)
-                    else:
-                        # 如果没有 "[ACTION]" 标记，全部返回
-                        self.root_agent.update_status(new_message=raw_reply)
+                # think.brain 的内容已通过 session_events 持久化，不再推 status_history
 
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
@@ -1697,15 +1696,25 @@ Start generating the Working Notes now.
 
                 self.logger.info(f"Detected actions: {action_names}")
 
+                # 📝 写入 session event: action.detected
+                if action_names:
+                    await self._log_event("action", "detected", {
+                        "actions": action_names,
+                        "step_count": step_count,
+                    })
+
                 # ✅ 状态更新：开始执行 actions
                 if action_names:
-                    actions_str = ", ".join(action_names)
-                    self.root_agent.update_status(
-                        new_status="WORKING", new_message=f"开始执行: {actions_str}"
-                    )
+                    self.root_agent.update_status(new_status="WORKING")
 
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply)
+
+                # 📝 写入 session event: think.brain
+                await self._log_event("think", "brain", {
+                    "step_count": step_count,
+                    "raw_reply": raw_reply[:2000] if raw_reply else None,
+                })
 
                 # 3.5 清理图片内容（已被 LLM 看过，避免后续 token 消耗）
                 self._cleanup_multimodal_messages()
@@ -2161,6 +2170,11 @@ write, send_mail, write
         """
         results = []
         for idx, action_name in enumerate(action_names, start=1):
+            # 📝 写入 session event: action.started
+            await self._log_event("action", "started", {
+                "action_name": action_name,
+                "step_count": self.step_count,
+            })
             try:
                 result = await self._execute_action(
                     action_name, thought, idx, action_names
@@ -2173,14 +2187,30 @@ write, send_mail, write
                         action_label = info.get("label", "")
                         break
                 results.append({"action_name": action_name, "label": action_label, "result": str(result), "status": "ok"})
+                # 📝 写入 session event: action.completed
+                await self._log_event("action", "completed", {
+                    "action_name": action_name,
+                    "action_label": action_label,
+                    "result_preview": str(result)[:500] if result else None,
+                    "status": "ok",
+                })
             except asyncio.CancelledError:
                 results.append({"action_name": action_name, "label": "", "result": "Canceled", "status": "canceled"})
+                await self._log_event("action", "completed", {
+                    "action_name": action_name,
+                    "status": "canceled",
+                })
                 # 标记后续所有 action 为 canceled
                 for remaining_name in action_names[idx:]:
                     results.append({"action_name": remaining_name, "label": "", "result": "Canceled", "status": "canceled"})
                 break
             except Exception as e:
                 results.append({"action_name": action_name, "label": "", "error": str(e), "status": "error"})
+                # 📝 写入 session event: action.error
+                await self._log_event("action", "error", {
+                    "action_name": action_name,
+                    "error_message": str(e)[:500],
+                })
 
         return results  # 直接返回数组，不格式化
 
@@ -2464,6 +2494,39 @@ write, send_mail, write
             List[Dict]: 完整的对话历史（包括初始历史 + 新增对话）
         """
         return self.messages
+
+    async def _log_event(self, event_type: str, event_name: str, event_detail: dict = None):
+        """异步写入 session 事件 + WebSocket 广播"""
+        if not self.session or not self.root_agent or not self.root_agent.post_office:
+            return
+        session_id = self.session.get("session_id")
+        if not session_id:
+            return
+
+        # DB 写入
+        detail_str = json.dumps(event_detail, ensure_ascii=False) if event_detail else None
+        await self.root_agent.post_office.email_db.insert_session_event(
+            owner=self.root_agent.name,
+            session_id=session_id,
+            event_type=event_type,
+            event_name=event_name,
+            event_detail=detail_str,
+        )
+
+        # WebSocket 广播
+        if self.root_agent._broadcast_message_callback:
+            message = {
+                "type": "SESSION_EVENT",
+                "agent_name": self.root_agent.name,
+                "session_id": session_id,
+                "data": {
+                    "event_type": event_type,
+                    "event_name": event_name,
+                    "event_detail": event_detail,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            }
+            asyncio.create_task(self.root_agent._broadcast_message_callback(message))
 
     def _get_log_context(self) -> dict:
         """提供日志上下文变量"""

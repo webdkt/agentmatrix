@@ -9,12 +9,10 @@ import { useAgentStore } from '@/stores/agent'
 import { useUIStore } from '@/stores/ui'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
-import { useNotifications } from '@/composables/useNotifications'
 import ViewSelector from '@/components/view-selector/ViewSelector.vue'
 import ViewContainer from '@/components/view-container/ViewContainer.vue'
 import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
 import EmailToast from '@/components/toast/EmailToast.vue'
-import { sessionAPI } from '@/api/session'
 import { configAPI } from '@/api/config'
 
 const windowLabel = getCurrentWebviewWindow().label
@@ -26,12 +24,10 @@ const agentStore = useAgentStore()
 const uiStore = useUIStore()
 const websocketStore = useWebSocketStore()
 const { isConnected, connect, onMessage } = useWebSocket()
-const { showNotification } = useNotifications()
 
 const appState = ref('loading')
 
 const backendStatus = computed(() => backendStore.status)
-const currentSession = computed(() => sessionStore.currentSession)
 
 const handleViewChange = (viewId) => {
   currentView.value = viewId
@@ -66,33 +62,6 @@ async function initializeWebSocket() {
 
   onMessage((data) => {
     websocketStore.handle_message(data)
-  })
-
-  websocketStore.onSessionUpdate(async (data) => {
-    const { session_id, direction, is_read, sender, subject } = data
-    const isCurrentSession = session_id === currentSession.value?.session_id
-
-    sessionStore.updateSessionFromEvent(data)
-
-    if (direction === 'inbound' && is_read === 0) {
-      const isSessionView = ['collab', 'email'].includes(currentView.value)
-
-      if (isSessionView) {
-        if (isCurrentSession) {
-          sessionStore.selectSession(currentSession.value, true)
-          setTimeout(() => {
-            sessionStore.markSessionRead(session_id)
-            sessionAPI.markAsRead(session_id)
-          }, 3000)
-        } else {
-          uiStore.emailToast = { show: true, emailData: data }
-          showNotification('新邮件', `来自 ${sender}: ${subject}`)
-        }
-      } else {
-        uiStore.emailToast = { show: true, emailData: data }
-        showNotification('新邮件', `来自 ${sender}: ${subject}`)
-      }
-    }
   })
 }
 

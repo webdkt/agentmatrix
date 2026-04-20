@@ -17,6 +17,8 @@ export const useSessionStore = defineStore('session', {
     globalPendingQuestion: null, // 全局待处理问题（无 user session id）
     globalDialogShown: false,    // 全局对话框是否已显示
     askUserDialogShownFor: null, // 记录已弹出对话框的 session_id
+    agentToUserSessionMap: {},   // { "agentName:agentSessionId": "userSessionId" }
+    lastSessionEvent: null,      // 最新的 SESSION_EVENT { agent_name, session_id, data }
   }),
 
   getters: {
@@ -84,6 +86,15 @@ export const useSessionStore = defineStore('session', {
     hasUnreadSessions: (state) => {
       return state.sessions.some(s => s.is_unread)
     },
+
+    /**
+     * 通过 agent_name + agent_session_id 反查 user_session_id
+     */
+    agentSessionLookup: (state) => (agentName, agentSessionId) => {
+      if (!agentName || !agentSessionId) return null
+      const key = `${agentName}:${agentSessionId}`
+      return state.agentToUserSessionMap[key] || null
+    },
   },
 
   actions: {
@@ -113,6 +124,9 @@ export const useSessionStore = defineStore('session', {
         }
 
         this.totalSessions = result.total || 0
+
+        // 构建 agent→user session 映射
+        this.buildAgentSessionMap()
 
         return result
       } catch (error) {
@@ -204,6 +218,16 @@ export const useSessionStore = defineStore('session', {
       const index = this.sessions.findIndex(s => s.session_id === sessionId)
       if (index !== -1) {
         this.sessions[index] = { ...this.sessions[index], is_unread: false }
+      }
+    },
+
+    /**
+     * 标记会话为未读（本地更新，用于即时反馈）
+     */
+    markSessionUnread(sessionId) {
+      const index = this.sessions.findIndex(s => s.session_id === sessionId)
+      if (index !== -1) {
+        this.sessions[index] = { ...this.sessions[index], is_unread: true }
       }
     },
 
@@ -358,11 +382,34 @@ export const useSessionStore = defineStore('session', {
     },
 
     /**
+     * 构建 agent_name + agent_session_id → user_session_id 的映射表
+     */
+    buildAgentSessionMap() {
+      const map = {}
+      for (const session of this.sessions) {
+        const agentName = session.agent_name || session.name
+        const agentSessionId = session.agent_session_id
+        if (agentName && agentSessionId) {
+          map[`${agentName}:${agentSessionId}`] = session.session_id
+        }
+      }
+      this.agentToUserSessionMap = map
+    },
+
+    /**
+     * 设置最新的 SESSION_EVENT（供 ChatHistory 等组件 watch 增量更新）
+     * @param {object} event - { agent_name, session_id, data }
+     */
+    setLastSessionEvent(event) {
+      this.lastSessionEvent = event
+    },
+
+    /**
      * 根据 WebSocket 事件更新本地 session 状态
      * @param {object} data - user_session_updated 事件数据
      */
     updateSessionFromEvent(data) {
-      const { session_id, is_read, subject, timestamp, sender, recipient } = data
+      const { session_id, is_read, subject, timestamp, agent_session_id } = data
       const index = this.sessions.findIndex(s => s.session_id === session_id)
 
       if (index !== -1) {
@@ -379,6 +426,7 @@ export const useSessionStore = defineStore('session', {
           updated.timestamp = timestamp
           updated.last_email_time = timestamp  // 同时更新 last_email_time（用于 UI 显示）
         }
+        if (agent_session_id) updated.agent_session_id = agent_session_id
 
         // 移除旧项，重新排序后插入
         this.sessions.splice(index, 1)

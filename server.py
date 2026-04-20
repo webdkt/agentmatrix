@@ -324,7 +324,7 @@ async def graceful_shutdown():
 # === Runtime Initialization ===
 
 
-def init_runtime(matrix_world_dir: Path):
+async def init_runtime(matrix_world_dir: Path):
     """
     Initialize AgentMatrix runtime. Can be called from lifespan (warm start)
     or from /api/config/complete (cold start in-process hot reload).
@@ -372,11 +372,20 @@ def init_runtime(matrix_world_dir: Path):
         user_agent_name=user_agent_name,
     )
 
+    # Initialize async DB connection (must be in async context)
+    await runtime.post_office.init_db()
+
     # Inject broadcast callback
     runtime.set_broadcast_callback(broadcast_message_to_clients)
     for agent in runtime.agents.values():
         agent._broadcast_message_callback = runtime.get_broadcast_callback()
     print("✅ 广播回调已注入到所有 Agent")
+
+    # Startup system (register agents, start services, recover emails)
+    await runtime.startup()
+
+    # Start LLM service monitor
+    runtime._start_llm_monitor()
 
     # Validate User agent
     if user_agent_name not in runtime.agents:
@@ -419,6 +428,9 @@ def init_runtime(matrix_world_dir: Path):
                     "agent_name": email.sender
                     if direction == "inbound"
                     else email.recipient,
+                    "agent_session_id": email.sender_session_id
+                    if direction == "inbound"
+                    else session_id,
                 }
                 message = json.dumps(
                     {"type": "user_session_updated", "data": data}
@@ -465,7 +477,7 @@ async def lifespan(app: FastAPI):
     print(f"🚀 Starting AgentMatrix Server...")
     print(f"📁 Matrix World Directory: {config['matrix_world_dir']}")
 
-    runtime = init_runtime(config["matrix_world_dir"])
+    runtime = await init_runtime(config["matrix_world_dir"])
     app.state.matrix = runtime
     print("✅ Runtime initialized")
 
@@ -711,7 +723,7 @@ async def init_runtime_api(request: dict):
         config["agents_dir"] = matrix_world_dir / ".matrix" / "configs" / "agents"
 
         # Initialize runtime (reads existing files)
-        runtime = init_runtime(matrix_world_dir)
+        runtime = await init_runtime(matrix_world_dir)
         app.state.matrix = runtime
 
         return {
@@ -803,9 +815,8 @@ async def get_sessions(page: int = 1, per_page: int = 20):
 
     user_agent_name = matrix_runtime.get_user_agent_name()
 
-    # Query sessions from database (async)
-    result = await asyncio.to_thread(
-        matrix_runtime.post_office.email_db.get_user_sessions,
+    # Query sessions from database
+    result = await matrix_runtime.post_office.email_db.get_user_sessions(
         user_agent_name=user_agent_name,
         page=page,
         per_page=per_page,
@@ -817,6 +828,9 @@ async def get_sessions(page: int = 1, per_page: int = 20):
         sessions.append(
             {
                 "session_id": conv["session_id"],
+                "agent_name": conv.get("agent_name"),
+                "agent_session_id": conv.get("agent_session_id"),
+                "task_id": conv.get("task_id"),
                 "subject": conv["subject"],
                 "last_email_time": conv["last_email_time"],
                 "participants": conv["participants"],
@@ -1049,9 +1063,7 @@ async def get_session_emails(session_id: str):
             )
 
         # 标记会话为已读（用户查看了这个 session）
-        await asyncio.to_thread(
-            matrix_runtime.post_office.email_db.mark_session_as_read, session_id
-        )
+        await matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
 
         return {"success": True, "emails": emails_data, "total_count": len(emails_data)}
     except Exception as e:
@@ -1067,9 +1079,7 @@ async def mark_session_read(session_id: str):
         raise HTTPException(status_code=503, detail="Runtime not initialized")
 
     try:
-        await asyncio.to_thread(
-            matrix_runtime.post_office.email_db.mark_session_as_read, session_id
-        )
+        await matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1339,11 +1349,28 @@ async def get_agent_sessions(agent_name: str):
         db = matrix_runtime.post_office.email_db
 
         # 获取 Agent 的 sessions (async)
-        sessions = await asyncio.to_thread(db.get_agent_sessions, agent_name)
+        sessions = await db.get_agent_sessions(agent_name)
         return {"sessions": sessions}
     except Exception as e:
         print(f"Error getting agent sessions: {e}")
         return {"sessions": [], "error": str(e)}
+
+
+@app.get("/api/agents/{agent_name}/sessions/{session_id}/events")
+async def get_session_events(agent_name: str, session_id: str, limit: int = 200, offset: int = 0):
+    """获取 Agent session 的事件列表"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        db = matrix_runtime.post_office.email_db
+        events = await db.get_session_events(agent_name, session_id, limit, offset)
+        return {"events": events}
+    except Exception as e:
+        print(f"Error getting session events: {e}")
+        return {"events": [], "error": str(e)}
 
 
 @app.post("/api/agents/{agent_name}/stop")

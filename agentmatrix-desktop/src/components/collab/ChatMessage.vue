@@ -12,17 +12,17 @@ const props = defineProps({
     type: String,
     default: 'User'
   },
-  primaryChatPartner: {
+  agentName: {
     type: String,
     default: null
   }
 })
 
-// ---- Email message ----
+// ---- Bubble (user / agent) ----
 
 const renderedBody = computed(() => {
-  if (props.message.type !== 'email') return ''
-  const body = props.message.data?.body
+  if (!['bubble-user', 'bubble-agent'].includes(props.message.type)) return ''
+  const body = props.message.data?.detail?.body_preview
   if (!body) return ''
   try {
     return marked(body)
@@ -31,46 +31,68 @@ const renderedBody = computed(() => {
   }
 })
 
-const isFromUser = computed(() => {
-  return props.message.type === 'email' && props.message.data?.is_from_user
-})
+// ---- Pill (action events) ----
 
-// For user messages sent to someone other than the primary partner
-const recipientBadge = computed(() => {
-  if (props.message.type !== 'email' || !props.message.data?.is_from_user) return null
-  const recipient = props.message.data.recipient
-  if (!recipient) return null
-  if (props.primaryChatPartner && recipient !== props.primaryChatPartner) {
-    return recipient
+const pillText = computed(() => {
+  if (props.message.type !== 'pill') return ''
+  const { eventType, eventName, detail } = props.message.data
+  if (eventType === 'action') {
+    if (eventName === 'detected') {
+      const actions = detail.actions || []
+      return `检测到动作: ${actions.join(', ')}`
+    }
+    if (eventName === 'started') {
+      return `执行 ${detail.action_name || ''}`
+    }
+    if (eventName === 'completed') {
+      if (detail.status === 'error') {
+        return `${detail.action_name || ''} 出错`
+      }
+      if (detail.status === 'canceled') {
+        return `${detail.action_name || ''} 已取消`
+      }
+      return `完成 ${detail.action_name || detail.action_label || ''}`
+    }
+    if (eventName === 'error') {
+      return `${detail.action_name || ''} 出错: ${detail.error_message || ''}`
+    }
   }
-  return null
+  return `${eventType}.${eventName}`
 })
 
-// For agent messages from someone other than the primary partner
-const senderBadge = computed(() => {
-  if (props.message.type !== 'email' || props.message.data?.is_from_user) return null
-  const sender = props.message.data.sender
-  if (!sender) return null
-  if (props.primaryChatPartner && sender !== props.primaryChatPartner) {
-    return sender
+// ---- Thought (think.brain) ----
+
+const thoughtText = computed(() => {
+  if (props.message.type !== 'thought') return ''
+  return props.message.data?.detail?.raw_reply || ''
+})
+
+// ---- Agent comm (agent-to-agent email) ----
+
+const agentCommText = computed(() => {
+  if (props.message.type !== 'agent-comm') return ''
+  const { eventType, eventName, detail } = props.message.data
+  if (eventType === 'email' && eventName === 'received') {
+    return `收到来自 ${detail.sender || '未知'} 的邮件${detail.subject ? ': ' + detail.subject : ''}`
   }
-  return null
+  if (eventType === 'email' && eventName === 'sent') {
+    return `给 ${detail.recipient || '未知'} 发了邮件${detail.subject ? ': ' + detail.subject : ''}`
+  }
+  return ''
 })
 
-// ---- Status message ----
+// ---- System event ----
 
-const statusConfig = {
-  THINKING: { icon: 'brain', label: 'thinking', spinning: true },
-  WORKING: { icon: 'loader', label: 'working', spinning: true },
-  WAITING_FOR_USER: { icon: 'message-circle', label: 'waiting for you', spinning: false },
-  PAUSED: { icon: 'player-pause', label: 'paused', spinning: false },
-  ERROR: { icon: 'alert-circle', label: 'error', spinning: false },
-  IDLE: { icon: 'circle', label: 'idle', spinning: false }
-}
-
-const currentStatusConfig = computed(() => {
-  if (props.message.type !== 'status') return null
-  return statusConfig[props.message.data?.status] || statusConfig.IDLE
+const systemText = computed(() => {
+  if (props.message.type !== 'system') return ''
+  const { eventName, detail } = props.message.data
+  const labels = {
+    activated: '会话开始',
+    deactivated: '会话结束',
+    user_interrupt: '用户中断',
+    message_auto_compress: '上下文压缩',
+  }
+  return labels[eventName] || eventName
 })
 
 // ---- Time formatting ----
@@ -88,170 +110,78 @@ const formatTime = (timestamp) => {
   if (diffHours < 24) return `${diffHours}h`
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
-
-// ---- Attachment helpers ----
-
-const formatFileSize = (bytes) => {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
-}
 </script>
 
 <template>
-  <!-- Content-type status message: timeline item with message content -->
-  <div v-if="message.type === 'status' && message.data.isContent" class="chat-content-msg">
-    <div class="chat-content-msg__bubble">
-      <div class="chat-content-msg__body">{{ message.data.message }}</div>
-      <div class="chat-content-msg__footer">
-        <span class="chat-content-msg__time">{{ formatTime(message.data.timestamp) }}</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pure status pill (only for non-content status messages, should be rare in timeline) -->
-  <div v-else-if="message.type === 'status'" class="chat-status">
-    <div class="chat-status__pill">
-      <span :class="['chat-status__icon', { 'chat-status__icon--spinning': currentStatusConfig.spinning }]">
-        <MIcon :name="currentStatusConfig.icon" />
-      </span>
-      <span class="chat-status__agent">{{ message.data.agentName }}</span>
-      <span class="chat-status__label">{{ currentStatusConfig.label }}</span>
-    </div>
-  </div>
-
-  <!-- Email message: chat bubble -->
-  <div v-else-if="message.type === 'email'" :class="['chat-msg', { 'chat-msg--user': isFromUser }]">
-    <div :class="['chat-msg__bubble', { 'chat-msg__bubble--other-agent': senderBadge }]">
-      <!-- Badge for non-primary recipient (user sending to someone else) -->
-      <div v-if="recipientBadge" class="chat-msg__badge">
-        → @{{ recipientBadge }}
-      </div>
-
-      <!-- Sender label for non-primary agent messages -->
-      <div v-if="senderBadge" class="chat-msg__other-sender">
-        <MIcon name="agent-dispatch" />
-        <span>{{ senderBadge }}</span>
-      </div>
-
+  <!-- User chat bubble (right-aligned, green) -->
+  <div v-if="message.type === 'bubble-user'" class="chat-msg chat-msg--user">
+    <div class="chat-msg__bubble">
       <div class="chat-msg__header">
-        <span class="chat-msg__time">{{ formatTime(message.data.timestamp) }}</span>
+        <span class="chat-msg__time">{{ formatTime(message.timestamp) }}</span>
       </div>
-
-      <div v-if="message.data.subject && !isFromUser" class="chat-msg__subject">
-        {{ message.data.subject }}
+      <div v-if="message.data.detail?.subject" class="chat-msg__subject">
+        {{ message.data.detail.subject }}
       </div>
-
       <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+    </div>
+  </div>
 
-      <!-- Attachments -->
-      <div v-if="message.data.attachments?.length" class="chat-msg__attachments">
-        <div
-          v-for="(att, i) in message.data.attachments"
-          :key="i"
-          class="chat-msg__attachment"
-        >
-          <MIcon name="paperclip" />
-          <span class="chat-msg__attachment-name">{{ att.filename }}</span>
-          <span class="chat-msg__attachment-size">{{ formatFileSize(att.size) }}</span>
-        </div>
+  <!-- Agent chat bubble (left-aligned, parchment) -->
+  <div v-else-if="message.type === 'bubble-agent'" class="chat-msg">
+    <div class="chat-msg__bubble">
+      <div class="chat-msg__header">
+        <span class="chat-msg__time">{{ formatTime(message.timestamp) }}</span>
+      </div>
+      <div v-if="message.data.detail?.subject" class="chat-msg__subject">
+        {{ message.data.detail.subject }}
+      </div>
+      <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+    </div>
+  </div>
+
+  <!-- Agent-to-agent communication (subtle, centered) -->
+  <div v-else-if="message.type === 'agent-comm'" class="chat-agent-comm">
+    <span class="chat-agent-comm__icon">
+      <MIcon name="mail" />
+    </span>
+    <span class="chat-agent-comm__text">{{ agentCommText }}</span>
+    <span class="chat-agent-comm__time">{{ formatTime(message.timestamp) }}</span>
+  </div>
+
+  <!-- Status pill (action events) -->
+  <div v-else-if="message.type === 'pill'" class="chat-pill">
+    <div class="chat-pill__capsule">
+      <span class="chat-pill__icon">
+        <MIcon :name="message.data.eventName === 'detected' ? 'search' : message.data.eventName === 'started' ? 'loader' : message.data.eventName === 'completed' ? 'check' : 'alert-circle'" />
+      </span>
+      <span class="chat-pill__text">{{ pillText }}</span>
+      <span class="chat-pill__time">{{ formatTime(message.timestamp) }}</span>
+    </div>
+  </div>
+
+  <!-- Thought (agent's inner monologue) -->
+  <div v-else-if="message.type === 'thought'" class="chat-thought">
+    <div class="chat-thought__bubble">
+      <div class="chat-thought__label">
+        <MIcon name="brain" />
+        <span>{{ agentName || 'Agent' }} 的思考</span>
+      </div>
+      <div class="chat-thought__body">{{ thoughtText }}</div>
+      <div class="chat-thought__footer">
+        <span class="chat-thought__time">{{ formatTime(message.timestamp) }}</span>
       </div>
     </div>
+  </div>
+
+  <!-- System event (minimal, centered) -->
+  <div v-else-if="message.type === 'system'" class="chat-system">
+    <span class="chat-system__text">{{ systemText }}</span>
+    <span class="chat-system__time">{{ formatTime(message.timestamp) }}</span>
   </div>
 </template>
 
 <style scoped>
-/* ===== Content-type status message (timeline item) ===== */
-.chat-content-msg {
-  display: flex;
-  padding: var(--spacing-xs) 0;
-  animation: fadeIn 200ms var(--ease-out);
-}
-
-.chat-content-msg__bubble {
-  max-width: 75%;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-}
-
-.chat-content-msg__body {
-  font-size: var(--font-sm);
-  color: var(--neutral-600);
-  line-height: var(--leading-relaxed);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.chat-content-msg__footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 4px;
-}
-
-.chat-content-msg__time {
-  font-size: 10px;
-  color: var(--neutral-400);
-}
-
-/* ===== Status pill (pure status indicator) ===== */
-.chat-status {
-  display: flex;
-  justify-content: center;
-  padding: var(--spacing-xs) 0;
-  animation: fadeIn 200ms var(--ease-out);
-}
-
-.chat-status__pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 14px;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: 999px;
-  font-size: var(--font-xs);
-  color: var(--neutral-400);
-  max-width: 80%;
-}
-
-.chat-status__icon {
-  display: flex;
-  align-items: center;
-  font-size: var(--font-sm);
-  color: var(--neutral-400);
-}
-
-.chat-status__icon--spinning {
-  animation: spin 1.2s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg) }
-}
-
-.chat-status__agent {
-  font-weight: var(--font-semibold);
-  color: var(--neutral-500);
-}
-
-.chat-status__label {
-  color: var(--neutral-400);
-}
-
-.chat-status__detail {
-  color: var(--neutral-400);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ===== Email message ===== */
+/* ===== User chat bubble (right-aligned, green) ===== */
 .chat-msg {
   display: flex;
   padding: var(--spacing-xs) 0;
@@ -263,7 +193,6 @@ const formatFileSize = (bytes) => {
   to { opacity: 1; transform: translateY(0) }
 }
 
-/* Agent messages: left-aligned */
 .chat-msg__bubble {
   max-width: 75%;
   background: var(--parchment-100);
@@ -273,7 +202,6 @@ const formatFileSize = (bytes) => {
   padding: var(--spacing-sm) var(--spacing-md);
 }
 
-/* User messages: right-aligned */
 .chat-msg--user {
   justify-content: flex-end;
 }
@@ -285,7 +213,6 @@ const formatFileSize = (bytes) => {
   border-bottom-right-radius: var(--radius-sm);
 }
 
-/* Header */
 .chat-msg__header {
   display: flex;
   align-items: center;
@@ -299,40 +226,6 @@ const formatFileSize = (bytes) => {
   flex-shrink: 0;
 }
 
-/* Badge for → @Agent (user sending to non-primary) */
-.chat-msg__badge {
-  font-size: 11px;
-  font-weight: var(--font-medium);
-  color: var(--accent);
-  margin-bottom: 4px;
-  padding: 1px 0;
-}
-
-/* Sender label for non-primary agent messages */
-.chat-msg__other-sender {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-xs);
-  font-weight: var(--font-semibold);
-  color: var(--neutral-500);
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--neutral-100);
-}
-
-.chat-msg__other-sender .m-icon {
-  font-size: var(--font-sm);
-  color: var(--neutral-400);
-}
-
-/* Non-primary agent bubble: subtle tint to differentiate */
-.chat-msg__bubble--other-agent {
-  background: var(--neutral-50);
-  border-color: var(--neutral-200);
-}
-
-/* Subject */
 .chat-msg__subject {
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
@@ -342,46 +235,152 @@ const formatFileSize = (bytes) => {
   border-bottom: 1px solid var(--neutral-100);
 }
 
-/* Body */
 .chat-msg__body {
   font-size: var(--font-sm);
   color: var(--neutral-700);
   line-height: var(--leading-relaxed);
 }
 
-/* Attachments */
-.chat-msg__attachments {
-  margin-top: var(--spacing-xs);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.chat-msg__attachment {
+/* ===== Agent-to-agent communication ===== */
+.chat-agent-comm {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  padding: 4px 0;
+  animation: fadeIn 200ms var(--ease-out);
+}
+
+.chat-agent-comm__icon {
   font-size: var(--font-xs);
-  color: var(--neutral-500);
-  padding: 3px 8px;
-  background: rgba(0,0,0,0.03);
-  border-radius: var(--radius-sm);
+  color: var(--neutral-300);
+  display: flex;
+  align-items: center;
 }
 
-.chat-msg__attachment-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--neutral-600);
-  font-weight: var(--font-medium);
+.chat-agent-comm__text {
+  font-size: 11px;
+  color: var(--neutral-400);
+  font-style: italic;
 }
 
-.chat-msg__attachment-size {
+.chat-agent-comm__time {
+  font-size: 10px;
+  color: var(--neutral-300);
   flex-shrink: 0;
+}
+
+/* ===== Status pill ===== */
+.chat-pill {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing-xs) 0;
+  animation: fadeIn 200ms var(--ease-out);
+}
+
+.chat-pill__capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  background: var(--neutral-50);
+  border: 1px solid var(--neutral-100);
+  border-radius: 999px;
+  font-size: var(--font-xs);
+  color: var(--neutral-400);
+  max-width: 80%;
+}
+
+.chat-pill__icon {
+  display: flex;
+  align-items: center;
+  font-size: var(--font-sm);
   color: var(--neutral-400);
 }
 
-/* ===== Markdown styles (inherited from EmailItem pattern) ===== */
+.chat-pill__text {
+  color: var(--neutral-500);
+}
+
+.chat-pill__time {
+  font-size: 10px;
+  color: var(--neutral-300);
+  flex-shrink: 0;
+}
+
+/* ===== Thought (inner monologue) ===== */
+.chat-thought {
+  display: flex;
+  padding: var(--spacing-xs) 0;
+  animation: fadeIn 200ms var(--ease-out);
+}
+
+.chat-thought__bubble {
+  max-width: 75%;
+  background: var(--neutral-50);
+  border: 1px dashed var(--neutral-200);
+  border-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  opacity: 0.85;
+}
+
+.chat-thought__label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  color: var(--neutral-400);
+  margin-bottom: 4px;
+}
+
+.chat-thought__label .m-icon {
+  font-size: var(--font-sm);
+  color: var(--neutral-300);
+}
+
+.chat-thought__body {
+  font-size: var(--font-sm);
+  color: var(--neutral-500);
+  line-height: var(--leading-relaxed);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-thought__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.chat-thought__time {
+  font-size: 10px;
+  color: var(--neutral-300);
+}
+
+/* ===== System event ===== */
+.chat-system {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 0;
+  animation: fadeIn 200ms var(--ease-out);
+}
+
+.chat-system__text {
+  font-size: 11px;
+  color: var(--neutral-300);
+}
+
+.chat-system__time {
+  font-size: 10px;
+  color: var(--neutral-300);
+}
+
+/* ===== Markdown styles ===== */
 .markdown-content :deep(p) {
   margin-bottom: var(--spacing-xs);
 }

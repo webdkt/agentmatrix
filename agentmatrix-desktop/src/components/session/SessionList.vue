@@ -122,6 +122,7 @@ const handleEmailSent = (result) => {
     timestamp: emailData.timestamp,
     last_email_time: emailData.timestamp,
     is_unread: false,
+    agent_session_id: realSessionId,
   }
 
   // Store the resolved email so EmailList can use it without an API call

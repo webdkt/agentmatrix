@@ -85,6 +85,8 @@ const loadFiles = async () => {
 
 const initRootDir = async () => {
   if (!props.agentName || !currentSessionId.value) return
+  // 跳过 placeholder session（目录尚不存在）
+  if (sessionStore.currentSession?._isPlaceholder) return
   const worldPath = await getWorldPath()
   rootDir.value = `${worldPath}/workspace/agent_files/${props.agentName}/work_files/${currentSessionId.value}`
   currentDir.value = rootDir.value

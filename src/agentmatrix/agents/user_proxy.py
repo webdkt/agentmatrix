@@ -122,12 +122,21 @@ class UserProxyAgent(BaseAgent):
             )
             email.recipient_session_id = session["session_id"]
 
-        # 维护 user_sessions（用户收件：is_read=0，对方是发件人）
-        self.post_office.email_db.upsert_user_session(
-            email=email,
+        # 维护 user_sessions（用户收件）
+        # 先尝试创建（新 session），已有 session 则跳过
+        await self.post_office.email_db.create_user_session(
             user_session_id=session["session_id"],
             agent_name=email.sender,
+            task_id=session.get("task_id"),
+            subject=email.subject,
             is_read=0,
+            agent_session_id=email.sender_session_id,
+            timestamp=email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp),
+        )
+        # 如果 session 已存在（Agent 在同一 session 发了新邮件），标记未读
+        await self.post_office.email_db.mark_session_unread(
+            user_session_id=session["session_id"],
+            timestamp=email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp),
         )
 
         # 触发外部钩子（收件）
@@ -135,7 +144,7 @@ class UserProxyAgent(BaseAgent):
             await self.on_user_session_updated(email, "inbound", 0)
 
         # 标记邮件已处理（从 email_to_process 移到 emails 归档表）
-        self.post_office.email_db.mark_emails_processed([email.id])
+        await self.post_office.email_db.mark_emails_processed([email.id])
 
     async def _main_loop(self):
         """简化版 main loop：只收邮件、路由，无 session 生命周期管理。"""
@@ -282,8 +291,14 @@ class UserProxyAgent(BaseAgent):
         await self.post_office.dispatch(email)
 
         # 维护 user_sessions（用户发件：is_read=1，对方是收件人）
-        self.post_office.email_db.upsert_user_session(
-            email=email, user_session_id=session["session_id"], agent_name=to, is_read=1
+        await self.post_office.email_db.create_user_session(
+            user_session_id=session["session_id"],
+            agent_name=to,
+            task_id=session["task_id"],
+            subject=subject,
+            is_read=1,
+            agent_session_id=session["session_id"],
+            timestamp=email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp),
         )
 
         # 触发外部钩子（发件）

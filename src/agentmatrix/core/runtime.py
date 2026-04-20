@@ -117,11 +117,6 @@ class AgentMatrix(AutoLoggerMixin):
         self.power_manager = PowerManager(enabled=True, parent_logger=self.logger)
         self.echo(">>> PowerManager initialized (防止系统休眠已启用)")
 
-        self.echo(">>> 启动系统...")
-        self.startup()
-        self.echo(">>> 启动 LLM 服务监控...")
-        self._start_llm_monitor()
-
         # 🆕 系统状态收集器
         self.status_collector = SystemStatusCollector(self)
         self.echo(">>> 系统状态收集器已初始化")
@@ -168,17 +163,17 @@ class AgentMatrix(AutoLoggerMixin):
                 "下载地址: https://www.docker.com/products/docker-desktop/"
             )
 
-        # 初始化 PostOffice
+        # 初始化 PostOffice（DB 连接需要在 async 上下文中调用 init_db()）
         self.post_office = PostOffice(self.paths, self.user_agent_name)
 
         self.post_office_task = asyncio.create_task(self.post_office.run())
         self.echo(">>> PostOffice Loaded and Running.")
 
-        # 🆕 初始化 TaskScheduler（全局服务）
+        # 🆕 初始化 TaskScheduler（全局服务，共享 DB 连接）
         from ..core.scheduler_service import TaskScheduler
 
         self.task_scheduler = TaskScheduler(
-            db_path=str(self.paths.database_path),
+            db=self.post_office.email_db,
             post_office=self.post_office,
             logger=self.logger,
         )
@@ -332,7 +327,7 @@ class AgentMatrix(AutoLoggerMixin):
             paths=self.paths,
             config=email_proxy_inner,
             post_office=self.post_office,
-            db_path=str(self.paths.database_path),
+            db=self.post_office.email_db,
             parent_logger=self.logger,
         )
 
@@ -432,7 +427,7 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 5. 关闭 PostOffice 数据库连接
         if self.post_office:
-            self.post_office.close()
+            await self.post_office.close()
 
         # 6. 停止单容器管理器
         if hasattr(self, "container_manager") and self.container_manager:
@@ -460,7 +455,7 @@ class AgentMatrix(AutoLoggerMixin):
         except Exception as e:
             self.echo(f">>> Cleanup error: {e}")
 
-    def startup(self):
+    async def startup(self):
         """启动系统 - 注册Agent、启动服务、恢复未投递邮件"""
         self.echo(">>> 正在启动系统...")
 
@@ -470,9 +465,9 @@ class AgentMatrix(AutoLoggerMixin):
         # 1. 注册 Agent 到邮局并启动
         self.running_agent_tasks = []
         for agent in self.agents.values():
-            # 注入 runtime 引用（setter 会自动初始化 SessionManager 等资源）
-            agent.runtime = self
+            # 先注册到邮局（设置 post_office 引用），再注入 runtime（setter 需要 post_office）
             self.post_office.register(agent)
+            agent.runtime = self
 
             self.running_agent_tasks.append(asyncio.create_task(agent.run()))
             self.echo(f">>> Agent {agent.name} 已注册到邮局！")
@@ -486,7 +481,7 @@ class AgentMatrix(AutoLoggerMixin):
             self.echo(">>> EmailProxy 未配置，跳过启动")
 
         # 3. 从数据库恢复未投递的邮件
-        undelivered = self.post_office.email_db.get_undelivered_emails()
+        undelivered = await self.post_office.email_db.get_undelivered_emails()
         if undelivered:
             self.echo(f">>> 恢复 {len(undelivered)} 封未投递邮件...")
             for email_dict in undelivered:
@@ -498,7 +493,7 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 3b. 恢复已投递但未处理的邮件（crash 在 inbox → route 之间）
         for agent_name, agent in self.agents.items():
-            unprocessed = self.post_office.email_db.get_unprocessed_emails(recipient=agent_name)
+            unprocessed = await self.post_office.email_db.get_unprocessed_emails(recipient=agent_name)
             if unprocessed:
                 self.echo(f">>> 恢复 {len(unprocessed)} 封 {agent_name} 未处理邮件...")
                 for email_dict in unprocessed:

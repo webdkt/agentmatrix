@@ -61,7 +61,7 @@ class SchedulerSkillMixin:
         }
 
         # 保存到数据库（通过全局scheduler）
-        self.root_agent.runtime.task_scheduler.db.create_task(task)
+        await self.root_agent.runtime.task_scheduler.db.create_task(task)
 
         return f"✅ 已创建定时任务 '{task_name}'，ID: {task_id}，将在 {trigger_time} 提醒我"
 
@@ -74,7 +74,7 @@ class SchedulerSkillMixin:
     )
     async def delete_task(self, task_id: str) -> str:
         """删除定时任务"""
-        self.root_agent.runtime.task_scheduler.db.delete_task(task_id)
+        await self.root_agent.runtime.task_scheduler.db.delete_task(task_id)
         return f"✅ 已删除任务 {task_id}"
 
     @register_action(
@@ -117,7 +117,7 @@ class SchedulerSkillMixin:
         if not updates:
             return "❌ 没有提供任何更新"
 
-        self.root_agent.runtime.task_scheduler.db.update_task(task_id, updates)
+        await self.root_agent.runtime.task_scheduler.db.update_task(task_id, updates)
         return f"✅ 已更新任务 {task_id}"
 
     @register_action(
@@ -135,7 +135,7 @@ class SchedulerSkillMixin:
         from .time_utils import format_utc_for_display
 
         # 只查询当前Agent的任务
-        tasks = self.root_agent.runtime.task_scheduler.db.list_tasks(
+        tasks = await self.root_agent.runtime.task_scheduler.db.list_tasks(
             status=status_filter or None,
             agent=self.root_agent.name
         )
@@ -171,6 +171,6 @@ class SchedulerSkillMixin:
             return "❌ 无效操作，请使用 'enable' 或 'pause'"
 
         status = 'active' if action == 'enable' else 'paused'
-        self.root_agent.runtime.task_scheduler.db.update_task(task_id, {'status': status})
+        await self.root_agent.runtime.task_scheduler.db.update_task(task_id, {'status': status})
 
         return f"✅ 任务 {task_id} 已{status}"

@@ -130,6 +130,18 @@ class EmailSkillMixin:
         # 发送邮件（通过 root_agent 的 post_office）
         await self.root_agent.post_office.dispatch(msg)
 
+        # 📝 写入 session event: email.sent
+        body_preview = body[:200] if body else None
+        self._log_event("email", "sent", {
+            "email_id": msg.id,
+            "subject": subject,
+            "body_preview": body_preview,
+            "sender": self.root_agent.name,
+            "recipient": to,
+            "has_more": len(body) > 200 if body else False,
+            "attachments": [att.get("filename") for att in attachment_metadata] if attachment_metadata else [],
+        })
+
         # 更新 reply_mapping（自动保存到磁盘，通过 root_agent 的 session_manager）
         await self.root_agent.session_manager.update_reply_mapping(
             msg_id=msg.id,

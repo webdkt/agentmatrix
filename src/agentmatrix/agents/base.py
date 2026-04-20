@@ -365,7 +365,8 @@ class BaseAgent(AutoLoggerMixin):
         if value is not None:
             # 初始化SessionManager（使用 runtime.paths）
             self.session_manager = SessionManager(
-                agent_name=self.name, matrixpath=self.runtime.paths
+                agent_name=self.name, matrixpath=self.runtime.paths,
+                db=self.post_office.email_db,
             )
 
             # 🐳 初始化 Container Session（在 workspace_root 设置后）
@@ -390,7 +391,7 @@ class BaseAgent(AutoLoggerMixin):
         self.logger.info(f"⏸️ Agent {self.name} 已暂停")
 
         # 🔧 更新状态并推送
-        self.update_status(new_status=AgentStatus.PAUSED, new_message="⏸️ Agent已暂停")
+        self.update_status(new_status=AgentStatus.PAUSED)
 
     async def resume(self):
         """恢复 Agent 执行（用于 pause 恢复）"""
@@ -398,7 +399,7 @@ class BaseAgent(AutoLoggerMixin):
             self._paused = False
             self._pause_event.set()
             self.logger.info(f"▶️ Agent {self.name} 从暂停状态恢复")
-            self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已从暂停状态恢复")
+            self.update_status(new_status=AgentStatus.IDLE)
         else:
             self.logger.warning(f"Agent {self.name} 未暂停")
 
@@ -445,7 +446,7 @@ class BaseAgent(AutoLoggerMixin):
             self._session_task.cancel()
             self.logger.info(f"🛑 Agent {self.name} 已停止当前 session")
 
-        self.update_status(new_status=AgentStatus.STOPPED, new_message="🛑 Agent已停止")
+        self.update_status(new_status=AgentStatus.STOPPED)
 
     # ========== ask_user 机制 ==========
 
@@ -711,13 +712,12 @@ class BaseAgent(AutoLoggerMixin):
             "current_collab_file": self.current_collab_file,
         }
 
-    def update_status(self, new_status=None, new_message=None):
+    def update_status(self, new_status=None):
         """
         统一的状态更新接口（唯一修改 Agent 状态的方式）
 
         Args:
             new_status (str, optional): 新的 Agent 状态
-            new_message (str, optional): 添加到状态历史的消息
 
         注意：此方法会触发增量状态推送
         """
@@ -727,19 +727,6 @@ class BaseAgent(AutoLoggerMixin):
 
             self._status_since = datetime.now()
             self.logger.debug(f"📊 Status: {new_status}")
-
-        if new_message is not None:
-            from datetime import datetime
-
-            entry = {
-                "message": new_message,
-                "timestamp": datetime.now().isoformat(),
-                "user_session_id": self.current_user_session_id,
-            }
-            self.status_history.append(entry)
-            if len(self.status_history) > self._max_status_history:
-                self.status_history.pop(0)
-            self.logger.debug(f"📊 Status history: {new_message}")
 
         if self._broadcast_message_callback:
             agent_info = self.get_status_snapshot()
@@ -756,6 +743,33 @@ class BaseAgent(AutoLoggerMixin):
             await self._broadcast_message_callback(message)
         except Exception as e:
             self.logger.warning(f"Failed to send status update: {e}")
+
+    async def _log_session_event(self, session_id: str, event_type: str, event_name: str, event_detail: dict = None):
+        """异步写入 session 事件 + WebSocket 广播"""
+        from datetime import datetime
+        # DB 写入
+        detail_str = json.dumps(event_detail, ensure_ascii=False) if event_detail else None
+        await self.post_office.email_db.insert_session_event(
+            owner=self.name,
+            session_id=session_id,
+            event_type=event_type,
+            event_name=event_name,
+            event_detail=detail_str,
+        )
+        # WebSocket 广播
+        if self._broadcast_message_callback:
+            message = {
+                "type": "SESSION_EVENT",
+                "agent_name": self.name,
+                "session_id": session_id,
+                "data": {
+                    "event_type": event_type,
+                    "event_name": event_name,
+                    "event_detail": event_detail,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            }
+            asyncio.create_task(self._broadcast_message_callback(message))
 
     def get_current_status(self) -> dict:
         """获取当前状态（最新一条）"""
@@ -966,7 +980,10 @@ class BaseAgent(AutoLoggerMixin):
                 self.active_micro_agent.signal_queue.put_nowait(
                     Signal(type="email", payload={
                         "text": email_text,
-                        "email_ids": [email.id]
+                        "email_ids": [email.id],
+                        "sender": email.sender,
+                        "recipient": email.recipient,
+                        "subject": email.subject,
                     })
                 )
             self.logger.debug(f"📧 邮件路由到 active session {session_id[:8]}")
@@ -1029,7 +1046,9 @@ class BaseAgent(AutoLoggerMixin):
             )
         micro_agent.signal_queue.put_nowait(Signal(
             type="email",
-            payload={"text": email_text, "email_ids": [first_email.id]}
+            payload={"text": email_text, "email_ids": [first_email.id],
+                     "sender": first_email.sender, "recipient": first_email.recipient,
+                     "subject": first_email.subject}
         ))
 
         # 启动 session task — task 为空，邮件通过 signal 进入
@@ -1037,6 +1056,14 @@ class BaseAgent(AutoLoggerMixin):
             self._run_session(micro_agent, session)
         )
         self.logger.info(f"🚀 Session {session_id[:8]} 已激活")
+
+        # 📝 写入 session event: session.activated
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="session",
+            event_name="activated",
+            event_detail={"task_id": session.get("task_id"), "original_sender": session.get("original_sender")},
+        )
 
     async def _run_session(self, micro_agent: MicroAgent, session: dict):
         """
@@ -1054,6 +1081,12 @@ class BaseAgent(AutoLoggerMixin):
         except asyncio.CancelledError:
             if self._is_stopping:
                 self.logger.info(f"🛑 Session {session_id[:8]} 被 stop() 中断")
+                # 📝 写入 session event: session.user_interrupt
+                await self._log_session_event(
+                    session_id=session_id,
+                    event_type="session",
+                    event_name="user_interrupt",
+                )
                 if session.get("history"):
                     history = session["history"]
                     if history:
@@ -1117,6 +1150,14 @@ class BaseAgent(AutoLoggerMixin):
             self.update_status(new_status=AgentStatus.IDLE)
 
         self.logger.info(f"✅ Session {session_id[:8]} 已停用")
+
+        # 📝 写入 session event: session.deactivated
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="session",
+            event_name="deactivated",
+            event_detail={"reason": "normal"},
+        )
 
         # 自动处理 waiting emails
         if self.waiting_emails:
