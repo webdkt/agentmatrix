@@ -367,7 +367,7 @@ const handleAgentQuestionSubmit = async () => {
     <div v-else class="chat-history__bottom">
       <EmailReply
         :current-session="currentSession"
-        :emails="[]"
+        :emails="events"
         @send-started="handleEmailSendStarted"
         @sent="handleEmailSent"
         @send-failed="handleEmailSendFailed"

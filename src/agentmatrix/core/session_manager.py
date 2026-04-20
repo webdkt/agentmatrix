@@ -105,7 +105,7 @@ class SessionManager(AutoLoggerMixin):
             email: Email 对象
 
         Returns:
-            dict: session 对象（包含元数据和 history）
+            dict: session 对象（包含元数据和 history），带 _is_new_session 标记
         """
         # Case A: Reply（恢复已存在的 session）
         if hasattr(email, 'in_reply_to') and email.in_reply_to:
@@ -131,6 +131,7 @@ class SessionManager(AutoLoggerMixin):
                 # 1. 先查内存
                 if session_id in self.sessions:
                     session = self.sessions[session_id]
+                    session['_is_new_session'] = False
                     self.logger.debug(f"📨 Resumed existing session {session['session_id'][:8]} from memory")
                     return session
 
@@ -138,12 +139,14 @@ class SessionManager(AutoLoggerMixin):
                 self.logger.info(f"🔄 Session {session_id[:8]} not in memory, loading from disk...")
                 session = await self._load_session_from_disk(session_id)
                 if session:
+                    session['_is_new_session'] = False
                     self.sessions[session_id] = session
                     return session
 
                 # 3. 磁盘也没有，创建新的
                 self.logger.warning(f"⚠️ Session {session_id[:8]} not found on disk, creating new session")
                 session = await self._create_new_session(session_id, email.sender, email.task_id)
+                session['_is_new_session'] = True
                 self.sessions[session_id] = session
                 await self._save_session_to_disk(session)
                 return session
@@ -152,6 +155,7 @@ class SessionManager(AutoLoggerMixin):
         task_id = getattr(email, 'task_id', 'default')
         # 传递None，让_create_new_session自动生成session_id
         session = await self._create_new_session(None, email.sender, task_id)
+        session['_is_new_session'] = True
         self.sessions[session['session_id']] = session
 
         # 🔑 关键修复：将 User 的邮件 ID 也加入 reply_mapping

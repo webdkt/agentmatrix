@@ -109,7 +109,9 @@ class UserProxyAgent(BaseAgent):
         轻量级路由：session 归属 → 更新 recipient_session_id → 推送前台。
         不创建 MicroAgent，不做 AI 处理。
         """
+        self.logger.info(f"🔵 _route_email start: email_id={email.id}, sender={email.sender}, recipient={email.recipient}")
         session = await self.session_manager.get_session(email)
+        self.logger.info(f"🔵 get_session result: session_id={session['session_id']}, _is_new_session={session.get('_is_new_session')}")
         self.current_session = session
         self.current_task_id = session["task_id"]
 
@@ -123,28 +125,53 @@ class UserProxyAgent(BaseAgent):
             email.recipient_session_id = session["session_id"]
 
         # 维护 user_sessions（用户收件）
-        # 先尝试创建（新 session），已有 session 则跳过
-        await self.post_office.email_db.create_user_session(
-            user_session_id=session["session_id"],
-            agent_name=email.sender,
-            task_id=session.get("task_id"),
-            subject=email.subject,
-            is_read=0,
-            agent_session_id=email.sender_session_id,
-            timestamp=email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp),
-        )
-        # 如果 session 已存在（Agent 在同一 session 发了新邮件），标记未读
-        await self.post_office.email_db.mark_session_unread(
-            user_session_id=session["session_id"],
-            timestamp=email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp),
-        )
-
-        # 触发外部钩子（收件）
-        if self.on_user_session_updated:
-            await self.on_user_session_updated(email, "inbound", 0)
+        ts = email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp)
+        if session.get('_is_new_session'):
+            self.logger.info(f"🔵 creating user_session for {session['session_id']}")
+            await self.post_office.email_db.create_user_session(
+                user_session_id=session["session_id"],
+                agent_name=email.sender,
+                task_id=session.get("task_id"),
+                subject=email.subject,
+                is_read=0,
+                agent_session_id=email.sender_session_id,
+                timestamp=ts,
+                last_email_id=email.id,
+            )
+            self.logger.info(f"🔵 user_session created, broadcasting...")
+            # 推送新 user session 到前端，增量插入 session list
+            if self._broadcast_message_callback:
+                new_session = {
+                    "session_id": session["session_id"],
+                    "agent_name": email.sender,
+                    "agent_session_id": email.sender_session_id,
+                    "task_id": session.get("task_id"),
+                    "subject": email.subject,
+                    "timestamp": ts,
+                    "last_email_time": ts,
+                    "is_unread": True,
+                    "last_email_id": email.id,
+                    "participants": [email.sender],
+                }
+                asyncio.create_task(self._broadcast_message_callback(
+                    {"type": "NEW_USER_SESSION", "data": new_session}
+                ))
+            self.logger.info(f"🔵 broadcast done")
+        else:
+            self.logger.info(f"🔵 updating user_session for {session['session_id']}")
+            await self.post_office.email_db.update_user_session(
+                user_session_id=session["session_id"],
+                is_read=0,
+                timestamp=ts,
+                last_email_id=email.id,
+                agent_session_id=email.sender_session_id,
+            )
+            self.logger.info(f"🔵 user_session updated")
 
         # 标记邮件已处理（从 email_to_process 移到 emails 归档表）
+        self.logger.info(f"🔵 calling mark_emails_processed for {email.id}")
         await self.post_office.email_db.mark_emails_processed([email.id])
+        self.logger.info(f"🔵 mark_emails_processed done for {email.id}")
 
     async def _main_loop(self):
         """简化版 main loop：只收邮件、路由，无 session 生命周期管理。"""
@@ -173,6 +200,7 @@ class UserProxyAgent(BaseAgent):
         subject,
         content: str = None,
         reply_to_id: str = None,
+        recipient_session_id: str = None,
         attachments=None,
     ):
         """
@@ -285,25 +313,31 @@ class UserProxyAgent(BaseAgent):
             in_reply_to=in_reply_to,  # 🔑 只使用前端传递的值
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 关键：设置发件人的 session
-            recipient_session_id=None,  # 收件人的 session（由收件人收到后更新）
+            recipient_session_id=recipient_session_id,
             metadata=metadata,
         )
         await self.post_office.dispatch(email)
 
         # 维护 user_sessions（用户发件：is_read=1，对方是收件人）
-        await self.post_office.email_db.create_user_session(
-            user_session_id=session["session_id"],
-            agent_name=to,
-            task_id=session["task_id"],
-            subject=subject,
-            is_read=1,
-            agent_session_id=session["session_id"],
-            timestamp=email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp),
-        )
-
-        # 触发外部钩子（发件）
-        if self.on_user_session_updated:
-            await self.on_user_session_updated(email, "outbound", 1)
+        ts = email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp)
+        if in_reply_to:
+            await self.post_office.email_db.update_user_session(
+                user_session_id=session["session_id"],
+                is_read=1,
+                timestamp=ts,
+                last_email_id=email.id,
+            )
+        else:
+            await self.post_office.email_db.create_user_session(
+                user_session_id=session["session_id"],
+                agent_name=to,
+                task_id=session["task_id"],
+                subject=subject,
+                is_read=1,
+                agent_session_id=session["session_id"],
+                timestamp=ts,
+                last_email_id=email.id,
+            )
 
         # 更新 reply_mapping
         await self.session_manager.update_reply_mapping(

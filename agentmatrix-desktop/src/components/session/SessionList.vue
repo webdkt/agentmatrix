@@ -81,7 +81,7 @@ const handleNewEmailStarted = (emailData) => {
 
   const placeholderSession = {
     session_id: placeholderId,
-    name: emailData.recipient,
+    agent_name: emailData.recipient,
     participants: [emailData.recipient],
     subject: emailData.body.substring(0, 50),
     timestamp: new Date().toISOString(),
@@ -108,25 +108,24 @@ const handleEmailSent = (result) => {
     sessionStore.sessions.splice(placeholderIndex, 1)
   }
 
-  // 2. 用 result 数据构造真实 session，增量插入
-  // result = { response, placeholderId } from NewEmailModal
-  // response = { success, task_id, email: { ... } } from backend API
-  const emailData = result.response.email
+  // 2. 用 API 返回的 email 数据构造真实 session
+  // 新邮件时: sender_session_id = task_id = readable id = user_session_id = agent_session_id
+  const email = result.response.email
+  const sessionId = email.sender_session_id || result.response.task_id
+  const taskId = result.response.task_id
 
-  const realSessionId = emailData.sender_session_id || emailData.task_id || result.response.task_id
   const realSession = {
-    session_id: realSessionId,
-    name: emailData.recipient,
-    participants: [emailData.recipient],
-    subject: emailData.subject || emailData.body.substring(0, 50),
-    timestamp: emailData.timestamp,
-    last_email_time: emailData.timestamp,
+    session_id: sessionId,
+    agent_name: email.recipient,
+    agent_session_id: sessionId,
+    task_id: taskId,
+    participants: [email.recipient],
+    subject: email.subject || email.body.substring(0, 50),
+    timestamp: email.timestamp,
+    last_email_time: email.timestamp,
     is_unread: false,
-    agent_session_id: realSessionId,
+    last_email_id: email.id,
   }
-
-  // Store the resolved email so EmailList can use it without an API call
-  setResolvedEmailForSession(realSessionId, emailData)
 
   sessionStore.sessions.unshift(realSession)
   sessionStore.selectSession(realSession)

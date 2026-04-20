@@ -95,8 +95,8 @@ class PostOffice(AutoLoggerMixin):
                     email = await self.queue.get()
                     if email.recipient in self.directory:
                         target = self.directory[email.recipient]
-                        await target.inbox.put(email)
                         await self.email_db.mark_email_delivered(email.id)
+                        await target.inbox.put(email)
                     else:
                         self.logger.warning(f"Dropped mail to {email.recipient}")
                     self.queue.task_done()

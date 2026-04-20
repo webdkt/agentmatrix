@@ -109,7 +109,8 @@ class AgentMatrixDB(AutoLoggerMixin):
                 subject TEXT,
                 is_read INTEGER NOT NULL DEFAULT 0,
                 timestamp TEXT,
-                created_at TEXT
+                created_at TEXT,
+                last_email_id TEXT
             )
         """)
         await self.conn.execute("""
@@ -218,16 +219,22 @@ class AgentMatrixDB(AutoLoggerMixin):
             row = await cursor.fetchone()
             await cursor.close()
             if not row:
+                self.logger.warning(f"🔵 mark_emails_processed: {eid[:8]} NOT FOUND in email_to_process")
                 continue
             d = dict(row)
+            self.logger.info(f"🔵 mark_emails_processed: found {eid[:8]} in email_to_process, inserting to emails...")
             await self.conn.execute(
                 "INSERT OR IGNORE INTO emails (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (d["id"], d["timestamp"], d["sender"], d["recipient"],
                  d["subject"], d["body"], d["in_reply_to"], d["task_id"],
                  d["sender_session_id"], d["recipient_session_id"], d["metadata"]),
             )
-            await self.conn.execute("DELETE FROM email_to_process WHERE id = ?", (eid,))
+            cursor2 = await self.conn.execute("DELETE FROM email_to_process WHERE id = ?", (eid,))
+            deleted = cursor2.rowcount
+            await cursor2.close()
+            self.logger.info(f"🔵 mark_emails_processed: delete rowcount={deleted}")
         await self.conn.commit()
+        self.logger.info(f"🔵 mark_emails_processed: commit done")
 
     async def get_unprocessed_emails(self, recipient: str = None):
         if recipient:
@@ -367,18 +374,56 @@ class AgentMatrixDB(AutoLoggerMixin):
     async def create_user_session(
         self, user_session_id: str, agent_name: str, task_id: str, subject: str,
         is_read: int = 0, agent_session_id: str = None, timestamp: str = None,
+        last_email_id: str = None,
     ):
         if timestamp is None:
             timestamp = datetime.now().isoformat()
         await self.conn.execute(
             """INSERT OR IGNORE INTO user_sessions
                 (user_session_id, agent_name, agent_session_id, task_id, subject,
-                 is_read, timestamp, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                 is_read, timestamp, created_at, last_email_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_session_id, agent_name, agent_session_id, task_id, subject,
-             is_read, timestamp, timestamp),
+             is_read, timestamp, timestamp, last_email_id),
         )
         await self.conn.commit()
+
+    async def update_user_session(
+        self, user_session_id: str, is_read: int = None,
+        timestamp: str = None, last_email_id: str = None,
+        agent_session_id: str = None,
+    ):
+        sets = []
+        params = []
+        if is_read is not None:
+            sets.append("is_read = ?")
+            params.append(is_read)
+        if timestamp is not None:
+            sets.append("timestamp = ?")
+            params.append(timestamp)
+        if last_email_id is not None:
+            sets.append("last_email_id = ?")
+            params.append(last_email_id)
+        if agent_session_id is not None:
+            sets.append("agent_session_id = ?")
+            params.append(agent_session_id)
+        if not sets:
+            return
+        params.append(user_session_id)
+        await self.conn.execute(
+            f"UPDATE user_sessions SET {', '.join(sets)} WHERE user_session_id = ?",
+            params,
+        )
+        await self.conn.commit()
+
+    async def get_user_session(self, user_session_id: str) -> Optional[dict]:
+        cursor = await self.conn.execute(
+            "SELECT * FROM user_sessions WHERE user_session_id = ?",
+            (user_session_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
 
     async def mark_session_unread(self, user_session_id: str, timestamp: str = None):
         if timestamp is None:
@@ -406,7 +451,8 @@ class AgentMatrixDB(AutoLoggerMixin):
         offset = (page - 1) * per_page
         cursor = await self.conn.execute(
             """SELECT user_session_id AS session_id, agent_name, agent_session_id,
-                      task_id, subject, timestamp AS last_email_time, is_read
+                      task_id, subject, timestamp AS last_email_time, is_read,
+                      last_email_id
                FROM user_sessions
                ORDER BY timestamp DESC
                LIMIT ? OFFSET ?""",

@@ -41,6 +41,10 @@ export const useWebSocketStore = defineStore('websocket', {
       if (data.type === 'SESSION_EVENT') {
         this.handleSessionEvent(data)
       }
+      // 处理新 user session（Agent 主动发新邮件时推送）
+      else if (data.type === 'NEW_USER_SESSION') {
+        this.handleNewUserSession(data.data)
+      }
       // 处理运行时事件（USER_INTERACTION 等）
       else if (data.type === 'runtime_event') {
         this.handleRuntimeEvent(data.data)
@@ -68,10 +72,9 @@ export const useWebSocketStore = defineStore('websocket', {
       const userSessionId = sessionStore.agentSessionLookup(agent_name, agentSessionId)
 
       if (!userSessionId) {
-        // 找不到对应 user_session — Agent 发起的新 session
-        // 刷新 session list 来获取新 session
-        console.log(`📬 SESSION_EVENT: no user_session for ${agent_name}:${agentSessionId}, refreshing sessions`)
-        sessionStore.fetchSessions()
+        // 找不到对应 user_session — 新 session 尚未建立映射
+        // 等 user_sessions 更新后自然能匹配上
+        console.log(`📬 SESSION_EVENT: no user_session for ${agent_name}:${agentSessionId}`)
         return
       }
 
@@ -239,6 +242,18 @@ export const useWebSocketStore = defineStore('websocket', {
             sessionStore.clearGlobalPendingQuestion()
           }
         })
+      }
+    },
+
+    /**
+     * 处理 NEW_USER_SESSION — Agent 主动发新邮件时，后端推送新 user session
+     */
+    handleNewUserSession(sessionData) {
+      const sessionStore = useSessionStore()
+      // 检查是否已存在（避免重复插入）
+      const exists = sessionStore.sessions.some(s => s.session_id === sessionData.session_id)
+      if (!exists) {
+        sessionStore.sessions.unshift(sessionData)
       }
     },
 

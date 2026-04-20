@@ -121,7 +121,7 @@ class EmailSkillMixin:
             in_reply_to=in_reply_to,
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 🆕 发件人的 session
-            recipient_session_id=None,  # 收件人的 session（由收件人收到后更新）
+            recipient_session_id=last_email.sender_session_id if last_email else None,
             metadata={"attachments": attachment_metadata}
             if attachment_metadata
             else {},
@@ -132,7 +132,7 @@ class EmailSkillMixin:
 
         # 📝 写入 session event: email.sent
         body_preview = body[:200] if body else None
-        self._log_event("email", "sent", {
+        await self._log_event("email", "sent", {
             "email_id": msg.id,
             "subject": subject,
             "body_preview": body_preview,

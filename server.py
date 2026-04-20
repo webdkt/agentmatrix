@@ -393,68 +393,7 @@ async def init_runtime(matrix_world_dir: Path):
             f"User agent '{user_agent_name}' not found in loaded agents. Available agents: {list(runtime.agents.keys())}"
         )
     user_agent = runtime.agents[user_agent_name]
-    if not hasattr(user_agent, "set_session_update_handler"):
-        raise Exception(
-            f"Agent '{user_agent_name}' is not a UserProxyAgent (missing set_session_update_handler method)"
-        )
     print(f"✅ User agent validation passed: '{user_agent_name}'")
-
-    # Set up User agent's session update callback to push events via WebSocket
-    actual_user_name = runtime.get_user_agent_name()
-    if actual_user_name in runtime.agents:
-
-        async def user_session_update_callback(email, direction, is_read):
-            """Callback to push user session updates to WebSocket clients"""
-            try:
-                session_id = (
-                    email.recipient_session_id
-                    if direction == "inbound"
-                    else email.sender_session_id
-                )
-                data = {
-                    "id": email.id,
-                    "timestamp": email.timestamp.isoformat(),
-                    "sender": email.sender,
-                    "recipient": email.recipient,
-                    "subject": email.subject,
-                    "body": email.body,
-                    "in_reply_to": email.in_reply_to,
-                    "task_id": email.task_id,
-                    "sender_session_id": email.sender_session_id,
-                    "recipient_session_id": email.recipient_session_id,
-                    "session_id": session_id,
-                    "direction": direction,
-                    "is_read": is_read,
-                    "agent_name": email.sender
-                    if direction == "inbound"
-                    else email.recipient,
-                    "agent_session_id": email.sender_session_id
-                    if direction == "inbound"
-                    else session_id,
-                }
-                message = json.dumps(
-                    {"type": "user_session_updated", "data": data}
-                )
-                for ws in active_websockets[:]:
-                    try:
-                        await ws.send_text(message)
-                    except Exception as e:
-                        print(f"⚠️  Error sending to WebSocket: {e}")
-                        active_websockets.remove(ws)
-                print(
-                    f"📧 User session updated ({direction}): {email.sender} -> {email.recipient}: {email.subject}"
-                )
-            except Exception as e:
-                print(f"⚠️  Error in user session update callback: {e}")
-
-        runtime.agents[actual_user_name].set_session_update_handler(
-            user_session_update_callback
-        )
-        print(
-            f"✅ User agent session update callback configured for '{actual_user_name}'"
-        )
-    else:
-        print(f"⚠️  Warning: User agent '{actual_user_name}' not found in runtime")
 
     print(f"✅ AgentMatrix runtime initialized successfully")
     print(f"🤖 Loaded agents: {list(runtime.agents.keys())}")
@@ -835,6 +774,7 @@ async def get_sessions(page: int = 1, per_page: int = 20):
                 "last_email_time": conv["last_email_time"],
                 "participants": conv["participants"],
                 "is_unread": conv.get("is_unread", False),
+                "last_email_id": conv.get("last_email_id"),
             }
         )
 
@@ -856,6 +796,7 @@ async def send_email(
     subject: Optional[str] = Form(""),
     body: str = Form(...),
     in_reply_to: Optional[str] = Form(None),
+    recipient_session_id: Optional[str] = Form(None),
     attachments: List[UploadFile] = File(default=[]),
 ):
     """Send an email with attachments (new session or reply)"""
@@ -999,6 +940,7 @@ async def send_email(
         subject=subject,
         content=body,
         reply_to_id=in_reply_to,
+        recipient_session_id=recipient_session_id,
         attachments=attachment_metadata if attachment_metadata else None,
     )
 

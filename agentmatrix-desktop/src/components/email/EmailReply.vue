@@ -65,13 +65,13 @@ const placeholder = computed(() => {
 const getRecipient = (email) => {
   if (!email) return ''
   if (email.is_from_user) {
-    return email.recipient || props.currentSession?.name || 'Agent'
+    return email.recipient || props.currentSession?.agent_name || 'Agent'
   } else {
     return email.sender || 'Agent'
   }
 }
 
-// 发送回复（只针对最后一条邮件）
+// 发送回复
 const sendReply = async () => {
   if (!canSend.value) return
 
@@ -80,27 +80,13 @@ const sendReply = async () => {
   let placeholder = null
 
   try {
-    // 构建邮件数据
-    if (lastEmail.value) {
-      // 回复邮件
-      const recipient = lastEmail.value.is_from_user
-        ? (lastEmail.value.recipient || props.currentSession.name)
-        : lastEmail.value.sender
-
-      emailData = {
-        recipient,
-        subject: '',
-        body: replyBody.value,
-        in_reply_to: lastEmail.value.id,
-        task_id: lastEmail.value.task_id || props.currentSession.session_id
-      }
-    } else {
-      // 没有邮件，发送给会话的 agent
-      emailData = {
-        recipient: props.currentSession.name,
-        subject: '',
-        body: replyBody.value
-      }
+    emailData = {
+      recipient: props.currentSession.agent_name,
+      subject: '',
+      body: replyBody.value,
+      task_id: props.currentSession.task_id || props.currentSession.session_id,
+      in_reply_to: props.currentSession.last_email_id || undefined,
+      recipient_session_id: props.currentSession.agent_session_id || undefined,
     }
 
     // 创建 placeholder，立即通知父组件

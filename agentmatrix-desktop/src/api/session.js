@@ -52,6 +52,9 @@ export const sessionAPI = {
     if (emailData.in_reply_to) {
       formData.append('in_reply_to', emailData.in_reply_to)
     }
+    if (emailData.recipient_session_id) {
+      formData.append('recipient_session_id', emailData.recipient_session_id)
+    }
 
     // 添加所有文件
     if (files && files.length > 0) {
