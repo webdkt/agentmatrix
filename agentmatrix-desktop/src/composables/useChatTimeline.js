@@ -83,6 +83,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     if (type === 'think') return 'thought'
     if (type === 'action') {
       if (name === 'detected') return 'skip'
+      if (detail.action_name === 'send_internal_mail') return 'skip'
       return 'pill'
     }
     if (type === 'session') {

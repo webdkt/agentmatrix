@@ -46,16 +46,18 @@ const pillText = computed(() => {
       return `执行 ${detail.action_name || ''}`
     }
     if (eventName === 'completed') {
+      const label = detail.action_label || detail.action_name || ''
       if (detail.status === 'error') {
-        return `${detail.action_name || ''} 出错`
+        return `${label} 出错`
       }
       if (detail.status === 'canceled') {
-        return `${detail.action_name || ''} 已取消`
+        return `${label} 已取消`
       }
-      return `完成 ${detail.action_name || detail.action_label || ''}`
+      return `${label} 完成`
     }
     if (eventName === 'error') {
-      return `${detail.action_name || ''} 出错: ${detail.error_message || ''}`
+      const label = detail.action_label || detail.action_name || ''
+      return `${label} 出错: ${detail.error_message || ''}`
     }
   }
   return `${eventType}.${eventName}`
