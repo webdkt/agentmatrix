@@ -22,12 +22,15 @@ const props = defineProps({
 
 const renderedBody = computed(() => {
   if (!['bubble-user', 'bubble-agent', 'thought'].includes(props.message.type)) return ''
-  const body = props.message.type === 'thought'
-    ? props.message.data?.detail?.thought
-    : props.message.data?.detail?.body_preview
+  if (props.message.type === 'thought') {
+    const body = props.message.data?.detail?.thought
+    if (!body) return ''
+    return body
+  }
+  const body = props.message.data?.detail?.body_preview
   if (!body) return ''
   try {
-    return marked(body)
+    return marked(body).trim()
   } catch {
     return body
   }
@@ -92,14 +95,12 @@ const formatTime = (timestamp) => {
   if (!timestamp) return ''
   const date = new Date(timestamp)
   const now = new Date()
-  const diffMs = now - date
-  const diffMins = Math.floor(diffMs / (1000 * 60))
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-
-  if (diffMins < 1) return 'now'
-  if (diffMins < 60) return `${diffMins}m`
-  if (diffHours < 24) return `${diffHours}h`
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate()
+  if (isToday) return time
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`
 }
 </script>
 
@@ -121,7 +122,7 @@ const formatTime = (timestamp) => {
   <!-- Thought (agent's inner monologue, bubble style) -->
   <div v-else-if="message.type === 'thought'" class="chat-msg chat-msg--thought-row">
     <div class="chat-msg__bubble chat-msg__bubble--thought">
-      <div class="chat-msg__body chat-msg__body--thought markdown-content" v-html="renderedBody"></div>
+      <div class="chat-msg__body chat-msg__body--thought">{{ renderedBody }}</div>
     </div>
   </div>
 
