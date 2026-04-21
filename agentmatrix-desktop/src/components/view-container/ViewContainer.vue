@@ -7,8 +7,7 @@ import { useConfigStore } from '@/stores/config'
 import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
-import ChatHistory from '@/components/collab/ChatHistory.vue'
-import CollabPanel from '@/components/collab/CollabPanel.vue'
+import AgentSessionPanel from '@/components/collab/AgentSessionPanel.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
 import AgentStatusPanel from '@/components/agent/AgentStatusPanel.vue'
@@ -32,12 +31,6 @@ const configStore = useConfigStore()
 
 // Computed
 const currentSession = computed(() => sessionStore.currentSession)
-
-// Current agent name for collab panel
-const currentAgentName = computed(() => {
-  if (!currentSession.value) return null
-  return currentSession.value.name || currentSession.value.participants?.[0] || null
-})
 
 // Dialog state
 const showAskUserDialog = computed(() => {
@@ -102,7 +95,6 @@ provide('collabDraftMessage', collabDraftMessage)
 // Agent status panel state
 const expandedAgent = ref(null)
 const agentPanelWidth = ref(450) // Default width in pixels
-const collabPanelWidth = ref(450) // Default width in pixels
 
 const handleAgentSelected = (agentName) => {
   if (expandedAgent.value === agentName) {
@@ -138,21 +130,7 @@ onMounted(async () => {
       <KeepAlive>
         <SessionList mode="collab" />
       </KeepAlive>
-      <ChatHistory
-        :user_agent_name="userAgentName"
-      />
-      <ResizableDivider
-        v-if="currentAgentName"
-        :min-width="300"
-        :max-width="800"
-        :current-width="collabPanelWidth"
-        @update:width="collabPanelWidth = $event"
-      />
-      <CollabPanel
-        v-if="currentAgentName"
-        :agent-name="currentAgentName"
-        :style="{ width: `${collabPanelWidth}px` }"
-      />
+      <AgentSessionPanel :user-agent-name="userAgentName" />
     </div>
 
     <!-- Email View -->
