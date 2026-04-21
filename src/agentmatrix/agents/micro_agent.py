@@ -342,6 +342,17 @@ class MicroAgent(AutoLoggerMixin):
     async def _inject_signal(self, signal):
         """将信号注入为 messages，让 agent 在下一轮 think 中看到"""
         self.logger.info(f"Injecting signal: {signal.type}")
+
+        # 📝 写入 session event: session.processing_signal
+        signal_detail = {"signal_type": signal.type}
+        if signal.type == "email":
+            signal_detail["email_ids"] = signal.payload.get("email_ids", [])
+            signal_detail["sender"] = signal.payload.get("sender")
+        elif signal.type in ["action_completed", "actions_completed"]:
+            results = signal.payload.get("results", [])
+            signal_detail["result_count"] = len(results)
+            signal_detail["action_names"] = [r.get("action_name", "") for r in results]
+        await self._log_event("session", "processing_signal", signal_detail)
         if signal.type == "email":
             batch = signal.payload
             # batch = {"text": "combined email text", "email_ids": ["id1", "id2"]}
@@ -356,16 +367,6 @@ class MicroAgent(AutoLoggerMixin):
             self._add_message("user", text)
             # 收集待标记 processed 的 email ids
             self._pending_processed_ids.extend(batch.get("email_ids", []))
-
-            # 📝 写入 session event: email.received
-            await self._log_event("email", "received", {
-                "email_ids": batch.get("email_ids", []),
-                "sender": batch.get("sender"),
-                "recipient": batch.get("recipient"),
-                "subject": batch.get("subject", ""),
-                "body_preview": text[:200],
-                "has_more": len(text) > 200,
-            })
         elif signal.type in ["action_completed", "actions_completed"]:
             # 统一处理单个和多个 actions
             results = signal.payload.get("results", [])
@@ -1685,6 +1686,13 @@ Start generating the Working Notes now.
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
                 self.logger.debug(f"Raw LLM reply:\n{raw_reply}")
+                # 📝 写入 session event: think.brain
+                think_event = raw_reply.replace(action_section_text,"").replace("[ACTION]","").replace("[THOUGHTS]","").strip() if raw_reply else None
+                if think_event:
+                    await self._log_event("think", "brain", {
+                        "step_count": step_count,
+                        "thought": think_event 
+                    })
                 
                 
 
@@ -1710,11 +1718,7 @@ Start generating the Working Notes now.
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply)
 
-                # 📝 写入 session event: think.brain
-                await self._log_event("think", "brain", {
-                    "step_count": step_count,
-                    "raw_reply": raw_reply[:2000] if raw_reply else None,
-                })
+                
 
                 # 3.5 清理图片内容（已被 LLM 看过，避免后续 token 消耗）
                 self._cleanup_multimodal_messages()

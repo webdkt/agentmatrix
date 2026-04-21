@@ -412,7 +412,7 @@ class SingleContainerManager(AutoLoggerMixin):
         container_session = ContainerSession(
             container_name=self.SHARED_CONTAINER_NAME,
             runtime_type=self.runtime_type,
-            initial_workdir=None,
+            initial_workdir=f"/data/agents/{agent_name}/home",
             logger=self.logger,
             username=username,
         )

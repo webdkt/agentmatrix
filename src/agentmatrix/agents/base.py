@@ -965,6 +965,22 @@ class BaseAgent(AutoLoggerMixin):
                 receiver_name=self.name,
             )
 
+        # 📝 写入 session event: email.received（记录原始邮件内容）
+        body_preview = email.body[:200] if email.body else ""
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="email",
+            event_name="received",
+            event_detail={
+                "email_ids": [email.id],
+                "sender": email.sender,
+                "recipient": email.recipient,
+                "subject": email.subject or "",
+                "body_preview": body_preview,
+                "has_more": bool(email.body and len(email.body) > 200),
+            },
+        )
+
         if self.active_session_id is None:
             # 情况 1：无 active session → activate
             await self._activate_session(session, email)
@@ -1134,10 +1150,9 @@ class BaseAgent(AutoLoggerMixin):
         except Exception as e:
             self.logger.warning(f"Failed to save session on deactivate: {e}")
 
-        # 断开 container shell（下次 activate 时重建，避免残留命令跨 session 干扰）
-        if self.container_session and self.container_session.is_alive():
-            self.logger.debug(f"🔌 断开 container shell: {self.container_session.session_id}")
-            self.container_session.stop()
+        # 不再断开 container shell — 保持空闲 shell 开销极低（~5MB 内存，0 CPU），
+        # 且允许用户在 Agent 空闲时通过 Collab Terminal 持续操作。
+        # 若 shell 意外断开，terminal/exec 端点会 lazy-recreate。
 
         # 清理 active 状态
         self._last_deactivated_session_id = session_id

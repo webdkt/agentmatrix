@@ -93,10 +93,16 @@ function classifyEvent(type, name, detail) {
     return 'thought'
   }
   if (type === 'action') {
+    if (name === 'detected') {
+      return 'skip'
+    }
     return 'pill'
   }
   if (type === 'session') {
-    return 'system'
+    if (name === 'activated' || name === 'deactivated') {
+      return 'session-time'
+    }
+    return 'skip'
   }
   return 'system'
 }
@@ -116,7 +122,7 @@ const loadEvents = async (session) => {
 
   try {
     const result = await sessionAPI.getSessionEvents(agentName, agentSessionId)
-    events.value = (result.events || []).map(parseEvent)
+    events.value = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
     sessionStore.markSessionRead(session.session_id)
   } catch (err) {
     error.value = err.message
@@ -130,13 +136,23 @@ const loadEvents = async (session) => {
 
 // ---- Session watcher ----
 
-watch(currentSession, async (newSession) => {
-  // Clear state on session change
-  events.value = []
-  currentAgentStatuses.value = {}
+watch(currentSession, async (newSession, oldSession) => {
+  // 如果是从 placeholder session 切换到真实 session（同一封邮件），不清空 events
+  const isPlaceholderToReal = oldSession?._isPlaceholder && newSession && !newSession._isPlaceholder
+
+  if (!isPlaceholderToReal) {
+    events.value = []
+    currentAgentStatuses.value = {}
+  }
 
   if (newSession) {
     if (newSession._isPlaceholder) {
+      isLoading.value = false
+      return
+    }
+    // placeholder → real: 不重新加载，保留 optimistic 的 placeholder bubble
+    // 后端 SESSION_EVENT 到达时会替换 placeholder 为真实数据
+    if (isPlaceholderToReal) {
       isLoading.value = false
       return
     }
@@ -159,6 +175,9 @@ watch(() => sessionStore.lastSessionEvent, (evt) => {
   if (!isMatch) return
 
   const parsed = parseEvent(evt.data)
+
+  // 跳过不需要渲染的事件（session、action detected）
+  if (parsed.renderType === 'skip') return
 
   // 用户发的邮件（email.received, sender == user）已在本地 optimistic 插入，跳过后端推送
   if (parsed.eventType === 'email' && parsed.eventName === 'received' && parsed.detail.sender === props.user_agent_name) {

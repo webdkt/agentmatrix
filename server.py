@@ -964,7 +964,7 @@ async def send_email(
 
     return {
         "success": True,
-        "task_id": effective_task_id,
+        "task_id": new_email.task_id,
         "message": "Email sent successfully",
         "attachments_count": len(attachment_metadata),
         "email": email_dict,  # Include the created email
@@ -1424,7 +1424,11 @@ async def terminal_exec(agent_name: str, request: Request):
     agent = matrix_runtime.agents[agent_name]
 
     if not agent.container_session or not agent.container_session.is_active:
-        raise HTTPException(status_code=400, detail="Agent container session is not active")
+        # Lazy-recreate: shell 意外断开时自动重建
+        try:
+            await asyncio.to_thread(agent._init_container_session)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to reinitialize container session: {e}")
 
     try:
         body = await request.json()

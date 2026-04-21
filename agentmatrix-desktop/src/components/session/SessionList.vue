@@ -128,7 +128,16 @@ const handleEmailSent = (result) => {
   }
 
   sessionStore.sessions.unshift(realSession)
-  sessionStore.selectSession(realSession)
+
+  // 更新 agent→user session 映射（让后续 SESSION_EVENT 能匹配到）
+  sessionStore.buildAgentSessionMap()
+
+  // 直接替换 currentSession 引用（不调用 selectSession，避免触发 ChatHistory 的 watch 清空 events）
+  if (sessionStore.currentSession?._isPlaceholder) {
+    sessionStore.currentSession = realSession
+  } else {
+    sessionStore.selectSession(realSession)
+  }
 }
 
 // New email 发送失败：移除 placeholder
