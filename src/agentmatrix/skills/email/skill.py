@@ -131,11 +131,11 @@ class EmailSkillMixin:
         await self.root_agent.post_office.dispatch(msg)
 
         # 📝 写入 session event: email.sent
-        body_preview = body[:200] if body else None
+        
         await self._log_event("email", "sent", {
             "email_id": msg.id,
             "subject": subject,
-            "body_preview": body_preview,
+            "body_preview": body,
             "sender": self.root_agent.name,
             "recipient": to,
             "has_more": len(body) > 200 if body else False,

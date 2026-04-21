@@ -197,6 +197,9 @@ class BaseAgent(AutoLoggerMixin):
             f"Container Session 初始化成功 (session_id: {self.container_session.session_id})"
         )
 
+        # 始终挂载 output mirror，让终端输出持续广播
+        self._setup_output_mirror()
+
     async def switch_workspace(self, task_id: str) -> bool:
         """切换工作目录（通过 container session 执行命令）"""
         if self.container_session is None:
@@ -255,12 +258,12 @@ class BaseAgent(AutoLoggerMixin):
 
     # ==================== Collab Mode ====================
 
-    def _setup_collab_output_mirror(self):
+    def _setup_output_mirror(self):
         """
         设置 container session 的 output mirror → WebSocket 广播
 
         reader thread 是同步线程，不能直接调 asyncio 代码。
-        使用 loop.call_soon_threadsafe() 安全地调度协程。
+        使用 asyncio.run_coroutine_threadsafe() 安全地调度协程。
         """
         if not self.container_session:
             return
@@ -269,7 +272,7 @@ class BaseAgent(AutoLoggerMixin):
 
         def _on_output(stream_type: str, line_text: str):
             """在 reader thread 中同步调用"""
-            if not self.collab_mode or not self._broadcast_message_callback:
+            if not self._broadcast_message_callback:
                 return
             loop = self._collab_output_loop
             if loop and loop.is_running():
@@ -282,14 +285,14 @@ class BaseAgent(AutoLoggerMixin):
                 asyncio.run_coroutine_threadsafe(coro, loop)
 
         self.container_session.set_output_callback(_on_output)
-        self.logger.info("📡 Collab output mirror 已启用")
+        self.logger.info("📡 Output mirror 已启用")
 
-    def _teardown_collab_output_mirror(self):
+    def _teardown_output_mirror(self):
         """取消 container session 的 output mirror"""
         if self.container_session:
             self.container_session.set_output_callback(None)
         self._collab_output_loop = None
-        self.logger.info("📡 Collab output mirror 已关闭")
+        self.logger.info("📡 Output mirror 已关闭")
 
     def deprecated_get_skill_prompt(
         self, skill_name: str, prompt_name: str, **kwargs

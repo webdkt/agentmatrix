@@ -2,7 +2,6 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
-import { agentAPI } from '@/api/agent'
 import { addPendingEmail, removePendingEmail, setResolvedEmailForSession } from '@/composables/usePendingEmails'
 import SessionItem from './SessionItem.vue'
 import NewEmailModal from '@/components/dialog/NewEmailModal.vue'
@@ -43,17 +42,6 @@ onMounted(async () => {
 // 方法
 const handleSessionClick = async (session) => {
   await sessionStore.selectSession(session)
-
-  // Toggle collab mode on the session's agent based on current view mode
-  const agentName = session.name || session.participants?.[0]
-  if (agentName) {
-    const enabled = props.mode === 'collab'
-    try {
-      await agentAPI.toggleCollabMode(agentName, enabled)
-    } catch (err) {
-      console.warn(`Failed to toggle collab mode for ${agentName}:`, err)
-    }
-  }
 }
 
 const handleLoadMore = async () => {

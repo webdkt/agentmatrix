@@ -1399,11 +1399,6 @@ async def toggle_collab_mode(agent_name: str, request: Request):
         enabled = body.get("enabled", True)
         agent.collab_mode = enabled
 
-        if enabled:
-            agent._setup_collab_output_mirror()
-        else:
-            agent._teardown_collab_output_mirror()
-
         return {"status": "ok", "collab_mode": agent.collab_mode}
     except Exception as e:
         print(f"Error toggling collab mode for '{agent_name}': {e}")

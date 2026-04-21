@@ -5,7 +5,6 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useBackendStore } from '@/stores/backend'
 import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
-import { useAgentStore } from '@/stores/agent'
 import { useUIStore } from '@/stores/ui'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
@@ -20,7 +19,6 @@ const currentView = ref('collab')
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
 const sessionStore = useSessionStore()
-const agentStore = useAgentStore()
 const uiStore = useUIStore()
 const websocketStore = useWebSocketStore()
 const { isConnected, connect, onMessage } = useWebSocket()
@@ -45,14 +43,8 @@ async function handleEmailToastClick(emailData) {
     }
   }
 
-  // Route to collab if agent for this session is in collab mode
-  const agentName = targetSession?.name || targetSession?.participants?.[0]
-  const agentData = agentName ? agentStore.getAgent(agentName) : null
-  if (agentData?.collab_mode) {
-    currentView.value = 'collab'
-  } else {
-    currentView.value = 'email'
-  }
+  // 统一路由到 Collab View（逐步淘汰 Email View）
+  currentView.value = 'collab'
   uiStore.emailToast.show = false
 }
 
