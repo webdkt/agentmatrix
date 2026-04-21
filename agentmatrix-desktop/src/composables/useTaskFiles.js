@@ -93,6 +93,36 @@ export function useTaskFiles({ agentName, sessionId } = {}) {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
   }
 
+  /**
+   * Copy files (absolute paths) to a destination directory.
+   * If destDir is not provided, copies to rootDir.
+   * After copy, navigates to destDir and refreshes.
+   * Returns { fileNames, destDir } — fileNames is the list of successfully copied basenames.
+   */
+  const copyFiles = async (filePaths, destDir) => {
+    destDir = destDir || rootDir.value
+    if (!destDir || !filePaths?.length) return { fileNames: [], destDir }
+
+    const fileNames = []
+    for (const srcPath of filePaths) {
+      const fileName = srcPath.split('/').pop()
+      const destPath = `${destDir}/${fileName}`
+      try {
+        await invoke('copy_file', { src: srcPath, dest: destPath })
+        fileNames.push(fileName)
+      } catch (err) {
+        console.error(`Failed to copy ${fileName}:`, err)
+      }
+    }
+
+    if (fileNames.length > 0) {
+      currentDir.value = destDir
+      await loadFiles()
+    }
+
+    return { fileNames, destDir }
+  }
+
   // Init file browser when both agent and session are available
   watch([() => toValue(agentName), () => toValue(sessionId)], ([aName, sId]) => {
     if (aName && sId) {
@@ -117,5 +147,6 @@ export function useTaskFiles({ agentName, sessionId } = {}) {
     goUp,
     goRoot,
     formatFileSize,
+    copyFiles,
   }
 }

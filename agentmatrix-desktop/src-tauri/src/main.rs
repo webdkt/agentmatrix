@@ -71,6 +71,13 @@ fn expand_path(path: &str) -> PathBuf {
 }
 
 #[tauri::command]
+fn copy_file(src: String, dest: String) -> Result<(), String> {
+    std::fs::copy(&src, &dest)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to copy {} to {}: {}", src, dest, e))
+}
+
+#[tauri::command]
 fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name: String) -> Result<(), String> {
     // In dev mode, use local resources directory (fixes worktree symlink issues)
     // In production, use resource_dir from the bundle
@@ -1892,6 +1899,7 @@ fn main() {
             read_directory,
             open_browser_with_profile,
             init_matrix_world,
+            copy_file,
             save_llm_config,
             save_email_proxy_config_cmd,
             save_env_file,

@@ -1,114 +1,49 @@
 <script setup>
-import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
-import { useTaskFiles } from '@/composables/useTaskFiles'
-import { Command } from '@tauri-apps/plugin-shell'
-import { getCurrentWebview } from '@tauri-apps/api/webview'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
-  agentName: { type: String, default: null },
-  sessionId: { type: String, default: null },
   width: { type: Number, default: 400 },
+  files: { type: Array, default: () => [] },
+  filesLoading: { type: Boolean, default: false },
+  currentDir: { type: String, default: '' },
+  rootDir: { type: String, default: '' },
+  isAtRoot: { type: Boolean, default: true },
+  relativePath: { type: String, default: '' },
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['load-files', 'open-entry', 'go-up', 'go-root', 'close'])
 
-const {
-  files,
-  filesLoading,
-  currentDir,
-  isAtRoot,
-  relativePath,
-  loadFiles,
-  openEntry,
-  goUp,
-  goRoot,
-  formatFileSize,
-} = useTaskFiles({
-  agentName: () => props.agentName,
-  sessionId: () => props.sessionId,
-})
-
-// File drop upload
-const collabDraftMessage = inject('collabDraftMessage', null)
-const isDragging = ref(false)
-let unlistenDragDrop = null
-
-const handleFilesDrop = async (filePaths) => {
-  if (!currentDir.value) return
-
-  const isWindows = navigator.platform.startsWith('Win')
-  const fileNames = []
-  for (const srcPath of filePaths) {
-    const fileName = srcPath.split('/').pop()
-    const destPath = `${currentDir.value}/${fileName}`
-    try {
-      const cmd = isWindows
-        ? Command.create('copy-file', ['cmd', '/C', 'copy', srcPath, destPath])
-        : Command.create('copy-file', ['cp', srcPath, destPath])
-      const output = await cmd.execute()
-      if (output.code === 0) {
-        fileNames.push(fileName)
-      } else {
-        console.error(`Failed to copy ${fileName}:`, output.stderr)
-      }
-    } catch (err) {
-      console.error(`Failed to copy ${fileName}:`, err)
-    }
-  }
-
-  if (fileNames.length > 0) {
-    await loadFiles()
-    if (collabDraftMessage) {
-      collabDraftMessage.value = `I've uploaded these files:\n${fileNames.map(n => `- ${n}`).join('\n')}\n`
-    }
-  }
+const formatFileSize = (bytes) => {
+  if (!bytes) return ''
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
-
-onMounted(async () => {
-  const webview = await getCurrentWebview()
-  unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
-    if (event.payload.type === 'over') {
-      isDragging.value = true
-    } else if (event.payload.type === 'drop') {
-      isDragging.value = false
-      const paths = event.payload.paths
-      if (paths?.length > 0) {
-        await handleFilesDrop(paths)
-      }
-    } else {
-      isDragging.value = false
-    }
-  })
-})
-
-onUnmounted(() => {
-  if (unlistenDragDrop) unlistenDragDrop()
-})
 </script>
 
 <template>
-  <div class="task-files-panel" :style="{ width: `${width}px` }">
+  <div class="task-files-panel" data-drop-zone="task-files" :style="{ width: `${width}px` }">
     <!-- Header -->
     <div class="task-files-panel__header">
       <MIcon name="folder" />
       <span class="task-files-panel__title">Task Files</span>
       <button
         class="task-files-panel__refresh"
-        @click="loadFiles"
+        @click="emit('load-files')"
         :disabled="filesLoading || !currentDir"
         title="Refresh"
       >
         <MIcon name="refresh" />
       </button>
-      <button class="task-files-panel__close" @click="$emit('close')" title="Close">
+      <button class="task-files-panel__close" @click="emit('close')" title="Close">
         <MIcon name="x" />
       </button>
     </div>
 
     <!-- Path breadcrumb -->
     <div v-if="relativePath" class="task-files-panel__path-bar">
-      <span class="task-files-panel__path-root" @click="goRoot">~/</span>
+      <span class="task-files-panel__path-root" @click="emit('go-root')">~/</span>
       <span class="task-files-panel__path-segments">{{ relativePath.replace(/^\//, '') }}</span>
     </div>
 
@@ -117,7 +52,7 @@ onUnmounted(() => {
       <div
         v-if="!isAtRoot"
         class="task-files-panel__file-item task-files-panel__file-item--parent"
-        @dblclick="goUp"
+        @dblclick="emit('go-up')"
       >
         <MIcon name="arrow-left" />
         <span class="task-files-panel__file-name">..</span>
@@ -126,7 +61,7 @@ onUnmounted(() => {
         v-for="entry in files"
         :key="entry.path"
         class="task-files-panel__file-item"
-        @dblclick="openEntry(entry)"
+        @dblclick="emit('open-entry', entry)"
       >
         <MIcon :name="entry.is_dir ? 'folder' : 'file-text'" />
         <span class="task-files-panel__file-name">{{ entry.name }}</span>
@@ -140,12 +75,6 @@ onUnmounted(() => {
       <div v-if="filesLoading" class="task-files-panel__empty">
         Loading...
       </div>
-    </div>
-
-    <!-- Drag-drop overlay -->
-    <div v-if="isDragging" class="task-files-panel__drop-overlay">
-      <MIcon name="upload" />
-      <span>Drop files to upload</span>
     </div>
   </div>
 </template>
@@ -286,23 +215,5 @@ onUnmounted(() => {
   font-size: var(--font-xs);
   color: var(--neutral-400);
   font-style: italic;
-}
-
-.task-files-panel__drop-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--accent);
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  border: 2px dashed var(--accent);
-  border-radius: var(--radius-sm);
-  z-index: 10;
-  pointer-events: none;
 }
 </style>

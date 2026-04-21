@@ -3,6 +3,8 @@ import { ref, computed, provide, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatTimeline } from '@/composables/useChatTimeline'
 import { useCollabFile } from '@/composables/useCollabFile'
+import { useTaskFiles } from '@/composables/useTaskFiles'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { agentAPI } from '@/api/agent'
 import ChatMessage from './ChatMessage.vue'
 import CollabInput from './CollabInput.vue'
@@ -62,6 +64,78 @@ const showTerminal = ref(false)
 const terminalMinimized = ref(true)
 const isCollabMode = ref(false)
 
+// ---- Task files (single instance shared with TaskFilesPanel) ----
+const taskFiles = useTaskFiles({
+  agentName: () => currentAgentName.value,
+  sessionId: () => currentSessionId.value,
+})
+
+// ---- Drag-drop file upload (single global listener) ----
+const isDragging = ref(false)
+const dropZone = ref(null) // 'task-files' | null
+let unlistenDragDrop = null
+
+function getDropZone(position) {
+  if (!position) return null
+  const clientX = position.x / window.devicePixelRatio
+  const clientY = position.y / window.devicePixelRatio
+  const el = document.elementFromPoint(clientX, clientY)
+  if (!el) return null
+  const zone = el.closest('[data-drop-zone]')
+  return zone?.getAttribute('data-drop-zone') || null
+}
+
+onMounted(async () => {
+  updateMiddleSize()
+  window.addEventListener('resize', updateMiddleSize)
+
+  const webview = await getCurrentWebview()
+  unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
+    if (event.payload.type === 'over') {
+      isDragging.value = true
+      dropZone.value = getDropZone(event.payload.position)
+    } else if (event.payload.type === 'drop') {
+      isDragging.value = false
+      dropZone.value = null
+      const paths = event.payload.paths
+      if (!paths?.length || !currentAgentName.value || !currentSessionId.value) return
+
+      const zone = getDropZone(event.payload.position)
+      const fileNames = []
+
+      if (zone === 'task-files') {
+        // Drop into TaskFilesPanel → copy to currentDir
+        const { fileNames: copied } = await taskFiles.copyFiles(paths, taskFiles.currentDir.value)
+        fileNames.push(...copied)
+        if (fileNames.length > 0) {
+          const rel = taskFiles.relativePath.value
+          const containerDir = rel ? `~/current_task${rel}` : '~/current_task'
+          const fileList = fileNames.map(n => `- ${n}`).join('\n')
+          const draftLine = `已复制以下文件到 \`${containerDir}\` 目录，你看一下：\n${fileList}\n`
+          collabDraftMessage.value = collabDraftMessage.value
+            ? collabDraftMessage.value + '\n' + draftLine
+            : draftLine
+        }
+      } else {
+        // Drop into chat/input area → copy to rootDir
+        const { fileNames: copied } = await taskFiles.copyFiles(paths)
+        fileNames.push(...copied)
+        if (fileNames.length > 0) {
+          showTaskFiles.value = true
+          const fileList = fileNames.map(n => `- ${n}`).join('\n')
+          const draftLine = `已复制以下文件到 \`~/current_task\` 目录，你看一下：\n${fileList}\n`
+          collabDraftMessage.value = collabDraftMessage.value
+            ? collabDraftMessage.value + '\n' + draftLine
+            : draftLine
+        }
+      }
+    } else {
+      isDragging.value = false
+      dropZone.value = null
+    }
+  })
+})
+
 // Middle area ref for sizing calculations
 const middleArea = ref(null)
 const middleSize = ref({ width: 800, height: 600 })
@@ -75,13 +149,9 @@ const updateMiddleSize = () => {
   }
 }
 
-onMounted(() => {
-  updateMiddleSize()
-  window.addEventListener('resize', updateMiddleSize)
-})
-
 onUnmounted(() => {
   window.removeEventListener('resize', updateMiddleSize)
+  if (unlistenDragDrop) unlistenDragDrop()
 })
 
 // ---- Terminal toggle: hidden → minimized → expanded → hidden ----
@@ -207,7 +277,7 @@ const taskFilesWidth = computed(() => {
     <!-- Middle Area -->
     <div ref="middleArea" class="agent-session-panel__middle">
       <!-- Chat messages -->
-      <div ref="messagesContainer" class="agent-session-panel__messages">
+      <div ref="messagesContainer" data-drop-zone="chat" class="agent-session-panel__messages">
         <!-- No session selected -->
         <div v-if="!currentSession" class="agent-session-panel__empty">
           <div class="agent-session-panel__empty-icon">
@@ -275,9 +345,17 @@ const taskFilesWidth = computed(() => {
       <Transition name="slide-right">
         <TaskFilesPanel
           v-if="showTaskFiles && currentAgentName && currentSessionId"
-          :agent-name="currentAgentName"
-          :session-id="currentSessionId"
           :width="taskFilesWidth"
+          :files="taskFiles.files.value"
+          :files-loading="taskFiles.filesLoading.value"
+          :current-dir="taskFiles.currentDir.value"
+          :root-dir="taskFiles.rootDir.value"
+          :is-at-root="taskFiles.isAtRoot.value"
+          :relative-path="taskFiles.relativePath.value"
+          @load-files="taskFiles.loadFiles()"
+          @open-entry="(entry) => taskFiles.openEntry(entry)"
+          @go-up="taskFiles.goUp()"
+          @go-root="taskFiles.goRoot()"
           @close="showTaskFiles = false"
         />
       </Transition>
@@ -292,10 +370,16 @@ const taskFilesWidth = computed(() => {
         @toggle-minimize="terminalMinimized = !terminalMinimized"
         @close="handleTerminalClose"
       />
+
+      <!-- Drag-drop overlay -->
+      <div v-if="isDragging" class="agent-session-panel__drop-overlay">
+        <MIcon name="upload" />
+        <span>{{ dropZone === 'task-files' ? 'Drop to copy into current folder' : 'Drop files to upload' }}</span>
+      </div>
     </div>
 
     <!-- Bottom Input Area -->
-    <div class="agent-session-panel__bottom">
+    <div data-drop-zone="input" class="agent-session-panel__bottom">
       <!-- Ask User Question form -->
       <div v-if="pendingQuestion" class="agent-session-panel__ask-user">
         <div class="agent-session-panel__ask-user-form">
@@ -673,6 +757,25 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__ask-user-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* ---- Drag-drop overlay ---- */
+.agent-session-panel__drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--accent);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  z-index: 20;
+  pointer-events: none;
 }
 
 /* ---- Slide-out transition for TaskFilesPanel ---- */
