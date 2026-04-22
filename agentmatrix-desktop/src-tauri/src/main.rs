@@ -1526,7 +1526,7 @@ async fn initialize_container_packages(
 
 // ─── Ensure Environment (unified startup: container runtime + backend) ───
 
-async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState, init_packages: bool) -> Result<(), String> {
+async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
     let runtime_info = check_container_runtime().await?;
     if runtime_info.runtime == "none" {
         return Err("No container runtime found. Please install Docker or Podman.".to_string());
@@ -1559,7 +1559,7 @@ async fn wizard_complete(app: tauri::AppHandle, state: State<'_, BackendState>) 
         let _ = splash.show();
     }
     // Ensure environment (cold start: init packages)
-    match ensure_environment_logic(&app, &state.inner(), true).await {
+    match ensure_environment_logic(&app, &state.inner()).await {
         Ok(_) => {
             if let Some(splash) = app.get_webview_window("splash") {
                 let _ = splash.close();
@@ -1841,7 +1841,7 @@ fn main() {
 
                     println!("🚀 Starting environment...");
                     let state = app_handle.state::<BackendState>();
-                    match ensure_environment_logic(&app_handle, &state, false).await {
+                    match ensure_environment_logic(&app_handle, &state).await {
                         Ok(_) => {
                             println!("✅ Environment ready, showing main window");
                             if let Some(splash) = app_handle.get_webview_window("splash") {
