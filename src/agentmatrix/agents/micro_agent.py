@@ -1695,7 +1695,7 @@ Start generating the Working Notes now.
 
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
-                self.logger.debug(f"Raw LLM reply:\n{raw_reply}")
+                self.logger.debug(action_section_text)
                 
                 
 
