@@ -95,62 +95,48 @@ class LLMClient(AutoLoggerMixin):
                 self.logger.debug(f"  [{i}] {msg.get('role')}: {msg.get('content')[:200]}{'...' if len(msg.get('content', '')) > 200 else ''}")
         
         for attempt in range(max_retries):
-            try:
-                response = await self.think(messages=messages)
-                raw_reply = response['reply']
+            
+            response = await self.think(messages=messages)
+            raw_reply = response['reply']
 
-                if debug:
-                    self.logger.debug(f"\nLLM Response (raw_reply):")
-                    self.logger.debug(f"  {raw_reply[:500]}...")
+            if debug:
+                self.logger.debug(f"\nLLM Response (raw_reply):")
+                self.logger.debug(f"  {raw_reply[:500]}...")
 
+            # Delegate parsing to the provided parser function
+            # 空白回复、网络超时等系统性故障由上层处理，这里只处理格式问题
+            parsed_result = parser(raw_reply, **parser_kwargs)
 
-                # Handle empty/whitespace-only LLM replies — retry directly
-                # instead of letting the parser treat it as a valid "no action" response.
-                if not raw_reply or not raw_reply.strip():
-                    self.logger.warning(
-                        f"LLM returned empty response on attempt {attempt + 1}/{max_retries}"
-                    )
-                    if attempt == max_retries - 1:
-                        raise ValueError("LLM returned empty response after all retries.")
-                    continue
+            if debug:
+                self.logger.debug(f"\nParser result:")
+                self.logger.debug(f"  {parsed_result}")
+                
 
-                # Delegate parsing to the provided parser function
-                parsed_result = parser(raw_reply, **parser_kwargs)
-
-                if debug:
-                    self.logger.debug(f"\nParser result:")
-                    self.logger.debug(f"  {parsed_result}")
-                    
-
-                if parsed_result.get("status") == "success":
-                    
-                    # 统一返回格式：{"status": "success", "content": ...}
-                    if "content" in parsed_result:
-                        return parsed_result["content"]
-                    else:
-                        # 没有内容字段，返回空字典
-                        return {}
-
-                elif parsed_result.get("status") == "error":
-                    if attempt == max_retries - 1:
-                        # Final attempt failed
-                        raise ValueError("LLM failed to produce a valid response after all retries.")
-
-                    # 🔥 重试策略：增强原始 prompt（不累积历史）
-                    # 提取原始 user message（第一条）
-                    feedback = parsed_result.get("feedback", "请检查输出格式")
-
-                    messages.append({"role": "assistant", "content": raw_reply})
-                    messages.append({"role": "user", "content": feedback})
-                    
-
+            if parsed_result.get("status") == "success":
+                
+                # 统一返回格式：{"status": "success", "content": ...}
+                if "content" in parsed_result:
+                    return parsed_result["content"]
                 else:
-                    # The parser itself is faulty
-                    raise TypeError("Parser function returned an invalid contract response.")
+                    # 没有内容字段，返回空字典
+                    return {}
 
-            except Exception as e:
-                self.logger.exception(f"Micro-Agent: An unexpected error occurred during invocation attempt {attempt + 1}.")
-                raise
+            elif parsed_result.get("status") == "error":
+                if attempt == max_retries - 1:
+                    # Final attempt failed
+                    raise ValueError("LLM failed to produce a valid response after all retries.")
+
+                # 🔥 重试策略：增强原始 prompt（不累积历史）
+                # 提取原始 user message（第一条）
+                feedback = parsed_result.get("feedback", "请检查输出格式")
+
+                messages.append({"role": "assistant", "content": raw_reply})
+                messages.append({"role": "user", "content": feedback})
+                
+
+            else:
+                # The parser itself is faulty
+                raise TypeError("Parser function returned an invalid contract response.")
                 
                 
         # This line should theoretically be unreachable

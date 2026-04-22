@@ -3,12 +3,14 @@ File Operation Skill - 容器内执行版本
 
 核心设计：
 - 所有文件操作在共享容器内以 Agent 用户身份执行
-- 直接使用用户提供的路径，不做任何路径转换
+- 写入文件时，优先尝试将容器路径转换为宿主路径，直接在宿主上写入
+- 这样可以避免管道操作导致的 broken pipe 问题
 - Agent 在自己的工作目录中有完全权限（无白名单限制）
 """
 
 import asyncio
 import base64
+from pathlib import Path
 from typing import Optional
 from ..core.action import register_action
 
@@ -78,6 +80,48 @@ class FileSkillMixin:
 
     # 不可读取的路径（设备文件、伪文件系统等会阻塞或无意义）
     _BLOCKED_PATHS = ("/dev/", "/proc/", "/sys/")
+
+    def _container_path_to_host(self, container_path: str) -> Optional[Path]:
+        """
+        将容器内路径转换为宿主路径
+
+        路径映射规则：
+        - ~ → {matrix_root}/workspace/agent_files/{agent_name}/home/
+        - ~/current_task → {matrix_root}/workspace/agent_files/{agent_name}/work_files/{task_id}/
+        - /data/agents/{agent_name}/ → {matrix_root}/workspace/agent_files/{agent_name}/
+
+        Args:
+            container_path: 容器内路径（如 ~/current_task/data.txt）
+
+        Returns:
+            宿主路径对象，如果路径无法转换则返回 None
+        """
+        agent_name = self.root_agent.name
+        task_id = self.root_agent.current_task_id
+        paths = self.root_agent.runtime.paths
+
+        # 1. 处理 ~ 开头的路径
+        if container_path.startswith("~"):
+            # ~/current_task → 工作目录
+            if container_path == "~/current_task" or container_path.startswith("~/current_task/"):
+                relative_path = container_path[len("~/current_task/"):].lstrip("/")
+                host_dir = paths.get_agent_work_files_dir(agent_name, task_id)
+                return host_dir / relative_path if relative_path else host_dir
+
+            # ~ 或 ~/xxx → home目录
+            relative_path = container_path[len("~/"):].lstrip("/")
+            host_dir = paths.get_agent_home_dir(agent_name)
+            return host_dir / relative_path if relative_path else host_dir
+
+        # 2. 处理 /data/agents/{agent_name}/ 开头的路径
+        container_base = f"/data/agents/{agent_name}/"
+        if container_path.startswith(container_base):
+            relative_path = container_path[len(container_base):].lstrip("/")
+            host_base = paths.workspace_dir / "agent_files" / agent_name
+            return host_base / relative_path
+
+        # 3. 其他路径（如 /tmp, /proc 等）返回 None，需要通过容器执行
+        return None
 
     @register_action(
         short_desc="读取文本文件内容[file_path, start_line=1,end_line=200]",
@@ -151,7 +195,7 @@ class FileSkillMixin:
         allow_overwrite: bool = False,
     ) -> str:
         """
-        写入文件内容（容器内执行）
+        写入文件内容（优先使用宿主路径直接写入，避免 broken pipe）
 
         Args:
             file_path: 文件路径
@@ -159,6 +203,37 @@ class FileSkillMixin:
             mode: 写入模式，'overwrite' 覆盖或 'append' 追加（默认 overwrite）
             allow_overwrite: 是否允许覆盖已存在文件（默认 False）
         """
+        # 优先尝试将容器路径转换为宿主路径
+        host_path = self._container_path_to_host(file_path)
+
+        if host_path:
+            # 可以直接在宿主上写入（避免 broken pipe）
+            host_path_str = str(host_path)
+
+            # 检查文件是否存在
+            if host_path.exists() and mode == "overwrite" and not allow_overwrite:
+                return f"错误：文件已存在，如果要覆盖请设置 allow_overwrite=True\n  文件: {file_path}"
+
+            # 创建目录
+            host_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 直接写入（使用 Python，不需要通过容器）
+            try:
+                if mode == "append":
+                    with open(host_path_str, "a", encoding="utf-8") as f:
+                        f.write(content)
+                else:
+                    with open(host_path_str, "w", encoding="utf-8") as f:
+                        f.write(content)
+
+                self.logger.info(f"[write] 直接写入宿主文件: {host_path_str}")
+                mode_desc = "追加到" if mode == "append" else "写入"
+                return f"成功{mode_desc} {file_path}\n"
+            except Exception as e:
+                self.logger.error(f"[write] 宿主写入失败: {e}")
+                return f"写入文件失败\n- 文件: {file_path}\n- 错误: {str(e)}"
+
+        # 路径无法转换，回退到容器内写入（原来的逻辑）
         container_session = self.root_agent.container_session
 
         # 检查文件是否存在

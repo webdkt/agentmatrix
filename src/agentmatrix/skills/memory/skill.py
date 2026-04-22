@@ -155,7 +155,7 @@ class MemorySkillMixin:
                 f"subject={session_info['first_subject'][:50]})"
             )
 
-            emails = post_office.get_emails_by_session(
+            emails = await post_office.get_emails_by_session(
                 session_id, self.root_agent.name
             )
 

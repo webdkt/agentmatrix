@@ -1617,6 +1617,40 @@ Start generating the Working Notes now.
             lines.append(f"{role}: {preview}")
 
         return "\n".join(lines)
+    
+    async def _think_with_system_failure_recovery(self):
+        """
+        包装 brain.think_with_retry，处理系统性故障（网络超时、服务不可用等）
+        格式问题由 think_with_retry 内部处理
+        """
+        try:
+            return await self.brain.think_with_retry(
+                initial_messages=self.messages,
+                parser=self._parse_actions_from_thought,
+                action_registry=self.action_registry["_flat"],
+                max_retries=3,
+            )
+        except LLMServiceUnavailableError as e:
+            # 系统性故障：等待恢复后重试一次
+            self.logger.warning(
+                f"⚠️ Systemic LLM failure detected: {str(e)}"
+            )
+
+            # 1. 等待 5 秒
+            await asyncio.sleep(5)
+
+            # 2. 等待 LLM service 恢复
+            if not self._is_llm_available():
+                self.logger.warning("🔄 Service still unavailable, waiting for recovery...")
+                await self._wait_for_llm_recovery()
+
+            # 3. 重试一次
+            self.logger.info("🔄 Retrying after service recovery...")
+            return await self.brain.think_with_retry(
+                initial_messages=self.messages,
+                parser=self._parse_actions_from_thought,
+                max_retries=3,
+            )
 
     async def _run_loop(self, exit_actions=[]):
         """信号驱动的执行主循环 - think → launch actions → wait signal → think"""
@@ -1683,16 +1717,12 @@ Start generating the Working Notes now.
                     await self.root_agent.post_office.email_db.mark_emails_processed(ids)
 
             try:
+
                 _, thought = await asyncio.gather(
                     _mark_processed(),
-                    self.brain.think_with_retry(
-                        initial_messages=self.messages,
-                        parser=self._parse_actions_from_thought,
-                        action_registry=self.action_registry["_flat"],
-                        max_retries=3,
-                    ),
+                    self._think_with_system_failure_recovery(),
                 )
-                
+
 
                 # think.brain 的内容已通过 session_events 持久化，不再推 status_history
 

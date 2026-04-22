@@ -155,7 +155,7 @@ async function setupDragDrop() {
   const webview = await getCurrentWebview()
   unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
     // Skip if wizard is active
-    if (wizard.isActive) return
+    if (wizard.isActive.value) return
 
     if (event.payload.type === 'over') {
       isDragging.value = true
