@@ -318,6 +318,7 @@ class UserProxyAgent(BaseAgent):
         )
         await self.post_office.dispatch(email)
 
+
         # 维护 user_sessions（用户发件：is_read=1，对方是收件人）
         ts = email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp)
         if in_reply_to:

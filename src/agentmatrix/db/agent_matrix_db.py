@@ -706,6 +706,44 @@ class AgentMatrixDB(AutoLoggerMixin):
             for r in rows
         ]
 
+    async def get_latest_session_events(self, owner: str, session_id: str, limit: int = 200):
+        """获取最新的 N 条事件，返回按 timestamp ASC 排序"""
+        cursor = await self.conn.execute(
+            "SELECT id, event_type, event_name, event_detail, timestamp FROM session_events WHERE owner = ? AND session_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (owner, session_id, limit),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        rows.reverse()
+        return [
+            {"id": r[0], "event_type": r[1], "event_name": r[2], "event_detail": r[3], "timestamp": r[4]}
+            for r in rows
+        ]
+
+    async def get_session_events_before(self, owner: str, session_id: str, before_timestamp: str, limit: int = 200):
+        """获取指定时间戳之前的 N 条事件，返回按 timestamp ASC 排序"""
+        cursor = await self.conn.execute(
+            "SELECT id, event_type, event_name, event_detail, timestamp FROM session_events WHERE owner = ? AND session_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?",
+            (owner, session_id, before_timestamp, limit),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        rows.reverse()
+        return [
+            {"id": r[0], "event_type": r[1], "event_name": r[2], "event_detail": r[3], "timestamp": r[4]}
+            for r in rows
+        ]
+
+    async def get_session_event_count(self, owner: str, session_id: str) -> int:
+        """获取 session 事件总数"""
+        cursor = await self.conn.execute(
+            "SELECT COUNT(*) FROM session_events WHERE owner = ? AND session_id = ?",
+            (owner, session_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return row[0] if row else 0
+
     async def get_session_events_by_type(self, owner: str, session_id: str, event_types: list, limit: int = 200):
         placeholders = ",".join("?" * len(event_types))
         query = f"""

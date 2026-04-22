@@ -1299,8 +1299,12 @@ async def get_agent_sessions(agent_name: str):
 
 
 @app.get("/api/agents/{agent_name}/sessions/{session_id}/events")
-async def get_session_events(agent_name: str, session_id: str, limit: int = 200, offset: int = 0):
-    """获取 Agent session 的事件列表"""
+async def get_session_events(agent_name: str, session_id: str, limit: int = 200, offset: int = 0, direction: str = "latest", before: str = None):
+    """获取 Agent session 的事件列表
+
+    direction=latest: 默认，取最新的 N 条
+    direction=older: 配合 before 参数，取指定时间戳之前的事件
+    """
     global matrix_runtime
 
     if not matrix_runtime:
@@ -1308,11 +1312,17 @@ async def get_session_events(agent_name: str, session_id: str, limit: int = 200,
 
     try:
         db = matrix_runtime.post_office.email_db
-        events = await db.get_session_events(agent_name, session_id, limit, offset)
-        return {"events": events}
+        if direction == "older" and before:
+            events = await db.get_session_events_before(agent_name, session_id, before, limit)
+        elif direction == "older":
+            events = await db.get_session_events(agent_name, session_id, limit, offset)
+        else:
+            events = await db.get_latest_session_events(agent_name, session_id, limit)
+        total = await db.get_session_event_count(agent_name, session_id)
+        return {"events": events, "total": total}
     except Exception as e:
         print(f"Error getting session events: {e}")
-        return {"events": [], "error": str(e)}
+        return {"events": [], "total": 0, "error": str(e)}
 
 
 @app.post("/api/agents/{agent_name}/stop")

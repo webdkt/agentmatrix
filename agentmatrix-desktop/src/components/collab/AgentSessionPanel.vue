@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, provide, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSessionStore } from '@/stores/session'
 import { useChatTimeline } from '@/composables/useChatTimeline'
 import { useCollabFile } from '@/composables/useCollabFile'
 import { useTaskFiles } from '@/composables/useTaskFiles'
@@ -20,11 +21,13 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
+const sessionStore = useSessionStore()
 
 // ---- Chat timeline (from composable) ----
 const {
   events,
   isLoading,
+  isLoadingMore,
   error,
   messagesContainer,
   answer,
@@ -32,9 +35,11 @@ const {
   currentSession,
   chatTimeline,
   hasContent,
+  hasMoreEvents,
   pendingQuestion,
   primaryAgentName,
   loadEvents,
+  onScroll,
   handleEmailSendStarted,
   handleEmailSendFailed,
   handleEmailSent,
@@ -186,6 +191,15 @@ const toggleCollabMode = async () => {
   }
 }
 
+// ---- Navigate to session where an agent is working ----
+const navigateToAgentSession = (otherSessionId) => {
+  if (!otherSessionId) return
+  const session = sessionStore.sessions.find(s => s.session_id === otherSessionId)
+  if (session) {
+    sessionStore.selectSession(session)
+  }
+}
+
 // ---- Task files panel width ----
 const taskFilesWidth = computed(() => {
   return Math.round(middleSize.value.width * 0.5)
@@ -206,12 +220,20 @@ const taskFilesWidth = computed(() => {
           <span
             v-show="statusInfo.status !== 'IDLE'"
             class="agent-session-panel__status"
+            :class="{ 'agent-session-panel__status--clickable': statusInfo.otherSessionId }"
+            @click="navigateToAgentSession(statusInfo.otherSessionId)"
           >
             <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': statusInfo.status === 'THINKING' || statusInfo.status === 'WORKING' }]">
               <MIcon :name="statusInfo.status === 'THINKING' ? 'brain' : statusInfo.status === 'WORKING' ? 'loader' : statusInfo.status === 'WAITING_FOR_USER' ? 'message-circle' : statusInfo.status === 'PAUSED' ? 'player-pause' : statusInfo.status === 'ERROR' ? 'alert-circle' : 'circle'" />
             </span>
             <span class="agent-session-panel__status-label">
-              {{ statusInfo.status === 'THINKING' ? 'thinking' : statusInfo.status === 'WORKING' ? 'working' : statusInfo.status === 'WAITING_FOR_USER' ? 'waiting' : statusInfo.status === 'PAUSED' ? 'paused' : statusInfo.status === 'ERROR' ? 'error' : '' }}
+              <template v-if="statusInfo.isOnCurrentSession">
+                {{ statusInfo.status === 'THINKING' ? 'thinking' : statusInfo.status === 'WORKING' ? 'working' : statusInfo.status === 'WAITING_FOR_USER' ? 'waiting' : statusInfo.status === 'PAUSED' ? 'paused' : statusInfo.status === 'ERROR' ? 'error' : '' }}
+              </template>
+              <template v-else>
+                正在处理其他工作
+                <MIcon v-if="statusInfo.otherSessionId" name="arrow-right" class="agent-session-panel__status-jump" />
+              </template>
             </span>
           </span>
         </template>
@@ -277,7 +299,11 @@ const taskFilesWidth = computed(() => {
     <!-- Middle Area -->
     <div ref="middleArea" class="agent-session-panel__middle">
       <!-- Chat messages -->
-      <div ref="messagesContainer" data-drop-zone="chat" class="agent-session-panel__messages">
+      <div ref="messagesContainer" data-drop-zone="chat" class="agent-session-panel__messages" @scroll="onScroll">
+        <!-- Loading older events indicator -->
+        <div v-if="isLoadingMore" class="agent-session-panel__loading-more">
+          <MIcon name="loader" class="spin" /> 加载更早的消息...
+        </div>
         <!-- No session selected -->
         <div v-if="!currentSession" class="agent-session-panel__empty">
           <div class="agent-session-panel__empty-icon">
@@ -330,13 +356,19 @@ const taskFilesWidth = computed(() => {
           :key="agentName"
           v-show="statusInfo.status !== 'IDLE'"
           class="agent-session-panel__status-indicator"
+          :class="{ 'agent-session-panel__status-indicator--clickable': statusInfo.otherSessionId }"
+          @click="navigateToAgentSession(statusInfo.otherSessionId)"
         >
           <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': statusInfo.status === 'THINKING' || statusInfo.status === 'WORKING' }]">
             <MIcon :name="statusInfo.status === 'THINKING' ? 'brain' : statusInfo.status === 'WORKING' ? 'loader' : statusInfo.status === 'WAITING_FOR_USER' ? 'message-circle' : statusInfo.status === 'PAUSED' ? 'player-pause' : statusInfo.status === 'ERROR' ? 'alert-circle' : 'circle'" />
           </span>
           <span class="agent-session-panel__status-indicator-agent">{{ agentName }}</span>
-          <span class="agent-session-panel__status-indicator-label">
+          <span v-if="statusInfo.isOnCurrentSession" class="agent-session-panel__status-indicator-label">
             {{ statusInfo.status === 'THINKING' ? 'thinking' : statusInfo.status === 'WORKING' ? 'working' : statusInfo.status === 'WAITING_FOR_USER' ? 'waiting for you' : statusInfo.status === 'PAUSED' ? 'paused' : statusInfo.status === 'ERROR' ? 'error' : '' }}
+          </span>
+          <span v-else class="agent-session-panel__status-indicator-label">
+            正在处理其他工作
+            <MIcon v-if="statusInfo.otherSessionId" name="arrow-right" class="agent-session-panel__status-jump" />
           </span>
         </div>
       </div>
@@ -492,6 +524,22 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__status-label {
   color: var(--neutral-400);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.agent-session-panel__status--clickable {
+  cursor: pointer;
+}
+
+.agent-session-panel__status--clickable:hover {
+  background: var(--neutral-100);
+  border-color: var(--neutral-200);
+}
+
+.agent-session-panel__status-jump {
+  font-size: 10px;
 }
 
 .agent-session-panel__toolbar {
@@ -570,6 +618,25 @@ const taskFilesWidth = computed(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.agent-session-panel__loading-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.agent-session-panel__loading-more .spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* ---- Empty States ---- */
@@ -664,6 +731,18 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__status-indicator-label {
   color: var(--neutral-400);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.agent-session-panel__status-indicator--clickable {
+  cursor: pointer;
+}
+
+.agent-session-panel__status-indicator--clickable:hover {
+  background: var(--neutral-100);
+  border-color: var(--neutral-200);
 }
 
 /* ---- Bottom Input Area ---- */

@@ -242,10 +242,15 @@ class ContainerSession:
                 if line_str == self._start_marker:
                     continue
 
-                # 检查结束标记
-                if line_str.startswith(self._end_marker):
+                # 检查结束标记（处理 base64 等无换行输出与 marker 拼接的情况）
+                if self._end_marker in line_str:
+                    marker_idx = line_str.find(self._end_marker)
+                    if marker_idx > 0:
+                        # marker 之前的部分是合法 stdout
+                        stdout_lines.append(line_str[:marker_idx].rstrip("\n"))
                     # 解析退出码: __SESSION_xxx_END__:0
-                    parts = line_str.split(":")
+                    marker_and_rest = line_str[marker_idx:]
+                    parts = marker_and_rest.split(":")
                     if len(parts) >= 2:
                         try:
                             exit_code = int(parts[-1])

@@ -8,6 +8,17 @@ import re
 from typing import List, Dict
 
 
+def _extract_text(content) -> str:
+    """从 content 字段提取纯文本，支持 str 和 multimodal list 格式。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content if isinstance(part, dict)
+        )
+    return str(content)
+
+
 def estimate_tokens(text: str) -> int:
     """
     估算文本的 token 数量
@@ -59,7 +70,7 @@ def estimate_messages_tokens(messages: List[Dict]) -> int:
     Returns:
         估算的总 token 数量
     """
-    return sum(estimate_tokens(m.get("content", "")) for m in messages)
+    return sum(estimate_tokens(_extract_text(m.get("content", ""))) for m in messages)
 
 
 def format_session_messages(messages: List[Dict]) -> str:

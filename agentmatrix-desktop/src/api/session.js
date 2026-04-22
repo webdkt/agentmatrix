@@ -107,10 +107,12 @@ export const sessionAPI = {
    * @param {string} sessionId - Agent session ID
    * @param {number} limit - 最大数量
    * @param {number} offset - 偏移量
+   * @param {string} direction - 'latest' 或 'older'
+   * @param {string} before - direction='older' 时的时间戳
    */
-  async getSessionEvents(agentName, sessionId, limit = 200, offset = 0) {
-    return API.get(`/api/agents/${agentName}/sessions/${sessionId}/events`, {
-      params: { limit, offset }
-    })
+  async getSessionEvents(agentName, sessionId, limit = 200, offset = 0, direction = 'latest', before = null) {
+    const params = { limit, offset, direction }
+    if (before) params.before = before
+    return API.get(`/api/agents/${agentName}/sessions/${sessionId}/events`, { params })
   },
 }

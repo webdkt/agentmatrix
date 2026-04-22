@@ -1,6 +1,5 @@
 """Vision Skill - 图片查看和分析技能"""
 
-import json
 import asyncio
 import mimetypes
 from ...core.action import register_action
@@ -24,24 +23,25 @@ class VisionSkillMixin:
     _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10,485,760 bytes
 
     @register_action(
-        short_desc="查看图片[file_path]",
+        short_desc="查看图片[file_path, instruction?]",
         description="查看并分析图片文件内容。支持常见图片格式（PNG, JPEG, GIF, WebP, BMP）。文件大小限制 10MB。",
         param_infos={
-            "file_path": "图片文件路径（容器内绝对路径或相对路径）"
+            "file_path": "图片文件路径（容器内绝对路径或相对路径）",
+            "instruction": "可选，对图片的观察指令，如'描述图片内容'、'识别图中文字'等。默认为描述图片内容。"
         },
     )
-    async def look(self, file_path: str) -> str:
+    async def look(self, file_path: str, instruction: str = "") -> str:
         """
         查看图片内容
 
-        返回包含图片数据的特殊 JSON 字符串，
-        由 _inject_signal 检测并按 visual_signal 处理
+        对图片调用视觉大模型进行理解，返回文本描述。
 
         Args:
             file_path: 图片文件路径
+            instruction: 可选的观察指令，默认"描述图片内容"
 
         Returns:
-            str: JSON 字符串，包含图片数据和用户消息
+            str: 视觉大模型对图片的理解文本
         """
         container_session = self.root_agent.container_session
 
@@ -52,7 +52,6 @@ class VisionSkillMixin:
         )
 
         if exit_code != 0 or stdout.strip() != "exists":
-            # 普通错误，返回普通字符串
             return f"查看图片失败：文件不存在\n  路径: {file_path}"
 
         # 2. 检查文件大小（10MB 限制）
@@ -61,6 +60,7 @@ class VisionSkillMixin:
             container_session.execute, size_cmd
         )
 
+        file_size = 0
         if exit_code == 0:
             try:
                 file_size = int(size_stdout.strip())
@@ -96,16 +96,25 @@ class VisionSkillMixin:
 
         base64_data = base64_stdout.strip()
 
-        # 5. 构造包含图片数据的返回值
-        filename = file_path.split("/")[-1]
-        result = {
-            "__type__": "visual_result",
-            "message": f"已加载图片: {filename}\n  格式: {mime_type}\n  大小: {file_size / 1024:.1f}KB",
-            "file_path": file_path,
-            "mime_type": mime_type,
-            "base64_data": base64_data,
-            "size_bytes": file_size,
-        }
+        # 5. 构造 prompt
+        if not instruction:
+            instruction = "请详细描述这张图片的内容。"
 
-        # 返回 JSON 字符串，由 _inject_signal 检测并处理
-        return json.dumps(result, ensure_ascii=False)
+        filename = file_path.split("/")[-1]
+
+        # 6. 调用视觉大模型
+        vision_client = getattr(self.root_agent, "vision_brain", None)
+        if vision_client is None:
+            # fallback 到主 brain
+            vision_client = self.brain
+
+        try:
+            reply = await vision_client.think_with_image(
+                messages=instruction,
+                image=base64_data,
+                mime_type=mime_type,
+            )
+        except Exception as e:
+            return f"查看图片失败：视觉模型调用出错\n  路径: {file_path}\n  错误: {e}"
+
+        return f"📷 {filename} ({mime_type}, {file_size / 1024:.1f}KB)\n\n{reply}"

@@ -460,6 +460,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         messages: Union[str, List[Dict[str, str]]],
         image: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -468,6 +469,7 @@ class LLMClient(AutoLoggerMixin):
         Args:
             messages: 消息列表（OpenAI 格式）或单个字符串
             image: base64 编码的图片数据（不含 data:image/... 前缀）
+            mime_type: 图片 MIME 类型，如 image/png, image/jpeg
             **kwargs: 额外的参数（temperature, max_tokens 等）
 
         Returns:
@@ -479,7 +481,8 @@ class LLMClient(AutoLoggerMixin):
         Example:
             result = await llm_client.think_with_image(
                 messages="描述这张图片",
-                image="iVBORw0KGgoAAAANSUhEUgAAAAUA..."
+                image="iVBORw0KGgoAAAANSUhEUgAAAAUA...",
+                mime_type="image/jpeg"
             )
         """
         # 统一消息格式
@@ -496,9 +499,9 @@ class LLMClient(AutoLoggerMixin):
                 # 多轮对话：直接传递给 _think_with_image_openai_multi_turn
                 is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
                 if is_gemini:
-                    return await self._think_with_image_gemini_multi_turn(messages, image, **kwargs)
+                    return await self._think_with_image_gemini_multi_turn(messages, image, mime_type=mime_type, **kwargs)
                 else:
-                    return await self._think_with_image_openai_multi_turn(messages, image, **kwargs)
+                    return await self._think_with_image_openai_multi_turn(messages, image, mime_type=mime_type, **kwargs)
             else:
                 # 单轮对话：检查是否是 multi-modal 格式
                 first_msg = messages[0]
@@ -509,9 +512,9 @@ class LLMClient(AutoLoggerMixin):
                     # 直接传递给多轮方法处理
                     is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
                     if is_gemini:
-                        return await self._think_with_image_gemini_multi_turn(messages, image, **kwargs)
+                        return await self._think_with_image_gemini_multi_turn(messages, image, mime_type=mime_type, **kwargs)
                     else:
-                        return await self._think_with_image_openai_multi_turn(messages, image, **kwargs)
+                        return await self._think_with_image_openai_multi_turn(messages, image, mime_type=mime_type, **kwargs)
                 else:
                     # 普通字符串格式，合并所有文本内容（向后兼容）
                     text_content = "\n".join([
@@ -522,14 +525,15 @@ class LLMClient(AutoLoggerMixin):
         if not is_multi_turn:
             is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
             if is_gemini:
-                return await self._think_with_image_gemini(text_content, image, **kwargs)
+                return await self._think_with_image_gemini(text_content, image, mime_type=mime_type, **kwargs)
             else:
-                return await self._think_with_image_openai(text_content, image, **kwargs)
+                return await self._think_with_image_openai(text_content, image, mime_type=mime_type, **kwargs)
 
     async def _think_with_image_openai(
         self,
         text_prompt: str,
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -545,7 +549,7 @@ class LLMClient(AutoLoggerMixin):
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:image/png;base64,{image_base64}",
+                        "url": f"data:{mime_type};base64,{image_base64}",
                         "detail": kwargs.get("detail", "high")  # low, high, auto
                     }
                 }
@@ -627,6 +631,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         messages: List[Dict],
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -659,7 +664,7 @@ class LLMClient(AutoLoggerMixin):
                             content.append({
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/png;base64,{image_base64}",
+                                    "url": f"data:{mime_type};base64,{image_base64}",
                                     "detail": kwargs.get("detail", "high")
                                 }
                             })
@@ -676,7 +681,7 @@ class LLMClient(AutoLoggerMixin):
                                     {
                                         "type": "image_url",
                                         "image_url": {
-                                            "url": f"data:image/png;base64,{image_base64}",
+                                            "url": f"data:{mime_type};base64,{image_base64}",
                                             "detail": kwargs.get("detail", "high")
                                         }
                                     }
@@ -761,6 +766,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         text_prompt: str,
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -772,7 +778,7 @@ class LLMClient(AutoLoggerMixin):
                 {"text": text_prompt},
                 {
                     "inline_data": {
-                        "mime_type": "image/png",
+                        "mime_type": mime_type,
                         "data": image_base64
                     }
                 }
@@ -1052,6 +1058,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         messages: List[Dict],
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -1088,7 +1095,7 @@ class LLMClient(AutoLoggerMixin):
                             parts.extend(content)  # 复制所有 parts（text）
                             parts.append({
                                 "inline_data": {
-                                    "mime_type": "image/png",
+                                    "mime_type": mime_type,
                                     "data": image_base64
                                 }
                             })
@@ -1103,7 +1110,7 @@ class LLMClient(AutoLoggerMixin):
                             # 第一条 user 消息，添加图片
                             parts.append({
                                 "inline_data": {
-                                    "mime_type": "image/png",
+                                    "mime_type": mime_type,
                                     "data": image_base64
                                 }
                             })

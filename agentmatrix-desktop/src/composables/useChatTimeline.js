@@ -15,11 +15,14 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   // ---- State ----
   const events = ref([])
   const isLoading = ref(false)
+  const isLoadingMore = ref(false)
   const error = ref(null)
   const messagesContainer = ref(null)
   const answer = ref('')
   const currentAgentStatuses = ref({})
   const previousHistoryLengths = ref({})
+  const hasMoreEvents = ref(false)
+  const totalEventCount = ref(0)
 
   // ---- Computed ----
   const currentSession = computed(() => sessionStore.currentSession)
@@ -107,8 +110,10 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     error.value = null
 
     try {
-      const result = await sessionAPI.getSessionEvents(agentName, agentSessionId)
+      const result = await sessionAPI.getSessionEvents(agentName, agentSessionId, 200, 0, 'latest')
       events.value = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
+      totalEventCount.value = result.total || 0
+      hasMoreEvents.value = events.value.length < totalEventCount.value
       sessionStore.markSessionRead(session.session_id)
     } catch (err) {
       error.value = err.message
@@ -117,6 +122,60 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       isLoading.value = false
       await nextTick()
       scrollToBottom()
+    }
+  }
+
+  const loadOlderEvents = async () => {
+    if (isLoadingMore.value || !hasMoreEvents.value || !currentSession.value) return
+
+    const session = currentSession.value
+    const agentName = session.agent_name || session.name
+    const agentSessionId = session.agent_session_id
+    if (!agentName || !agentSessionId || events.value.length === 0) return
+
+    // 用最早的事件时间戳作为 cursor
+    const oldestEvent = events.value.reduce((oldest, e) => {
+      return new Date(e.timestamp) < new Date(oldest.timestamp) ? e : oldest
+    }, events.value[0])
+    const before = oldestEvent.timestamp
+
+    isLoadingMore.value = true
+
+    // 记住当前滚动位置和高度
+    const container = messagesContainer.value
+    const prevScrollHeight = container ? container.scrollHeight : 0
+
+    try {
+      const result = await sessionAPI.getSessionEvents(agentName, agentSessionId, 200, 0, 'older', before)
+      const olderEvents = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
+
+      if (olderEvents.length === 0) {
+        hasMoreEvents.value = false
+      } else {
+        // prepend 到头部
+        events.value = [...olderEvents, ...events.value]
+        totalEventCount.value = result.total || totalEventCount.value
+        hasMoreEvents.value = events.value.length < totalEventCount.value
+
+        // 保持滚动位置不变（prepend 后恢复）
+        await nextTick()
+        if (container) {
+          const newScrollHeight = container.scrollHeight
+          container.scrollTop = newScrollHeight - prevScrollHeight
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load older events:', err)
+    } finally {
+      isLoadingMore.value = false
+    }
+  }
+
+  const onScroll = () => {
+    const container = messagesContainer.value
+    if (!container) return
+    if (container.scrollTop <= 0 && hasMoreEvents.value && !isLoadingMore.value) {
+      loadOlderEvents()
     }
   }
 
@@ -136,6 +195,8 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     if (!isPlaceholderToReal) {
       events.value = []
       currentAgentStatuses.value = {}
+      hasMoreEvents.value = false
+      totalEventCount.value = 0
     }
 
     if (newSession) {
@@ -171,11 +232,16 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       const phIdx = events.value.findIndex(e => e.detail?._isPlaceholder && e.detail.body_preview === parsed.detail.body_preview)
       if (phIdx !== -1) {
         events.value.splice(phIdx, 1, parsed)
+      } else {
+        events.value.push(parsed)
+        totalEventCount.value++
       }
+      nextTick(() => scrollToBottom())
       return
     }
 
     events.value.push(parsed)
+    totalEventCount.value++
     nextTick(() => scrollToBottom())
   })
 
@@ -186,10 +252,18 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     const sessionId = currentSession.value.session_id
 
     Object.entries(agents).forEach(([agentName, agentData]) => {
-      if (agentData.current_user_session_id !== sessionId) return
+      const status = agentData.status || 'IDLE'
+      if (status === 'IDLE') {
+        delete currentAgentStatuses.value[agentName]
+        return
+      }
       currentAgentStatuses.value[agentName] = {
-        status: agentData.status || 'IDLE',
-        agentName
+        status,
+        agentName,
+        isOnCurrentSession: agentData.current_user_session_id === sessionId,
+        otherSessionId: agentData.current_user_session_id && agentData.current_user_session_id !== sessionId
+          ? agentData.current_user_session_id
+          : null,
       }
       const history = agentData.status_history || []
       previousHistoryLengths.value[agentName] = history.length
@@ -213,6 +287,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       },
       renderType: 'bubble-user',
     })
+    totalEventCount.value++
     nextTick(() => scrollToBottom())
   }
 
@@ -220,6 +295,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     const idx = events.value.findIndex(e => e.id === placeholderId)
     if (idx !== -1) {
       events.value.splice(idx, 1)
+      totalEventCount.value = Math.max(0, totalEventCount.value - 1)
     }
   }
 
@@ -245,10 +321,13 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     // State
     events,
     isLoading,
+    isLoadingMore,
     error,
     messagesContainer,
     answer,
     currentAgentStatuses,
+    hasMoreEvents,
+    totalEventCount,
     // Computed
     currentSession,
     chatTimeline,
@@ -257,6 +336,8 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     primaryAgentName,
     // Actions
     loadEvents,
+    loadOlderEvents,
+    onScroll,
     scrollToBottom,
     handleEmailSendStarted,
     handleEmailSendFailed,

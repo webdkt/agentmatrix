@@ -990,19 +990,14 @@ class BaseAgent(AutoLoggerMixin):
         elif self.active_session_id == session_id:
             # 情况 2：同一 session → 投递 batch 信号
             if self.active_micro_agent:
-                email_text = f"[新邮件] 来自 {email.sender}: {email.subject}\n{email.body}"
-                if email.attachments:
-                    email_text += "\n" + "\n".join(
-                        f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
-                        for att in email.attachments
-                    )
                 self.active_micro_agent.signal_queue.put_nowait(
                     Signal(type="email", payload={
-                        "text": email_text,
-                        "email_ids": [email.id],
                         "sender": email.sender,
                         "recipient": email.recipient,
                         "subject": email.subject,
+                        "body": email.body,
+                        "attachments": email.attachments or [],
+                        "email_ids": [email.id],
                     })
                 )
             self.logger.debug(f"📧 邮件路由到 active session {session_id[:8]}")
@@ -1056,18 +1051,17 @@ class BaseAgent(AutoLoggerMixin):
         )
         self.active_micro_agent = micro_agent
 
-        # 首封邮件作为 batch signal 放入 queue（取代旧的 task 参数 + signal 双重路径）
-        email_text = f"[新邮件] 来自 {first_email.sender}: {first_email.subject}\n{first_email.body}"
-        if first_email.attachments:
-            email_text += "\n" + "\n".join(
-                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
-                for att in first_email.attachments
-            )
+        # 首封邮件作为 raw signal 放入 queue，文本转换在 MicroAgent.inject_signals 中完成
         micro_agent.signal_queue.put_nowait(Signal(
             type="email",
-            payload={"text": email_text, "email_ids": [first_email.id],
-                     "sender": first_email.sender, "recipient": first_email.recipient,
-                     "subject": first_email.subject}
+            payload={
+                "sender": first_email.sender,
+                "recipient": first_email.recipient,
+                "subject": first_email.subject,
+                "body": first_email.body,
+                "attachments": first_email.attachments or [],
+                "email_ids": [first_email.id],
+            }
         ))
 
         # 启动 session task — task 为空，邮件通过 signal 进入
