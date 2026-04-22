@@ -340,6 +340,24 @@ class UserProxyAgent(BaseAgent):
                 last_email_id=email.id,
             )
 
+            # 新任务：广播 NEW_USER_SESSION 让前端立即感知
+            if self._broadcast_message_callback:
+                new_session = {
+                    "session_id": session["session_id"],
+                    "agent_name": to,
+                    "agent_session_id": session["session_id"],
+                    "task_id": session.get("task_id"),
+                    "subject": subject,
+                    "timestamp": ts,
+                    "last_email_time": ts,
+                    "is_unread": False,
+                    "last_email_id": email.id,
+                    "participants": [to],
+                }
+                asyncio.create_task(self._broadcast_message_callback(
+                    {"type": "NEW_USER_SESSION", "data": new_session}
+                ))
+
         # 更新 reply_mapping
         await self.session_manager.update_reply_mapping(
             msg_id=email.id,

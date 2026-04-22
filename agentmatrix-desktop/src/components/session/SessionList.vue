@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
-import { addPendingEmail, removePendingEmail, setResolvedEmailForSession } from '@/composables/usePendingEmails'
+import { addPendingEmail, removePendingEmail } from '@/composables/usePendingEmails'
 import SessionItem from './SessionItem.vue'
 import NewEmailModal from '@/components/dialog/NewEmailModal.vue'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -17,6 +17,9 @@ const props = defineProps({
     validator: (v) => ['email', 'collab'].includes(v)
   }
 })
+
+// Collab wizard (only injected, may be undefined in email mode)
+const wizard = inject('collabWizard', null)
 
 // 状态
 const searchQuery = ref('')
@@ -41,6 +44,10 @@ onMounted(async () => {
 
 // 方法
 const handleSessionClick = async (session) => {
+  // Cancel wizard if active (collab mode)
+  if (wizard && wizard.isActive.value) {
+    wizard.cancelWizard()
+  }
   await sessionStore.selectSession(session)
 }
 
@@ -58,12 +65,16 @@ const handleSearch = (event) => {
   sessionStore.searchSessions(query)
 }
 
-// 打开新建会话对话框
-const openNewEmailModal = () => {
-  showNewEmailModal.value = true
+// New button click — branches by mode
+const handleNewClick = () => {
+  if (props.mode === 'collab' && wizard) {
+    wizard.enterWizard()
+  } else {
+    showNewEmailModal.value = true
+  }
 }
 
-// New email 开始发送：创建 placeholder session
+// ---- Email mode only: NewEmailModal placeholder logic ----
 const handleNewEmailStarted = (emailData) => {
   const placeholderId = `placeholder-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
@@ -86,18 +97,14 @@ const handleNewEmailStarted = (emailData) => {
   showNewEmailModal.value = false
 }
 
-// New email 发送成功：增量替换 placeholder
 const handleEmailSent = (result) => {
   console.log('Email sent result:', result)
 
-  // 1. 移除 placeholder session
   const placeholderIndex = sessionStore.sessions.findIndex(s => s._isPlaceholder)
   if (placeholderIndex !== -1) {
     sessionStore.sessions.splice(placeholderIndex, 1)
   }
 
-  // 2. 用 API 返回的 email 数据构造真实 session
-  // 新邮件时: sender_session_id = task_id = readable id = user_session_id = agent_session_id
   const email = result.response.email
   const sessionId = email.sender_session_id || result.response.task_id
   const taskId = result.response.task_id
@@ -116,11 +123,8 @@ const handleEmailSent = (result) => {
   }
 
   sessionStore.sessions.unshift(realSession)
-
-  // 更新 agent→user session 映射（让后续 SESSION_EVENT 能匹配到）
   sessionStore.buildAgentSessionMap()
 
-  // 直接替换 currentSession 引用（不调用 selectSession，避免触发 ChatHistory 的 watch 清空 events）
   if (sessionStore.currentSession?._isPlaceholder) {
     sessionStore.currentSession = realSession
   } else {
@@ -128,7 +132,6 @@ const handleEmailSent = (result) => {
   }
 }
 
-// New email 发送失败：移除 placeholder
 const handleNewEmailFailed = ({ emailData, error }) => {
   console.error('New email failed:', error)
   const idx = sessionStore.sessions.findIndex(s => s._isPlaceholder)
@@ -147,7 +150,7 @@ const handleNewEmailFailed = ({ emailData, error }) => {
     <!-- New Email Button (Large, Prominent, Full-Width) -->
     <div class="session-list__header">
       <button
-        @click="openNewEmailModal"
+        @click="handleNewClick"
         class="session-list__new-email-btn"
       >
         <MIcon name="plus" />
@@ -201,8 +204,9 @@ const handleNewEmailFailed = ({ emailData, error }) => {
       </div>
     </div>
 
-    <!-- New Email Modal -->
+    <!-- New Email Modal (email mode only) -->
     <NewEmailModal
+      v-if="mode === 'email'"
       :show="showNewEmailModal"
       :title="dialogTitle"
       @close="showNewEmailModal = false"

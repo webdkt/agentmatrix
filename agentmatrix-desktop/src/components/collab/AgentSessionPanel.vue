@@ -1,7 +1,9 @@
 <script setup>
-import { ref, computed, provide, onMounted, onUnmounted } from 'vue'
+import { ref, computed, provide, inject, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
+import { useAgentStore } from '@/stores/agent'
+import { useWebSocketStore } from '@/stores/websocket'
 import { useChatTimeline } from '@/composables/useChatTimeline'
 import { useCollabFile } from '@/composables/useCollabFile'
 import { useTaskFiles } from '@/composables/useTaskFiles'
@@ -9,6 +11,9 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { agentAPI } from '@/api/agent'
 import ChatMessage from './ChatMessage.vue'
 import CollabInput from './CollabInput.vue'
+import CollabStartPanel from './CollabStartPanel.vue'
+import NewTaskPanel from './NewTaskPanel.vue'
+import TaskSendingOverlay from './TaskSendingOverlay.vue'
 import AgentTerminal from './AgentTerminal.vue'
 import TaskFilesPanel from './TaskFilesPanel.vue'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -22,6 +27,11 @@ const props = defineProps({
 
 const { t } = useI18n()
 const sessionStore = useSessionStore()
+const agentStore = useAgentStore()
+const websocketStore = useWebSocketStore()
+
+// ---- Collab Wizard ----
+const wizard = inject('collabWizard')
 
 // ---- Chat timeline (from composable) ----
 const {
@@ -31,7 +41,6 @@ const {
   error,
   messagesContainer,
   answer,
-  currentAgentStatuses,
   currentSession,
   chatTimeline,
   hasContent,
@@ -52,9 +61,34 @@ const currentAgentName = computed(() => {
   return currentSession.value.agent_name || currentSession.value.name || null
 })
 
+// ---- Primary agent status (直接从全局 store 读) ----
+const primaryAgentStatus = computed(() => {
+  if (!primaryAgentName.value) return null
+  const agent = agentStore.agents[primaryAgentName.value]
+  if (!agent) return { status: 'IDLE', isOnCurrentSession: true, otherSessionId: null }
+  const status = agent.status || 'IDLE'
+  // 只有非 IDLE 状态才判断是否在处理其他工作
+  const isActive = status !== 'IDLE'
+  const isOnCurrentSession = !isActive || !currentSession.value || agent.current_session_id === currentSession.value.session_id
+  return {
+    status,
+    isOnCurrentSession,
+    otherSessionId: !isOnCurrentSession ? agent.current_user_session_id : null,
+  }
+})
+
 const currentSessionId = computed(() => {
   return currentSession.value?.session_id || null
 })
+
+// ---- Navigate to the session an agent is working on ----
+const navigateToAgentSession = (otherSessionId) => {
+  if (!otherSessionId) return
+  const session = sessionStore.sessions.find(s => s.session_id === otherSessionId)
+  if (session) {
+    sessionStore.selectSession(session)
+  }
+}
 
 // ---- Collab file ----
 const { collabFile, collabFileName, openCollabFile } = useCollabFile({ agentName: currentAgentName })
@@ -94,51 +128,7 @@ onMounted(async () => {
   updateMiddleSize()
   window.addEventListener('resize', updateMiddleSize)
 
-  const webview = await getCurrentWebview()
-  unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
-    if (event.payload.type === 'over') {
-      isDragging.value = true
-      dropZone.value = getDropZone(event.payload.position)
-    } else if (event.payload.type === 'drop') {
-      isDragging.value = false
-      dropZone.value = null
-      const paths = event.payload.paths
-      if (!paths?.length || !currentAgentName.value || !currentSessionId.value) return
-
-      const zone = getDropZone(event.payload.position)
-      const fileNames = []
-
-      if (zone === 'task-files') {
-        // Drop into TaskFilesPanel → copy to currentDir
-        const { fileNames: copied } = await taskFiles.copyFiles(paths, taskFiles.currentDir.value)
-        fileNames.push(...copied)
-        if (fileNames.length > 0) {
-          const rel = taskFiles.relativePath.value
-          const containerDir = rel ? `~/current_task${rel}` : '~/current_task'
-          const fileList = fileNames.map(n => `- ${n}`).join('\n')
-          const draftLine = `已复制以下文件到 \`${containerDir}\` 目录，你看一下：\n${fileList}\n`
-          collabDraftMessage.value = collabDraftMessage.value
-            ? collabDraftMessage.value + '\n' + draftLine
-            : draftLine
-        }
-      } else {
-        // Drop into chat/input area → copy to rootDir
-        const { fileNames: copied } = await taskFiles.copyFiles(paths)
-        fileNames.push(...copied)
-        if (fileNames.length > 0) {
-          showTaskFiles.value = true
-          const fileList = fileNames.map(n => `- ${n}`).join('\n')
-          const draftLine = `已复制以下文件到 \`~/current_task\` 目录，你看一下：\n${fileList}\n`
-          collabDraftMessage.value = collabDraftMessage.value
-            ? collabDraftMessage.value + '\n' + draftLine
-            : draftLine
-        }
-      }
-    } else {
-      isDragging.value = false
-      dropZone.value = null
-    }
-  })
+  setupDragDrop()
 })
 
 // Middle area ref for sizing calculations
@@ -157,6 +147,117 @@ const updateMiddleSize = () => {
 onUnmounted(() => {
   window.removeEventListener('resize', updateMiddleSize)
   if (unlistenDragDrop) unlistenDragDrop()
+})
+
+// ---- Drag-drop setup (conditional on session mode) ----
+async function setupDragDrop() {
+  if (unlistenDragDrop) return // already listening
+  const webview = await getCurrentWebview()
+  unlistenDragDrop = await webview.onDragDropEvent(async (event) => {
+    // Skip if wizard is active
+    if (wizard.isActive) return
+
+    if (event.payload.type === 'over') {
+      isDragging.value = true
+      dropZone.value = getDropZone(event.payload.position)
+    } else if (event.payload.type === 'drop') {
+      isDragging.value = false
+      dropZone.value = null
+      const paths = event.payload.paths
+      if (!paths?.length || !currentAgentName.value || !currentSessionId.value) return
+
+      const zone = getDropZone(event.payload.position)
+      const fileNames = []
+
+      if (zone === 'task-files') {
+        const { fileNames: copied } = await taskFiles.copyFiles(paths, taskFiles.currentDir.value)
+        fileNames.push(...copied)
+        if (fileNames.length > 0) {
+          const rel = taskFiles.relativePath.value
+          const containerDir = rel ? `~/current_task${rel}` : '~/current_task'
+          const fileList = fileNames.map(n => `- ${n}`).join('\n')
+          const draftLine = `已复制以下文件到 \`${containerDir}\` 目录，你看一下：\n${fileList}\n`
+          collabDraftMessage.value = collabDraftMessage.value
+            ? collabDraftMessage.value + '\n' + draftLine
+            : draftLine
+        }
+      } else {
+        const { fileNames: copied } = await taskFiles.copyFiles(paths)
+        fileNames.push(...copied)
+        if (fileNames.length > 0) {
+          showTaskFiles.value = true
+          const fileList = fileNames.map(n => `- ${n}`).join('\n')
+          const draftLine = `已复制以下文件到 \`~/current_task\` 目录，你看一下：\n${fileList}\n`
+          collabDraftMessage.value = collabDraftMessage.value
+            ? collabDraftMessage.value + '\n' + draftLine
+            : draftLine
+        }
+      }
+    } else {
+      isDragging.value = false
+      dropZone.value = null
+    }
+  })
+}
+
+function teardownDragDrop() {
+  if (unlistenDragDrop) {
+    unlistenDragDrop()
+    unlistenDragDrop = null
+  }
+}
+
+// Manage drag-drop lifecycle based on wizard state
+watch(() => wizard.isActive, (active) => {
+  if (active) {
+    teardownDragDrop()
+  } else {
+    setupDragDrop()
+  }
+})
+
+// ---- Wizard event handlers ----
+const handleAgentSelected = (agent) => {
+  wizard.selectAgent(agent)
+}
+
+const handleTaskSendStarted = (emailData) => {
+  wizard.startSending(emailData.recipient)
+}
+
+const handleTaskSent = (_response) => {
+  // Session will arrive via NEW_USER_SESSION — nothing to do here
+}
+
+const handleTaskSendFailed = ({ error }) => {
+  console.error('Task send failed:', error)
+  // Go back to task input so user can retry
+  wizard.wizardStep = 'new-task'
+}
+
+// ---- NEW_USER_SESSION detection during wizard sending phase ----
+let lastSessionCount = sessionStore.sessions.length
+
+watch(() => sessionStore.sessions.length, (newLen, oldLen) => {
+  if (wizard.wizardStep.value !== 'sending') {
+    lastSessionCount = newLen
+    return
+  }
+  if (newLen <= oldLen) return
+
+  // A new session appeared — find one matching our target agent
+  const targetAgent = wizard.sendTargetAgentName.value
+  if (!targetAgent) return
+
+  // Look for the newest session matching the agent
+  const newSession = sessionStore.sessions.find(s =>
+    s.agent_name === targetAgent && !s._isPlaceholder
+  )
+  if (newSession) {
+    sessionStore.selectSession(newSession)
+    wizard.finishWizard()
+  }
+  lastSessionCount = newLen
 })
 
 // ---- Terminal toggle: hidden → minimized → expanded → hidden ----
@@ -191,15 +292,6 @@ const toggleCollabMode = async () => {
   }
 }
 
-// ---- Navigate to session where an agent is working ----
-const navigateToAgentSession = (otherSessionId) => {
-  if (!otherSessionId) return
-  const session = sessionStore.sessions.find(s => s.session_id === otherSessionId)
-  if (session) {
-    sessionStore.selectSession(session)
-  }
-}
-
 // ---- Task files panel width ----
 const taskFilesWidth = computed(() => {
   return Math.round(middleSize.value.width * 0.5)
@@ -208,6 +300,28 @@ const taskFilesWidth = computed(() => {
 
 <template>
   <div class="agent-session-panel">
+    <!-- Wizard mode / No session selected -->
+    <template v-if="wizard.isActive.value || !currentSession">
+      <CollabStartPanel
+        v-if="wizard.wizardStep.value === 'pick-agent' || (!wizard.isActive.value && !currentSession)"
+        @select-agent="handleAgentSelected"
+      />
+      <NewTaskPanel
+        v-else-if="wizard.wizardStep.value === 'new-task'"
+        :agent="wizard.selectedAgent.value"
+        @back="wizard.goBack()"
+        @send-started="handleTaskSendStarted"
+        @sent="handleTaskSent"
+        @send-failed="handleTaskSendFailed"
+      />
+      <TaskSendingOverlay
+        v-else-if="wizard.wizardStep.value === 'sending'"
+        :agent-name="wizard.sendTargetAgentName.value"
+      />
+    </template>
+
+    <!-- Session mode -->
+    <template v-else>
     <!-- Top Bar -->
     <header v-if="currentSession" class="agent-session-panel__topbar">
       <div class="agent-session-panel__agent-info">
@@ -216,27 +330,28 @@ const taskFilesWidth = computed(() => {
         </div>
         <span v-if="primaryAgentName" class="agent-session-panel__agent-name">{{ primaryAgentName }}</span>
         <!-- Live status indicator in top bar -->
-        <template v-for="(statusInfo, agentName) in currentAgentStatuses" :key="agentName">
-          <span
-            v-show="statusInfo.status !== 'IDLE'"
-            class="agent-session-panel__status"
-            :class="{ 'agent-session-panel__status--clickable': statusInfo.otherSessionId }"
-            @click="navigateToAgentSession(statusInfo.otherSessionId)"
-          >
-            <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': statusInfo.status === 'THINKING' || statusInfo.status === 'WORKING' }]">
-              <MIcon :name="statusInfo.status === 'THINKING' ? 'brain' : statusInfo.status === 'WORKING' ? 'loader' : statusInfo.status === 'WAITING_FOR_USER' ? 'message-circle' : statusInfo.status === 'PAUSED' ? 'player-pause' : statusInfo.status === 'ERROR' ? 'alert-circle' : 'circle'" />
-            </span>
-            <span class="agent-session-panel__status-label">
-              <template v-if="statusInfo.isOnCurrentSession">
-                {{ statusInfo.status === 'THINKING' ? 'thinking' : statusInfo.status === 'WORKING' ? 'working' : statusInfo.status === 'WAITING_FOR_USER' ? 'waiting' : statusInfo.status === 'PAUSED' ? 'paused' : statusInfo.status === 'ERROR' ? 'error' : '' }}
-              </template>
-              <template v-else>
-                正在处理其他工作
-                <MIcon v-if="statusInfo.otherSessionId" name="arrow-right" class="agent-session-panel__status-jump" />
-              </template>
-            </span>
+        <span
+          v-if="primaryAgentStatus"
+          class="agent-session-panel__status"
+          :class="{
+            'agent-session-panel__status--idle': primaryAgentStatus.status === 'IDLE',
+            'agent-session-panel__status--clickable': primaryAgentStatus.otherSessionId,
+          }"
+          @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
+        >
+          <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' }]">
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
-        </template>
+          <span class="agent-session-panel__status-label">
+            <template v-if="primaryAgentStatus.isOnCurrentSession">
+              {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
+            </template>
+            <template v-else>
+              正在处理其他工作
+              <MIcon v-if="primaryAgentStatus.otherSessionId" name="arrow-right" class="agent-session-panel__status-jump" />
+            </template>
+          </span>
+        </span>
       </div>
 
       <div class="agent-session-panel__toolbar">
@@ -304,16 +419,8 @@ const taskFilesWidth = computed(() => {
         <div v-if="isLoadingMore" class="agent-session-panel__loading-more">
           <MIcon name="loader" class="spin" /> 加载更早的消息...
         </div>
-        <!-- No session selected -->
-        <div v-if="!currentSession" class="agent-session-panel__empty">
-          <div class="agent-session-panel__empty-icon">
-            <MIcon name="message-circle" />
-          </div>
-          <p class="agent-session-panel__empty-text">{{ t('emails.selectSession') }}</p>
-        </div>
-
         <!-- Loading -->
-        <div v-else-if="isLoading" class="agent-session-panel__empty">
+        <div v-if="isLoading" class="agent-session-panel__empty">
           <div class="agent-session-panel__empty-icon agent-session-panel__empty-icon--loading">
             <span class="animate-spin"><MIcon name="loader" /></span>
           </div>
@@ -341,7 +448,7 @@ const taskFilesWidth = computed(() => {
           />
 
           <!-- Empty state -->
-          <div v-if="!hasContent && Object.keys(currentAgentStatuses).length === 0" class="agent-session-panel__empty">
+          <div v-if="!hasContent" class="agent-session-panel__empty">
             <div class="agent-session-panel__empty-icon">
               <MIcon name="mail-off" />
             </div>
@@ -352,23 +459,24 @@ const taskFilesWidth = computed(() => {
 
         <!-- Inline status indicator (below messages, above bottom) -->
         <div
-          v-for="(statusInfo, agentName) in currentAgentStatuses"
-          :key="agentName"
-          v-show="statusInfo.status !== 'IDLE'"
+          v-if="primaryAgentStatus"
           class="agent-session-panel__status-indicator"
-          :class="{ 'agent-session-panel__status-indicator--clickable': statusInfo.otherSessionId }"
-          @click="navigateToAgentSession(statusInfo.otherSessionId)"
+          :class="{
+            'agent-session-panel__status-indicator--idle': primaryAgentStatus.status === 'IDLE',
+            'agent-session-panel__status-indicator--clickable': primaryAgentStatus.otherSessionId,
+          }"
+          @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
-          <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': statusInfo.status === 'THINKING' || statusInfo.status === 'WORKING' }]">
-            <MIcon :name="statusInfo.status === 'THINKING' ? 'brain' : statusInfo.status === 'WORKING' ? 'loader' : statusInfo.status === 'WAITING_FOR_USER' ? 'message-circle' : statusInfo.status === 'PAUSED' ? 'player-pause' : statusInfo.status === 'ERROR' ? 'alert-circle' : 'circle'" />
+          <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' }]">
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
-          <span class="agent-session-panel__status-indicator-agent">{{ agentName }}</span>
-          <span v-if="statusInfo.isOnCurrentSession" class="agent-session-panel__status-indicator-label">
-            {{ statusInfo.status === 'THINKING' ? 'thinking' : statusInfo.status === 'WORKING' ? 'working' : statusInfo.status === 'WAITING_FOR_USER' ? 'waiting for you' : statusInfo.status === 'PAUSED' ? 'paused' : statusInfo.status === 'ERROR' ? 'error' : '' }}
+          <span class="agent-session-panel__status-indicator-agent">{{ primaryAgentName }}</span>
+          <span v-if="primaryAgentStatus.isOnCurrentSession" class="agent-session-panel__status-indicator-label">
+            {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting for you' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
           </span>
           <span v-else class="agent-session-panel__status-indicator-label">
             正在处理其他工作
-            <MIcon v-if="statusInfo.otherSessionId" name="arrow-right" class="agent-session-panel__status-jump" />
+            <MIcon v-if="primaryAgentStatus.otherSessionId" name="arrow-right" class="agent-session-panel__status-jump" />
           </span>
         </div>
       </div>
@@ -448,6 +556,7 @@ const taskFilesWidth = computed(() => {
         @send-failed="handleEmailSendFailed"
       />
     </div>
+    </template> <!-- end session mode -->
   </div>
 </template>
 
@@ -527,6 +636,10 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   gap: 3px;
+}
+
+.agent-session-panel__status--idle {
+  opacity: 0.5;
 }
 
 .agent-session-panel__status--clickable {
@@ -734,6 +847,10 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   gap: 3px;
+}
+
+.agent-session-panel__status-indicator--idle {
+  opacity: 0.45;
 }
 
 .agent-session-panel__status-indicator--clickable {

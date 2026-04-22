@@ -1673,22 +1673,24 @@ Start generating the Working Notes now.
             # 注入信号为 messages
             await self.inject_signals(signals)
 
-            # 批量标记邮件已处理（内容已通过 _add_message 写入 session history）
-            if self._pending_processed_ids:
-                ids = self._pending_processed_ids.copy()
-                self._pending_processed_ids.clear()
-                await self.root_agent.post_office.email_db.mark_emails_processed(ids)
+            self.root_agent.update_status(new_status="THINKING")
+
+            # 并行：批量标记邮件已处理 + Think（本地 SQLite 写 vs LLM 网络调用）
+            async def _mark_processed():
+                if self._pending_processed_ids:
+                    ids = self._pending_processed_ids.copy()
+                    self._pending_processed_ids.clear()
+                    await self.root_agent.post_office.email_db.mark_emails_processed(ids)
 
             try:
-                # 1. Think（使用 think_with_retry + actions parser）
-                # ✅ 状态更新：Thinking（纯状态，内容由 session_events 的 think.brain 记录）
-                self.root_agent.update_status(new_status="THINKING")
-
-                thought = await self.brain.think_with_retry(
-                    initial_messages=self.messages,
-                    parser=self._parse_actions_from_thought,
-                    action_registry=self.action_registry["_flat"],
-                    max_retries=3,
+                _, thought = await asyncio.gather(
+                    _mark_processed(),
+                    self.brain.think_with_retry(
+                        initial_messages=self.messages,
+                        parser=self._parse_actions_from_thought,
+                        action_registry=self.action_registry["_flat"],
+                        max_retries=3,
+                    ),
                 )
                 
 

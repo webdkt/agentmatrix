@@ -266,5 +266,13 @@ export const useWebSocketStore = defineStore('websocket', {
       }
       this.listeners[eventType].push(callback)
     },
+
+    /**
+     * 注销事件监听器
+     */
+    unregisterListener(eventType, callback) {
+      if (!this.listeners[eventType]) return
+      this.listeners[eventType] = this.listeners[eventType].filter(cb => cb !== callback)
+    },
   }
 })

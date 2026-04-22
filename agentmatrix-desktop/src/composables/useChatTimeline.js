@@ -1,6 +1,5 @@
 import { ref, computed, watch, nextTick, toValue } from 'vue'
 import { useSessionStore } from '@/stores/session'
-import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
 
 /**
@@ -10,7 +9,6 @@ import { sessionAPI } from '@/api/session'
  */
 export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   const sessionStore = useSessionStore()
-  const agentStore = useAgentStore()
 
   // ---- State ----
   const events = ref([])
@@ -19,8 +17,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   const error = ref(null)
   const messagesContainer = ref(null)
   const answer = ref('')
-  const currentAgentStatuses = ref({})
-  const previousHistoryLengths = ref({})
   const hasMoreEvents = ref(false)
   const totalEventCount = ref(0)
 
@@ -152,16 +148,22 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       if (olderEvents.length === 0) {
         hasMoreEvents.value = false
       } else {
-        // prepend 到头部
-        events.value = [...olderEvents, ...events.value]
-        totalEventCount.value = result.total || totalEventCount.value
-        hasMoreEvents.value = events.value.length < totalEventCount.value
+        // prepend 到头部（按 id 去重，防止时间戳边界重叠）
+        const existingIds = new Set(events.value.map(e => e.id))
+        const unique = olderEvents.filter(e => !existingIds.has(e.id))
+        if (unique.length === 0) {
+          hasMoreEvents.value = false
+        } else {
+          events.value = [...unique, ...events.value]
+          totalEventCount.value = result.total || totalEventCount.value
+          hasMoreEvents.value = events.value.length < totalEventCount.value
 
-        // 保持滚动位置不变（prepend 后恢复）
-        await nextTick()
-        if (container) {
-          const newScrollHeight = container.scrollHeight
-          container.scrollTop = newScrollHeight - prevScrollHeight
+          // 保持滚动位置不变（prepend 后恢复）
+          await nextTick()
+          if (container) {
+            const newScrollHeight = container.scrollHeight
+            container.scrollTop = newScrollHeight - prevScrollHeight
+          }
         }
       }
     } catch (err) {
@@ -189,25 +191,12 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
 
   // ---- Session watcher ----
 
-  watch(currentSession, async (newSession, oldSession) => {
-    const isPlaceholderToReal = oldSession?._isPlaceholder && newSession && !newSession._isPlaceholder
-
-    if (!isPlaceholderToReal) {
-      events.value = []
-      currentAgentStatuses.value = {}
-      hasMoreEvents.value = false
-      totalEventCount.value = 0
-    }
+  watch(currentSession, async (newSession) => {
+    events.value = []
+    hasMoreEvents.value = false
+    totalEventCount.value = 0
 
     if (newSession) {
-      if (newSession._isPlaceholder) {
-        isLoading.value = false
-        return
-      }
-      if (isPlaceholderToReal) {
-        isLoading.value = false
-        return
-      }
       await loadEvents(newSession)
     }
     answer.value = ''
@@ -228,47 +217,10 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     const parsed = parseEvent(evt.data)
     if (parsed.renderType === 'skip') return
 
-    if (parsed.eventType === 'email' && parsed.eventName === 'received' && parsed.detail.sender === toValue(userAgentName)) {
-      const phIdx = events.value.findIndex(e => e.detail?._isPlaceholder && e.detail.body_preview === parsed.detail.body_preview)
-      if (phIdx !== -1) {
-        events.value.splice(phIdx, 1, parsed)
-      } else {
-        events.value.push(parsed)
-        totalEventCount.value++
-      }
-      nextTick(() => scrollToBottom())
-      return
-    }
-
     events.value.push(parsed)
     totalEventCount.value++
     nextTick(() => scrollToBottom())
   })
-
-  // ---- Agent status watcher ----
-
-  watch(() => agentStore.agents, (agents) => {
-    if (!currentSession.value) return
-    const sessionId = currentSession.value.session_id
-
-    Object.entries(agents).forEach(([agentName, agentData]) => {
-      const status = agentData.status || 'IDLE'
-      if (status === 'IDLE') {
-        delete currentAgentStatuses.value[agentName]
-        return
-      }
-      currentAgentStatuses.value[agentName] = {
-        status,
-        agentName,
-        isOnCurrentSession: agentData.current_user_session_id === sessionId,
-        otherSessionId: agentData.current_user_session_id && agentData.current_user_session_id !== sessionId
-          ? agentData.current_user_session_id
-          : null,
-      }
-      const history = agentData.status_history || []
-      previousHistoryLengths.value[agentName] = history.length
-    })
-  }, { deep: true })
 
   // ---- Email send handlers ----
 
@@ -325,7 +277,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     error,
     messagesContainer,
     answer,
-    currentAgentStatuses,
     hasMoreEvents,
     totalEventCount,
     // Computed

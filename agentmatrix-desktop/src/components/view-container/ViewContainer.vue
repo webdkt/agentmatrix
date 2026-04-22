@@ -4,6 +4,7 @@ import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useBackendStore } from '@/stores/backend'
 import { useConfigStore } from '@/stores/config'
+import { useCollabWizard } from '@/composables/useCollabWizard'
 import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
@@ -28,6 +29,10 @@ const sessionStore = useSessionStore()
 const websocketStore = useWebSocketStore()
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
+
+// Collab wizard (shared between SessionList and AgentSessionPanel)
+const collabWizard = useCollabWizard()
+provide('collabWizard', collabWizard)
 
 // Computed
 const currentSession = computed(() => sessionStore.currentSession)

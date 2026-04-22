@@ -1,6 +1,5 @@
 import { ref, computed, watch, toValue } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { useSessionStore } from '@/stores/session'
 
 /**
  * Task files composable — extracted from CollabPanel.vue
@@ -8,8 +7,6 @@ import { useSessionStore } from '@/stores/session'
  * agentName and sessionId can be refs or getter functions.
  */
 export function useTaskFiles({ agentName, sessionId } = {}) {
-  const sessionStore = useSessionStore()
-
   const files = ref([])
   const filesLoading = ref(false)
   const rootDir = ref('')
@@ -48,7 +45,6 @@ export function useTaskFiles({ agentName, sessionId } = {}) {
     const aName = toValue(agentName)
     const sId = toValue(sessionId)
     if (!aName || !sId) return
-    if (sessionStore.currentSession?._isPlaceholder) return
     const worldPath = await getWorldPath()
     rootDir.value = `${worldPath}/workspace/agent_files/${aName}/work_files/${sId}`
     currentDir.value = rootDir.value
