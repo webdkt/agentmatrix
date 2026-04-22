@@ -68,4 +68,30 @@ export const agentAPI = {
   async getAgentPrompt(agentName) {
     return API.get(`/api/agents/${agentName}/prompt`)
   },
+
+  /**
+   * 切换 Collab Mode
+   * @param {string} agentName - Agent 名称
+   * @param {boolean} enabled - 是否启用
+   */
+  async toggleCollabMode(agentName, enabled) {
+    return API.post(`/api/agents/${agentName}/collab`, { enabled })
+  },
+
+  /**
+   * 获取 Agent 的 workspace 文件树
+   * @param {string} agentName - Agent 名称
+   */
+  async getWorkspace(agentName) {
+    return API.get(`/api/agents/${agentName}/workspace`)
+  },
+
+  /**
+   * 在 Agent 的 container session 中执行命令
+   * @param {string} agentName - Agent 名称
+   * @param {string} command - 要执行的命令
+   */
+  async terminalExec(agentName, command) {
+    return API.post(`/api/agents/${agentName}/terminal/exec`, { command })
+  },
 }

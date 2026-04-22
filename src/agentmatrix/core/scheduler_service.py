@@ -6,7 +6,6 @@ Task Scheduler - 定时任务调度器服务
 
 import asyncio
 from datetime import datetime
-from ..db.agent_matrix_db import AgentMatrixDB
 from ..core.log_util import AutoLoggerMixin
 from ..core.message import Email
 from ..skills.scheduler.time_utils import format_utc_for_display
@@ -16,8 +15,8 @@ from ..core.readable_id_generator import generate_readable_id
 class TaskScheduler(AutoLoggerMixin):
     """全局定时任务调度器服务"""
 
-    def __init__(self, db_path, post_office, logger):
-        self.db = AgentMatrixDB(db_path)
+    def __init__(self, db, post_office, logger):
+        self.db = db
         self.post_office = post_office
         self._running = False
         self._check_interval = 60  # 每60秒检查一次
@@ -52,16 +51,16 @@ class TaskScheduler(AutoLoggerMixin):
 
     async def _check_and_trigger_tasks(self):
         """检查并触发到期的任务"""
-        pending_tasks = self.db.get_pending_tasks()
+        pending_tasks = await self.db.get_pending_tasks()
 
         for task in pending_tasks:
             try:
                 await self._send_task_reminder(task)
-                self.db.mark_triggered(task['id'])
+                await self.db.mark_triggered(task['id'])
                 self.logger.info(f"Triggered task: {task['task_name']} ({task['id']})")
             except Exception as e:
                 self.logger.error(f"Failed to trigger task {task['id']}: {e}")
-                self.db.mark_failed(task['id'], str(e))
+                await self.db.mark_failed(task['id'], str(e))
 
     async def _send_task_reminder(self, task):
         """发送任务提醒邮件"""
@@ -69,11 +68,9 @@ class TaskScheduler(AutoLoggerMixin):
         if task['target_agent'] not in self.post_office.yellow_page():
             raise Exception(f"Target agent '{task['target_agent']}' not found")
 
-        # 🆕 生成 readable ID 用于 task_id 和 session_id
         readable_id = generate_readable_id(task['task_name'])
         self.logger.info(f"🏷️ Generated readable ID for scheduled task: {readable_id}")
 
-        # 将 UTC 时间转换为本地时间显示
         trigger_time_local = format_utc_for_display(datetime.fromisoformat(task['trigger_time']))
 
         email = Email(
@@ -100,22 +97,19 @@ class TaskScheduler(AutoLoggerMixin):
 
     async def _check_missed_tasks(self):
         """检查系统离线期间错过的任务"""
-        missed_tasks = self.db.get_pending_tasks()
+        missed_tasks = await self.db.get_pending_tasks()
         if missed_tasks:
             self.logger.warning(f"Found {len(missed_tasks)} missed tasks during downtime")
 
-            # 通知User
             if "User" in self.post_office.yellow_page():
                 for task in missed_tasks:
                     await self._send_missed_task_notification(task)
 
     async def _send_missed_task_notification(self, task):
         """发送错过任务的通知"""
-        # 🆕 生成 readable ID 用于 session_id
         readable_id = generate_readable_id(f"错过-{task['task_name']}")
         self.logger.info(f"🏷️ Generated readable ID for missed task: {readable_id}")
 
-        # 将 UTC 时间转换为本地时间显示
         trigger_time_local = format_utc_for_display(datetime.fromisoformat(task['trigger_time']))
 
         email = Email(
@@ -147,8 +141,4 @@ class TaskScheduler(AutoLoggerMixin):
                 await self._scheduler_task
             except asyncio.CancelledError:
                 pass
-        # 关闭数据库连接
-        if hasattr(self.db, 'conn') and self.db.conn:
-            self.db.conn.close()
-            self.echo(">>> TaskScheduler DB connection closed.")
         self.echo(">>> TaskScheduler stopped.")

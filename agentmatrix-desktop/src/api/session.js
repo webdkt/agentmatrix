@@ -52,6 +52,9 @@ export const sessionAPI = {
     if (emailData.in_reply_to) {
       formData.append('in_reply_to', emailData.in_reply_to)
     }
+    if (emailData.recipient_session_id) {
+      formData.append('recipient_session_id', emailData.recipient_session_id)
+    }
 
     // 添加所有文件
     if (files && files.length > 0) {
@@ -96,5 +99,20 @@ export const sessionAPI = {
    */
   async markAsRead(sessionId) {
     return API.post(`/api/sessions/${sessionId}/mark-read`)
+  },
+
+  /**
+   * 获取 Agent session 的事件列表
+   * @param {string} agentName - Agent 名称
+   * @param {string} sessionId - Agent session ID
+   * @param {number} limit - 最大数量
+   * @param {number} offset - 偏移量
+   * @param {string} direction - 'latest' 或 'older'
+   * @param {string} before - direction='older' 时的时间戳
+   */
+  async getSessionEvents(agentName, sessionId, limit = 200, offset = 0, direction = 'latest', before = null) {
+    const params = { limit, offset, direction }
+    if (before) params.before = before
+    return API.get(`/api/agents/${agentName}/sessions/${sessionId}/events`, { params })
   },
 }

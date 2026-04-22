@@ -17,7 +17,7 @@ class PostOffice(AutoLoggerMixin):
         self.directory = {}
         self.queue = asyncio.Queue()
         email_db_path = str(self.paths.database_path)
-        self.email_db = AgentMatrixDB(email_db_path)  # 初始化数据库连接
+        self.email_db = AgentMatrixDB(email_db_path)
         self._paused = False
 
         # Store user agent name
@@ -25,6 +25,10 @@ class PostOffice(AutoLoggerMixin):
 
         # Email sent hook list
         self.on_email_sent = []
+
+    async def init_db(self):
+        """Initialize the async database connection. Must be called after construction."""
+        await self.email_db.connect()
 
     def register(self, agent):
         self.directory[agent.name] = agent
@@ -36,25 +40,19 @@ class PostOffice(AutoLoggerMixin):
     def yellow_page(self):
         yellow_page = ""
         for name, agent in self.directory.items():
-            # 给 description 添加 2 个空格的缩进
             description = textwrap.indent(agent.description, "  ")
-
             yellow_page += f"- {name}: \n"
             yellow_page += f"{description} \n"
-
         return yellow_page
 
     def yellow_page_exclude_me(self, myname):
         yellow_page = ""
         for name, agent in self.directory.items():
-            # 给 description 添加 2 个空格的缩进
             if name == myname:
                 continue
             description = textwrap.indent(agent.description, "  ")
-
             yellow_page += f"- {name}: \n"
             yellow_page += f"{description} \n"
-
         return yellow_page
 
     def get_contact_list(self, exclude=None):
@@ -71,14 +69,13 @@ class PostOffice(AutoLoggerMixin):
     def resume(self):
         self._paused = False
 
-    def close(self):
+    async def close(self):
         """关闭 PostOffice，释放资源"""
-        if hasattr(self.email_db, "conn") and self.email_db.conn:
-            self.email_db.conn.close()
-            self.logger.info("PostOffice DB connection closed.")
+        await self.email_db.close()
+        self.logger.info("PostOffice DB connection closed.")
 
     async def dispatch(self, email):
-        self.email_db.log_email(email)
+        await self.email_db.log_email(email)
         self.logger.debug(f"Sending email from {email.sender} to {email.recipient} ")
         await self.queue.put(email)
         self.logger.debug("Mail delivered")
@@ -98,8 +95,8 @@ class PostOffice(AutoLoggerMixin):
                     email = await self.queue.get()
                     if email.recipient in self.directory:
                         target = self.directory[email.recipient]
+                        await self.email_db.mark_email_delivered(email.id)
                         await target.inbox.put(email)
-                        self.email_db.mark_email_delivered(email.id)
                     else:
                         self.logger.warning(f"Dropped mail to {email.recipient}")
                     self.queue.task_done()
@@ -109,7 +106,7 @@ class PostOffice(AutoLoggerMixin):
             self.logger.info("[PostOffice] Service Stopped")
             raise  # Re-raise to properly propagate cancellation
 
-    def get_mails_by_range(self, task_id, agent_name, start=0, end=1):
+    async def get_mails_by_range(self, task_id, agent_name, start=0, end=1):
         """查询某个Agent的指定Range的邮件
         Args:
             agent_name: Agent名称
@@ -118,14 +115,11 @@ class PostOffice(AutoLoggerMixin):
         Returns:
             指定范围内的邮件列表
         """
-        email_records = self.email_db.get_mails_by_range(
+        email_records = await self.email_db.get_mails_by_range(
             task_id, agent_name, start, end
         )
         emails = []
         for record in email_records:
-            # 恢复 metadata 字段
-            import json
-
             metadata = {}
             if record.get("metadata"):
                 try:
@@ -163,31 +157,26 @@ class PostOffice(AutoLoggerMixin):
         Raises:
             RuntimeError: 如果更新失败
         """
-        import asyncio
-
-        await asyncio.to_thread(
-            self.email_db.update_receiver_session,
+        await self.email_db.update_receiver_session(
             email_id,
             recipient_session_id,
             receiver_name,
         )
 
-    def get_emails_by_session(self, session_id: str, agent_name: str):
+    async def get_emails_by_session(self, session_id: str, agent_name: str):
         """
         获取某个 session 的所有邮件（发出去的 + 收到的）
 
         Args:
             session_id: 会话ID
             agent_name: Agent名称
-            task_id: 用户会话ID
 
         Returns:
             Email对象列表
         """
-        email_records = self.email_db.get_emails_by_session(session_id, agent_name)
+        email_records = await self.email_db.get_emails_by_session(session_id, agent_name)
         emails = []
         for record in email_records:
-            # 恢复 metadata 字段
             metadata = {}
             if record.get("metadata"):
                 try:
@@ -211,19 +200,18 @@ class PostOffice(AutoLoggerMixin):
             emails.append(email)
         return emails
 
-    def get_session_emails_for_user(self, session_id):
+    async def get_session_emails_for_user(self, session_id):
         """获取某个用户会话中所有与User相关的邮件
         Args:
             session_id: 会话ID
         Returns:
             Email对象列表，每个Email包含额外的 is_from_user 布尔字段
         """
-        email_records = self.email_db.get_emails_by_session(
+        email_records = await self.email_db.get_emails_by_session(
             session_id, self.user_agent_name
         )
         emails = []
         for record in email_records:
-            # 恢复 metadata 字段
             metadata = {}
             if record.get("metadata"):
                 try:
@@ -244,7 +232,6 @@ class PostOffice(AutoLoggerMixin):
                 recipient_session_id=record.get("recipient_session_id"),
                 metadata=metadata,
             )
-            # Add is_from_user flag
             email.is_from_user = email.sender == self.user_agent_name
             emails.append(email)
         return emails

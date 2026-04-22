@@ -33,7 +33,8 @@ class SessionManager(AutoLoggerMixin):
 
     def __init__(self, agent_name: str, matrixpath: 'MatrixPaths',
                  parent_logger: Optional[logging.Logger] = None,
-                 log_config: Optional['LogConfig'] = None):
+                 log_config: Optional['LogConfig'] = None,
+                 db=None):
         """
         初始化 SessionManager
 
@@ -42,10 +43,12 @@ class SessionManager(AutoLoggerMixin):
             paths: MatrixPaths 对象，统一路径管理器
             parent_logger: 父组件的logger（可选，用于共享日志）
             log_config: 日志配置（可选）
+            db: AgentMatrixDB 实例（共享连接，可选）
         """
         self.name = f"{agent_name}_SessionManager"
         self.agent_name = agent_name
-        self.matrixpath = matrixpath  # 直接使用传入的 MatrixPaths 对象
+        self.matrixpath = matrixpath
+        self._db = db
 
         # 可选：使用父 logger（如果不提供则创建独立日志文件）
         if parent_logger and log_config:
@@ -102,7 +105,7 @@ class SessionManager(AutoLoggerMixin):
             email: Email 对象
 
         Returns:
-            dict: session 对象（包含元数据和 history）
+            dict: session 对象（包含元数据和 history），带 _is_new_session 标记
         """
         # Case A: Reply（恢复已存在的 session）
         if hasattr(email, 'in_reply_to') and email.in_reply_to:
@@ -115,10 +118,7 @@ class SessionManager(AutoLoggerMixin):
                 self.logger.debug(f"📋 Found session {session_id[:8]} in cache")
             else:
                 # 2. 查询数据库
-                original_email = await asyncio.to_thread(
-                    self._get_email_from_db,
-                    email.in_reply_to
-                )
+                original_email = await self._get_email_from_db(email.in_reply_to)
 
                 if original_email and original_email.get('sender_session_id'):
                     session_id = original_email['sender_session_id']
@@ -131,6 +131,7 @@ class SessionManager(AutoLoggerMixin):
                 # 1. 先查内存
                 if session_id in self.sessions:
                     session = self.sessions[session_id]
+                    session['_is_new_session'] = False
                     self.logger.debug(f"📨 Resumed existing session {session['session_id'][:8]} from memory")
                     return session
 
@@ -138,12 +139,14 @@ class SessionManager(AutoLoggerMixin):
                 self.logger.info(f"🔄 Session {session_id[:8]} not in memory, loading from disk...")
                 session = await self._load_session_from_disk(session_id)
                 if session:
+                    session['_is_new_session'] = False
                     self.sessions[session_id] = session
                     return session
 
                 # 3. 磁盘也没有，创建新的
                 self.logger.warning(f"⚠️ Session {session_id[:8]} not found on disk, creating new session")
                 session = await self._create_new_session(session_id, email.sender, email.task_id)
+                session['_is_new_session'] = True
                 self.sessions[session_id] = session
                 await self._save_session_to_disk(session)
                 return session
@@ -152,6 +155,7 @@ class SessionManager(AutoLoggerMixin):
         task_id = getattr(email, 'task_id', 'default')
         # 传递None，让_create_new_session自动生成session_id
         session = await self._create_new_session(None, email.sender, task_id)
+        session['_is_new_session'] = True
         self.sessions[session['session_id']] = session
 
         # 🔑 关键修复：将 User 的邮件 ID 也加入 reply_mapping
@@ -230,9 +234,9 @@ class SessionManager(AutoLoggerMixin):
 
         return session
 
-    def _get_email_from_db(self, email_id: str) -> Optional[dict]:
+    async def _get_email_from_db(self, email_id: str) -> Optional[dict]:
         """
-        从数据库获取邮件记录（同步方法）
+        从数据库获取邮件记录
 
         Args:
             email_id: 邮件ID
@@ -240,17 +244,11 @@ class SessionManager(AutoLoggerMixin):
         Returns:
             dict: 邮件记录，如果不存在返回 None
         """
-
+        if not self._db:
+            self.logger.warning("No DB instance available for _get_email_from_db")
+            return None
         try:
-            import os
-            db_path = str(self.matrixpath.database_path)
-            from ..db.agent_matrix_db import AgentMatrixDB
-            db = AgentMatrixDB(db_path)
-            result = db.get_email_by_id(email_id)
-            # 关闭数据库连接
-            if hasattr(db, 'conn') and db.conn:
-                db.conn.close()
-            return result
+            return await self._db.get_email_by_id(email_id)
         except Exception as e:
             self.logger.warning(f"Failed to query email {email_id[:8]} from DB: {e}")
             return None

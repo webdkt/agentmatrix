@@ -1,6 +1,6 @@
 import asyncio
-from typing import Dict, Optional, Callable, List, Any, Tuple
-from dataclasses import asdict
+from typing import Dict, Optional, Callable, List, Any, Tuple, Union
+from dataclasses import dataclass, asdict, field
 from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
@@ -24,6 +24,41 @@ class AgentStatus:
     PAUSED = "PAUSED"
     STOPPED = "STOPPED"
     ERROR = "ERROR"
+
+
+@dataclass
+class AskUserQuestion:
+    """ask_user 问题数据结构（增强版）
+
+    支持图片附件、选项按钮（单选/多选）、自定义输入
+    """
+    question: str                        # 问题文本
+    options: Optional[List[str]] = None  # 选项列表（单选/多选）
+    multiple: bool = False               # 是否多选（False=单选，True=多选）
+    image_path: Optional[str] = None     # 图片路径（容器内路径，复制后会更新为文件名）
+
+    def to_dict(self) -> dict:
+        """转换为字典（用于 WebSocket 传输）"""
+        return {
+            "question": self.question,
+            "options": self.options,
+            "multiple": self.multiple,
+            "image_path": self.image_path
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'AskUserQuestion':
+        """从字典创建实例"""
+        # 兼容旧格式：如果 data 是字符串，直接作为 question
+        if isinstance(data, str):
+            return cls(question=data)
+        # 新格式：包含 question 字段的对象
+        return cls(
+            question=data.get("question", ""),
+            options=data.get("options"),
+            multiple=data.get("multiple", False),
+            image_path=data.get("image_path")
+        )
 
 
 class BaseAgent(AutoLoggerMixin):
@@ -126,6 +161,12 @@ class BaseAgent(AutoLoggerMixin):
         # 🌐 浏览器适配器（懒启动，Agent 级共享资源）
         self._browser_adapter = None
 
+        # 🆕 Collab Mode（运行时状态，不持久化）
+        self.collab_mode: bool = False
+        self._collab_output_loop: Optional[asyncio.AbstractEventLoop] = None
+        self.current_collab_file: Optional[str] = None  # 当前协作的文件路径
+        self._last_deactivated_session_id: Optional[str] = None  # 上一次停用的 session_id
+
         # 🆕 记录最后一次 top-level MicroAgent 执行的 system prompt
         self.last_system_prompt = None
 
@@ -155,6 +196,9 @@ class BaseAgent(AutoLoggerMixin):
         self.logger.info(
             f"Container Session 初始化成功 (session_id: {self.container_session.session_id})"
         )
+
+        # 始终挂载 output mirror，让终端输出持续广播
+        self._setup_output_mirror()
 
     async def switch_workspace(self, task_id: str) -> bool:
         """切换工作目录（通过 container session 执行命令）"""
@@ -211,6 +255,44 @@ class BaseAgent(AutoLoggerMixin):
         if adapter.browser is None:
             await adapter.start(headless=False)
             self.logger.info("🌐 浏览器进程已启动")
+
+    # ==================== Collab Mode ====================
+
+    def _setup_output_mirror(self):
+        """
+        设置 container session 的 output mirror → WebSocket 广播
+
+        reader thread 是同步线程，不能直接调 asyncio 代码。
+        使用 asyncio.run_coroutine_threadsafe() 安全地调度协程。
+        """
+        if not self.container_session:
+            return
+
+        self._collab_output_loop = asyncio.get_event_loop()
+
+        def _on_output(stream_type: str, line_text: str):
+            """在 reader thread 中同步调用"""
+            if not self._broadcast_message_callback:
+                return
+            loop = self._collab_output_loop
+            if loop and loop.is_running():
+                msg = {
+                    "type": "COLLAB_BASH_OUTPUT",
+                    "agent_name": self.name,
+                    "data": {"stream": stream_type, "line": line_text},
+                }
+                coro = self._broadcast_message_callback(msg)
+                asyncio.run_coroutine_threadsafe(coro, loop)
+
+        self.container_session.set_output_callback(_on_output)
+        self.logger.info("📡 Output mirror 已启用")
+
+    def _teardown_output_mirror(self):
+        """取消 container session 的 output mirror"""
+        if self.container_session:
+            self.container_session.set_output_callback(None)
+        self._collab_output_loop = None
+        self.logger.info("📡 Output mirror 已关闭")
 
     def deprecated_get_skill_prompt(
         self, skill_name: str, prompt_name: str, **kwargs
@@ -286,7 +368,8 @@ class BaseAgent(AutoLoggerMixin):
         if value is not None:
             # 初始化SessionManager（使用 runtime.paths）
             self.session_manager = SessionManager(
-                agent_name=self.name, matrixpath=self.runtime.paths
+                agent_name=self.name, matrixpath=self.runtime.paths,
+                db=self.post_office.email_db,
             )
 
             # 🐳 初始化 Container Session（在 workspace_root 设置后）
@@ -311,7 +394,7 @@ class BaseAgent(AutoLoggerMixin):
         self.logger.info(f"⏸️ Agent {self.name} 已暂停")
 
         # 🔧 更新状态并推送
-        self.update_status(new_status=AgentStatus.PAUSED, new_message="⏸️ Agent已暂停")
+        self.update_status(new_status=AgentStatus.PAUSED)
 
     async def resume(self):
         """恢复 Agent 执行（用于 pause 恢复）"""
@@ -319,7 +402,7 @@ class BaseAgent(AutoLoggerMixin):
             self._paused = False
             self._pause_event.set()
             self.logger.info(f"▶️ Agent {self.name} 从暂停状态恢复")
-            self.update_status(new_status=AgentStatus.IDLE, new_message="▶️ Agent已从暂停状态恢复")
+            self.update_status(new_status=AgentStatus.IDLE)
         else:
             self.logger.warning(f"Agent {self.name} 未暂停")
 
@@ -366,55 +449,136 @@ class BaseAgent(AutoLoggerMixin):
             self._session_task.cancel()
             self.logger.info(f"🛑 Agent {self.name} 已停止当前 session")
 
-        self.update_status(new_status=AgentStatus.STOPPED, new_message="🛑 Agent已停止")
+        self.update_status(new_status=AgentStatus.STOPPED)
 
     # ========== ask_user 机制 ==========
 
-    async def ask_user(self, question: str) -> str:
+    async def ask_user(
+        self,
+        question: Union[str, AskUserQuestion],
+        **kwargs
+    ) -> str:
         """
-        等待用户输入（特殊 action）
+        等待用户输入（增强版）
 
         此方法会挂起当前 MicroAgent 的执行，等待用户通过 submit_user_input 提供答案。
         同时支持全局暂停机制。
 
         Args:
-            question: 向用户提出的问题
+            question: 向用户提出的问题（str）或 AskUserQuestion 对象
+            **kwargs: 可选参数（用于扩展）
+                - options: List[str] - 选项列表（单选/多选）
+                - multiple: bool - 是否多选（默认 False）
+                - image_path: str - 图片路径（容器内路径）
 
         Returns:
-            str: 用户的回答
+            str: 用户的回答（单选值、多选值逗号分隔、或自定义文本）
 
         Example:
-            # 在 MicroAgent._execute_action 中
-            answer = await self.root_agent.ask_user("请确认预算范围")
+            # 简单文本问题
+            answer = await self.ask_user("请确认预算范围")
             # 返回: "5万-10万"
+
+            # 单选问题
+            answer = await self.ask_user(
+                question="请选择预算范围",
+                options=["5万以下", "5-10万", "10万以上"],
+                multiple=False
+            )
+            # 返回: "5-10万"
+
+            # 多选问题
+            answer = await self.ask_user(
+                question="请选择功能模块",
+                options=["用户管理", "数据分析", "报表生成"],
+                multiple=True
+            )
+            # 返回: "用户管理,数据分析"
+
+            # 带图片的问题
+            answer = await self.ask_user(
+                question="请分析图表",
+                image_path=str(self.private_workspace / "chart.png")
+            )
+            # 返回: "呈现上升趋势"
         """
         from datetime import datetime
+        import shutil
+
+        # 🔧 参数标准化（统一转换为 AskUserQuestion 对象）
+        if isinstance(question, str):
+            # 简单格式：纯文本问题
+            question_obj = AskUserQuestion(
+                question=question,
+                options=kwargs.get('options'),
+                multiple=kwargs.get('multiple', False),
+                image_path=kwargs.get('image_path')
+            )
+        elif isinstance(question, AskUserQuestion):
+            # 已是 AskUserQuestion 对象
+            question_obj = question
+        else:
+            raise TypeError(f"question 必须是 str 或 AskUserQuestion，当前类型: {type(question)}")
 
         # 🔧 记录旧状态并设置新状态
         old_status = self._status  # 保存旧状态
-        # 3. 记录问题（给 API 查询）
-        self._pending_user_question = question
-        # 确保 current_user_session_id 不为 None（用于前端匹配会话）
-        if not self.current_user_session_id and self.current_task_id:
-            self.current_user_session_id = self.current_task_id
-        # 🔧 更新状态会触发 AGENT_STATUS_UPDATE 增量推送（包含 pending_question）
-        self.update_status(new_status=AgentStatus.WAITING_FOR_USER)
 
-        # ✅ 发送邮件通知（如果 runtime 可用）
-        task_id = self.current_task_id
+        # ✅ 处理图片文件（复制到 attachments 目录）
         session_id = (
             self.current_session.get("session_id")
             if self.current_session
             else self.current_task_id
         )
-        await self._send_ask_user_email(question, task_id, session_id)
+
+        if question_obj.image_path:
+            source_path = Path(question_obj.image_path)
+            if source_path.exists():
+                try:
+                    # 复制到当前 session 的 attachments 目录
+                    att_dir = self.runtime.paths.get_agent_attachments_dir(
+                        self.name, session_id
+                    )
+                    att_dir.mkdir(parents=True, exist_ok=True)
+
+                    filename = source_path.name
+                    dest_path = att_dir / filename
+
+                    # 复制文件
+                    shutil.copy2(source_path, dest_path)
+
+                    # 更新为文件名（供前端 API 使用）
+                    question_obj.image_path = filename
+
+                    self.logger.info(f"✅ 图片已复制到 attachments: {filename}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ 复制图片失败: {e}，将忽略图片")
+                    question_obj.image_path = None
+            else:
+                self.logger.warning(f"⚠️ 图片不存在: {source_path}，将忽略图片")
+                question_obj.image_path = None
+
+        # 3. 记录问题（给 API 查询）
+        self._pending_user_question = question_obj
+
+        # 确保 current_user_session_id 不为 None（用于前端匹配会话）
+        if not self.current_user_session_id and self.current_task_id:
+            self.current_user_session_id = self.current_task_id
+
+        # 🔧 更新状态会触发 AGENT_STATUS_UPDATE 增量推送（包含 pending_question）
+        self.update_status(new_status=AgentStatus.WAITING_FOR_USER)
+
+        # ✅ 发送邮件通知（如果 runtime 可用）
+        task_id = self.current_task_id
+        await self._send_ask_user_email(question_obj, task_id, session_id)
 
         # 4. 创建 Future 并挂起
         self._user_input_future = asyncio.Future()
 
-        self.logger.info(
-            f"💬 向用户提问: {question[:50]}{'...' if len(question) > 50 else ''}"
-        )
+        question_preview = question_obj.question[:50]
+        if len(question_obj.question) > 50:
+            question_preview += "..."
+
+        self.logger.info(f"💬 向用户提问: {question_preview}")
 
         try:
             # 发起提问前，先确保当前没有被暂停
@@ -427,9 +591,8 @@ class BaseAgent(AutoLoggerMixin):
             # 拿到答案后，再次检查是否在等待期间系统被暂停了
             await self._checkpoint()
 
-            self.logger.info(
-                f"✅ 收到用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}"
-            )
+            answer_preview = answer[:50] if len(answer) > 50 else answer
+            self.logger.info(f"✅ 收到用户回答: {answer_preview}")
             return answer
 
         finally:
@@ -440,18 +603,19 @@ class BaseAgent(AutoLoggerMixin):
             # 🔧 移除：状态清理（避免内存泄漏）
             # 注：不再需要显式清理，因为 finally 已经处理
 
-    async def _send_ask_user_email(self, question: str, task_id: str, session_id):
+    async def _send_ask_user_email(self, question: AskUserQuestion, task_id: str, session_id: str):
         """
         发送 ask_user 邮件通知
 
         当 Agent 调用 ask_user 时，发送一封特殊邮件给用户，
         用户可以直接回复邮件来回答问题。
 
-        Subject 格式：{agent_name}问：{question} #ASK_USER#{agent_name}#{agent_session_id}#
+        Subject 格式：请回答问题 #ASK_USER#{agent_name}#{agent_session_id}#
 
         Args:
-            question: 问题内容
+            question: AskUserQuestion 对象（包含问题、选项、图片等信息）
             task_id: 任务ID
+            session_id: Agent session ID
         """
         if not self.runtime:
             self.logger.warning("⚠️ runtime 未注入，跳过 ask_user 邮件发送")
@@ -468,7 +632,9 @@ class BaseAgent(AutoLoggerMixin):
 
             # 直接调用 EmailProxyService 的专用方法
             await email_proxy.send_ask_user_email(
-                agent_name=self.name, agent_session_id=session_id, question=question
+                agent_name=self.name,
+                agent_session_id=session_id,
+                question=question
             )
 
             self.logger.info(f"✅ 已发送 ask_user 邮件通知: {question[:50]}...")
@@ -514,7 +680,7 @@ class BaseAgent(AutoLoggerMixin):
         Returns:
             dict: Agent 完整状态，包含：
                 - status: Agent 状态
-                - pending_question: 等待中的用户问题
+                - pending_question: 等待中的用户问题（AskUserQuestion 对象或 None）
                 - current_session_id: 当前会话 ID
                 - current_task_id: 当前任务 ID
                 - current_user_session_id: 当前用户会话 ID
@@ -524,26 +690,37 @@ class BaseAgent(AutoLoggerMixin):
         if not user_session_id and self.current_task_id:
             user_session_id = self.current_task_id
 
+        # 🔧 处理 pending_question 的序列化
+        pending_question = None
+        if hasattr(self, "_pending_user_question") and self._pending_user_question:
+            if isinstance(self._pending_user_question, AskUserQuestion):
+                # 新格式：AskUserQuestion 对象
+                pending_question = self._pending_user_question.to_dict()
+            elif isinstance(self._pending_user_question, str):
+                # 兼容旧格式：纯文本
+                pending_question = self._pending_user_question
+            else:
+                # 其他情况（不应该发生）
+                pending_question = str(self._pending_user_question)
+
         return {
             "status": self._status,
-            "pending_question": self._pending_user_question
-            if hasattr(self, "_pending_user_question")
-            else None,
+            "pending_question": pending_question,
             "current_session_id": self.current_session.get("session_id")
             if self.current_session
             else None,
             "current_task_id": self.current_task_id,
             "current_user_session_id": user_session_id,
             "status_history": self.status_history.copy(),
+            "current_collab_file": self.current_collab_file,
         }
 
-    def update_status(self, new_status=None, new_message=None):
+    def update_status(self, new_status=None):
         """
         统一的状态更新接口（唯一修改 Agent 状态的方式）
 
         Args:
             new_status (str, optional): 新的 Agent 状态
-            new_message (str, optional): 添加到状态历史的消息
 
         注意：此方法会触发增量状态推送
         """
@@ -553,19 +730,6 @@ class BaseAgent(AutoLoggerMixin):
 
             self._status_since = datetime.now()
             self.logger.debug(f"📊 Status: {new_status}")
-
-        if new_message is not None:
-            from datetime import datetime
-
-            entry = {
-                "message": new_message,
-                "timestamp": datetime.now().isoformat(),
-                "user_session_id": self.current_user_session_id,
-            }
-            self.status_history.append(entry)
-            if len(self.status_history) > self._max_status_history:
-                self.status_history.pop(0)
-            self.logger.debug(f"📊 Status history: {new_message}")
 
         if self._broadcast_message_callback:
             agent_info = self.get_status_snapshot()
@@ -582,6 +746,33 @@ class BaseAgent(AutoLoggerMixin):
             await self._broadcast_message_callback(message)
         except Exception as e:
             self.logger.warning(f"Failed to send status update: {e}")
+
+    async def _log_session_event(self, session_id: str, event_type: str, event_name: str, event_detail: dict = None):
+        """异步写入 session 事件 + WebSocket 广播"""
+        from datetime import datetime
+        # DB 写入
+        detail_str = json.dumps(event_detail, ensure_ascii=False) if event_detail else None
+        await self.post_office.email_db.insert_session_event(
+            owner=self.name,
+            session_id=session_id,
+            event_type=event_type,
+            event_name=event_name,
+            event_detail=detail_str,
+        )
+        # WebSocket 广播
+        if self._broadcast_message_callback:
+            message = {
+                "type": "SESSION_EVENT",
+                "agent_name": self.name,
+                "session_id": session_id,
+                "data": {
+                    "event_type": event_type,
+                    "event_name": event_name,
+                    "event_detail": event_detail,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            }
+            asyncio.create_task(self._broadcast_message_callback(message))
 
     def get_current_status(self) -> dict:
         """获取当前状态（最新一条）"""
@@ -777,22 +968,36 @@ class BaseAgent(AutoLoggerMixin):
                 receiver_name=self.name,
             )
 
+        # 📝 写入 session event: email.received（记录原始邮件内容）
+        body_preview = email.body[:200] if email.body else ""
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="email",
+            event_name="received",
+            event_detail={
+                "email_ids": [email.id],
+                "sender": email.sender,
+                "recipient": email.recipient,
+                "subject": email.subject or "",
+                "body_preview": body_preview,
+                "has_more": bool(email.body and len(email.body) > 200),
+            },
+        )
+
         if self.active_session_id is None:
             # 情况 1：无 active session → activate
             await self._activate_session(session, email)
         elif self.active_session_id == session_id:
             # 情况 2：同一 session → 投递 batch 信号
             if self.active_micro_agent:
-                email_text = f"[新邮件] 来自 {email.sender}: {email.subject}\n{email.body}"
-                if email.attachments:
-                    email_text += "\n" + "\n".join(
-                        f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
-                        for att in email.attachments
-                    )
                 self.active_micro_agent.signal_queue.put_nowait(
                     Signal(type="email", payload={
-                        "text": email_text,
-                        "email_ids": [email.id]
+                        "sender": email.sender,
+                        "recipient": email.recipient,
+                        "subject": email.subject,
+                        "body": email.body,
+                        "attachments": email.attachments or [],
+                        "email_ids": [email.id],
                     })
                 )
             self.logger.debug(f"📧 邮件路由到 active session {session_id[:8]}")
@@ -811,6 +1016,10 @@ class BaseAgent(AutoLoggerMixin):
         self.active_session_id = session_id
         self.current_session = session
         self.current_task_id = session["task_id"]
+        # 只在真正切换到不同 session 时才清空 collab file
+        # 同一 session re-activate（如等待用户输入后继续）应保留 collab file
+        if self._last_deactivated_session_id != session_id:
+            self.current_collab_file = None
 
         # 设置 current_user_session_id
         if self.runtime and first_email.sender == self.runtime.get_user_agent_name():
@@ -827,6 +1036,7 @@ class BaseAgent(AutoLoggerMixin):
             self.container_session.start()
         success = await self.switch_workspace(session["task_id"])
         if not success:
+            self.logger.error(f"工作区切换失败: task_id={session['task_id']}, container_alive={self.container_session.is_alive()}")
             raise RuntimeError(f"工作区切换失败: {session['task_id']}")
 
         # 准备 available_skills
@@ -841,16 +1051,17 @@ class BaseAgent(AutoLoggerMixin):
         )
         self.active_micro_agent = micro_agent
 
-        # 首封邮件作为 batch signal 放入 queue（取代旧的 task 参数 + signal 双重路径）
-        email_text = f"[新邮件] 来自 {first_email.sender}: {first_email.subject}\n{first_email.body}"
-        if first_email.attachments:
-            email_text += "\n" + "\n".join(
-                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
-                for att in first_email.attachments
-            )
+        # 首封邮件作为 raw signal 放入 queue，文本转换在 MicroAgent.inject_signals 中完成
         micro_agent.signal_queue.put_nowait(Signal(
             type="email",
-            payload={"text": email_text, "email_ids": [first_email.id]}
+            payload={
+                "sender": first_email.sender,
+                "recipient": first_email.recipient,
+                "subject": first_email.subject,
+                "body": first_email.body,
+                "attachments": first_email.attachments or [],
+                "email_ids": [first_email.id],
+            }
         ))
 
         # 启动 session task — task 为空，邮件通过 signal 进入
@@ -858,6 +1069,14 @@ class BaseAgent(AutoLoggerMixin):
             self._run_session(micro_agent, session)
         )
         self.logger.info(f"🚀 Session {session_id[:8]} 已激活")
+
+        # 📝 写入 session event: session.activated
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="session",
+            event_name="activated",
+            event_detail={"task_id": session.get("task_id"), "original_sender": session.get("original_sender")},
+        )
 
     async def _run_session(self, micro_agent: MicroAgent, session: dict):
         """
@@ -875,6 +1094,12 @@ class BaseAgent(AutoLoggerMixin):
         except asyncio.CancelledError:
             if self._is_stopping:
                 self.logger.info(f"🛑 Session {session_id[:8]} 被 stop() 中断")
+                # 📝 写入 session event: session.user_interrupt
+                await self._log_session_event(
+                    session_id=session_id,
+                    event_type="session",
+                    event_name="user_interrupt",
+                )
                 if session.get("history"):
                     history = session["history"]
                     if history:
@@ -922,12 +1147,12 @@ class BaseAgent(AutoLoggerMixin):
         except Exception as e:
             self.logger.warning(f"Failed to save session on deactivate: {e}")
 
-        # 断开 container shell（下次 activate 时重建，避免残留命令跨 session 干扰）
-        if self.container_session and self.container_session.is_alive():
-            self.logger.debug(f"🔌 断开 container shell: {self.container_session.session_id}")
-            self.container_session.stop()
+        # 不再断开 container shell — 保持空闲 shell 开销极低（~5MB 内存，0 CPU），
+        # 且允许用户在 Agent 空闲时通过 Collab Terminal 持续操作。
+        # 若 shell 意外断开，terminal/exec 端点会 lazy-recreate。
 
         # 清理 active 状态
+        self._last_deactivated_session_id = session_id
         self.active_session_id = None
         self.active_micro_agent = None
         self._session_task = None
@@ -937,6 +1162,14 @@ class BaseAgent(AutoLoggerMixin):
             self.update_status(new_status=AgentStatus.IDLE)
 
         self.logger.info(f"✅ Session {session_id[:8]} 已停用")
+
+        # 📝 写入 session event: session.deactivated
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="session",
+            event_name="deactivated",
+            event_detail={"reason": "normal"},
+        )
 
         # 自动处理 waiting emails
         if self.waiting_emails:

@@ -8,28 +8,24 @@ import { useSessionStore } from '@/stores/session'
 import { useUIStore } from '@/stores/ui'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useWebSocket } from '@/composables/useWebSocket'
-import { useNotifications } from '@/composables/useNotifications'
 import ViewSelector from '@/components/view-selector/ViewSelector.vue'
 import ViewContainer from '@/components/view-container/ViewContainer.vue'
 import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
 import EmailToast from '@/components/toast/EmailToast.vue'
-import { sessionAPI } from '@/api/session'
 import { configAPI } from '@/api/config'
 
 const windowLabel = getCurrentWebviewWindow().label
-const currentView = ref('email')
+const currentView = ref('collab')
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
 const sessionStore = useSessionStore()
 const uiStore = useUIStore()
 const websocketStore = useWebSocketStore()
 const { isConnected, connect, onMessage } = useWebSocket()
-const { showNotification } = useNotifications()
 
 const appState = ref('loading')
 
 const backendStatus = computed(() => backendStore.status)
-const currentSession = computed(() => sessionStore.currentSession)
 
 const handleViewChange = (viewId) => {
   currentView.value = viewId
@@ -37,16 +33,18 @@ const handleViewChange = (viewId) => {
 
 async function handleEmailToastClick(emailData) {
   const sessionId = emailData.recipient_session_id || emailData.receiver_session_id
+  let targetSession = null
   if (sessionId) {
-    const targetSession = sessionStore.sessions.find(
+    targetSession = sessionStore.sessions.find(
       s => s.session_id === sessionId
     )
     if (targetSession) {
       await sessionStore.selectSession(targetSession, true)
     }
   }
-  // Switch to email view
-  currentView.value = 'email'
+
+  // 统一路由到 Collab View（逐步淘汰 Email View）
+  currentView.value = 'collab'
   uiStore.emailToast.show = false
 }
 
@@ -56,28 +54,6 @@ async function initializeWebSocket() {
 
   onMessage((data) => {
     websocketStore.handle_message(data)
-  })
-
-  websocketStore.onSessionUpdate(async (data) => {
-    const { session_id, direction, is_read, sender, subject } = data
-    const isCurrentSession = session_id === currentSession.value?.session_id
-
-    sessionStore.updateSessionFromEvent(data)
-
-    if (direction === 'inbound' && is_read === 0) {
-      if (currentView.value === 'email') {
-        if (isCurrentSession) {
-          sessionStore.selectSession(currentSession.value, true)
-          setTimeout(() => {
-            sessionStore.markSessionRead(session_id)
-            sessionAPI.markAsRead(session_id)
-          }, 3000)
-        }
-      } else {
-        uiStore.emailToast = { show: true, emailData: data }
-        showNotification('新邮件', `来自 ${sender}: ${subject}`)
-      }
-    }
   })
 }
 

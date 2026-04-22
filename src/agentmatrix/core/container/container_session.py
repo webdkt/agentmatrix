@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 from queue import Queue, Empty
 
 
@@ -56,6 +56,16 @@ class ContainerSession:
         # 分隔符（唯一标识）
         self._start_marker = f"__SESSION_{self.session_id}_START__"
         self._end_marker = f"__SESSION_{self.session_id}_END__"
+
+        # Output mirror callback（Collab Mode 使用）
+        # callback(stream_type: str, line_text: str) -> None
+        # stream_type: "stdout" or "stderr"
+        # 注意：callback 在 reader 线程中同步调用，不能直接调 asyncio 代码
+        self._output_callback: Optional[Callable[[str, str], None]] = None
+
+    def set_output_callback(self, callback: Optional[Callable[[str, str], None]]) -> None:
+        """设置 output mirror callback（None 表示取消）"""
+        self._output_callback = callback
 
     @staticmethod
     def _find_runtime_cmd(runtime_type: str) -> str:
@@ -206,6 +216,10 @@ class ContainerSession:
 
         self.logger.debug(f"[session {self.session_id}] 执行: {command[:100]}")
 
+        # Mirror 输入到 output callback（Collab Mode 使用）
+        if self._output_callback:
+            self._output_callback("stdin", f"$ {command}\n")
+
         # 发送命令
         self._send_raw(wrapped_cmd)
 
@@ -228,10 +242,15 @@ class ContainerSession:
                 if line_str == self._start_marker:
                     continue
 
-                # 检查结束标记
-                if line_str.startswith(self._end_marker):
+                # 检查结束标记（处理 base64 等无换行输出与 marker 拼接的情况）
+                if self._end_marker in line_str:
+                    marker_idx = line_str.find(self._end_marker)
+                    if marker_idx > 0:
+                        # marker 之前的部分是合法 stdout
+                        stdout_lines.append(line_str[:marker_idx].rstrip("\n"))
                     # 解析退出码: __SESSION_xxx_END__:0
-                    parts = line_str.split(":")
+                    marker_and_rest = line_str[marker_idx:]
+                    parts = marker_and_rest.split(":")
                     if len(parts) >= 2:
                         try:
                             exit_code = int(parts[-1])
@@ -286,6 +305,11 @@ class ContainerSession:
                     # 管道关闭，输出残留数据
                     if buf:
                         self._output_queue.put(buf)
+                        if self._output_callback:
+                            try:
+                                self._output_callback("stdout", buf.decode("utf-8", errors="replace"))
+                            except Exception:
+                                pass
                     break
                 buf += chunk
                 # 按换行分割，将完整行放入队列
@@ -296,6 +320,14 @@ class ContainerSession:
                     line = buf[:idx]
                     buf = buf[idx + 1 :]
                     self._output_queue.put(line)
+                    if self._output_callback:
+                        try:
+                            line_text = line.decode("utf-8", errors="replace")
+                            # 过滤 marker 行，不 mirror 给用户
+                            if self._start_marker not in line_text and self._end_marker not in line_text:
+                                self._output_callback("stdout", line_text)
+                        except Exception:
+                            pass
             except Exception:
                 if buf:
                     self._output_queue.put(buf)
@@ -310,6 +342,11 @@ class ContainerSession:
                 if not chunk:
                     if buf:
                         self._stderr_queue.put(buf)
+                        if self._output_callback:
+                            try:
+                                self._output_callback("stderr", buf.decode("utf-8", errors="replace"))
+                            except Exception:
+                                pass
                     break
                 buf += chunk
                 while True:
@@ -319,6 +356,13 @@ class ContainerSession:
                     line = buf[:idx]
                     buf = buf[idx + 1 :]
                     self._stderr_queue.put(line)
+                    if self._output_callback:
+                        try:
+                            line_text = line.decode("utf-8", errors="replace")
+                            if self._start_marker not in line_text and self._end_marker not in line_text:
+                                self._output_callback("stderr", line_text)
+                        except Exception:
+                            pass
             except Exception:
                 if buf:
                     self._stderr_queue.put(buf)

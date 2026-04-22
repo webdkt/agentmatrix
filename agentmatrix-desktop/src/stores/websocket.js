@@ -10,15 +10,10 @@ export const useWebSocketStore = defineStore('websocket', {
   state: () => ({
     isConnected: false,
     lastEvent: null,
-    sessionUpdateCallbacks: [],  // user_session_updated 回调函数列表
     listeners: {},               // 事件监听器 { eventType: [callback, ...] }
   }),
 
-  getters: {
-    hasSessionUpdateCallbacks: (state) => {
-      return state.sessionUpdateCallbacks.length > 0
-    }
-  },
+  getters: {},
 
   actions: {
     /**
@@ -34,8 +29,6 @@ export const useWebSocketStore = defineStore('websocket', {
     handle_message(data) {
       this.lastEvent = data
 
-      console.log('📨 WebSocket message received:', data.type, data)
-
       // Trigger registered listeners
       const eventType = data.type || data.event
       if (eventType && this.listeners[eventType]) {
@@ -44,9 +37,13 @@ export const useWebSocketStore = defineStore('websocket', {
         })
       }
 
-      // 处理 user session 更新事件
-      if (data.type === 'user_session_updated') {
-        this.handleSessionUpdate(data.data)
+      // 处理 SESSION_EVENT（session 级事件，替代 user_session_updated）
+      if (data.type === 'SESSION_EVENT') {
+        this.handleSessionEvent(data)
+      }
+      // 处理新 user session（Agent 主动发新邮件时推送）
+      else if (data.type === 'NEW_USER_SESSION') {
+        this.handleNewUserSession(data.data)
       }
       // 处理运行时事件（USER_INTERACTION 等）
       else if (data.type === 'runtime_event') {
@@ -56,9 +53,85 @@ export const useWebSocketStore = defineStore('websocket', {
       else if (data.type === 'SYSTEM_STATUS') {
         this.handleSystemStatus(data.data)
       }
-      // 🆕 处理 Agent 状态增量更新（Agent 状态变化时推送）
+      // 处理 Agent 状态增量更新（Agent 状态变化时推送）
       else if (data.type === 'AGENT_STATUS_UPDATE') {
         this.handleAgentStatusUpdate(data)
+      }
+    },
+
+    /**
+     * 处理 SESSION_EVENT — session 级事件的统一入口
+     */
+    handleSessionEvent(message) {
+      const { agent_name, session_id: agentSessionId, data: eventData } = message
+      const { event_type, event_name, event_detail, timestamp } = eventData
+
+      const sessionStore = useSessionStore()
+
+      // 反查 user_session_id
+      const userSessionId = sessionStore.agentSessionLookup(agent_name, agentSessionId)
+
+      if (!userSessionId) {
+        // 找不到对应 user_session — 新 session 尚未建立映射
+        // 等 user_sessions 更新后自然能匹配上
+        console.log(`📬 SESSION_EVENT: no user_session for ${agent_name}:${agentSessionId}`)
+        return
+      }
+
+      const isCurrentSession = userSessionId === sessionStore.currentSession?.session_id
+
+      // 通知 ChatHistory 等组件增量 append
+      sessionStore.setLastSessionEvent({
+        agent_name,
+        session_id: agentSessionId,
+        data: eventData,
+      })
+
+      // 按 event_type 分发（email 事件需要处理 unread/reload）
+      if (event_type === 'email') {
+        this._handleEmailEvent(userSessionId, isCurrentSession, event_name, event_detail, agent_name)
+      }
+    },
+
+    /**
+     * 处理 email 类 SESSION_EVENT
+     */
+    _handleEmailEvent(userSessionId, isCurrentSession, eventName, detail, agentName) {
+      const sessionStore = useSessionStore()
+
+      if (isCurrentSession) {
+        // 当前 session — 标记需要 reload
+        // 通过 force selectSession 触发 EmailList/ChatHistory 的 watch 重新加载
+        if (sessionStore.currentSession) {
+          sessionStore.selectSession(sessionStore.currentSession, true)
+        }
+
+        // 自动标记已读（延迟 3 秒）
+        setTimeout(() => {
+          sessionStore.markSessionRead(userSessionId)
+          import('@/api/session').then(({ sessionAPI }) => {
+            sessionAPI.markAsRead(userSessionId)
+          })
+        }, 3000)
+      } else {
+        // 非当前 session — 标记未读
+        sessionStore.markSessionUnread(userSessionId)
+
+        // toast + 系统通知
+        if (eventName === 'received' && detail) {
+          import('@/stores/ui').then(({ useUIStore }) => {
+            const uiStore = useUIStore()
+            uiStore.emailToast = {
+              show: true,
+              emailData: {
+                recipient_session_id: userSessionId,
+                sender: detail.sender || agentName,
+                subject: detail.subject || '',
+                ...detail,
+              },
+            }
+          })
+        }
       }
     },
 
@@ -66,7 +139,6 @@ export const useWebSocketStore = defineStore('websocket', {
      * 🆕 处理 Agent 状态增量更新
      */
     handleAgentStatusUpdate(message) {
-      console.log('📊 AGENT_STATUS_UPDATE received:', message)
       const { agent_name, data } = message
 
       if (!agent_name || !data) {
@@ -77,22 +149,14 @@ export const useWebSocketStore = defineStore('websocket', {
       const sessionStore = useSessionStore()
       const agentStore = useAgentStore()
 
-      console.log(`📊 Processing update for ${agent_name}:`, {
-        status: data.status,
-        pending_question: data.pending_question,
-        current_user_session_id: data.current_user_session_id,
-        current_session_id: data.current_session_id
-      })
-
-      // 🆕 更新 agent store 中的状态（包含 current_session_id）
+      // 更新 agent store 中的状态
       agentStore.updateAgentStatus(agent_name, data)
 
       // 如果 agent 有 pending_question，设置到 session store
       if (data.pending_question && data.current_user_session_id) {
-        console.log(`✅ Setting pending question for session ${data.current_user_session_id}`)
         sessionStore.setPendingQuestion(data.current_user_session_id, {
           agent_name: agent_name,
-          agent_session_id: data.current_session_id,  // ← agent 的 session_id
+          agent_session_id: data.current_session_id,
           question: data.pending_question,
           task_id: data.current_task_id,
           timestamp: new Date().toISOString()
@@ -100,10 +164,9 @@ export const useWebSocketStore = defineStore('websocket', {
       }
       // 如果有 pending_question 但没有 current_user_session_id，设置全局 pending_question
       else if (data.pending_question) {
-        console.log(`✅ Setting global pending question from ${agent_name}`)
         sessionStore.setGlobalPendingQuestion({
           agent_name: agent_name,
-          agent_session_id: data.current_session_id,  // ← agent 的 session_id
+          agent_session_id: data.current_session_id,
           question: data.pending_question,
           task_id: data.current_task_id,
           timestamp: new Date().toISOString()
@@ -111,38 +174,18 @@ export const useWebSocketStore = defineStore('websocket', {
       }
       // 如果 pending_question 被清空，清除 session store 中的记录
       else if (data.current_user_session_id) {
-        console.log(`❌ Clearing pending question for session ${data.current_user_session_id}`)
         sessionStore.clearPendingQuestion(data.current_user_session_id)
       }
       // 如果 pending_question 被清空且没有 current_user_session_id，清除全局 pending_question
       else if (!data.pending_question && !data.current_user_session_id) {
-        console.log(`❌ Clearing global pending question`)
         sessionStore.clearGlobalPendingQuestion()
       }
-    },
-
-    /**
-     * 处理 user session 更新事件
-     */
-    handleSessionUpdate(data) {
-      console.log('📧 User session updated via WebSocket:', data)
-
-      // 通知所有注册的回调
-      this.sessionUpdateCallbacks.forEach(callback => {
-        try {
-          callback(data)
-        } catch (error) {
-          console.error('Error in session update callback:', error)
-        }
-      })
     },
 
     /**
      * 处理运行时事件
      */
     handleRuntimeEvent(eventData) {
-      console.log('🎯 Runtime event received via WebSocket:', eventData)
-
       const eventType = eventData.type
 
       // 处理 ASK_USER 事件
@@ -158,9 +201,6 @@ export const useWebSocketStore = defineStore('websocket', {
       const { source: agentName, content: question, payload } = eventData
       const sessionStore = useSessionStore()
 
-      console.log('💬 ASK_USER event:', { agentName, question, payload })
-
-      // 更新 session store 的 pendingQuestions
       sessionStore.setPendingQuestion(payload.session_id, {
         agent_name: agentName,
         question: question,
@@ -170,57 +210,50 @@ export const useWebSocketStore = defineStore('websocket', {
     },
 
     /**
-     * 处理 SYSTEM_STATUS 事件（统一处理函数）
-     * 现在主动请求和定期广播都用同一种格式了！
-     *
-     * @param {Object} statusData - 系统状态数据，格式：{ timestamp, agents: {...} }
+     * 处理 SYSTEM_STATUS 事件
      */
     handleSystemStatus(statusData) {
-      console.log('📊 SYSTEM_STATUS received:', statusData)
-
       const sessionStore = useSessionStore()
       const agentStore = useAgentStore()
 
-      // 遍历所有 agent 的状态
       if (statusData.agents) {
         Object.entries(statusData.agents).forEach(([agentName, agentInfo]) => {
-          // 更新 agent store（包含 current_session_id）
           agentStore.updateAgentStatus(agentName, agentInfo)
-          console.log(`  - Agent ${agentName}:`, agentInfo)
 
-          // 如果 agent 有 pending_question
           if (agentInfo.pending_question && agentInfo.current_user_session_id) {
-            console.log(`    ✅ Found pending question for session ${agentInfo.current_user_session_id}`)
             sessionStore.setPendingQuestion(agentInfo.current_user_session_id, {
               agent_name: agentName,
-              agent_session_id: agentInfo.current_session_id,  // ← agent 的 session_id
+              agent_session_id: agentInfo.current_session_id,
               question: agentInfo.pending_question,
               task_id: agentInfo.current_task_id,
               timestamp: new Date().toISOString()
             })
-          }
-          // 如果有 pending_question 但没有 current_user_session_id，设置全局 pending_question
-          else if (agentInfo.pending_question) {
-            console.log(`    ✅ Found global pending question from ${agentName}`)
+          } else if (agentInfo.pending_question) {
             sessionStore.setGlobalPendingQuestion({
               agent_name: agentName,
-              agent_session_id: agentInfo.current_session_id,  // ← agent 的 session_id
+              agent_session_id: agentInfo.current_session_id,
               question: agentInfo.pending_question,
               task_id: agentInfo.current_task_id,
               timestamp: new Date().toISOString()
             })
-          }
-          // 如果 agent 的 pending_question 被清空（有 session_id 但没有问题）
-          else if (agentInfo.current_user_session_id) {
-            console.log(`    ❌ No pending question for session ${agentInfo.current_user_session_id}`)
+          } else if (agentInfo.current_user_session_id) {
             sessionStore.clearPendingQuestion(agentInfo.current_user_session_id)
-          }
-          // 如果 pending_question 被清空且没有 current_user_session_id，清除全局 pending_question
-          else if (!agentInfo.pending_question && !agentInfo.current_user_session_id) {
-            console.log(`    ❌ No global pending question`)
+          } else if (!agentInfo.pending_question && !agentInfo.current_user_session_id) {
             sessionStore.clearGlobalPendingQuestion()
           }
         })
+      }
+    },
+
+    /**
+     * 处理 NEW_USER_SESSION — Agent 主动发新邮件时，后端推送新 user session
+     */
+    handleNewUserSession(sessionData) {
+      const sessionStore = useSessionStore()
+      // 检查是否已存在（避免重复插入）
+      const exists = sessionStore.sessions.some(s => s.session_id === sessionData.session_id)
+      if (!exists) {
+        sessionStore.sessions.unshift(sessionData)
       }
     },
 
@@ -235,33 +268,11 @@ export const useWebSocketStore = defineStore('websocket', {
     },
 
     /**
-     * 注册回调（别名，兼容 onSessionUpdate）
+     * 注销事件监听器
      */
-    registerCallback(event, callback) {
-      if (event === 'on_session_update') {
-        this.onSessionUpdate(callback)
-      } else {
-        this.registerListener(event, callback)
-      }
+    unregisterListener(eventType, callback) {
+      if (!this.listeners[eventType]) return
+      this.listeners[eventType] = this.listeners[eventType].filter(cb => cb !== callback)
     },
-
-    /**
-     * 注册 session 更新回调
-     */
-    onSessionUpdate(callback) {
-      this.sessionUpdateCallbacks.push(callback)
-
-      // 返回清理函数
-      return () => {
-        this.sessionUpdateCallbacks = this.sessionUpdateCallbacks.filter(cb => cb !== callback)
-      }
-    },
-
-    /**
-     * 移除 session 更新回调
-     */
-    offSessionUpdate(callback) {
-      this.sessionUpdateCallbacks = this.sessionUpdateCallbacks.filter(cb => cb !== callback)
-    }
   }
 })

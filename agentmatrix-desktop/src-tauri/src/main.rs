@@ -71,6 +71,13 @@ fn expand_path(path: &str) -> PathBuf {
 }
 
 #[tauri::command]
+fn copy_file(src: String, dest: String) -> Result<(), String> {
+    std::fs::copy(&src, &dest)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to copy {} to {}: {}", src, dest, e))
+}
+
+#[tauri::command]
 fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name: String) -> Result<(), String> {
     // In dev mode, use local resources directory (fixes worktree symlink issues)
     // In production, use resource_dir from the bundle
@@ -750,6 +757,58 @@ async fn open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn read_directory(path: String) -> Result<Vec<serde_json::Value>, String> {
+    let dir_path = std::path::Path::new(&path);
+    if !dir_path.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    if !dir_path.is_dir() {
+        return Err(format!("Path is not a directory: {}", path));
+    }
+
+    let mut entries = Vec::new();
+    let dir_entries = std::fs::read_dir(dir_path)
+        .map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    for entry in dir_entries {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let entry_path = entry.path();
+        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+        let size = if !is_dir {
+            entry.metadata().ok().map(|m| m.len())
+        } else {
+            None
+        };
+        let modified = entry.metadata().ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64());
+
+        entries.push(serde_json::json!({
+            "name": file_name,
+            "path": entry_path.to_string_lossy().to_string(),
+            "is_dir": is_dir,
+            "size": size,
+            "modified": modified,
+        }));
+    }
+
+    // Sort: directories first, then files, both alphabetically
+    entries.sort_by(|a, b| {
+        let a_is_dir = a["is_dir"].as_bool().unwrap_or(false);
+        let b_is_dir = b["is_dir"].as_bool().unwrap_or(false);
+        match (a_is_dir, b_is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")),
+        }
+    });
+
+    Ok(entries)
+}
+
+#[tauri::command]
 async fn open_browser_with_profile(profile_path: String) -> Result<(), String> {
     // Chrome paths by platform
     #[cfg(target_os = "macos")]
@@ -1239,50 +1298,77 @@ fn filter_install_output(line: &str) -> Option<String> {
 
 /// 初始化容器包（延迟加载）
 /// 在 cold start 流程中执行一次，安装重型依赖
-/// 注意：此函数只在 cold start 时调用，不需要检查是否已初始化
+/// 注意：此函数会检查 container_packages_initialized 标志，只在第一次安装
 async fn initialize_container_packages(
     app: &tauri::AppHandle,
+    _state: &BackendState,
 ) -> Result<(), String> {
+    // 检查是否已经初始化过，或者是否是冷启动
+    let config = AppConfig::load()?;
+    if config.container_packages_initialized {
+        println!("✅ 容器包已经初始化过，跳过安装");
+        return Ok(());
+    }
+    if !config.is_first_run() {
+        println!("✅ 非冷启动且容器包未标记已初始化，跳过安装");
+        return Ok(());
+    }
+
     println!("📦 开始容器初始化（安装重型依赖）...");
 
     // 1. 获取容器运行时
     let runtime_info = check_container_runtime().await.map_err(|e| e.to_string())?;
     let runtime_bin = runtime_info.path.unwrap_or_else(|| runtime_info.runtime.clone());
 
-    // 2. 在主容器中执行初始化脚本
+    // 2. 使用主容器而不是临时容器
     let container_name = "agentmatrix_shared";
     println!("📥 在主容器中执行初始化: {}", container_name);
 
-    // 检查主容器是否存在，不存在则创建
+    // 获取配置信息
+    let matrix_world_path = config.get_matrix_world_path();
+    let agents_root = matrix_world_path.join("agent_files");
+
+    // 3. 检查主容器是否存在，不存在则创建
     let check_output = StdCommand::new(&runtime_bin)
         .args(["ps", "-a", "-q", "-f", &format!("name={}", container_name)])
         .output();
-
     let container_exists = match check_output {
         Ok(output) => output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty(),
         Err(_) => false,
     };
 
     if !container_exists {
-        println!("🔧 主容器不存在，先创建主容器...");
+        println!("🔧 主容器不存在，创建主容器...");
+
+        // 确保宿主机目录存在
+        std::fs::create_dir_all(&agents_root)
+            .map_err(|e| format!("Failed to create agents_root: {}", e))?;
+
+        // 创建主容器（使用与 Backend 相同的配置）
+        let agents_root_str = agents_root.to_str()
+            .ok_or_else(|| "Failed to convert agents_root to string".to_string())?;
+
         let create_output = StdCommand::new(&runtime_bin)
             .args([
                 "run",
                 "-d",
                 "--name", container_name,
+                "-v", &format!("{}:/data/agents:rw", agents_root_str),
+                "-e", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "-e", "PYTHONPATH=/data/agents:$PYTHONPATH",
+                "--tty",  // TTY 模式
                 "agentmatrix:latest",
-                "tail", "-f", "/dev/null",
+                "tail", "-f", "/dev/null",  // 保持容器运行
             ])
             .output()
             .map_err(|e| format!("Failed to create main container: {}", e))?;
-
         if !create_output.status.success() {
             let stderr = String::from_utf8_lossy(&create_output.stderr);
             return Err(format!("Failed to create main container: {}", stderr));
         }
         println!("✅ 主容器已创建");
     } else {
-        // 检查容器状态
+        // 检查容器状态，如果未运行则启动
         let status_output = StdCommand::new(&runtime_bin)
             .args(["inspect", "-f", "{{.State.Status}}", container_name])
             .output();
@@ -1342,7 +1428,9 @@ async fn initialize_container_packages(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to exec install script: {}", e))?;
+        .map_err(|e| {
+            format!("Failed to exec install script: {}", e)
+        })?;
 
     // 读取输出并发送进度事件
     let mut stderr_output = String::new();
@@ -1422,7 +1510,16 @@ async fn initialize_container_packages(
         return Err(error_msg);
     }
 
-    println!("✅ 主容器初始化完成，所有依赖已安装");
+    // 6. 安装成功后，标记为已初始化
+    let mut config = AppConfig::load()?;
+    config.container_packages_initialized = true;
+    config.save()?;
+    println!("✅ 已标记容器包为已初始化");
+
+    println!("✅ 容器包初始化完成");
+
+    // 注意：不再删除容器（去掉 cleanup_container 调用）
+    // 主容器 agentmatrix_shared 会保留，供 Backend 复用
 
     Ok(())
 }
@@ -1441,10 +1538,9 @@ async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState, 
     // 1. 确保容器镜像存在
     ensure_container_image(app.clone()).await?;
 
-    // 2. 初始化容器包（仅在 cold start 时执行，由 init_packages 参数控制）
-    if init_packages {
-        initialize_container_packages(app).await?;
-    }
+    // 2. 初始化容器包（仅在 cold start 时执行一次）
+    // 函数内部会检查 container_packages_initialized 标志
+    initialize_container_packages(app, state).await?;
 
     // 3. 启动 backend
     start_backend_logic(app, state).await?;
@@ -1789,8 +1885,10 @@ fn main() {
             show_notification,
             open_attachment_path,
             open_folder,
+            read_directory,
             open_browser_with_profile,
             init_matrix_world,
+            copy_file,
             save_llm_config,
             save_email_proxy_config_cmd,
             save_env_file,

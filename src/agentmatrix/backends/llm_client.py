@@ -95,62 +95,48 @@ class LLMClient(AutoLoggerMixin):
                 self.logger.debug(f"  [{i}] {msg.get('role')}: {msg.get('content')[:200]}{'...' if len(msg.get('content', '')) > 200 else ''}")
         
         for attempt in range(max_retries):
-            try:
-                response = await self.think(messages=messages)
-                raw_reply = response['reply']
+            
+            response = await self.think(messages=messages)
+            raw_reply = response['reply']
 
-                if debug:
-                    self.logger.debug(f"\nLLM Response (raw_reply):")
-                    self.logger.debug(f"  {raw_reply[:500]}...")
+            if debug:
+                self.logger.debug(f"\nLLM Response (raw_reply):")
+                self.logger.debug(f"  {raw_reply[:500]}...")
 
+            # Delegate parsing to the provided parser function
+            # 空白回复、网络超时等系统性故障由上层处理，这里只处理格式问题
+            parsed_result = parser(raw_reply, **parser_kwargs)
 
-                # Handle empty/whitespace-only LLM replies — retry directly
-                # instead of letting the parser treat it as a valid "no action" response.
-                if not raw_reply or not raw_reply.strip():
-                    self.logger.warning(
-                        f"LLM returned empty response on attempt {attempt + 1}/{max_retries}"
-                    )
-                    if attempt == max_retries - 1:
-                        raise ValueError("LLM returned empty response after all retries.")
-                    continue
+            if debug:
+                self.logger.debug(f"\nParser result:")
+                self.logger.debug(f"  {parsed_result}")
+                
 
-                # Delegate parsing to the provided parser function
-                parsed_result = parser(raw_reply, **parser_kwargs)
-
-                if debug:
-                    self.logger.debug(f"\nParser result:")
-                    self.logger.debug(f"  {parsed_result}")
-                    
-
-                if parsed_result.get("status") == "success":
-                    
-                    # 统一返回格式：{"status": "success", "content": ...}
-                    if "content" in parsed_result:
-                        return parsed_result["content"]
-                    else:
-                        # 没有内容字段，返回空字典
-                        return {}
-
-                elif parsed_result.get("status") == "error":
-                    if attempt == max_retries - 1:
-                        # Final attempt failed
-                        raise ValueError("LLM failed to produce a valid response after all retries.")
-
-                    # 🔥 重试策略：增强原始 prompt（不累积历史）
-                    # 提取原始 user message（第一条）
-                    feedback = parsed_result.get("feedback", "请检查输出格式")
-
-                    messages.append({"role": "assistant", "content": raw_reply})
-                    messages.append({"role": "user", "content": feedback})
-                    
-
+            if parsed_result.get("status") == "success":
+                
+                # 统一返回格式：{"status": "success", "content": ...}
+                if "content" in parsed_result:
+                    return parsed_result["content"]
                 else:
-                    # The parser itself is faulty
-                    raise TypeError("Parser function returned an invalid contract response.")
+                    # 没有内容字段，返回空字典
+                    return {}
 
-            except Exception as e:
-                self.logger.exception(f"Micro-Agent: An unexpected error occurred during invocation attempt {attempt + 1}.")
-                raise
+            elif parsed_result.get("status") == "error":
+                if attempt == max_retries - 1:
+                    # Final attempt failed
+                    raise ValueError("LLM failed to produce a valid response after all retries.")
+
+                # 🔥 重试策略：增强原始 prompt（不累积历史）
+                # 提取原始 user message（第一条）
+                feedback = parsed_result.get("feedback", "请检查输出格式")
+
+                messages.append({"role": "assistant", "content": raw_reply})
+                messages.append({"role": "user", "content": feedback})
+                
+
+            else:
+                # The parser itself is faulty
+                raise TypeError("Parser function returned an invalid contract response.")
                 
                 
         # This line should theoretically be unreachable
@@ -460,6 +446,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         messages: Union[str, List[Dict[str, str]]],
         image: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -468,6 +455,7 @@ class LLMClient(AutoLoggerMixin):
         Args:
             messages: 消息列表（OpenAI 格式）或单个字符串
             image: base64 编码的图片数据（不含 data:image/... 前缀）
+            mime_type: 图片 MIME 类型，如 image/png, image/jpeg
             **kwargs: 额外的参数（temperature, max_tokens 等）
 
         Returns:
@@ -479,7 +467,8 @@ class LLMClient(AutoLoggerMixin):
         Example:
             result = await llm_client.think_with_image(
                 messages="描述这张图片",
-                image="iVBORw0KGgoAAAANSUhEUgAAAAUA..."
+                image="iVBORw0KGgoAAAANSUhEUgAAAAUA...",
+                mime_type="image/jpeg"
             )
         """
         # 统一消息格式
@@ -496,9 +485,9 @@ class LLMClient(AutoLoggerMixin):
                 # 多轮对话：直接传递给 _think_with_image_openai_multi_turn
                 is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
                 if is_gemini:
-                    return await self._think_with_image_gemini_multi_turn(messages, image, **kwargs)
+                    return await self._think_with_image_gemini_multi_turn(messages, image, mime_type=mime_type, **kwargs)
                 else:
-                    return await self._think_with_image_openai_multi_turn(messages, image, **kwargs)
+                    return await self._think_with_image_openai_multi_turn(messages, image, mime_type=mime_type, **kwargs)
             else:
                 # 单轮对话：检查是否是 multi-modal 格式
                 first_msg = messages[0]
@@ -509,9 +498,9 @@ class LLMClient(AutoLoggerMixin):
                     # 直接传递给多轮方法处理
                     is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
                     if is_gemini:
-                        return await self._think_with_image_gemini_multi_turn(messages, image, **kwargs)
+                        return await self._think_with_image_gemini_multi_turn(messages, image, mime_type=mime_type, **kwargs)
                     else:
-                        return await self._think_with_image_openai_multi_turn(messages, image, **kwargs)
+                        return await self._think_with_image_openai_multi_turn(messages, image, mime_type=mime_type, **kwargs)
                 else:
                     # 普通字符串格式，合并所有文本内容（向后兼容）
                     text_content = "\n".join([
@@ -522,14 +511,15 @@ class LLMClient(AutoLoggerMixin):
         if not is_multi_turn:
             is_gemini = "googleapis.com" in self.url or "gemini" in self.model_name.lower()
             if is_gemini:
-                return await self._think_with_image_gemini(text_content, image, **kwargs)
+                return await self._think_with_image_gemini(text_content, image, mime_type=mime_type, **kwargs)
             else:
-                return await self._think_with_image_openai(text_content, image, **kwargs)
+                return await self._think_with_image_openai(text_content, image, mime_type=mime_type, **kwargs)
 
     async def _think_with_image_openai(
         self,
         text_prompt: str,
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -545,7 +535,7 @@ class LLMClient(AutoLoggerMixin):
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:image/png;base64,{image_base64}",
+                        "url": f"data:{mime_type};base64,{image_base64}",
                         "detail": kwargs.get("detail", "high")  # low, high, auto
                     }
                 }
@@ -627,6 +617,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         messages: List[Dict],
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -659,7 +650,7 @@ class LLMClient(AutoLoggerMixin):
                             content.append({
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/png;base64,{image_base64}",
+                                    "url": f"data:{mime_type};base64,{image_base64}",
                                     "detail": kwargs.get("detail", "high")
                                 }
                             })
@@ -676,7 +667,7 @@ class LLMClient(AutoLoggerMixin):
                                     {
                                         "type": "image_url",
                                         "image_url": {
-                                            "url": f"data:image/png;base64,{image_base64}",
+                                            "url": f"data:{mime_type};base64,{image_base64}",
                                             "detail": kwargs.get("detail", "high")
                                         }
                                     }
@@ -761,6 +752,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         text_prompt: str,
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -772,7 +764,7 @@ class LLMClient(AutoLoggerMixin):
                 {"text": text_prompt},
                 {
                     "inline_data": {
-                        "mime_type": "image/png",
+                        "mime_type": mime_type,
                         "data": image_base64
                     }
                 }
@@ -1052,6 +1044,7 @@ class LLMClient(AutoLoggerMixin):
         self,
         messages: List[Dict],
         image_base64: str,
+        mime_type: str = "image/png",
         **kwargs
     ) -> str:
         """
@@ -1088,7 +1081,7 @@ class LLMClient(AutoLoggerMixin):
                             parts.extend(content)  # 复制所有 parts（text）
                             parts.append({
                                 "inline_data": {
-                                    "mime_type": "image/png",
+                                    "mime_type": mime_type,
                                     "data": image_base64
                                 }
                             })
@@ -1103,7 +1096,7 @@ class LLMClient(AutoLoggerMixin):
                             # 第一条 user 消息，添加图片
                             parts.append({
                                 "inline_data": {
-                                    "mime_type": "image/png",
+                                    "mime_type": mime_type,
                                     "data": image_base64
                                 }
                             })

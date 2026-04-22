@@ -63,7 +63,9 @@ pip install --no-cache-dir --quiet \
     pdfplumber>=0.10.0 \
     beautifulsoup4>=4.12.0 \
     html2text>=2020.1.16 \
-    trafilatura>=1.6.0
+    trafilatura>=1.6.0 \
+    python-pptx>=0.6.21 \
+    markitdown[pptx]>=0.1.0
 print_progress "core" "100" "核心组件安装完成"
 
 # ═══════════════════════════════════════════════════════════════

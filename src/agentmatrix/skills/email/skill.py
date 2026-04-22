@@ -121,7 +121,7 @@ class EmailSkillMixin:
             in_reply_to=in_reply_to,
             task_id=session["task_id"],
             sender_session_id=session["session_id"],  # 🆕 发件人的 session
-            recipient_session_id=None,  # 收件人的 session（由收件人收到后更新）
+            recipient_session_id=last_email.sender_session_id if last_email else None,
             metadata={"attachments": attachment_metadata}
             if attachment_metadata
             else {},
@@ -129,6 +129,18 @@ class EmailSkillMixin:
 
         # 发送邮件（通过 root_agent 的 post_office）
         await self.root_agent.post_office.dispatch(msg)
+
+        # 📝 写入 session event: email.sent
+        
+        await self._log_event("email", "sent", {
+            "email_id": msg.id,
+            "subject": subject,
+            "body_preview": body,
+            "sender": self.root_agent.name,
+            "recipient": to,
+            "has_more": len(body) > 200 if body else False,
+            "attachments": [att.get("filename") for att in attachment_metadata] if attachment_metadata else [],
+        })
 
         # 更新 reply_mapping（自动保存到磁盘，通过 root_agent 的 session_manager）
         await self.root_agent.session_manager.update_reply_mapping(

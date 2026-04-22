@@ -27,33 +27,124 @@ const currentQuestion = computed(() => {
   return sessionStore.getPendingQuestion(sessionStore.currentSession.session_id)
 })
 
-// 回答内容
-const answer = ref('')
+// 🔧 解析问题对象（支持新格式和旧格式）
+const parsedQuestion = computed(() => {
+  const q = currentQuestion.value
+  if (!q) return null
+
+  // 新格式：包含 question 字段的对象（AskUserQuestion.to_dict()）
+  if (typeof q.question === 'object' && q.question !== null) {
+    // AskUserQuestion 对象
+    return {
+      questionText: q.question.question || '',
+      options: q.question.options || [],
+      multiple: q.question.multiple || false,
+      imagePath: q.question.image_path || null
+    }
+  }
+
+  // 兼容旧格式：纯文本问题
+  if (typeof q.question === 'string' && q.question) {
+    return {
+      questionText: q.question,
+      options: [],
+      multiple: false,
+      imagePath: null
+    }
+  }
+
+  return null
+})
+
+// 回答状态
+const selectedOptions = ref([])     // 多选选项
+const singleOption = ref('')        // 单选选项
+const customAnswer = ref('')        // 自定义输入
+const showCustomInput = ref(false)  // 是否显示自定义输入区
 const isSubmitting = ref(false)
+const imageLoadError = ref(false)   // 图片加载失败
 
 // 监听 show 变化，重置表单
 watch(() => props.show, (newValue) => {
   if (newValue) {
-    answer.value = ''
+    selectedOptions.value = []
+    singleOption.value = ''
+    customAnswer.value = ''
+    showCustomInput.value = false
+    imageLoadError.value = false
   }
 })
 
+// 🔧 选择单选项
+const selectSingleOption = (option) => {
+  singleOption.value = option
+}
+
+// 🔧 选择多选项
+const toggleMultiOption = (option) => {
+  const index = selectedOptions.value.indexOf(option)
+  if (index > -1) {
+    selectedOptions.value.splice(index, 1)
+  } else {
+    selectedOptions.value.push(option)
+  }
+}
+
+// 🔧 获取最终回答
+const getFinalAnswer = () => {
+  // 如果有自定义输入，优先使用自定义输入
+  if (customAnswer.value.trim()) {
+    return customAnswer.value.trim()
+  }
+
+  // 否则使用选项
+  if (parsedQuestion.value && parsedQuestion.value.multiple) {
+    return selectedOptions.value.join(',')
+  } else {
+    return singleOption.value
+  }
+}
+
+// 🔧 检查是否可以提交
+const canSubmit = computed(() => {
+  if (isSubmitting.value) return false
+
+  const answer = getFinalAnswer()
+  return !!answer && answer.trim().length > 0
+})
+
+// 🔧 构建图片 URL
+const imageUrl = computed(() => {
+  if (!currentQuestion.value || !parsedQuestion.value || !parsedQuestion.value.imagePath) {
+    return ''
+  }
+
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  return `${baseUrl}/api/agents/${currentQuestion.value.agent_name}/question_image?session_id=${currentQuestion.value.agent_session_id}&filename=${parsedQuestion.value.imagePath}`
+})
+
+// 🔧 处理图片加载错误
+const handleImageError = () => {
+  console.warn('Failed to load question image, session may have changed')
+  imageLoadError.value = true
+}
+
 // 提交回答
 const submit = async () => {
-  if (!currentQuestion.value || !answer.value.trim()) return
+  if (!canSubmit.value) return
 
+  const answer = getFinalAnswer()
   isSubmitting.value = true
+
   try {
     if (props.isGlobal) {
-      await sessionStore.submitGlobalAskUserAnswer(answer.value)
-      // 标记全局对话框已显示
+      await sessionStore.submitGlobalAskUserAnswer(answer)
       sessionStore.markGlobalDialogShown()
     } else {
       await sessionStore.submitAskUserAnswer(
         sessionStore.currentSession.session_id,
-        answer.value
+        answer
       )
-      // 标记对话框已显示（防止重复弹出）
       sessionStore.markDialogShown(sessionStore.currentSession.session_id)
     }
 
@@ -71,7 +162,6 @@ const close = () => {
   if (props.isGlobal) {
     sessionStore.markGlobalDialogShown()
   } else {
-    // 标记对话框已显示
     if (sessionStore.currentSession) {
       sessionStore.markDialogShown(sessionStore.currentSession.session_id)
     }
@@ -82,7 +172,7 @@ const close = () => {
 
 <template>
   <Transition name="modal">
-    <div v-if="show && currentQuestion" class="ask-user-dialog-overlay">
+    <div v-if="show && currentQuestion && parsedQuestion" class="ask-user-dialog-overlay">
       <!-- Overlay -->
       <div class="ask-user-dialog-backdrop" @click="close"></div>
 
@@ -112,21 +202,88 @@ const close = () => {
             <div class="ask-user-dialog-divider"></div>
           </div>
 
+          <!-- 🔧 图片显示 -->
+          <div v-if="parsedQuestion.imagePath && imageUrl" class="ask-user-dialog-image">
+            <span class="ask-user-dialog-label">图片</span>
+            <img
+              v-if="!imageLoadError"
+              :src="imageUrl"
+              alt="Question Image"
+              class="ask-user-dialog-question-image"
+              @error="handleImageError"
+            />
+            <div v-else class="ask-user-dialog-image-error">
+              ⚠️ 问题可能已经被回答（或会话已切换）
+            </div>
+          </div>
+
           <!-- Question -->
           <div class="ask-user-dialog-question">
             <span class="ask-user-dialog-label">问题</span>
-            <p class="ask-user-dialog-question-text">{{ currentQuestion.question }}</p>
+            <p class="ask-user-dialog-question-text">{{ parsedQuestion.questionText }}</p>
           </div>
 
-          <!-- Answer Input -->
+          <!-- 🔧 选项按钮 -->
+          <div v-if="parsedQuestion.options.length > 0" class="ask-user-dialog-options">
+            <span class="ask-user-dialog-label">选项</span>
+
+            <!-- 单选按钮 -->
+            <div v-if="!parsedQuestion.multiple" class="ask-user-dialog-single-options">
+              <button
+                v-for="option in parsedQuestion.options"
+                :key="option"
+                @click="selectSingleOption(option)"
+                :class="[
+                  'ask-user-dialog-option-btn',
+                  'ask-user-dialog-option-btn--single',
+                  { 'ask-user-dialog-option-btn--selected': singleOption === option }
+                ]"
+                type="button"
+              >
+                {{ option }}
+              </button>
+            </div>
+
+            <!-- 多选按钮 -->
+            <div v-else class="ask-user-dialog-multi-options">
+              <button
+                v-for="option in parsedQuestion.options"
+                :key="option"
+                @click="toggleMultiOption(option)"
+                :class="[
+                  'ask-user-dialog-option-btn',
+                  'ask-user-dialog-option-btn--multi',
+                  { 'ask-user-dialog-option-btn--selected': selectedOptions.includes(option) }
+                ]"
+                type="button"
+              >
+                {{ option }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 🔧 自定义输入区 -->
           <div class="ask-user-dialog-input-group">
-            <label class="ask-user-dialog-input-label">你的回答</label>
-            <textarea
-              v-model="answer"
-              rows="5"
-              placeholder="输入你的回答..."
-              class="ask-user-dialog-input"
-            ></textarea>
+            <div class="ask-user-dialog-input-header">
+              <label class="ask-user-dialog-input-label">你的回答</label>
+              <button
+                v-if="parsedQuestion.options.length > 0"
+                @click="showCustomInput = !showCustomInput"
+                class="ask-user-dialog-toggle-btn"
+                type="button"
+              >
+                {{ showCustomInput ? '隐藏自定义输入' : '或输入自定义回答' }}
+              </button>
+            </div>
+
+            <div v-show="showCustomInput || parsedQuestion.options.length === 0">
+              <textarea
+                v-model="customAnswer"
+                rows="5"
+                placeholder="输入你的回答..."
+                class="ask-user-dialog-input"
+              ></textarea>
+            </div>
           </div>
         </div>
 
@@ -141,7 +298,7 @@ const close = () => {
           </button>
           <button
             @click="submit"
-            :disabled="!answer.trim() || isSubmitting"
+            :disabled="!canSubmit || isSubmitting"
             class="ask-user-dialog-btn ask-user-dialog-btn--primary"
             type="button"
           >
@@ -182,7 +339,8 @@ const close = () => {
   box-shadow: var(--shadow-xl);
   width: 100%;
   max-width: 540px;
-  overflow: hidden;
+  max-height: 90vh;
+  overflow-y: auto;
   animation: dialogScaleIn 200ms ease-out;
 }
 
@@ -247,6 +405,32 @@ const close = () => {
   width: 100%;
 }
 
+/* 🔧 图片样式 */
+.ask-user-dialog-image {
+  margin-bottom: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background: var(--parchment-100);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--parchment-300);
+}
+
+.ask-user-dialog-question-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  margin-top: var(--spacing-sm);
+  display: block;
+}
+
+.ask-user-dialog-image-error {
+  padding: var(--spacing-md);
+  background: var(--parchment-200);
+  border-radius: var(--radius-sm);
+  color: var(--ink-700);
+  text-align: center;
+  font-size: var(--font-sm);
+}
+
 /* Question */
 .ask-user-dialog-question {
   padding: var(--spacing-md);
@@ -274,11 +458,74 @@ const close = () => {
   line-height: 1.8;
 }
 
+/* 🔧 选项按钮样式 */
+.ask-user-dialog-options {
+  margin-bottom: var(--spacing-lg);
+}
+
+.ask-user-dialog-single-options,
+.ask-user-dialog-multi-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.ask-user-dialog-option-btn {
+  padding: var(--spacing-md);
+  border: 1px solid var(--parchment-300);
+  border-radius: var(--radius-sm);
+  background: var(--parchment-50);
+  color: var(--ink-700);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  text-align: left;
+  font-size: var(--font-base);
+  font-family: var(--font-serif);
+  line-height: 1.6;
+}
+
+.ask-user-dialog-option-btn:hover {
+  background: var(--parchment-100);
+  border-color: var(--parchment-400);
+}
+
+.ask-user-dialog-option-btn--selected {
+  background: var(--accent);
+  color: var(--parchment-50);
+  border-color: var(--accent);
+}
+
+.ask-user-dialog-option-btn--multi {
+  position: relative;
+  padding-left: calc(var(--spacing-md) + 24px);
+}
+
+.ask-user-dialog-option-btn--multi::before {
+  content: '☐';
+  position: absolute;
+  left: var(--spacing-md);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+}
+
+.ask-user-dialog-option-btn--multi.ask-user-dialog-option-btn--selected::before {
+  content: '☑';
+}
+
 /* Input Group */
 .ask-user-dialog-input-group {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+}
+
+.ask-user-dialog-input-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
 }
 
 .ask-user-dialog-input-label {
@@ -288,6 +535,21 @@ const close = () => {
   text-transform: uppercase;
   color: var(--ink-700);
   font-weight: var(--font-medium);
+}
+
+.ask-user-dialog-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  padding: 0;
+  text-decoration: underline;
+  transition: color var(--duration-base) var(--ease-out);
+}
+
+.ask-user-dialog-toggle-btn:hover {
+  color: var(--ink-900);
 }
 
 .ask-user-dialog-input {

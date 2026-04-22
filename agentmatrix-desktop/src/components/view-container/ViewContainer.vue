@@ -1,12 +1,14 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, provide } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useWebSocketStore } from '@/stores/websocket'
 import { useBackendStore } from '@/stores/backend'
 import { useConfigStore } from '@/stores/config'
+import { useCollabWizard } from '@/composables/useCollabWizard'
 import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
 import EmailList from '@/components/email/EmailList.vue'
+import AgentSessionPanel from '@/components/collab/AgentSessionPanel.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
 import AgentStatusPanel from '@/components/agent/AgentStatusPanel.vue'
@@ -27,6 +29,10 @@ const sessionStore = useSessionStore()
 const websocketStore = useWebSocketStore()
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
+
+// Collab wizard (shared between SessionList and AgentSessionPanel)
+const collabWizard = useCollabWizard()
+provide('collabWizard', collabWizard)
 
 // Computed
 const currentSession = computed(() => sessionStore.currentSession)
@@ -87,6 +93,10 @@ const handleViewChange = (viewId) => {
   emit('view-change', viewId)
 }
 
+// Collab draft message — set by CollabPanel on file drop, consumed by EmailReply
+const collabDraftMessage = ref('')
+provide('collabDraftMessage', collabDraftMessage)
+
 // Agent status panel state
 const expandedAgent = ref(null)
 const agentPanelWidth = ref(450) // Default width in pixels
@@ -120,9 +130,19 @@ onMounted(async () => {
 
 <template>
   <main class="view-container">
+    <!-- Collab View -->
+    <div v-if="currentView === 'collab'" class="view-container__content">
+      <KeepAlive>
+        <SessionList mode="collab" />
+      </KeepAlive>
+      <AgentSessionPanel :user-agent-name="userAgentName" />
+    </div>
+
     <!-- Email View -->
-    <div v-if="currentView === 'email'" class="view-container__content">
-      <SessionList />
+    <div v-else-if="currentView === 'email'" class="view-container__content">
+      <KeepAlive>
+        <SessionList />
+      </KeepAlive>
       <EmailList
         :user_agent_name="userAgentName"
         :selected-agent="expandedAgent"

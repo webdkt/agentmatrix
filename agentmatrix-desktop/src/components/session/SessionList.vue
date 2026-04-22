@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
-import { addPendingEmail, removePendingEmail, setResolvedEmailForSession } from '@/composables/usePendingEmails'
+import { addPendingEmail, removePendingEmail } from '@/composables/usePendingEmails'
 import SessionItem from './SessionItem.vue'
 import NewEmailModal from '@/components/dialog/NewEmailModal.vue'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -10,12 +10,25 @@ import MIcon from '@/components/icons/MIcon.vue'
 const { t } = useI18n()
 const sessionStore = useSessionStore()
 
+const props = defineProps({
+  mode: {
+    type: String,
+    default: 'email',
+    validator: (v) => ['email', 'collab'].includes(v)
+  }
+})
+
+// Collab wizard (only injected, may be undefined in email mode)
+const wizard = inject('collabWizard', null)
+
 // 状态
 const searchQuery = ref('')
 const showNewEmailModal = ref(false)
 
 // 计算属性
 const sessions = computed(() => sessionStore.sessions)
+const newButtonLabel = computed(() => props.mode === 'collab' ? t('sessions.newCollab') : t('sessions.newEmail'))
+const dialogTitle = computed(() => props.mode === 'collab' ? t('sessions.newCollab') : t('sessions.newEmail'))
 const currentSession = computed(() => sessionStore.currentSession)
 const hasMore = computed(() => sessionStore.hasMoreSessions)
 const isLoading = computed(() => sessionStore.isLoading)
@@ -31,6 +44,10 @@ onMounted(async () => {
 
 // 方法
 const handleSessionClick = async (session) => {
+  // Cancel wizard if active (collab mode)
+  if (wizard && wizard.isActive.value) {
+    wizard.cancelWizard()
+  }
   await sessionStore.selectSession(session)
 }
 
@@ -48,18 +65,22 @@ const handleSearch = (event) => {
   sessionStore.searchSessions(query)
 }
 
-// 打开新建会话对话框
-const openNewEmailModal = () => {
-  showNewEmailModal.value = true
+// New button click — branches by mode
+const handleNewClick = () => {
+  if (props.mode === 'collab' && wizard) {
+    wizard.enterWizard()
+  } else {
+    showNewEmailModal.value = true
+  }
 }
 
-// New email 开始发送：创建 placeholder session
+// ---- Email mode only: NewEmailModal placeholder logic ----
 const handleNewEmailStarted = (emailData) => {
   const placeholderId = `placeholder-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
   const placeholderSession = {
     session_id: placeholderId,
-    name: emailData.recipient,
+    agent_name: emailData.recipient,
     participants: [emailData.recipient],
     subject: emailData.body.substring(0, 50),
     timestamp: new Date().toISOString(),
@@ -76,40 +97,41 @@ const handleNewEmailStarted = (emailData) => {
   showNewEmailModal.value = false
 }
 
-// New email 发送成功：增量替换 placeholder
 const handleEmailSent = (result) => {
   console.log('Email sent result:', result)
 
-  // 1. 移除 placeholder session
   const placeholderIndex = sessionStore.sessions.findIndex(s => s._isPlaceholder)
   if (placeholderIndex !== -1) {
     sessionStore.sessions.splice(placeholderIndex, 1)
   }
 
-  // 2. 用 result 数据构造真实 session，增量插入
-  // result = { response, placeholderId } from NewEmailModal
-  // response = { success, task_id, email: { ... } } from backend API
-  const emailData = result.response.email
+  const email = result.response.email
+  const sessionId = email.sender_session_id || result.response.task_id
+  const taskId = result.response.task_id
 
-  const realSessionId = emailData.sender_session_id || emailData.task_id || result.response.task_id
   const realSession = {
-    session_id: realSessionId,
-    name: emailData.recipient,
-    participants: [emailData.recipient],
-    subject: emailData.subject || emailData.body.substring(0, 50),
-    timestamp: emailData.timestamp,
-    last_email_time: emailData.timestamp,
+    session_id: sessionId,
+    agent_name: email.recipient,
+    agent_session_id: sessionId,
+    task_id: taskId,
+    participants: [email.recipient],
+    subject: email.subject || email.body.substring(0, 50),
+    timestamp: email.timestamp,
+    last_email_time: email.timestamp,
     is_unread: false,
+    last_email_id: email.id,
   }
 
-  // Store the resolved email so EmailList can use it without an API call
-  setResolvedEmailForSession(realSessionId, emailData)
-
   sessionStore.sessions.unshift(realSession)
-  sessionStore.selectSession(realSession)
+  sessionStore.buildAgentSessionMap()
+
+  if (sessionStore.currentSession?._isPlaceholder) {
+    sessionStore.currentSession = realSession
+  } else {
+    sessionStore.selectSession(realSession)
+  }
 }
 
-// New email 发送失败：移除 placeholder
 const handleNewEmailFailed = ({ emailData, error }) => {
   console.error('New email failed:', error)
   const idx = sessionStore.sessions.findIndex(s => s._isPlaceholder)
@@ -128,11 +150,11 @@ const handleNewEmailFailed = ({ emailData, error }) => {
     <!-- New Email Button (Large, Prominent, Full-Width) -->
     <div class="session-list__header">
       <button
-        @click="openNewEmailModal"
+        @click="handleNewClick"
         class="session-list__new-email-btn"
       >
         <MIcon name="plus" />
-        <span>{{ t('sessions.newEmail') }}</span>
+        <span>{{ newButtonLabel }}</span>
       </button>
     </div>
 
@@ -182,9 +204,11 @@ const handleNewEmailFailed = ({ emailData, error }) => {
       </div>
     </div>
 
-    <!-- New Email Modal -->
+    <!-- New Email Modal (email mode only) -->
     <NewEmailModal
+      v-if="mode === 'email'"
       :show="showNewEmailModal"
+      :title="dialogTitle"
       @close="showNewEmailModal = false"
       @send-started="handleNewEmailStarted"
       @sent="handleEmailSent"

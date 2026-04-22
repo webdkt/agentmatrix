@@ -1,5 +1,6 @@
-import sqlite3
+import aiosqlite
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from ..core.log_util import AutoLoggerMixin
@@ -7,13 +8,28 @@ from ..core.log_util import AutoLoggerMixin
 
 class AgentMatrixDB(AutoLoggerMixin):
     def __init__(self, db_path):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.create_tables()
+        self.db_path = db_path
+        self.conn: aiosqlite.Connection = None
 
-    def create_tables(self):
-        cursor = self.conn.cursor()
-        # 1. 邮件归档表 (The Global Mailbox)
-        cursor.execute("""
+    async def connect(self):
+        self.conn = await aiosqlite.connect(self.db_path)
+        self.conn.row_factory = aiosqlite.Row
+        await self._configure_pragmas()
+        await self.create_tables()
+
+    async def _configure_pragmas(self):
+        await self.conn.execute("PRAGMA journal_mode=WAL")
+        await self.conn.execute("PRAGMA busy_timeout=5000")
+        await self.conn.execute("PRAGMA synchronous=NORMAL")
+        await self.conn.commit()
+
+    async def close(self):
+        if self.conn:
+            await self.conn.close()
+            self.conn = None
+
+    async def create_tables(self):
+        await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS emails (
                 id TEXT PRIMARY KEY,
                 timestamp TEXT,
@@ -25,12 +41,10 @@ class AgentMatrixDB(AutoLoggerMixin):
                 task_id TEXT,
                 sender_session_id TEXT,
                 recipient_session_id TEXT,
-                metadata TEXT -- 存 JSON 格式的附件或其他信息
+                metadata TEXT
             )
         """)
-
-        # 1b. 待投递队列（小表，启动时全表扫描恢复）
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS email_to_deliver (
                 id TEXT PRIMARY KEY,
                 timestamp TEXT,
@@ -45,9 +59,7 @@ class AgentMatrixDB(AutoLoggerMixin):
                 metadata TEXT
             )
         """)
-
-        # 1c. 已投递待处理队列（小表，启动时全表扫描恢复）
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS email_to_process (
                 id TEXT PRIMARY KEY,
                 timestamp TEXT,
@@ -62,9 +74,7 @@ class AgentMatrixDB(AutoLoggerMixin):
                 metadata TEXT
             )
         """)
-
-        # 2. 定时任务表 (Scheduled Tasks)
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS scheduled_tasks (
                 id TEXT PRIMARY KEY,
                 task_name TEXT NOT NULL,
@@ -80,9 +90,7 @@ class AgentMatrixDB(AutoLoggerMixin):
                 failure_reason TEXT
             )
         """)
-
-        # 3. 外部邮件 Message-ID ↔ 内部 Email ID 映射表（enriched: 包含 session 全量信息）
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS external_email_map (
                 external_message_id TEXT PRIMARY KEY,
                 internal_email_id TEXT NOT NULL,
@@ -92,85 +100,76 @@ class AgentMatrixDB(AutoLoggerMixin):
                 agent_session_id TEXT
             )
         """)
-
-        # 4. 用户会话表（session 元数据物化视图，每个 session 只保留最后一封邮件）
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 user_session_id TEXT PRIMARY KEY,
-                agent_name TEXT,
+                agent_name TEXT NOT NULL,
+                agent_session_id TEXT,
+                task_id TEXT,
+                subject TEXT,
                 is_read INTEGER NOT NULL DEFAULT 0,
                 timestamp TEXT,
-                sender TEXT,
-                recipient TEXT,
-                subject TEXT,
-                body TEXT,
-                in_reply_to TEXT,
-                task_id TEXT,
-                sender_session_id TEXT,
-                recipient_session_id TEXT,
-                metadata TEXT
+                created_at TEXT,
+                last_email_id TEXT
             )
         """)
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS session_events (
+                id TEXT PRIMARY KEY,
+                owner TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                event_detail TEXT,
+                timestamp TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        await self.conn.commit()
+        await self._create_indexes()
 
-        self.conn.commit()
-
-        # 创建索引
-        self._create_indexes()
-
-    def _create_indexes(self):
-        """创建索引以提升查询性能"""
-        cursor = self.conn.cursor()
-
-        # sender_session_id 索引（查询发出的邮件）
-        cursor.execute("""
+    async def _create_indexes(self):
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_sender_session
             ON emails(sender_session_id, sender, task_id)
         """)
-
-        # recipient_session_id 索引（查询收到的邮件）
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_receiver_session
             ON emails(recipient_session_id, recipient, task_id)
         """)
-
-        # in_reply_to 索引（用于 reply_mapping 查询）
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_in_reply_to
             ON emails(in_reply_to)
         """)
-
-        # scheduled_tasks 表索引
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_status
             ON scheduled_tasks(status)
         """)
-
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_trigger_time
             ON scheduled_tasks(trigger_time)
         """)
-
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_next_trigger
             ON scheduled_tasks(status, trigger_time)
         """)
-
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_task_target_agent
             ON scheduled_tasks(target_agent)
         """)
-
-        # external_email_map 索引（反向查询：internal_email_id → external_message_id）
-        cursor.execute("""
+        await self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_external_map_internal
             ON external_email_map(internal_email_id)
         """)
+        await self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_session_events_lookup
+            ON session_events(owner, session_id, timestamp)
+        """)
+        await self.conn.commit()
 
-        self.conn.commit()
+    # ===== Email Pipeline =====
 
-    def log_email(self, email):
-        """新邮件进入待投递队列（dispatch 时调用）"""
-        cursor = self.conn.cursor()
+    async def log_email(self, email):
         email_data = (
             email.id,
             email.timestamp.isoformat(),
@@ -184,148 +183,109 @@ class AgentMatrixDB(AutoLoggerMixin):
             email.recipient_session_id,
             json.dumps(email.metadata) if email.metadata else None,
         )
-        columns = "(id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata)"
-        placeholders = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-
-        cursor.execute(f"INSERT OR IGNORE INTO email_to_deliver {columns} VALUES {placeholders}", email_data)
-        self.conn.commit()
-
-    def mark_email_delivered(self, email_id: str):
-        """投递完成：从 to_deliver 移到 to_process"""
-        cursor = self.conn.cursor()
-        # 从待投递队列取数据
-        cursor.execute("SELECT * FROM email_to_deliver WHERE id = ?", (email_id,))
-        row = cursor.fetchone()
-        if not row:
-            return  # 已处理过（重复投递安全）
-        columns = [col[0] for col in cursor.description]
-        row_dict = dict(zip(columns, row))
-
-        # 移到待处理队列
-        cursor.execute(
-            "INSERT OR IGNORE INTO email_to_process (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (row_dict["id"], row_dict["timestamp"], row_dict["sender"], row_dict["recipient"],
-             row_dict["subject"], row_dict["body"], row_dict["in_reply_to"], row_dict["task_id"],
-             row_dict["sender_session_id"], row_dict["recipient_session_id"], row_dict["metadata"])
+        await self.conn.execute(
+            "INSERT OR IGNORE INTO email_to_deliver (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            email_data,
         )
-        cursor.execute("DELETE FROM email_to_deliver WHERE id = ?", (email_id,))
-        self.conn.commit()
+        await self.conn.commit()
 
-    def get_undelivered_emails(self):
-        """获取待投递的邮件（启动恢复用）"""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM email_to_deliver ORDER BY timestamp ASC")
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    async def mark_email_delivered(self, email_id: str):
+        cursor = await self.conn.execute("SELECT * FROM email_to_deliver WHERE id = ?", (email_id,))
+        row = await cursor.fetchone()
+        await cursor.close()
+        if not row:
+            return
+        d = dict(row)
+        await self.conn.execute(
+            "INSERT OR IGNORE INTO email_to_process (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (d["id"], d["timestamp"], d["sender"], d["recipient"],
+             d["subject"], d["body"], d["in_reply_to"], d["task_id"],
+             d["sender_session_id"], d["recipient_session_id"], d["metadata"]),
+        )
+        await self.conn.execute("DELETE FROM email_to_deliver WHERE id = ?", (email_id,))
+        await self.conn.commit()
 
-    def mark_emails_processed(self, email_ids: list):
-        """批量标记邮件已处理：从 to_process 移到 emails（归档）"""
+    async def get_undelivered_emails(self):
+        cursor = await self.conn.execute("SELECT * FROM email_to_deliver ORDER BY timestamp ASC")
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
+
+    async def mark_emails_processed(self, email_ids: list):
         if not email_ids:
             return
-        cursor = self.conn.cursor()
         for eid in email_ids:
-            # 从 to_process 取数据
-            cursor.execute("SELECT * FROM email_to_process WHERE id = ?", (eid,))
-            row = cursor.fetchone()
+            cursor = await self.conn.execute("SELECT * FROM email_to_process WHERE id = ?", (eid,))
+            row = await cursor.fetchone()
+            await cursor.close()
             if not row:
+                self.logger.warning(f"🔵 mark_emails_processed: {eid[:8]} NOT FOUND in email_to_process")
                 continue
-            columns = [col[0] for col in cursor.description]
-            row_dict = dict(zip(columns, row))
-            # 移到归档表
-            cursor.execute(
+            d = dict(row)
+            self.logger.info(f"🔵 mark_emails_processed: found {eid[:8]} in email_to_process, inserting to emails...")
+            await self.conn.execute(
                 "INSERT OR IGNORE INTO emails (id, timestamp, sender, recipient, subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (row_dict["id"], row_dict["timestamp"], row_dict["sender"], row_dict["recipient"],
-                 row_dict["subject"], row_dict["body"], row_dict["in_reply_to"], row_dict["task_id"],
-                 row_dict["sender_session_id"], row_dict["recipient_session_id"], row_dict["metadata"])
+                (d["id"], d["timestamp"], d["sender"], d["recipient"],
+                 d["subject"], d["body"], d["in_reply_to"], d["task_id"],
+                 d["sender_session_id"], d["recipient_session_id"], d["metadata"]),
             )
-            cursor.execute("DELETE FROM email_to_process WHERE id = ?", (eid,))
-        self.conn.commit()
+            cursor2 = await self.conn.execute("DELETE FROM email_to_process WHERE id = ?", (eid,))
+            deleted = cursor2.rowcount
+            await cursor2.close()
+            self.logger.info(f"🔵 mark_emails_processed: delete rowcount={deleted}")
+        await self.conn.commit()
+        self.logger.info(f"🔵 mark_emails_processed: commit done")
 
-    def get_unprocessed_emails(self, recipient: str = None):
-        """获取已投递但未处理的邮件（启动恢复用）"""
-        cursor = self.conn.cursor()
+    async def get_unprocessed_emails(self, recipient: str = None):
         if recipient:
-            cursor.execute(
+            cursor = await self.conn.execute(
                 "SELECT * FROM email_to_process WHERE recipient = ? ORDER BY timestamp ASC",
                 (recipient,),
             )
         else:
-            cursor.execute("SELECT * FROM email_to_process ORDER BY timestamp ASC")
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            cursor = await self.conn.execute("SELECT * FROM email_to_process ORDER BY timestamp ASC")
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
 
-    def get_mailbox(self, agent_name, limit=50):
-        """查询某个 Agent 的收件箱历史"""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM emails
-            WHERE recipient = ? OR sender = ?
-            ORDER BY timestamp DESC LIMIT ?
-        """,
+    # ===== Email Queries =====
+
+    async def get_mailbox(self, agent_name, limit=50):
+        cursor = await self.conn.execute(
+            "SELECT * FROM emails WHERE recipient = ? OR sender = ? ORDER BY timestamp DESC LIMIT ?",
             (agent_name, agent_name, limit),
         )
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
 
-    def get_mails_by_range(self, agent_name, task_id, start=0, end=1):
-        """查询某个Agent的指定日期范围的邮件
-        Args:
-            agent_name: Agent名称
-            start: 起始索引（0表示最新邮件）
-            end: 结束索引
-        Returns:
-            指定范围内的邮件列表
-        """
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM emails
-            WHERE task_id = ? and (recipient = ? OR sender = ?)
-            ORDER BY timestamp DESC
-            LIMIT ? OFFSET ?
-        """,
+    async def get_mails_by_range(self, agent_name, task_id, start=0, end=1):
+        cursor = await self.conn.execute(
+            "SELECT * FROM emails WHERE task_id = ? AND (recipient = ? OR sender = ?) ORDER BY timestamp DESC LIMIT ? OFFSET ?",
             (task_id, agent_name, agent_name, end - start + 1, start),
         )
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
 
-    def get_user_session_emails(self, task_id, user_agent_name="User"):
-        """查询某个用户会话中所有与User相关的邮件
-        Args:
-            task_id: 用户会话ID
-            user_agent_name: User agent 的名称（默认 'User'，向后兼容）
-        Returns:
-            该会话中所有与User相关的邮件列表（按时间升序）
-        """
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM emails
-            WHERE task_id = ? AND (sender = ? OR recipient = ?)
-            ORDER BY timestamp ASC
-        """,
+    async def get_user_session_emails(self, task_id, user_agent_name="User"):
+        cursor = await self.conn.execute(
+            "SELECT * FROM emails WHERE task_id = ? AND (sender = ? OR recipient = ?) ORDER BY timestamp ASC",
             (task_id, user_agent_name, user_agent_name),
         )
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
 
-    def update_receiver_session(
-        self, email_id: str, recipient_session_id: str, receiver_name: str
-    ):
-        """
-        更新邮件的 recipient_session_id
-        邮件可能在 email_to_deliver、email_to_process 或 emails 中，全部更新。
-        """
-        cursor = self.conn.cursor()
+    async def update_receiver_session(self, email_id: str, recipient_session_id: str, receiver_name: str):
         total_updated = 0
-
         for table in ("email_to_deliver", "email_to_process", "emails"):
-            cursor.execute(
+            cursor = await self.conn.execute(
                 f"UPDATE {table} SET recipient_session_id = ? WHERE id = ? AND recipient = ?",
                 (recipient_session_id, email_id, receiver_name),
             )
             total_updated += cursor.rowcount
+            await cursor.close()
 
         if total_updated == 0:
             raise RuntimeError(
@@ -334,59 +294,38 @@ class AgentMatrixDB(AutoLoggerMixin):
                 f"recipient_session_id={recipient_session_id}. "
                 f"Email not found or recipient mismatch."
             )
+        await self.conn.commit()
 
-        self.conn.commit()
-
-    def get_emails_by_session(self, session_id: str, agent_name: str):
-        """
-        获取某个 session 的所有邮件（发出去的 + 收到的）
-
-        查询所有三个表（emails, email_to_process, email_to_deliver），
-        按 pipeline 阶段顺序拼接，避免邮件在中间状态时前端查询不到。
-
-        Args:
-            session_id: 会话ID
-            agent_name: Agent名称
-
-        Returns:
-            该 session 的所有邮件列表（按时间升序）
-        """
-        cursor = self.conn.cursor()
+    async def get_emails_by_session(self, session_id: str, agent_name: str):
         condition = """
             (sender_session_id = ? AND sender = ?)
             OR
             (recipient_session_id = ? AND recipient = ?)
         """
         params = (session_id, agent_name, session_id, agent_name)
-
         result = []
-        # pipeline 顺序：最老的在前，最新的在后
         for table in ("emails", "email_to_process", "email_to_deliver"):
-            cursor.execute(
+            cursor = await self.conn.execute(
                 f"SELECT * FROM {table} WHERE {condition} ORDER BY timestamp ASC",
                 params,
             )
-            columns = [col[0] for col in cursor.description]
-            result.extend(dict(zip(columns, row)) for row in cursor.fetchall())
-
+            rows = await cursor.fetchall()
+            await cursor.close()
+            result.extend(dict(r) for r in rows)
         return result
 
-    def get_email_by_id(self, email_id: str) -> Optional[dict]:
-        """
-        根据 email_id 查询邮件记录（搜索所有队列 + 归档）
-        """
-        cursor = self.conn.cursor()
+    async def get_email_by_id(self, email_id: str) -> Optional[dict]:
         for table in ("email_to_deliver", "email_to_process", "emails"):
-            cursor.execute(f"SELECT * FROM {table} WHERE id = ?", (email_id,))
-            row = cursor.fetchone()
+            cursor = await self.conn.execute(f"SELECT * FROM {table} WHERE id = ?", (email_id,))
+            row = await cursor.fetchone()
+            await cursor.close()
             if row:
-                columns = [col[0] for col in cursor.description]
-                return dict(zip(columns, row))
+                return dict(row)
         return None
 
-    # ===== External Email Map 相关方法 =====
+    # ===== External Email Map =====
 
-    def save_external_email_mapping(
+    async def save_external_email_mapping(
         self,
         external_message_id: str,
         internal_email_id: str,
@@ -395,151 +334,136 @@ class AgentMatrixDB(AutoLoggerMixin):
         user_session_id: str = None,
         agent_session_id: str = None,
     ):
-        """保存外部 Message-ID 到内部 Email ID 的映射（enriched: 包含 session 全量信息）"""
-        cursor = self.conn.cursor()
-        cursor.execute(
+        await self.conn.execute(
             """INSERT OR REPLACE INTO external_email_map
                (external_message_id, internal_email_id, agent_name, task_id, user_session_id, agent_session_id)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (
-                external_message_id,
-                internal_email_id,
-                agent_name,
-                task_id,
-                user_session_id,
-                agent_session_id,
-            ),
+            (external_message_id, internal_email_id, agent_name, task_id, user_session_id, agent_session_id),
         )
-        self.conn.commit()
+        await self.conn.commit()
 
-    def get_internal_email_id(self, external_message_id: str) -> Optional[str]:
-        """通过外部 Message-ID 查询内部 Email ID"""
-        cursor = self.conn.cursor()
-        cursor.execute(
+    async def get_internal_email_id(self, external_message_id: str) -> Optional[str]:
+        cursor = await self.conn.execute(
             "SELECT internal_email_id FROM external_email_map WHERE external_message_id = ?",
             (external_message_id,),
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
+        await cursor.close()
         return row[0] if row else None
 
-    def get_mapping_by_external_id(self, external_message_id: str) -> Optional[dict]:
-        """通过外部 Message-ID 查询完整 mapping（含 session 信息）"""
-        cursor = self.conn.cursor()
-        cursor.execute(
+    async def get_mapping_by_external_id(self, external_message_id: str) -> Optional[dict]:
+        cursor = await self.conn.execute(
             "SELECT * FROM external_email_map WHERE external_message_id = ?",
             (external_message_id,),
         )
-        row = cursor.fetchone()
-        if row:
-            columns = [col[0] for col in cursor.description]
-            return dict(zip(columns, row))
-        return None
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
 
-    def get_external_message_id(self, internal_email_id: str) -> Optional[str]:
-        """通过内部 Email ID 查询外部 Message-ID"""
-        cursor = self.conn.cursor()
-        cursor.execute(
+    async def get_external_message_id(self, internal_email_id: str) -> Optional[str]:
+        cursor = await self.conn.execute(
             "SELECT external_message_id FROM external_email_map WHERE internal_email_id = ?",
             (internal_email_id,),
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
+        await cursor.close()
         return row[0] if row else None
 
-    # ===== User Sessions 相关方法 =====
+    # ===== User Sessions =====
 
-    def upsert_user_session(
-        self, email, user_session_id: str, agent_name: str, is_read: int
+    async def create_user_session(
+        self, user_session_id: str, agent_name: str, task_id: str, subject: str,
+        is_read: int = 0, agent_session_id: str = None, timestamp: str = None,
+        last_email_id: str = None,
     ):
-        """
-        更新或插入用户会话记录（每次用户相关的邮件 dispatch 后调用）
-
-        Args:
-            email: Email 对象
-            user_session_id: 用户视角的 session_id
-            agent_name: 对方名称（收件=sender，发件=recipient）
-            is_read: 0 未读，1 已读
-        """
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO user_sessions
-                (user_session_id, agent_name, is_read, timestamp, sender, recipient,
-                 subject, body, in_reply_to, task_id, sender_session_id, recipient_session_id, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                user_session_id,
-                agent_name,
-                is_read,
-                email.timestamp.isoformat()
-                if hasattr(email.timestamp, "isoformat")
-                else str(email.timestamp),
-                email.sender,
-                email.recipient,
-                email.subject,
-                email.body,
-                email.in_reply_to,
-                email.task_id,
-                email.sender_session_id,
-                email.recipient_session_id,
-                json.dumps(email.metadata) if email.metadata else None,
-            ),
+        if timestamp is None:
+            timestamp = datetime.now().isoformat()
+        await self.conn.execute(
+            """INSERT OR IGNORE INTO user_sessions
+                (user_session_id, agent_name, agent_session_id, task_id, subject,
+                 is_read, timestamp, created_at, last_email_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_session_id, agent_name, agent_session_id, task_id, subject,
+             is_read, timestamp, timestamp, last_email_id),
         )
-        self.conn.commit()
+        await self.conn.commit()
 
-    def mark_session_as_read(self, user_session_id: str):
-        """标记用户会话为已读"""
-        cursor = self.conn.cursor()
-        cursor.execute(
+    async def update_user_session(
+        self, user_session_id: str, is_read: int = None,
+        timestamp: str = None, last_email_id: str = None,
+        agent_session_id: str = None,
+    ):
+        sets = []
+        params = []
+        if is_read is not None:
+            sets.append("is_read = ?")
+            params.append(is_read)
+        if timestamp is not None:
+            sets.append("timestamp = ?")
+            params.append(timestamp)
+        if last_email_id is not None:
+            sets.append("last_email_id = ?")
+            params.append(last_email_id)
+        if agent_session_id is not None:
+            sets.append("agent_session_id = ?")
+            params.append(agent_session_id)
+        if not sets:
+            return
+        params.append(user_session_id)
+        await self.conn.execute(
+            f"UPDATE user_sessions SET {', '.join(sets)} WHERE user_session_id = ?",
+            params,
+        )
+        await self.conn.commit()
+
+    async def get_user_session(self, user_session_id: str) -> Optional[dict]:
+        cursor = await self.conn.execute(
+            "SELECT * FROM user_sessions WHERE user_session_id = ?",
+            (user_session_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
+
+    async def mark_session_unread(self, user_session_id: str, timestamp: str = None):
+        if timestamp is None:
+            timestamp = datetime.now().isoformat()
+        await self.conn.execute(
+            "UPDATE user_sessions SET is_read = 0, timestamp = ? WHERE user_session_id = ?",
+            (timestamp, user_session_id),
+        )
+        await self.conn.commit()
+
+    async def mark_session_as_read(self, user_session_id: str):
+        await self.conn.execute(
             "UPDATE user_sessions SET is_read = 1 WHERE user_session_id = ?",
             (user_session_id,),
         )
-        self.conn.commit()
+        await self.conn.commit()
 
-    def get_user_sessions(
-        self, user_agent_name: str, page: int = 1, per_page: int = 20
-    ):
-        """
-        获取用户的所有邮件会话（分页）
-
-        Args:
-            user_agent_name: 用户 Agent 名称（如 'User'）
-            page: 页码（从 1 开始）
-            per_page: 每页数量
-
-        Returns:
-            dict: {
-                'sessions': [...],  # 会话列表
-                'total': 总数,
-                'page': 当前页,
-                'per_page': 每页数量,
-                'total_pages': 总页数
-            }
-        """
-        cursor = self.conn.cursor()
-
-        # 获取总数
-        cursor.execute("SELECT COUNT(*) FROM user_sessions")
-        total = cursor.fetchone()[0]
+    async def get_user_sessions(self, user_agent_name: str, page: int = 1, per_page: int = 20):
+        cursor = await self.conn.execute("SELECT COUNT(*) FROM user_sessions")
+        row = await cursor.fetchone()
+        await cursor.close()
+        total = row[0]
         total_pages = (total + per_page - 1) // per_page if total > 0 else 0
 
-        # 分页查询
         offset = (page - 1) * per_page
-        cursor.execute(
-            """
-            SELECT user_session_id AS session_id, agent_name, subject,
-                   timestamp AS last_email_time, is_read
-            FROM user_sessions
-            ORDER BY timestamp DESC
-            LIMIT ? OFFSET ?
-        """,
+        cursor = await self.conn.execute(
+            """SELECT user_session_id AS session_id, agent_name, agent_session_id,
+                      task_id, subject, timestamp AS last_email_time, is_read,
+                      last_email_id
+               FROM user_sessions
+               ORDER BY timestamp DESC
+               LIMIT ? OFFSET ?""",
             (per_page, offset),
         )
+        rows = await cursor.fetchall()
+        await cursor.close()
 
-        columns = [col[0] for col in cursor.description]
         sessions = []
-        for row in cursor.fetchall():
-            d = dict(zip(columns, row))
+        for r in rows:
+            d = dict(r)
             d["is_unread"] = d.pop("is_read", 0) == 0
             d["participants"] = [d["agent_name"]] if d.get("agent_name") else []
             sessions.append(d)
@@ -552,18 +476,14 @@ class AgentMatrixDB(AutoLoggerMixin):
             "total_pages": total_pages,
         }
 
-    # ===== Scheduled Task相关方法 =====
+    # ===== Scheduled Tasks =====
 
-    def create_task(self, task_dict):
-        """创建定时任务"""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO scheduled_tasks
-            (id, task_name, target_agent, trigger_time, recurrence_rule,
-             task_description, task_metadata, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+    async def create_task(self, task_dict):
+        await self.conn.execute(
+            """INSERT INTO scheduled_tasks
+               (id, task_name, target_agent, trigger_time, recurrence_rule,
+                task_description, task_metadata, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task_dict["id"],
                 task_dict["task_name"],
@@ -571,160 +491,104 @@ class AgentMatrixDB(AutoLoggerMixin):
                 task_dict["trigger_time"],
                 task_dict.get("recurrence_rule"),
                 task_dict.get("task_description"),
-                json.dumps(task_dict.get("task_metadata"))
-                if task_dict.get("task_metadata")
-                else None,
+                json.dumps(task_dict.get("task_metadata")) if task_dict.get("task_metadata") else None,
                 task_dict["status"],
                 task_dict["created_at"],
                 task_dict["updated_at"],
             ),
         )
-        self.conn.commit()
+        await self.conn.commit()
 
-    def get_task(self, task_id):
-        """获取单个任务"""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,))
-        columns = [col[0] for col in cursor.description]
-        row = cursor.fetchone()
-        return dict(zip(columns, row)) if row else None
+    async def get_task(self, task_id):
+        cursor = await self.conn.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,))
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
 
-    def list_tasks(self, status=None, agent=None):
-        """列出任务"""
-        cursor = self.conn.cursor()
+    async def list_tasks(self, status=None, agent=None):
         query = "SELECT * FROM scheduled_tasks WHERE 1=1"
         params = []
-
         if status:
             query += " AND status = ?"
             params.append(status)
         if agent:
             query += " AND target_agent = ?"
             params.append(agent)
-
         query += " ORDER BY created_at DESC"
-        cursor.execute(query, params)
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        cursor = await self.conn.execute(query, params)
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
 
-    def update_task(self, task_id, updates):
-        """更新任务"""
+    async def update_task(self, task_id, updates):
         set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
         query = f"UPDATE scheduled_tasks SET {set_clause}, updated_at = ? WHERE id = ?"
-        params = list(updates.values()) + [
-            datetime.now(timezone.utc).isoformat(),
-            task_id,
-        ]
+        params = list(updates.values()) + [datetime.now(timezone.utc).isoformat(), task_id]
+        await self.conn.execute(query, params)
+        await self.conn.commit()
 
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
-        self.conn.commit()
+    async def delete_task(self, task_id):
+        await self.conn.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+        await self.conn.commit()
 
-    def delete_task(self, task_id):
-        """删除任务"""
-        cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
-        self.conn.commit()
-
-    def get_pending_tasks(self):
-        """获取应该触发的任务（status='active' 且 trigger_time <= now）"""
-        cursor = self.conn.cursor()
+    async def get_pending_tasks(self):
         now = datetime.now(timezone.utc).isoformat()
-        cursor.execute(
-            """
-            SELECT * FROM scheduled_tasks
-            WHERE status = 'active' AND trigger_time <= ?
-            ORDER BY trigger_time ASC
-        """,
+        cursor = await self.conn.execute(
+            """SELECT * FROM scheduled_tasks
+               WHERE status = 'active' AND trigger_time <= ?
+               ORDER BY trigger_time ASC""",
             (now,),
         )
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
 
-    def mark_triggered(self, task_id):
-        """标记任务已触发"""
-        task = self.get_task(task_id)
+    async def mark_triggered(self, task_id):
+        task = await self.get_task(task_id)
         if not task:
             return
-
-        # 如果是周期性任务，计算下次触发时间并保持active
         if task.get("recurrence_rule"):
-            next_time = self._calculate_next_trigger(
-                task["trigger_time"], task["recurrence_rule"]
-            )
-            self.update_task(
+            next_time = self._calculate_next_trigger(task["trigger_time"], task["recurrence_rule"])
+            await self.update_task(
                 task_id,
-                {
-                    "last_triggered_at": datetime.now(timezone.utc).isoformat(),
-                    "trigger_time": next_time,
-                },
+                {"last_triggered_at": datetime.now(timezone.utc).isoformat(), "trigger_time": next_time},
             )
         else:
-            # 一次性任务，标记为completed
-            self.update_task(
+            await self.update_task(
                 task_id,
-                {
-                    "last_triggered_at": datetime.now(timezone.utc).isoformat(),
-                    "status": "completed",
-                },
+                {"last_triggered_at": datetime.now(timezone.utc).isoformat(), "status": "completed"},
             )
 
-    def mark_failed(self, task_id, reason):
-        """标记任务失败"""
-        self.update_task(task_id, {"status": "failed", "failure_reason": reason})
+    async def mark_failed(self, task_id, reason):
+        await self.update_task(task_id, {"status": "failed", "failure_reason": reason})
 
     def _calculate_next_trigger(self, current_time, recurrence_rule):
-        """计算下次触发时间"""
         from datetime import timedelta
-
         current = datetime.fromisoformat(current_time)
-
         if recurrence_rule == "daily":
             next_time = current + timedelta(days=1)
         elif recurrence_rule == "weekly":
             next_time = current + timedelta(weeks=1)
         elif recurrence_rule == "monthly":
-            # 简化处理：加30天
             next_time = current + timedelta(days=30)
         else:
             next_time = current
-
         return next_time.isoformat()
 
-    def search_emails_by_keyword_groups(
-        self, agent_name: str, keywords: list, limit: int = 50
-    ) -> list:
-        """
-        按关键词组合搜索邮件，返回匹配的 session 列表
+    # ===== Search =====
 
-        AND 组合：所有关键词都必须匹配（每个关键词在 subject 或 body 中匹配）。
-        搜索范围：emails + email_to_process + email_to_deliver 三表 UNION。
-
-        Args:
-            agent_name: Agent 名称
-            keywords: 关键词列表（AND 组合）
-            limit: 最大返回 session 数
-
-        Returns:
-            List[dict]: [{session_id, hit_count, last_email_time, first_subject}]
-            按 hit_count DESC, last_email_time DESC 排序
-        """
+    async def search_emails_by_keyword_groups(self, agent_name: str, keywords: list, limit: int = 50) -> list:
         if not keywords:
             return []
-
-        # 构建 WHERE 条件
-        # 每个 keyword: (subject LIKE '%kw%' OR body LIKE '%kw%')
         keyword_conditions = []
         keyword_params = []
         for kw in keywords:
             pattern = f"%{kw}%"
             keyword_conditions.append("(subject LIKE ? OR body LIKE ?)")
             keyword_params.extend([pattern, pattern])
-
         where_clause = " AND ".join(keyword_conditions)
-
-        # 三表 UNION 子查询（只保留 agent 相关的邮件）
-        params = [agent_name, agent_name] + keyword_params
+        agent_params = [agent_name, agent_name] * 3
+        all_params = agent_params + keyword_params
         query = f"""
             SELECT id, timestamp, sender, recipient, subject, body,
                    sender_session_id, recipient_session_id
@@ -737,22 +601,14 @@ class AgentMatrixDB(AutoLoggerMixin):
             )
             WHERE {where_clause}
         """
-        # Adjust params: agent_name repeated 6 times for the 3 UNION ALL subqueries
-        agent_params = [agent_name, agent_name] * 3
-        all_params = agent_params + keyword_params
-
-        cursor = self.conn.cursor()
-        cursor.execute(query, all_params)
-        columns = [col[0] for col in cursor.description]
-        matched_emails = [dict(zip(columns, row)) for row in cursor.fetchall()]
-
+        cursor = await self.conn.execute(query, all_params)
+        rows = await cursor.fetchall()
+        await cursor.close()
+        matched_emails = [dict(r) for r in rows]
         if not matched_emails:
             return []
-
-        # 按 session 分组，统计 hit_count
         from collections import defaultdict
         sessions = defaultdict(lambda: {"hit_count": 0, "last_email_time": "", "first_subject": ""})
-
         for email in matched_emails:
             sid = email.get("sender_session_id") or email.get("recipient_session_id") or ""
             if not sid:
@@ -763,90 +619,171 @@ class AgentMatrixDB(AutoLoggerMixin):
             if ts > s["last_email_time"]:
                 s["last_email_time"] = ts
                 s["first_subject"] = email.get("subject", "")
-
-        # 转换为列表并排序
-        result = [
-            {"session_id": sid, **data}
-            for sid, data in sessions.items()
-        ]
-        result.sort(key=lambda x: (-x["hit_count"], x["last_email_time"]), reverse=False)
-        result.sort(key=lambda x: x["hit_count"], reverse=True)
-
+        result = [{"session_id": sid, **data} for sid, data in sessions.items()]
+        result.sort(key=lambda x: (-x["hit_count"], x["last_email_time"]))
         return result[:limit]
 
-    def get_agent_sessions(self, agent_name: str) -> list:
-        """
-        获取 Agent 的所有 sessions（用于 Matrix View Memory Tab）
+    # ===== Agent Sessions =====
 
-        Args:
-            agent_name: Agent 名称
-
-        Returns:
-            List[dict]: Agent 的所有 sessions
-        """
-        cursor = self.conn.cursor()
-
-        # 使用索引优化的查询（符合 CONCEPTS.md 的定义）
-        # Agent 的 sessions = 作为发送者的 sessions + 作为接收者的 sessions
+    async def get_agent_sessions(self, agent_name: str) -> list:
         query = """
-            SELECT 
+            SELECT
                 sender_session_id as session_id,
                 MAX(timestamp) as last_email_time
             FROM emails
             WHERE sender = ?
             GROUP BY sender_session_id
-            
+
             UNION
-            
-            SELECT 
+
+            SELECT
                 recipient_session_id as session_id,
                 MAX(timestamp) as last_email_time
             FROM emails
             WHERE recipient = ?
             GROUP BY recipient_session_id
-            
+
             ORDER BY last_email_time DESC
         """
-
-        cursor.execute(query, (agent_name, agent_name))
-        results = cursor.fetchall()
+        cursor = await self.conn.execute(query, (agent_name, agent_name))
+        results = await cursor.fetchall()
+        await cursor.close()
 
         sessions = []
         for row in results:
-            session_id, last_email_time = row
+            session_id = row["session_id"]
+            last_email_time = row["last_email_time"]
 
-            # 获取该 session 的第一封邮件的 subject
-            subject_query = """
-                SELECT subject FROM emails
-                WHERE (sender = ? AND sender_session_id = ?)
-                   OR (recipient = ? AND recipient_session_id = ?)
-                ORDER BY timestamp ASC
-                LIMIT 1
-            """
-            cursor.execute(
-                subject_query, (agent_name, session_id, agent_name, session_id)
+            subject_cursor = await self.conn.execute(
+                """SELECT subject FROM emails
+                   WHERE (sender = ? AND sender_session_id = ?)
+                      OR (recipient = ? AND recipient_session_id = ?)
+                   ORDER BY timestamp ASC LIMIT 1""",
+                (agent_name, session_id, agent_name, session_id),
             )
-            subject_row = cursor.fetchone()
+            subject_row = await subject_cursor.fetchone()
+            await subject_cursor.close()
             first_subject = subject_row[0] if subject_row else ""
 
-            # 获取该 session 的邮件数量
-            count_query = """
-                SELECT COUNT(*) FROM emails
-                WHERE (sender = ? AND sender_session_id = ?)
-                   OR (recipient = ? AND recipient_session_id = ?)
-            """
-            cursor.execute(
-                count_query, (agent_name, session_id, agent_name, session_id)
+            count_cursor = await self.conn.execute(
+                """SELECT COUNT(*) FROM emails
+                   WHERE (sender = ? AND sender_session_id = ?)
+                      OR (recipient = ? AND recipient_session_id = ?)""",
+                (agent_name, session_id, agent_name, session_id),
             )
-            email_count = cursor.fetchone()[0]
+            count_row = await count_cursor.fetchone()
+            await count_cursor.close()
+            email_count = count_row[0]
 
-            sessions.append(
-                {
-                    "session_id": session_id,
-                    "last_email_time": last_email_time,
-                    "first_subject": first_subject,
-                    "email_count": email_count,
-                }
-            )
-
+            sessions.append({
+                "session_id": session_id,
+                "last_email_time": last_email_time,
+                "first_subject": first_subject,
+                "email_count": email_count,
+            })
         return sessions
+
+    # ===== Session Events =====
+
+    async def insert_session_event(self, owner: str, session_id: str, event_type: str, event_name: str,
+                                   event_detail: str = None, timestamp: str = None):
+        await self.conn.execute(
+            "INSERT INTO session_events (id, owner, session_id, event_type, event_name, event_detail, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), owner, session_id, event_type, event_name, event_detail,
+             timestamp or datetime.now().isoformat()),
+        )
+        await self.conn.commit()
+
+    async def get_session_events(self, owner: str, session_id: str, limit: int = 200, offset: int = 0):
+        cursor = await self.conn.execute(
+            "SELECT id, event_type, event_name, event_detail, timestamp FROM session_events WHERE owner = ? AND session_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?",
+            (owner, session_id, limit, offset),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [
+            {"id": r[0], "event_type": r[1], "event_name": r[2], "event_detail": r[3], "timestamp": r[4]}
+            for r in rows
+        ]
+
+    async def get_latest_session_events(self, owner: str, session_id: str, limit: int = 200):
+        """获取最新的 N 条事件，返回按 timestamp ASC 排序"""
+        cursor = await self.conn.execute(
+            "SELECT id, event_type, event_name, event_detail, timestamp FROM session_events WHERE owner = ? AND session_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (owner, session_id, limit),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        rows.reverse()
+        return [
+            {"id": r[0], "event_type": r[1], "event_name": r[2], "event_detail": r[3], "timestamp": r[4]}
+            for r in rows
+        ]
+
+    async def get_session_events_before(self, owner: str, session_id: str, before_timestamp: str, limit: int = 200):
+        """获取指定时间戳之前的 N 条事件，返回按 timestamp ASC 排序"""
+        cursor = await self.conn.execute(
+            "SELECT id, event_type, event_name, event_detail, timestamp FROM session_events WHERE owner = ? AND session_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?",
+            (owner, session_id, before_timestamp, limit),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        rows.reverse()
+        return [
+            {"id": r[0], "event_type": r[1], "event_name": r[2], "event_detail": r[3], "timestamp": r[4]}
+            for r in rows
+        ]
+
+    async def get_session_event_count(self, owner: str, session_id: str) -> int:
+        """获取 session 事件总数"""
+        cursor = await self.conn.execute(
+            "SELECT COUNT(*) FROM session_events WHERE owner = ? AND session_id = ?",
+            (owner, session_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return row[0] if row else 0
+
+    async def get_session_events_by_type(self, owner: str, session_id: str, event_types: list, limit: int = 200):
+        placeholders = ",".join("?" * len(event_types))
+        query = f"""
+            SELECT id, event_type, event_name, event_detail, timestamp
+            FROM session_events
+            WHERE owner = ? AND session_id = ? AND event_type IN ({placeholders})
+            ORDER BY timestamp ASC
+            LIMIT ?
+        """
+        params = [owner, session_id] + event_types + [limit]
+        cursor = await self.conn.execute(query, params)
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [
+            {"id": r[0], "event_type": r[1], "event_name": r[2], "event_detail": r[3], "timestamp": r[4]}
+            for r in rows
+        ]
+
+    # ===== EmailProxyService raw cursor absorption =====
+
+    async def find_sender_session_by_task(self, agent_name: str, sender: str, task_id: str, agent_session_id: str) -> Optional[str]:
+        """Find sender_session_id for emails where agent received from sender in a task session."""
+        cursor = await self.conn.execute(
+            """SELECT sender_session_id FROM emails
+               WHERE recipient = ? AND sender = ? AND task_id = ? AND recipient_session_id = ?
+               ORDER BY timestamp DESC LIMIT 1""",
+            (agent_name, sender, task_id, agent_session_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return row[0] if row else None
+
+    async def find_user_session_by_task(self, user_agent_name: str, task_id: str, agent_session_id: str) -> Optional[str]:
+        """Find sender_session_id for outbound emails: user sent, agent received in a task session."""
+        cursor = await self.conn.execute(
+            """SELECT sender_session_id FROM emails
+               WHERE sender = ? AND task_id = ? AND recipient_session_id = ?
+               ORDER BY timestamp DESC LIMIT 1""",
+            (user_agent_name, task_id, agent_session_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return row[0] if row else None

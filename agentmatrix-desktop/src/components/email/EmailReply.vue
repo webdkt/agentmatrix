@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, inject, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { sessionAPI } from '@/api/session'
 import { addPendingEmail, removePendingEmail } from '@/composables/usePendingEmails'
@@ -26,6 +26,22 @@ const emit = defineEmits(['sent', 'send-started', 'send-failed'])
 // 状态
 const replyBody = ref('')
 const isSending = ref(false)
+const textareaRef = ref(null)
+
+// Collab draft message — set by CollabPanel on file drop
+const collabDraftMessage = inject('collabDraftMessage', null)
+watch(collabDraftMessage, (val) => {
+  if (val) {
+    replyBody.value = val
+    collabDraftMessage.value = ''
+    nextTick(() => {
+      if (textareaRef.value) {
+        textareaRef.value.style.height = 'auto'
+        textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 200) + 'px'
+      }
+    })
+  }
+})
 
 // 计算属性
 const canSend = computed(() => {
@@ -49,13 +65,13 @@ const placeholder = computed(() => {
 const getRecipient = (email) => {
   if (!email) return ''
   if (email.is_from_user) {
-    return email.recipient || props.currentSession?.name || 'Agent'
+    return email.recipient || props.currentSession?.agent_name || 'Agent'
   } else {
     return email.sender || 'Agent'
   }
 }
 
-// 发送回复（只针对最后一条邮件）
+// 发送回复
 const sendReply = async () => {
   if (!canSend.value) return
 
@@ -64,27 +80,13 @@ const sendReply = async () => {
   let placeholder = null
 
   try {
-    // 构建邮件数据
-    if (lastEmail.value) {
-      // 回复邮件
-      const recipient = lastEmail.value.is_from_user
-        ? (lastEmail.value.recipient || props.currentSession.name)
-        : lastEmail.value.sender
-
-      emailData = {
-        recipient,
-        subject: '',
-        body: replyBody.value,
-        in_reply_to: lastEmail.value.id,
-        task_id: lastEmail.value.task_id || props.currentSession.session_id
-      }
-    } else {
-      // 没有邮件，发送给会话的 agent
-      emailData = {
-        recipient: props.currentSession.name,
-        subject: '',
-        body: replyBody.value
-      }
+    emailData = {
+      recipient: props.currentSession.agent_name,
+      subject: '',
+      body: replyBody.value,
+      task_id: props.currentSession.task_id || props.currentSession.session_id,
+      in_reply_to: props.currentSession.last_email_id || undefined,
+      recipient_session_id: props.currentSession.agent_session_id || undefined,
     }
 
     // 创建 placeholder，立即通知父组件
@@ -152,6 +154,7 @@ const adjustHeight = (event) => {
     <div class="email-reply__container">
       <!-- Textarea -->
       <textarea
+        ref="textareaRef"
         v-model="replyBody"
         @keydown="handleKeyDown"
         @input="adjustHeight"

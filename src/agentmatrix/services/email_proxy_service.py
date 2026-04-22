@@ -32,7 +32,7 @@ from imap_tools.errors import MailboxLoginError
 from ..core.id_generator import IDGenerator
 from ..core.message import Email
 from ..core.log_util import AutoLoggerMixin
-from ..db.agent_matrix_db import AgentMatrixDB
+from ..agents.base import AskUserQuestion
 
 
 class EmailProxyService(AutoLoggerMixin):
@@ -49,7 +49,7 @@ class EmailProxyService(AutoLoggerMixin):
         paths: "MatrixPaths",
         config: dict,
         post_office,
-        db_path: str,
+        db,
         parent_logger=None,
     ):
         """
@@ -59,7 +59,7 @@ class EmailProxyService(AutoLoggerMixin):
             paths: MatrixPaths 对象
             config: Email Proxy配置
             post_office: PostOffice实例
-            db_path: 数据库路径
+            db: AgentMatrixDB 实例（共享连接）
             parent_logger: 父logger（可选）
         """
         self.paths = paths
@@ -77,8 +77,8 @@ class EmailProxyService(AutoLoggerMixin):
         self.imap_config = config["imap"]
         self.smtp_config = config["smtp"]
 
-        # 数据库
-        self.db = AgentMatrixDB(db_path)
+        # 数据库（共享连接，由 PostOffice 管理生命周期）
+        self.db = db
 
         # 运行状态
         self._running = False
@@ -118,10 +118,6 @@ class EmailProxyService(AutoLoggerMixin):
                 await self._fetch_task
             except asyncio.CancelledError:
                 pass
-
-        # 关闭数据库连接
-        if hasattr(self.db, "conn") and self.db.conn:
-            self.db.conn.close()
 
         self.logger.info("🛑 Email Proxy服务已停止")
 
@@ -603,7 +599,7 @@ AgentMatrix 自动回复
             }, cleaned_body
         return None, body
 
-    def find_user_session_id(
+    async def find_user_session_id(
         self, agent_name: str, task_id: str, agent_session_id: str
     ) -> Optional[str]:
         """
@@ -616,23 +612,11 @@ AgentMatrix 自动回复
         - recipient_session_id = agent_session_id
         - 取最新记录的sender_session_id
         """
-        query = """
-            SELECT sender_session_id FROM emails
-            WHERE recipient = ?
-              AND sender = ?
-              AND task_id = ?
-              AND recipient_session_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """
-        cursor = self.db.conn.cursor()
-        cursor.execute(
-            query, (agent_name, self.user_agent_name, task_id, agent_session_id)
+        return await self.db.find_sender_session_by_task(
+            agent_name, self.user_agent_name, task_id, agent_session_id
         )
-        result = cursor.fetchone()
-        return result[0] if result else None
 
-    def _resolve_reply_to_id(self, raw_email) -> Optional[str]:
+    async def _resolve_reply_to_id(self, raw_email) -> Optional[str]:
         """
         从外部邮件中解析出对应的内部 email ID
 
@@ -650,7 +634,7 @@ AgentMatrix 自动回复
         in_reply_to_header = raw_email.get("In-Reply-To")
         if in_reply_to_header:
             external_msg_id = in_reply_to_header.strip()
-            internal_id = self.db.get_internal_email_id(external_msg_id)
+            internal_id = await self.db.get_internal_email_id(external_msg_id)
             if internal_id:
                 self.logger.debug(
                     f"📋 从映射表查到: {external_msg_id[:20]} → {internal_id[:8]}"
@@ -702,12 +686,12 @@ AgentMatrix 自动回复
         reply_to_id = None
 
         # 4a. 从 X-AgentMatrix-Email-Id 或 In-Reply-To 解析出内部 email ID
-        reply_to_id = self._resolve_reply_to_id(raw_email)
+        reply_to_id = await self._resolve_reply_to_id(raw_email)
 
         # 4b. 用 In-Reply-To 的 external_message_id 查完整 mapping
         in_reply_to_header = raw_email.get("In-Reply-To")
         if in_reply_to_header:
-            mapping_data = self.db.get_mapping_by_external_id(
+            mapping_data = await self.db.get_mapping_by_external_id(
                 in_reply_to_header.strip()
             )
 
@@ -724,7 +708,7 @@ AgentMatrix 自动回复
 
             # user_session_id 可能为空，尝试从 DB 补查
             if not user_session_id and agent_session_id:
-                user_session_id = self.find_user_session_id(
+                user_session_id = await self.find_user_session_id(
                     agent_name, task_id, agent_session_id
                 )
 
@@ -748,7 +732,7 @@ AgentMatrix 自动回复
                 user_session_id = footer_meta["user_session_id"]
 
                 if not user_session_id and agent_session_id:
-                    user_session_id = self.find_user_session_id(
+                    user_session_id = await self.find_user_session_id(
                         agent_name, task_id, agent_session_id
                     )
             else:
@@ -790,7 +774,7 @@ AgentMatrix 自动回复
         # 8. 记录外部原始邮件 Message-ID ↔ 内部 Email ID 的映射
         external_msg_id = raw_email.get("Message-ID")
         if external_msg_id and internal_email:
-            self.db.save_external_email_mapping(
+            await self.db.save_external_email_mapping(
                 external_msg_id.strip(),
                 internal_email.id,
                 agent_name,
@@ -865,7 +849,7 @@ AgentMatrix 自动回复
         await self.send_to_external(email)
 
     async def send_ask_user_email(
-        self, agent_name: str, agent_session_id: str, question: str
+        self, agent_name: str, agent_session_id: str, question: AskUserQuestion
     ):
         """
         发送 ask_user 特殊邮件（不经过 PostOffice）
@@ -875,28 +859,39 @@ AgentMatrix 自动回复
         Args:
             agent_name: Agent 名称
             agent_session_id: Agent 的 session_id
-            question: 问题内容
+            question: AskUserQuestion 对象（包含问题、选项、图片等信息）
         """
         try:
             # 截断过长的问题
             question_preview = (
-                question[:100] + "..." if len(question) > 100 else question
+                question.question[:100] + "..."
+                if len(question.question) > 100
+                else question.question
             )
             subject = f"请回答问题 #ASK_USER#{agent_name}#{agent_session_id}#"
 
             # 构造邮件正文
-            body = f"""你好，
+            body_parts = [f"你好，\n\n{agent_name} 有一个问题需要你回答：\n\n"]
 
-{agent_name} 有一个问题需要你回答：
+            # 问题文本
+            body_parts.append(f"问题：{question.question}\n")
 
-问题：{question}
+            # 选项文本（邮件无法显示按钮，格式化为列表）
+            if question.options:
+                body_parts.append("\n可选选项：\n")
+                for i, option in enumerate(question.options, 1):
+                    body_parts.append(f"  {i}. {option}\n")
 
----
-请直接回复此邮件来回答问题。
+                if question.multiple:
+                    body_parts.append("（可以多选，请回复选项编号，如：1,3）\n")
+                else:
+                    body_parts.append("（请回复选项编号，如：2）\n")
 
----
-AgentMatrix 自动回复
-"""
+            body_parts.append("\n---\n请直接回复此邮件来回答问题。\n")
+            body_parts.append("如果不想选择预设选项，可以直接输入自定义回答。\n")
+            body_parts.append("\n---\nAgentMatrix 自动回复\n")
+
+            body = "".join(body_parts)
 
             # 构造邮件
             msg = MIMEMultipart()
@@ -911,6 +906,12 @@ AgentMatrix 自动回复
             # 添加正文
             msg.attach(MIMEText(body, "plain", "utf-8"))
 
+            # 添加图片附件
+            if question.image_path:
+                await self._add_question_image(
+                    msg, question.image_path, agent_name, agent_session_id
+                )
+
             # 发送
             with smtplib.SMTP_SSL(
                 self.smtp_config["host"], int(self.smtp_config["port"])
@@ -919,7 +920,7 @@ AgentMatrix 自动回复
                 server.send_message(msg)
 
             # 保存映射（ask_user 邮件没有内部 email ID，用 agent_session_id 占位）
-            self.db.save_external_email_mapping(
+            await self.db.save_external_email_mapping(
                 external_message_id,
                 agent_session_id,
                 agent_name=agent_name,
@@ -932,6 +933,40 @@ AgentMatrix 自动回复
 
         except Exception as e:
             self.logger.error(f"❌ 发送 ask_user 邮件失败: {e}", exc_info=True)
+
+    async def _add_question_image(
+        self, msg: MIMEMultipart, image_filename: str, agent_name: str, agent_session_id: str
+    ):
+        """添加问题图片到邮件"""
+        try:
+            from pathlib import Path
+
+            # 构建图片路径（在 agent 的 attachments 目录）
+            image_dir = self.paths.get_agent_attachments_dir(agent_name, agent_session_id)
+            image_path = image_dir / image_filename
+
+            if not image_path.exists():
+                self.logger.warning(f"⚠️ 图片不存在: {image_path}")
+                return
+
+            # 读取并添加图片
+            with open(image_path, "rb") as f:
+                image_data = f.read()
+
+            image_part = MIMEApplication(image_data)
+
+            # 添加附件头
+            image_part.add_header(
+                "Content-Disposition",
+                "attachment",
+                filename=image_filename
+            )
+            msg.attach(image_part)
+
+            self.logger.info(f"✅ 添加图片附件: {image_filename}")
+
+        except Exception as e:
+            self.logger.error(f"❌ 添加图片附件失败: {e}", exc_info=True)
 
     async def send_to_external(self, email: Email):
         """发送内部邮件到外部邮箱"""
@@ -959,7 +994,7 @@ AgentMatrix 自动回复
 
             # 3b. 设置 In-Reply-To（让外部邮箱正确线程化）
             if email.in_reply_to:
-                parent_external_id = self.db.get_external_message_id(email.in_reply_to)
+                parent_external_id = await self.db.get_external_message_id(email.in_reply_to)
                 if parent_external_id:
                     msg["In-Reply-To"] = parent_external_id
 
@@ -982,7 +1017,7 @@ AgentMatrix 自动回复
                 server.send_message(msg)
 
             # 7. 保存映射（enriched: 包含全量 session 信息）
-            self.db.save_external_email_mapping(
+            await self.db.save_external_email_mapping(
                 external_message_id,
                 email.id,
                 agent_name,
@@ -1028,18 +1063,9 @@ AgentMatrix 自动回复
         语义：找到 User 发的、被 Agent 以 agent_session_id 接收的那封邮件，
         其 sender_session_id 就是 User 端的 session ID。
         """
-        query = """
-            SELECT sender_session_id FROM emails
-            WHERE sender = ?
-              AND task_id = ?
-              AND recipient_session_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """
-        cursor = self.db.conn.cursor()
-        cursor.execute(query, (self.user_agent_name, task_id, agent_session_id))
-        result = cursor.fetchone()
-        return result[0] if result else None
+        return await self.db.find_user_session_by_task(
+            self.user_agent_name, task_id, agent_session_id
+        )
 
     def _extract_body_and_attachments(self, raw_email, task_id: str) -> tuple:
         """提取邮件正文和附件"""

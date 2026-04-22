@@ -286,8 +286,8 @@ class BrowserAdapter(ABC):
 
     @abstractmethod
     async def save_static_asset(self, tab: TabHandle, original_url: str = None, save_dir: str = None) -> Optional[str]:
-       
+
         # 简单实现策略：
         # 1. 如果是 PDF/Image，DrissionPage 有 download 方法，或者用 wget/requests 再请求一次 URL
-        # 2. 如果是 JSON/TXT，直接 f.write(tab.ele("tag:body").text)
+        # 2. 如果是 JSON/TXT，直接 f.write(tab.ele(“tag:body”).text)
         pass

@@ -324,7 +324,7 @@ async def graceful_shutdown():
 # === Runtime Initialization ===
 
 
-def init_runtime(matrix_world_dir: Path):
+async def init_runtime(matrix_world_dir: Path):
     """
     Initialize AgentMatrix runtime. Can be called from lifespan (warm start)
     or from /api/config/complete (cold start in-process hot reload).
@@ -372,11 +372,20 @@ def init_runtime(matrix_world_dir: Path):
         user_agent_name=user_agent_name,
     )
 
+    # Initialize async DB connection (must be in async context)
+    await runtime.post_office.init_db()
+
     # Inject broadcast callback
     runtime.set_broadcast_callback(broadcast_message_to_clients)
     for agent in runtime.agents.values():
         agent._broadcast_message_callback = runtime.get_broadcast_callback()
     print("✅ 广播回调已注入到所有 Agent")
+
+    # Startup system (register agents, start services, recover emails)
+    await runtime.startup()
+
+    # Start LLM service monitor
+    runtime._start_llm_monitor()
 
     # Validate User agent
     if user_agent_name not in runtime.agents:
@@ -384,65 +393,7 @@ def init_runtime(matrix_world_dir: Path):
             f"User agent '{user_agent_name}' not found in loaded agents. Available agents: {list(runtime.agents.keys())}"
         )
     user_agent = runtime.agents[user_agent_name]
-    if not hasattr(user_agent, "set_session_update_handler"):
-        raise Exception(
-            f"Agent '{user_agent_name}' is not a UserProxyAgent (missing set_session_update_handler method)"
-        )
     print(f"✅ User agent validation passed: '{user_agent_name}'")
-
-    # Set up User agent's session update callback to push events via WebSocket
-    actual_user_name = runtime.get_user_agent_name()
-    if actual_user_name in runtime.agents:
-
-        async def user_session_update_callback(email, direction, is_read):
-            """Callback to push user session updates to WebSocket clients"""
-            try:
-                session_id = (
-                    email.recipient_session_id
-                    if direction == "inbound"
-                    else email.sender_session_id
-                )
-                data = {
-                    "id": email.id,
-                    "timestamp": email.timestamp.isoformat(),
-                    "sender": email.sender,
-                    "recipient": email.recipient,
-                    "subject": email.subject,
-                    "body": email.body,
-                    "in_reply_to": email.in_reply_to,
-                    "task_id": email.task_id,
-                    "sender_session_id": email.sender_session_id,
-                    "recipient_session_id": email.recipient_session_id,
-                    "session_id": session_id,
-                    "direction": direction,
-                    "is_read": is_read,
-                    "agent_name": email.sender
-                    if direction == "inbound"
-                    else email.recipient,
-                }
-                message = json.dumps(
-                    {"type": "user_session_updated", "data": data}
-                )
-                for ws in active_websockets[:]:
-                    try:
-                        await ws.send_text(message)
-                    except Exception as e:
-                        print(f"⚠️  Error sending to WebSocket: {e}")
-                        active_websockets.remove(ws)
-                print(
-                    f"📧 User session updated ({direction}): {email.sender} -> {email.recipient}: {email.subject}"
-                )
-            except Exception as e:
-                print(f"⚠️  Error in user session update callback: {e}")
-
-        runtime.agents[actual_user_name].set_session_update_handler(
-            user_session_update_callback
-        )
-        print(
-            f"✅ User agent session update callback configured for '{actual_user_name}'"
-        )
-    else:
-        print(f"⚠️  Warning: User agent '{actual_user_name}' not found in runtime")
 
     print(f"✅ AgentMatrix runtime initialized successfully")
     print(f"🤖 Loaded agents: {list(runtime.agents.keys())}")
@@ -465,7 +416,7 @@ async def lifespan(app: FastAPI):
     print(f"🚀 Starting AgentMatrix Server...")
     print(f"📁 Matrix World Directory: {config['matrix_world_dir']}")
 
-    runtime = init_runtime(config["matrix_world_dir"])
+    runtime = await init_runtime(config["matrix_world_dir"])
     app.state.matrix = runtime
     print("✅ Runtime initialized")
 
@@ -711,7 +662,7 @@ async def init_runtime_api(request: dict):
         config["agents_dir"] = matrix_world_dir / ".matrix" / "configs" / "agents"
 
         # Initialize runtime (reads existing files)
-        runtime = init_runtime(matrix_world_dir)
+        runtime = await init_runtime(matrix_world_dir)
         app.state.matrix = runtime
 
         return {
@@ -803,9 +754,8 @@ async def get_sessions(page: int = 1, per_page: int = 20):
 
     user_agent_name = matrix_runtime.get_user_agent_name()
 
-    # Query sessions from database (async)
-    result = await asyncio.to_thread(
-        matrix_runtime.post_office.email_db.get_user_sessions,
+    # Query sessions from database
+    result = await matrix_runtime.post_office.email_db.get_user_sessions(
         user_agent_name=user_agent_name,
         page=page,
         per_page=per_page,
@@ -817,10 +767,14 @@ async def get_sessions(page: int = 1, per_page: int = 20):
         sessions.append(
             {
                 "session_id": conv["session_id"],
+                "agent_name": conv.get("agent_name"),
+                "agent_session_id": conv.get("agent_session_id"),
+                "task_id": conv.get("task_id"),
                 "subject": conv["subject"],
                 "last_email_time": conv["last_email_time"],
                 "participants": conv["participants"],
                 "is_unread": conv.get("is_unread", False),
+                "last_email_id": conv.get("last_email_id"),
             }
         )
 
@@ -842,6 +796,7 @@ async def send_email(
     subject: Optional[str] = Form(""),
     body: str = Form(...),
     in_reply_to: Optional[str] = Form(None),
+    recipient_session_id: Optional[str] = Form(None),
     attachments: List[UploadFile] = File(default=[]),
 ):
     """Send an email with attachments (new session or reply)"""
@@ -985,6 +940,7 @@ async def send_email(
         subject=subject,
         content=body,
         reply_to_id=in_reply_to,
+        recipient_session_id=recipient_session_id,
         attachments=attachment_metadata if attachment_metadata else None,
     )
 
@@ -1008,7 +964,7 @@ async def send_email(
 
     return {
         "success": True,
-        "task_id": effective_task_id,
+        "task_id": new_email.task_id,
         "message": "Email sent successfully",
         "attachments_count": len(attachment_metadata),
         "email": email_dict,  # Include the created email
@@ -1049,9 +1005,7 @@ async def get_session_emails(session_id: str):
             )
 
         # 标记会话为已读（用户查看了这个 session）
-        await asyncio.to_thread(
-            matrix_runtime.post_office.email_db.mark_session_as_read, session_id
-        )
+        await matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
 
         return {"success": True, "emails": emails_data, "total_count": len(emails_data)}
     except Exception as e:
@@ -1067,9 +1021,7 @@ async def mark_session_read(session_id: str):
         raise HTTPException(status_code=503, detail="Runtime not initialized")
 
     try:
-        await asyncio.to_thread(
-            matrix_runtime.post_office.email_db.mark_session_as_read, session_id
-        )
+        await matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1339,11 +1291,38 @@ async def get_agent_sessions(agent_name: str):
         db = matrix_runtime.post_office.email_db
 
         # 获取 Agent 的 sessions (async)
-        sessions = await asyncio.to_thread(db.get_agent_sessions, agent_name)
+        sessions = await db.get_agent_sessions(agent_name)
         return {"sessions": sessions}
     except Exception as e:
         print(f"Error getting agent sessions: {e}")
         return {"sessions": [], "error": str(e)}
+
+
+@app.get("/api/agents/{agent_name}/sessions/{session_id}/events")
+async def get_session_events(agent_name: str, session_id: str, limit: int = 200, offset: int = 0, direction: str = "latest", before: str = None):
+    """获取 Agent session 的事件列表
+
+    direction=latest: 默认，取最新的 N 条
+    direction=older: 配合 before 参数，取指定时间戳之前的事件
+    """
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        db = matrix_runtime.post_office.email_db
+        if direction == "older" and before:
+            events = await db.get_session_events_before(agent_name, session_id, before, limit)
+        elif direction == "older":
+            events = await db.get_session_events(agent_name, session_id, limit, offset)
+        else:
+            events = await db.get_latest_session_events(agent_name, session_id, limit)
+        total = await db.get_session_event_count(agent_name, session_id)
+        return {"events": events, "total": total}
+    except Exception as e:
+        print(f"Error getting session events: {e}")
+        return {"events": [], "total": 0, "error": str(e)}
 
 
 @app.post("/api/agents/{agent_name}/stop")
@@ -1409,6 +1388,106 @@ async def resume_agent(agent_name: str):
         return {"success": True, "message": f"Agent '{agent_name}' resumed"}
     except Exception as e:
         print(f"Error resuming agent '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{agent_name}/collab")
+async def toggle_collab_mode(agent_name: str, request: Request):
+    """开启/关闭 Collab Mode"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    try:
+        body = await request.json()
+        enabled = body.get("enabled", True)
+        agent.collab_mode = enabled
+
+        return {"status": "ok", "collab_mode": agent.collab_mode}
+    except Exception as e:
+        print(f"Error toggling collab mode for '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{agent_name}/terminal/exec")
+async def terminal_exec(agent_name: str, request: Request):
+    """在 Agent 的 container session 中执行用户命令"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    if not agent.container_session or not agent.container_session.is_active:
+        # Lazy-recreate: shell 意外断开时自动重建
+        try:
+            await asyncio.to_thread(agent._init_container_session)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to reinitialize container session: {e}")
+
+    try:
+        body = await request.json()
+        command = body.get("command", "").strip()
+        if not command:
+            raise HTTPException(status_code=400, detail="Empty command")
+
+        exit_code, stdout, stderr = await asyncio.to_thread(
+            agent.container_session.execute, command, 10.0
+        )
+
+        return {
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "timeout": exit_code == -1,
+        }
+    except Exception as e:
+        print(f"Error executing terminal command for '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{agent_name}/workspace")
+async def get_agent_workspace(agent_name: str):
+    """获取 Agent 的 workspace 文件树"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    try:
+        workspace = agent.private_workspace
+        if not workspace or not workspace.exists():
+            return {"files": []}
+
+        files = []
+        for item in sorted(workspace.iterdir()):
+            stat = item.stat()
+            files.append({
+                "name": item.name,
+                "path": str(item),
+                "is_dir": item.is_dir(),
+                "size": stat.st_size if item.is_file() else None,
+                "modified": stat.st_mtime,
+            })
+
+        return {"files": files, "workspace_path": str(workspace)}
+    except Exception as e:
+        print(f"Error getting workspace for '{agent_name}': {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2310,6 +2389,76 @@ async def submit_user_input(agent_name: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{agent_name}/question_image")
+async def get_question_image(
+    agent_name: str,
+    session_id: str,
+    filename: str
+):
+    """
+    获取 ask_user 问题的图片
+
+    Args:
+        agent_name: Agent 名称
+        session_id: Agent 的 session_id（必须匹配 Agent 的当前 session）
+        filename: 图片文件名
+
+    安全说明：
+    - 验证 session_id 是否匹配 Agent 的当前 session
+    - 防止跨 session 访问图片
+    - 如果 Agent 已经切换到其他 session，拒绝访问
+    """
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not available")
+
+    if agent_name not in matrix_runtime.agents:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    agent = matrix_runtime.agents[agent_name]
+
+    # 🔒 验证 session_id（关键安全检查）
+    if not agent.current_session:
+        raise HTTPException(status_code=400, detail="Agent has no active session")
+
+    current_session_id = agent.current_session.get("session_id")
+    if session_id != current_session_id:
+        # Agent 已经切换到其他 session，拒绝访问
+        raise HTTPException(
+            status_code=409,  # Conflict
+            detail=f"Session mismatch: requested {session_id}, current {current_session_id}. "
+                   f"Agent may have moved to a different session."
+        )
+
+    # 🔒 验证是否有 pending_question（防止滥用）
+    if not hasattr(agent, '_pending_user_question') or not agent._pending_user_question:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending question found for this agent"
+        )
+
+    # 构建图片路径
+    image_dir = agent.runtime.paths.get_agent_attachments_dir(
+        agent_name, session_id
+    )
+    image_path = image_dir / filename
+
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # 判断 media type
+    import mimetypes
+    media_type = mimetypes.guess_type(filename)[0] or "image/png"
+
+    # 返回文件
+    return FileResponse(
+        path=str(image_path),
+        media_type=media_type,
+        filename=filename,
+    )
 
 
 # === Main Entry Point ===

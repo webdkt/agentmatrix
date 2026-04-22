@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable, Any, TYPE_CHECKING, Union
 import logging
 import time
+import json
+import re
 
 
 @dataclass
@@ -241,8 +243,8 @@ class MicroAgent(AutoLoggerMixin):
                 result += self._BASH_CANCEL_HINT
             return result
         elif self._running_actions:
-            # pop 所有 entries（除了自己），这样被取消 action 的 _on_action_done 回调触发时会跳过信号
-            # 保留自己的 entry，让 _on_action_done 能正确 put cancel 结果信号
+            # pop 所有 entries（除了自己），这样被取消 action 的 callback 触发时会跳过信号
+            # 保留自己的 entry，让 callback 能正确 put cancel 结果信号
             current = asyncio.current_task()
             entries = {}
             to_keep = {}
@@ -281,7 +283,7 @@ class MicroAgent(AutoLoggerMixin):
         如果 [ACTION] 文本匹配 func_name(...) 或 func.name(...) 格式，
         但没有匹配到任何注册的 action，说明 LLM 幻觉了函数名。
 
-        同时检查 raw_reply：当 [ACTION] 为空但 raw_reply 中包含 JSON action 格式
+        同时检查 raw_reply：当 [ACTION] 为空但 raw_reply 中包含 JSON/XML action 格式
         或函数调用 pattern 时，说明 LLM 试图输出 action 但格式不对（缺少 [ACTION] 标记）。
 
         Returns:
@@ -295,26 +297,23 @@ class MicroAgent(AutoLoggerMixin):
                 # 检查 JSON 格式的 action: "action": "xxx"
                 json_action_pattern = r'"action"\s*:\s*"([a-zA-Z_.]*)"'
                 json_matches = re.findall(json_action_pattern, raw_reply)
-                if json_matches:
-                    return (
-                        f"No [ACTION] section was found in your reply, but JSON action patterns "
-                        f"were detected (e.g. {', '.join(f'`{n}`' for n in json_matches[:3])}). "
-                        f"Please use the [ACTION] section format to declare actions, e.g.:\n"
-                        f"[ACTION]\naction_name(args)"
-                    )
+
+                # 检查 XML 格式的 action: <function>xxx</function>
+                xml_action_pattern = r'<function>\s*(\w+(?:\.\w+)*)\s*</function>'
+                xml_matches = re.findall(xml_action_pattern, raw_reply)
 
                 # 检查函数调用 pattern
                 call_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\('
                 call_matches = re.findall(call_pattern, raw_reply)
-                if call_matches:
-                    invalid_names = [n for n in call_matches if n.lower() not in self.action_registry["_flat"]]
-                    if invalid_names:
-                        return (
-                            f"No [ACTION] section was found, but function call patterns "
-                            f"(e.g. {', '.join(f'`{n}`' for n in invalid_names[:3])}) "
-                            f"were detected in your reply. If you intended to execute an action, "
-                            f"please use the [ACTION] section format."
-                        )
+
+                # 验证是否包含有效的 action（忽略大小写）
+                valid_actions = []
+                for name in (json_matches + xml_matches + call_matches):
+                    if name.lower() in self.action_registry["_flat"]:
+                        valid_actions.append(name)
+
+                if valid_actions:
+                    return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明。确认没什么要执行的可以回复'确定'。"
 
             # 确实没有疑似 action 的内容
             return None
@@ -339,98 +338,83 @@ class MicroAgent(AutoLoggerMixin):
             # 所有提到的函数名都在 registry 中，不是幻觉问题
             return None
 
-        invalid_str = ", ".join(f"`{n}`" for n in invalid_names)
-        return (
-            f"No action was detected from your [ACTION] section. "
-            f"The function name(s) {invalid_str} do not match any available actions. "
-            f"If you intended to execute an action, please check the available actions and correct the name. "
-            f"If you have nothing to execute, reply without an [ACTION] section."
-        )
+        return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明，请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
 
-    def _inject_signal(self, signal):
-        """将信号注入为 messages，让 agent 在下一轮 think 中看到"""
-        self.logger.info(f"Injecting signal: {signal.type}")
+    def _signal_text(self, signal, compress=False) -> str:
+        """单个 signal 的纯文本生成（无副作用）"""
         if signal.type == "email":
             batch = signal.payload
-            # batch = {"text": "combined email text", "email_ids": ["id1", "id2"]}
-            text = batch["text"]
-            # 如果有 action 正在运行，告知 agent
-            if self._running_actions:
-                running = ", ".join(
-                    aid.rsplit("_", 1)[0] for aid in self._running_actions
+            text = f"[新邮件] 来自 {batch['sender']}: {batch['subject']}\n{batch['body']}"
+            attachments = batch.get("attachments", [])
+            if attachments:
+                text += "\n" + "\n".join(
+                    f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
+                    for att in attachments
                 )
-                text += f"\n\n**Action {running} Still Running**"
-            
-            self._add_message("user", text)
-            # 收集待标记 processed 的 email ids
-            self._pending_processed_ids.extend(batch.get("email_ids", []))
-        elif signal.type == "action_completed":
-            action_name = signal.payload["action_name"]
-            action_label = signal.payload.get("action_label", "")
-            result = signal.payload["result"]
-            display_name = f"{action_name}: {action_label}" if action_label else action_name
-            msg = f"[{display_name} Done]: {result}"
-            self.root_agent.update_status(msg)
-            self._add_message("user", msg)
-        elif signal.type == "action_failed":
-            action_name = signal.payload["action_name"]
-            action_label = signal.payload.get("action_label", "")
-            error = signal.payload["error"]
-            display_name = f"{action_name}: {action_label}" if action_label else action_name
-            msg = f"[{display_name} Failed]: {error}"
-            self.root_agent.update_status(msg)
-            self._add_message("user", msg)
-        elif signal.type == "actions_completed":
-            combined = signal.payload["combined"]
-            self.root_agent.update_status(combined)
-            self._add_message("user", f"{combined}")
+            return text
+        elif signal.type in ["action_completed", "actions_completed"]:
+            return self._format_combined_results(
+                signal.payload.get("results", []), compress=compress
+            )
         elif signal.type == "no_action_reflect":
-            msg = signal.payload["message"]
-            self.root_agent.update_status(msg)
-            self._add_message("user", msg)
+            return signal.payload["message"]
+        return ""
 
-    def _on_action_done(self, action_id, action_name, task):
-        """单个 action task 完成后的回调 - 投递信号到 signal_queue"""
-        # 如果 entry 已被 cancel_action 移除，跳过信号（取消结果由 cancel_action 统一报告）
-        info = self._running_actions.pop(action_id, None)
-        if info is None:
+    def _signals_text(self, signals, compress=False) -> str:
+        """批量 signal 的文本拼接"""
+        return "\n\n".join(self._signal_text(sig, compress=compress) for sig in signals)
+
+    async def inject_signals(self, signals):
+        """Pre-think: 生成完整文本并注入 messages"""
+        if not signals:
             return
-        action_label = info.get("label", "") if isinstance(info, dict) else ""
-        display_name = f"{action_name}: {action_label}" if action_label else action_name
-        try:
-            result = task.result()
-            if result == "NOT_TO_RUN":
-                return
-            self.signal_queue.put_nowait(Signal(
-                type="action_completed",
-                payload={"action_name": action_name, "action_label": action_label, "result": str(result)}
-            ))
-        except asyncio.CancelledError:
-            self.signal_queue.put_nowait(Signal(
-                type="action_completed",
-                payload={"action_name": action_name, "action_label": action_label, "result": f"[{display_name} 已被取消]"}
-            ))
-        except Exception as e:
-            self.signal_queue.put_nowait(Signal(
-                type="action_failed",
-                payload={"action_name": action_name, "action_label": action_label, "error": str(e)}
-            ))
+
+        for signal in signals:
+            self.logger.info(f"Injecting signal: {signal.type}")
+            signal_detail = {"signal_type": signal.type}
+            if signal.type == "email":
+                signal_detail["email_ids"] = signal.payload.get("email_ids", [])
+                signal_detail["sender"] = signal.payload.get("sender")
+            elif signal.type in ["action_completed", "actions_completed"]:
+                results = signal.payload.get("results", [])
+                signal_detail["result_count"] = len(results)
+                signal_detail["action_names"] = [r.get("action_name", "") for r in results]
+            await self._log_event("session", "processing_signal", signal_detail)
+
+        text = self._signals_text(signals)
+
+        if self._running_actions:
+            running = ", ".join(aid.rsplit("_", 1)[0] for aid in self._running_actions)
+            text += f"\n\n**Action {running} Still Running**"
+
+        self._add_message("user", text)
+
+        for sig in signals:
+            if sig.type == "email":
+                self._pending_processed_ids.extend(sig.payload.get("email_ids", []))
+
+    def compress_signals(self, signals):
+        """Post-think: 生成压缩文本，替换 messages[-1]"""
+        if not signals or not self.messages:
+            return
+        text = self._signals_text(signals, compress=True)
+        self.messages[-1]["content"] = text
 
     def _on_batch_done(self, action_id, task):
-        """batch task 完成后的回调 - 直接投 combined 结果，不加额外包装"""
+        """batch task 完成后的回调 - 发送原始 results 数组"""
         info = self._running_actions.pop(action_id, None)
         if info is None:
             return
         try:
-            combined = task.result()
+            results = task.result()  # 获取 results 数组
             self.signal_queue.put_nowait(Signal(
                 type="actions_completed",
-                payload={"combined": combined}
+                payload={"results": results}
             ))
         except Exception as e:
             self.signal_queue.put_nowait(Signal(
                 type="actions_completed",
-                payload={"combined": f"Batch 执行异常: {e}"}
+                payload={"results": [{"action_name": "batch", "label": "", "error": str(e), "status": "error"}]}
             ))
 
     @register_action(
@@ -963,6 +947,18 @@ Start generating the Working Notes now.
 
         working_notes = await self._generate_working_notes(self.messages)
 
+        # 剥掉 working_notes 开头可能带的 [WORKING NOTES]（LLM 从 session history 复读出来的）
+        if working_notes and "[WORKING NOTES]" in working_notes:
+            working_notes = re.sub(
+                r'\[WORKING NOTES\]\s*\n*', '', working_notes, count=1
+            ).strip()
+
+        # 📝 写入 session event: session.message_auto_compress
+        await self._log_event("session", "message_auto_compress", {
+            "step_count": self.step_count,
+            "working_notes_preview": working_notes if working_notes else None,
+        })
+
         # ========== 1. 处理 system message ==========
         has_system = self.messages and self.messages[0].get("role") == "system"
 
@@ -971,7 +967,7 @@ Start generating the Working Notes now.
             # === Top-level MicroAgent 特殊逻辑：使用邮件历史 ===
             try:
                 # 获取 session 所有邮件
-                emails = self.root_agent.post_office.get_emails_by_session(
+                emails = await self.root_agent.post_office.get_emails_by_session(
                     session_id=self.session["session_id"],
                     agent_name=self.root_agent.name,
                 )
@@ -1376,6 +1372,27 @@ Start generating the Working Notes now.
                 self.root_agent.last_system_prompt = prompt
             return prompt
 
+        # Collab 模式：使用 collab_mode.md 模板
+        if getattr(self.root_agent, "collab_mode", False):
+            template_str = self.root_agent.runtime.prompt_registry.COLLAB_MODE
+            actions_list = self._format_actions_list()
+
+            md_skill_section = ""
+            if self._is_top_level_microagent():
+                md_skill_section = self._build_md_skill_section()
+
+            template = Template(template_str)
+            prompt = template.safe_substitute(
+                persona=self.persona,
+                actions_list=actions_list,
+                md_skill_section=md_skill_section,
+            )
+
+            self.system_prompt = prompt
+            if self._is_top_level_microagent():
+                self.root_agent.last_system_prompt = prompt
+            return prompt
+
         # 完整模式：从 PromptRegistry 加载模板
         template_str = self.root_agent.runtime.prompt_registry.SYSTEM_PROMPT
 
@@ -1600,6 +1617,40 @@ Start generating the Working Notes now.
             lines.append(f"{role}: {preview}")
 
         return "\n".join(lines)
+    
+    async def _think_with_system_failure_recovery(self):
+        """
+        包装 brain.think_with_retry，处理系统性故障（网络超时、服务不可用等）
+        格式问题由 think_with_retry 内部处理
+        """
+        try:
+            return await self.brain.think_with_retry(
+                initial_messages=self.messages,
+                parser=self._parse_actions_from_thought,
+                action_registry=self.action_registry["_flat"],
+                max_retries=3,
+            )
+        except LLMServiceUnavailableError as e:
+            # 系统性故障：等待恢复后重试一次
+            self.logger.warning(
+                f"⚠️ Systemic LLM failure detected: {str(e)}"
+            )
+
+            # 1. 等待 5 秒
+            await asyncio.sleep(5)
+
+            # 2. 等待 LLM service 恢复
+            if not self._is_llm_available():
+                self.logger.warning("🔄 Service still unavailable, waiting for recovery...")
+                await self._wait_for_llm_recovery()
+
+            # 3. 重试一次
+            self.logger.info("🔄 Retrying after service recovery...")
+            return await self.brain.think_with_retry(
+                initial_messages=self.messages,
+                parser=self._parse_actions_from_thought,
+                max_retries=3,
+            )
 
     async def _run_loop(self, exit_actions=[]):
         """信号驱动的执行主循环 - think → launch actions → wait signal → think"""
@@ -1654,68 +1705,64 @@ Start generating the Working Notes now.
                     signals.append(self.signal_queue.get_nowait())
 
             # 注入信号为 messages
-            for sig in signals:
-                self._inject_signal(sig)
+            await self.inject_signals(signals)
 
-            # 批量标记邮件已处理（内容已通过 _add_message 写入 session history）
-            if self._pending_processed_ids:
-                ids = self._pending_processed_ids.copy()
-                self._pending_processed_ids.clear()
-                asyncio.create_task(
-                    asyncio.to_thread(
-                        self.root_agent.post_office.email_db.mark_emails_processed,
-                        ids
-                    )
-                )
+            self.root_agent.update_status(new_status="THINKING")
+
+            # 并行：批量标记邮件已处理 + Think（本地 SQLite 写 vs LLM 网络调用）
+            async def _mark_processed():
+                if self._pending_processed_ids:
+                    ids = self._pending_processed_ids.copy()
+                    self._pending_processed_ids.clear()
+                    await self.root_agent.post_office.email_db.mark_emails_processed(ids)
 
             try:
-                # 1. Think（使用 think_with_retry + actions parser）
-                # ✅ 状态更新：Thinking
-                self.root_agent.update_status(
-                    new_status="THINKING", new_message="Thinking..."
+
+                _, thought = await asyncio.gather(
+                    _mark_processed(),
+                    self._think_with_system_failure_recovery(),
                 )
 
-                thought = await self.brain.think_with_retry(
-                    initial_messages=self.messages,
-                    parser=self._parse_actions_from_thought,
-                    action_registry=self.action_registry["_flat"],
-                    max_retries=3,
-                )
-                
 
-                # ✅ 状态更新：LLM 返回内容（"[ACTION]" 之前的部分）
-                if raw_reply := thought.get("[RAW_REPLY]"):
-                    # 提取 "[ACTION]" 之前的部分
-                    if "[ACTION]" in raw_reply:
-                        thinking_part = raw_reply.split("[ACTION]")[0].strip()
-                        self.root_agent.update_status(new_message=thinking_part)
-                    else:
-                        # 如果没有 "[ACTION]" 标记，全部返回
-                        self.root_agent.update_status(new_message=raw_reply)
+                # think.brain 的内容已通过 session_events 持久化，不再推 status_history
 
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
-                self.logger.debug(action_section_text)
+                self.logger.debug(f"Raw LLM reply:\n{raw_reply}")
+                # 📝 写入 session event: think.brain
+                think_event = raw_reply.replace(action_section_text,"").replace("[ACTION]","").replace("[THOUGHTS]","").strip() if raw_reply else None
+                if think_event:
+                    await self._log_event("think", "brain", {
+                        "step_count": step_count,
+                        "thought": think_event
+                    })
                 
                 
 
-                # self.logger.debug(f"THOUGHTS: {raw_reply}")
-                # self.logger.debug(f"ACTIONS: {action_thougth}")
+                # 压缩本轮 signal 文本，节省上下文窗口
+                if signals:
+                    self.compress_signals(signals)
 
                 # 2. 检测 actions（多个，保持顺序）
                 action_names = await self._detect_actions(action_section_text)
 
                 self.logger.info(f"Detected actions: {action_names}")
 
+                # 📝 写入 session event: action.detected
+                if action_names:
+                    await self._log_event("action", "detected", {
+                        "actions": action_names,
+                        "step_count": step_count,
+                    })
+
                 # ✅ 状态更新：开始执行 actions
                 if action_names:
-                    actions_str = ", ".join(action_names)
-                    self.root_agent.update_status(
-                        new_status="WORKING", new_message=f"开始执行: {actions_str}"
-                    )
+                    self.root_agent.update_status(new_status="WORKING")
 
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply)
+
+                
 
                 # 4. 分发 actions
                 should_break_loop = False
@@ -1740,25 +1787,11 @@ Start generating the Working Notes now.
                     except Exception:
                         pass
                     should_break_loop = True
-                elif len(action_names) == 1:
-                    # 单个 action：直接后台执行，保留 action 本身的名称
-                    self.logger.info(f"Launching action: {action_names[0]}")
-                    self._action_counter += 1
-                    action_id = f"{action_names[0]}_{self._action_counter}"
-                    action_task = asyncio.create_task(
-                        self._execute_action(action_names[0], action_section_text, 1, action_names)
-                    )
-                    self._running_actions[action_id] = {
-                        "task": action_task,
-                        "label": "",
-                        "action_names": action_names,
-                    }
-                    action_task.add_done_callback(
-                        lambda t, aid=action_id, an=action_names[0]: self._on_action_done(aid, an, t)
-                    )
                 elif action_names:
-                    # 多个 actions：打包成一个后台 task 顺序执行
-                    self.logger.info(f"Launching batch actions: {action_names}")
+                    # 统一使用 batch 执行方式（即使是单个 action）
+                    action_count = len(action_names)
+                    action_desc = f"{action_count} action{'s' if action_count > 1 else ''}"
+                    self.logger.info(f"Launching {action_desc}: {action_names}")
                     self._action_counter += 1
                     action_id = f"batch_{self._action_counter}"
                     batch_task = asyncio.create_task(
@@ -1879,14 +1912,19 @@ Start generating the Working Notes now.
             except Exception as e:
                 self.logger.warning(f"Skill cleanup failed in {cls.__name__}: {e}")
 
-    def _format_combined_results(self, results: list) -> str:
+    def _format_combined_results(self, results: list, compress: bool = False) -> str:
         """将多个 action 的结果格式化为一个组合文本"""
         lines = []
         for r in results:
             label = r.get("label", "")
             display_name = f"{r['action_name']}: {label}" if label else r["action_name"]
+
             if r["status"] == "ok":
-                lines.append(f"[{display_name} Done]: {r['result']}")
+                result = r['result']
+                if compress and len(result) > 200:
+                    result = f"(输出省略... 原长度{len(result)}字符)"
+                lines.append(f"[{display_name} Done]: {result}")
+
             elif r["status"] == "canceled":
                 lines.append(f"[{display_name} Canceled]")
             else:
@@ -2163,15 +2201,19 @@ write, send_mail, write
 
     async def _run_actions_batch(
         self, action_names: List[str], thought: str
-    ) -> str:
+    ) -> list:
         """
-        后台顺序执行一批 actions，返回组合结果字符串。
+        后台顺序执行一批 actions，返回原始 results 数组
 
-        正常完成：所有 action 的结果拼接。
-        被取消：已完成的标记 ok，被中断的标记 canceled。
+        返回: results 数组（不格式化）
         """
         results = []
         for idx, action_name in enumerate(action_names, start=1):
+            # 📝 写入 session event: action.started
+            await self._log_event("action", "started", {
+                "action_name": action_name,
+                "step_count": self.step_count,
+            })
             try:
                 result = await self._execute_action(
                     action_name, thought, idx, action_names
@@ -2184,17 +2226,32 @@ write, send_mail, write
                         action_label = info.get("label", "")
                         break
                 results.append({"action_name": action_name, "label": action_label, "result": str(result), "status": "ok"})
+                # 📝 写入 session event: action.completed
+                await self._log_event("action", "completed", {
+                    "action_name": action_name,
+                    "action_label": action_label,
+                    "result_preview": str(result)[:500] if result else None,
+                    "status": "ok",
+                })
             except asyncio.CancelledError:
                 results.append({"action_name": action_name, "label": "", "result": "Canceled", "status": "canceled"})
+                await self._log_event("action", "completed", {
+                    "action_name": action_name,
+                    "status": "canceled",
+                })
                 # 标记后续所有 action 为 canceled
                 for remaining_name in action_names[idx:]:
                     results.append({"action_name": remaining_name, "label": "", "result": "Canceled", "status": "canceled"})
                 break
             except Exception as e:
                 results.append({"action_name": action_name, "label": "", "error": str(e), "status": "error"})
+                # 📝 写入 session event: action.error
+                await self._log_event("action", "error", {
+                    "action_name": action_name,
+                    "error_message": str(e)[:500],
+                })
 
-        combined = self._format_combined_results(results)
-        return combined
+        return results  # 直接返回数组，不格式化
 
     async def _execute_action(
         self, action_name: str, thought: str, action_index: int, action_list: List[str]
@@ -2299,7 +2356,7 @@ write, send_mail, write
                 # 调用 root_agent.ask_user（会挂起等待用户输入）
                 result = await self.root_agent.ask_user(question)
             else:
-                # 普通 action：正常调用（异常由 _on_action_done callback 处理）
+                # 普通 action：正常调用（异常由 _on_batch_done callback 处理）
                 result = await method(**params)
         finally:
             # 记录最后执行的 action 名字
@@ -2311,19 +2368,43 @@ write, send_mail, write
         """
         添加消息到对话历史
 
-        如果最后一条消息是同 role，追加到其后（避免连续多个 user/assistant）。
+        智能处理：
+        - 如果最后一条 message role 不同 → 直接添加新 message
+        - 如果 role 相同：
+           a. 如果最后一条 content 是 str → 直接拼接字符串
+           b. 如果最后一条 content 是 list（多模态）→ 找到text部分并追加
+
         如果有 session，自动保存到 session
         """
-        if self.messages and self.messages[-1]["role"] == role:
-            self.messages[-1]["content"] += "\n\n" + content
-        else:
+        if not self.messages or self.messages[-1]["role"] != role:
+            # 没有前一条消息，或 role 不同 → 直接添加
             self.messages.append({"role": role, "content": content})
+        else:
+            # role 相同，需要检查 content 类型
+            last_content = self.messages[-1]["content"]
+
+            if isinstance(last_content, str):
+                # 最后一条是纯文本 → 直接拼接
+                self.messages[-1]["content"] += "\n\n" + content
+            elif isinstance(last_content, list):
+                # 最后一条是多模态 → 找到text部分并追加
+                text_item = next((item for item in last_content if item.get("type") == "text"), None)
+                if text_item:
+                    # 找到了text项，追加到它的text字段
+                    text_item["text"] += "\n\n" + content
+                else:
+                    # 没有text项，创建一个新的text项
+                    last_content.append({"type": "text", "text": content})
+            else:
+                # 异常情况，直接替换
+                self.messages[-1]["content"] = content
 
         # 如果有 session，自动保存
         if self.session and self.session_manager:
             self.session["history"] = self.messages.copy()
             # 创建异步任务来保存（不阻塞主流程）
             asyncio.create_task(self.session_manager.save_session(self.session))
+
 
     def deprecated_get_history(self) -> List[Dict]:
         """
@@ -2333,6 +2414,39 @@ write, send_mail, write
             List[Dict]: 完整的对话历史（包括初始历史 + 新增对话）
         """
         return self.messages
+
+    async def _log_event(self, event_type: str, event_name: str, event_detail: dict = None):
+        """异步写入 session 事件 + WebSocket 广播"""
+        if not self.session or not self.root_agent or not self.root_agent.post_office:
+            return
+        session_id = self.session.get("session_id")
+        if not session_id:
+            return
+
+        # DB 写入
+        detail_str = json.dumps(event_detail, ensure_ascii=False) if event_detail else None
+        await self.root_agent.post_office.email_db.insert_session_event(
+            owner=self.root_agent.name,
+            session_id=session_id,
+            event_type=event_type,
+            event_name=event_name,
+            event_detail=detail_str,
+        )
+
+        # WebSocket 广播
+        if self.root_agent._broadcast_message_callback:
+            message = {
+                "type": "SESSION_EVENT",
+                "agent_name": self.root_agent.name,
+                "session_id": session_id,
+                "data": {
+                    "event_type": event_type,
+                    "event_name": event_name,
+                    "event_detail": event_detail,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            }
+            asyncio.create_task(self.root_agent._broadcast_message_callback(message))
 
     def _get_log_context(self) -> dict:
         """提供日志上下文变量"""

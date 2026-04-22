@@ -132,7 +132,7 @@ class MemorySkillMixin:
         )
 
         post_office = self.root_agent.post_office
-        search_results = post_office.email_db.search_emails_by_keyword_groups(
+        search_results = await post_office.email_db.search_emails_by_keyword_groups(
             self.root_agent.name, keywords
         )
 
@@ -155,7 +155,7 @@ class MemorySkillMixin:
                 f"subject={session_info['first_subject'][:50]})"
             )
 
-            emails = post_office.get_emails_by_session(
+            emails = await post_office.get_emails_by_session(
                 session_id, self.root_agent.name
             )
 
