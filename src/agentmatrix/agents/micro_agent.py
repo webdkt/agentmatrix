@@ -298,9 +298,18 @@ class MicroAgent(AutoLoggerMixin):
                 json_action_pattern = r'"action"\s*:\s*"([a-zA-Z_.]*)"'
                 json_matches = re.findall(json_action_pattern, raw_reply)
 
-                # 检查 XML 格式的 action: <function>xxx</function>
-                xml_action_pattern = r'<function>\s*(\w+(?:\.\w+)*)\s*</function>'
+                # 检查 XML 格式的 action: <function*> 标签
+                # 匹配 <function>content</function>, <function_invoke name="xxx">, <function-call name="xxx"> 等各种变体
+                xml_action_pattern = r'<function[\w-]*\s*(?:name\s*=\s*["\']([^"\']+)["\'])?[^>]*>(?:\s*(\w+(?:\.\w+)*)\s*</[\w-]+>)?'
                 xml_matches = re.findall(xml_action_pattern, raw_reply)
+                # 展平结果：findall 返回 [(name_from_attr, content), ...]
+                xml_function_names = []
+                for match in xml_matches:
+                    name_from_attr, content = match
+                    if name_from_attr:
+                        xml_function_names.append(name_from_attr)
+                    elif content:
+                        xml_function_names.append(content)
 
                 # 检查函数调用 pattern
                 call_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\('
@@ -308,7 +317,7 @@ class MicroAgent(AutoLoggerMixin):
 
                 # 验证是否包含有效的 action（忽略大小写）
                 valid_actions = []
-                for name in (json_matches + xml_matches + call_matches):
+                for name in (json_matches + xml_function_names + call_matches):
                     if name.lower() in self.action_registry["_flat"]:
                         valid_actions.append(name)
 
@@ -1649,6 +1658,7 @@ Start generating the Working Notes now.
             return await self.brain.think_with_retry(
                 initial_messages=self.messages,
                 parser=self._parse_actions_from_thought,
+                action_registry=self.action_registry["_flat"],
                 max_retries=3,
             )
 
