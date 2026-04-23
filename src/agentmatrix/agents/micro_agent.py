@@ -1044,6 +1044,11 @@ Start generating the Working Notes now.
         else:
             self.messages = [{"role": "user", "content": new_user_content}]
 
+        # ========== 4. 保存到 session（确保压缩后的 messages 被持久化）==========
+        if self.session and self.session_manager:
+            self.session["history"] = self.messages  # 直接引用，不 copy
+            asyncio.create_task(self.session_manager.save_session(self.session))  # 异步保存
+
         # 重置计数器
         # self.last_compression_step = self.current_step
 
@@ -2024,10 +2029,53 @@ Start generating the Working Notes now.
             content = {"[ACTION]": actions_text, "[RAW_REPLY]": raw_reply}
             return {"status": "success", "content": content}
 
-        # 规则2：没有 [ACTION] section → 当作无 action 回复
-        # [ACTION] 标记是强制的，没有就表示没有 action 要执行
-        # 这样可以避免从错误消息、代码片段等文本中误提取 action 名字
-        content = {"[ACTION]": "", "[RAW_REPLY]": raw_reply}
+        # 规则2：没有 [ACTION] section → 检查是否是纯 JSON 或 XML 格式
+        # 尝试提取结构化内容当作 action
+
+        def clean_code_blocks(text: str) -> str:
+            """去掉代码块包裹标记（如 ```json, ```xml, ```）"""
+            text = text.strip()
+            # 匹配各种代码块格式
+            patterns = [
+                r'```json\s*\n(.*?)\n```',  # ```json ... ```
+                r'```xml\s*\n(.*?)\n```',    # ```xml ... ```
+                r'```\s*\n(.*?)\n```',        # ``` ... ```
+                r'```json\s+(.+?)\s*```',     # ```json ... ``` (单行)
+                r'```xml\s+(.+?)\s*```',      # ```xml ... ``` (单行)
+                r'```\s+(.+?)\s*```',         # ``` ... ``` (单行)
+            ]
+            for pattern in patterns:
+                match = re.match(pattern, text, re.DOTALL)
+                if match:
+                    return match.group(1).strip()
+            return text
+
+        # 清理代码块
+        cleaned = clean_code_blocks(raw_reply)
+
+        # 检测是否是 JSON
+        is_json = False
+        try:
+            json.loads(cleaned)
+            is_json = True
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # 检测是否是 XML（简单判断：有标签结构）
+        is_xml = False
+        if not is_json:
+            # 匹配 <tag>...</tag> 或 <tag/> 格式
+            if re.match(r'^\s*<[^>]+>.*</[^>]+>\s*$', cleaned, re.DOTALL) or \
+               re.match(r'^\s*<[^>]+/>\s*$', cleaned):
+                is_xml = True
+
+        # 如果是 JSON 或 XML，当作 action 内容返回
+        if is_json or is_xml:
+            content = {"[ACTION]": cleaned, "[RAW_REPLY]": raw_reply}
+        else:
+            # 不是结构化内容，当作无 action 回复
+            content = {"[ACTION]": "", "[RAW_REPLY]": raw_reply}
+
         return {"status": "success", "content": content}
 
     def _extract_mentioned_actions(self, thought: str) -> List[str]:

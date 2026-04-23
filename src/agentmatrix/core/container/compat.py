@@ -4,7 +4,7 @@ Container Runtime Compatibility Utilities - 容器运行时兼容性工具
 处理 Docker 和 Podman 之间的 API 差异。
 """
 
-from typing import Tuple, Any, Optional
+from typing import Any
 
 
 class ContainerCompat:
@@ -45,43 +45,6 @@ class ContainerCompat:
             if hasattr(container, 'id'):
                 return str(container.id)[:12]
             raise ValueError(f"无法获取容器短ID: {type(container)}")
-
-    @staticmethod
-    def parse_exec_output(
-        output: Any,
-        demux: bool = False
-    ) -> Tuple[int, str, str]:
-        """
-        解析命令执行输出（兼容不同格式）
-
-        差异处理：
-        - demux=True: 返回 (exit_code, (stdout, stderr))
-        - demux=False: 返回 (exit_code, combined_output)
-
-        Args:
-            output: exec_run 的返回值
-            demux: 是否使用 demux 模式
-
-        Returns:
-            Tuple[int, str, str]: (退出码, stdout, stderr)
-
-        Examples:
-            >>> exit_code, stdout, stderr = ContainerCompat.parse_exec_output(
-            ...     output, demux=True
-            ... )
-        """
-        if demux:
-            # demux=True 时返回 (exit_code, (stdout_data, stderr_data))
-            exit_code, (stdout_data, stderr_data) = output
-            stdout = stdout_data.decode('utf-8', errors='ignore') if stdout_data else ""
-            stderr = stderr_data.decode('utf-8', errors='ignore') if stderr_data else ""
-        else:
-            # demux=False 时返回 (exit_code, combined_output)
-            exit_code, combined_output = output
-            stdout = combined_output.decode('utf-8', errors='ignore') if combined_output else ""
-            stderr = ""
-
-        return exit_code, stdout, stderr
 
     @staticmethod
     def get_container_status(container: Any) -> str:
@@ -142,33 +105,6 @@ class ContainerCompat:
                     'mode': 'rw'
                 }
         return normalized
-
-    @staticmethod
-    def format_exec_command(cmd: str, workdir: str = None) -> list:
-        """
-        格式化执行命令（兼容不同运行时）
-
-        Args:
-            cmd: 要执行的命令字符串
-            workdir: 工作目录（可选）
-
-        Returns:
-            list: 格式化后的命令列表
-
-        Examples:
-            >>> cmd_list = ContainerCompat.format_exec_command(
-            ...     "ls -la", workdir="/work"
-            ... )
-            >>> print(cmd_list)
-            ['sh', '-c', 'cd /work && ls -la']
-        """
-        if workdir:
-            # 在命令内部 cd，避免符号链接问题
-            full_cmd = f"cd {workdir} && {cmd}"
-        else:
-            full_cmd = cmd
-
-        return ["sh", "-c", full_cmd]
 
     @staticmethod
     def detect_runtime_type(client: Any) -> str:

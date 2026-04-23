@@ -20,7 +20,7 @@ class ContainerSession:
     """
     持久的容器内 Shell 会话
 
-    通过维护一个常驻的 `sh` 进程，实现：
+    通过 `podman exec -i --user <user>` 维护一个常驻的 bash 进程，实现：
     - 工作目录保持（cd 命令生效后持续）
     - 环境变量保持（export 生效后持续）
     - 类似终端的交互体验
@@ -109,7 +109,7 @@ class ContainerSession:
         """
         启动持久 shell 会话
 
-        执行: podman exec -i container_name sh
+        执行: podman exec -i --user username container_name bash
         """
         if self.is_active:
             self.logger.warning(f"Session {self.session_id} 已经在运行")
@@ -124,11 +124,9 @@ class ContainerSession:
             runtime_cmd,
             "exec",
             "-i",
+            "--user", self.username,
             self.container_name,
-            "su",
-            "-s",
-            "/bin/bash",
-            self.username,
+            "bash",
         ]
 
         self.logger.info(f"启动持久会话: {' '.join(cmd)}")
@@ -186,6 +184,22 @@ class ContainerSession:
 
         self.logger.info(f"会话 {self.session_id} 已停止")
 
+    def health_check(self, timeout: float = 5) -> bool:
+        """检查 shell 是否能响应命令"""
+        if not self.is_active or not self.is_alive():
+            return False
+        try:
+            exit_code, stdout, _ = self.execute("echo __HEALTH_OK__", timeout=timeout)
+            return exit_code == 0 and "__HEALTH_OK__" in stdout
+        except Exception:
+            return False
+
+    def ensure_responsive(self):
+        """确保 shell 可响应，不可响应则重启"""
+        if not self.health_check():
+            self.logger.warning(f"Shell 无响应，重启: {self.session_id}")
+            self.restart()
+
     def execute(self, command: str, timeout: float = 3600) -> Tuple[int, str, str]:
         """
         执行命令并等待结果
@@ -214,7 +228,7 @@ class ContainerSession:
             f"echo '{self._start_marker}'\n{command}\necho '{self._end_marker}:'$?\n"
         )
 
-        self.logger.debug(f"[session {self.session_id}] 执行: {command[:100]}")
+        self.logger.info(f"[session {self.session_id}] 执行:\n{command}")
 
         # Mirror 输入到 output callback（Collab Mode 使用）
         if self._output_callback:
@@ -231,7 +245,8 @@ class ContainerSession:
 
         while True:
             if time.time() - start_time > timeout:
-                self.logger.warning(f"命令超时 ({timeout}s): {command[:50]}")
+                self.logger.warning(f"命令超时 ({timeout}s): {command[:50]}，重启 shell 清除状态")
+                self.restart()
                 return -1, "\n".join(stdout_lines), "\n".join(stderr_lines) + "\n[超时]"
 
             try:
