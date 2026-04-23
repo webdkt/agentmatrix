@@ -98,6 +98,17 @@ class Cerebellum(AutoLoggerMixin):
             Output ONLY valid JSON.
         """)
 
+        # bash 命令特殊处理：heredoc 内容需要真正的换行
+        if action_name == "bash":
+            system_prompt += textwrap.dedent("""
+                [Special Instructions for bash command]:
+                - If the command contains multi-line content (e.g. heredoc with << 'EOF'),
+                  the command parameter MUST contain real newlines, not escaped \\n.
+                - Correct JSON: {"command": "cat > file << 'EOF'\\nhello\\nworld\\nEOF"}
+                - Wrong JSON:   {"command": "cat > file << 'EOF'\\\\nhello\\\\nworld\\\\nEOF"}
+                - The heredoc delimiter (e.g. EOF, ENDOFFILE) MUST be on its own line.
+            """)
+
         negotiation_history = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"[Intent]\n{intent}"}

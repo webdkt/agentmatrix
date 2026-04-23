@@ -337,25 +337,28 @@ class FileSkillMixin:
         description="""执行 bash 命令或脚本（在容器内执行）""",
         param_infos={
             "command": "bash 命令或脚本（多行脚本用 \\n 分隔）",
-            "timeout": "超时时间（秒，默认30）",
+            "timeout": "超时时间（秒，默认3600）",
         },
     )
-    async def bash(self, command: str, timeout: int = 30) -> str:
+    async def bash(self, command: str, timeout: int = 3600) -> str:
         """
         执行 bash 命令或脚本（容器内执行）
 
         Args:
             command: bash 命令或脚本
-            timeout: 超时时间（秒，默认30）
+            timeout: 超时时间（秒，默认3600）
 
         Returns:
             执行结果
         """
         container_session = self.root_agent.container_session
 
+        # 执行前检查 shell 是否可响应，不可响应则自动重启
+        await asyncio.to_thread(container_session.ensure_responsive)
+
         # 直接在容器内执行命令（无白名单限制）
         exit_code, stdout, stderr = await asyncio.to_thread(
-            container_session.execute, command
+            container_session.execute, command, timeout
         )
 
         self.logger.info(f"[bash] 命令: {command}")
