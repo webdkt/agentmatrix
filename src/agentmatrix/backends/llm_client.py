@@ -95,9 +95,14 @@ class LLMClient(AutoLoggerMixin):
                 self.logger.debug(f"  [{i}] {msg.get('role')}: {msg.get('content')[:200]}{'...' if len(msg.get('content', '')) > 200 else ''}")
         
         for attempt in range(max_retries):
-            
+
             response = await self.think(messages=messages)
             raw_reply = response['reply']
+
+            # 检查空回复（包括纯空白字符）
+            if not raw_reply or not raw_reply.strip():
+                from ..core.exceptions import LLMServiceUnavailableError
+                raise LLMServiceUnavailableError("LLM returned empty response")
 
             if debug:
                 self.logger.debug(f"\nLLM Response (raw_reply):")
