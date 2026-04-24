@@ -329,16 +329,25 @@ class MicroAgent(AutoLoggerMixin):
 
         # 找到不在 registry 中的函数名
         invalid_names = []
+        valid_names = []
         for name in matches:
             name_lower = name.lower()
             if name_lower not in self.action_registry["_flat"]:
                 invalid_names.append(name)
+            else:
+                valid_names.append(name)
 
         if not invalid_names:
             # 所有提到的函数名都在 registry 中，不是幻觉问题
             return None
 
-        return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明，请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
+        # 构建更具体的提示，包含无效名称和可用的 action 列表
+        invalid_list = ", ".join(invalid_names)
+        hint = f"没有发现要执行的action。你在 [ACTION] 中使用了未注册的名称：{invalid_list}。"
+        if valid_names:
+            hint += f"其中 {', '.join(valid_names)} 是有效的。"
+        hint += "请检查action名称是否正确（可用的action名称请参考系统提示中的action列表）。确认没什么要执行的可以回复'确定'。"
+        return hint
 
     def _build_exit_verification_prompt(self, raw_reply: str) -> str:
         return f"""判断以下文本的意思是否表明说话的人认为"目前没什么可做或者暂时不需要做什么，或者应该等待"。
@@ -1834,6 +1843,19 @@ Start generating the Working Notes now.
 
                 # 声明式退出：没有新 action 要执行，且没有 running action 在跑
                 if not action_names and not self._running_actions:
+                    # 🔍 优先检查是否有疑似幻觉的 action 名称（在通用验证之前）
+                    if not self._no_action_reflected:
+                        reflect_msg = self._build_no_action_reflect_message(action_section_text, raw_reply or "")
+                        if reflect_msg:
+                            # 有疑似幻觉 → 给 LLM 一次 reflect 机会（比通用验证更精准）
+                            self.logger.info("No action detected but hallucination pattern found, sending reflect prompt")
+                            self._no_action_reflected = True
+                            self.signal_queue.put_nowait(Signal(
+                                type="no_action_reflect",
+                                payload={"message": reflect_msg},
+                            ))
+                            continue
+
                     # 🆕 仅对 top-level micro agent 进行智能验证
                     if self._is_top_level_microagent():
                         # 第一次检测到无 action：进行智能验证
@@ -1857,7 +1879,7 @@ Start generating the Working Notes now.
                                 self.logger.info("LLM determined task should continue")
                                 # 构建继续提示消息
                                 continue_message = """继续,给出你要执行的ACTION"""
-                                
+
                                 # 注入继续信号
                                 self.signal_queue.put_nowait(Signal(
                                     type="action_continue",
@@ -1872,21 +1894,8 @@ Start generating the Working Notes now.
                         except Exception as e:
                             # 验证失败（解析错误、LLM 错误等）→ 降级到原有逻辑
                             self.logger.warning(f"Verification failed: {str(e)}, falling back to legacy logic")
-                            # 继续执行原有的 no_action_reflect 逻辑
+                            # 继续执行原有的退出逻辑
                             pass
-
-                    # 原有的 no_action_reflect 逻辑（作为降级方案或非 top-level agent）
-                    if not self._no_action_reflected:
-                        reflect_msg = self._build_no_action_reflect_message(action_section_text, raw_reply or "")
-                        if reflect_msg:
-                            # 有疑似幻觉 → 给 LLM 一次 reflect 机会
-                            self.logger.info("No action detected but hallucination pattern found, sending reflect prompt")
-                            self._no_action_reflected = True
-                            self.signal_queue.put_nowait(Signal(
-                                type="no_action_reflect",
-                                payload={"message": reflect_msg},
-                            ))
-                            continue
 
                     # 没有疑似幻觉，或者已经 reflect/验证过 → 真正退出
                     self.logger.info("Loop exit: no actions detected, no running actions")
