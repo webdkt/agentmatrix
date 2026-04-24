@@ -48,11 +48,19 @@ async function handleEmailToastClick(emailData) {
   uiStore.emailToast.show = false
 }
 
+let messageHandlerCleanup = null
+
 async function initializeWebSocket() {
   // Backend is guaranteed running at this point (initializeBackend blocks until ready)
   connect()
 
-  onMessage((data) => {
+  // 清理旧的 handler（如果有）
+  if (messageHandlerCleanup) {
+    messageHandlerCleanup()
+  }
+
+  // 注册新的 handler 并保存清理函数
+  messageHandlerCleanup = onMessage((data) => {
     websocketStore.handle_message(data)
   })
 }

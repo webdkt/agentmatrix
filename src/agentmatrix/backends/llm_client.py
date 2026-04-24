@@ -104,6 +104,20 @@ class LLMClient(AutoLoggerMixin):
                 from ..core.exceptions import LLMServiceUnavailableError
                 raise LLMServiceUnavailableError("LLM returned empty response")
 
+            # 🔥 检测 LLM 幻觉：开头是 [{xxx ...Done] 或 [{xxx ...DONE] 结构
+            # 例如：[write xxxxx Done] 后面还有其他文字...
+            import re
+            hallucination_pattern = r'^\[.*?(?:Done|DONE)\]'
+            if re.search(hallucination_pattern, raw_reply.strip()):
+                self.logger.warning(
+                    f"⚠️ LLM hallucination detected: output starts with action completion pattern. "
+                    f"Preview: {raw_reply[:100]}..."
+                )
+                from ..core.exceptions import LLMServiceUnavailableError
+                raise LLMServiceUnavailableError(
+                    f"LLM hallucination detected: output starts with '[xxx Done]'/'[xxx DONE]' pattern"
+                )
+
             if debug:
                 self.logger.debug(f"\nLLM Response (raw_reply):")
                 self.logger.debug(f"  {raw_reply[:500]}...")
