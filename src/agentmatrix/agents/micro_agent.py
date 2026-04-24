@@ -1654,6 +1654,7 @@ Start generating the Working Notes now.
             return await self.brain.think_with_retry(
                 initial_messages=self.messages,
                 parser=self._parse_actions_from_thought,
+                action_registry=self.action_registry["_flat"],
                 max_retries=3,
             )
 
@@ -2266,6 +2267,13 @@ write, send_mail, write
                 result = await self._execute_action(
                     action_name, thought, idx, action_names
                 )
+
+                # 🆕 检查是否为 NOT_TO_RUN（Cerebellum 判断不执行此 action）
+                if result == "NOT_TO_RUN":
+                    # 只在日志中记录，不加入 results，也不显示在信号中
+                    self.logger.info(f"Action '{action_name}' 判断为不执行，跳过")
+                    continue  # 跳过此 action，不加入 results
+
                 # 从 entry 读 label（_execute_action 内已回写）
                 action_label = ""
                 current_task = asyncio.current_task()
