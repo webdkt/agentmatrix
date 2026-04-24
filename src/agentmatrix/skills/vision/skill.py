@@ -23,7 +23,7 @@ class VisionSkillMixin:
     _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10,485,760 bytes
 
     @register_action(
-        short_desc="查看图片[file_path, instruction?]",
+        short_desc="[file_path, instruction_or_question?]，用视觉大模型分析图片内容返回文本描述,文件大小限制10MB",
         description="查看并分析图片文件内容。支持常见图片格式（PNG, JPEG, GIF, WebP, BMP）。文件大小限制 10MB。",
         param_infos={
             "file_path": "图片文件路径（容器内绝对路径或相对路径）",

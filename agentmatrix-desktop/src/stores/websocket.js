@@ -69,13 +69,23 @@ export const useWebSocketStore = defineStore('websocket', {
       const sessionStore = useSessionStore()
 
       // 反查 user_session_id
-      const userSessionId = sessionStore.agentSessionLookup(agent_name, agentSessionId)
+      let userSessionId = sessionStore.agentSessionLookup(agent_name, agentSessionId)
 
       if (!userSessionId) {
-        // 找不到对应 user_session — 新 session 尚未建立映射
-        // 等 user_sessions 更新后自然能匹配上
-        console.log(`📬 SESSION_EVENT: no user_session for ${agent_name}:${agentSessionId}`)
-        return
+        // 🔥 防御性逻辑：映射表中找不到，尝试在 sessions 数组中直接查找
+        // 可能原因：NEW_USER_SESSION 和 SESSION_EVENT 存在竞态条件
+        const fallbackSession = sessionStore.sessions.find(s =>
+          s.agent_name === agent_name && s.agent_session_id === agentSessionId
+        )
+        if (fallbackSession) {
+          userSessionId = fallbackSession.session_id
+          // 补充映射表，避免下次还要查找
+          sessionStore.addAgentSessionMapping(fallbackSession)
+          console.log(`📬 SESSION_EVENT: fallback found ${agent_name}:${agentSessionId} → ${userSessionId}`)
+        } else {
+          console.log(`📬 SESSION_EVENT: no user_session for ${agent_name}:${agentSessionId}`)
+          return
+        }
       }
 
       const isCurrentSession = userSessionId === sessionStore.currentSession?.session_id
@@ -254,6 +264,9 @@ export const useWebSocketStore = defineStore('websocket', {
       const exists = sessionStore.sessions.some(s => s.session_id === sessionData.session_id)
       if (!exists) {
         sessionStore.sessions.unshift(sessionData)
+        // 🔥 增量更新映射表（避免全量重建的性能问题）
+        sessionStore.addAgentSessionMapping(sessionData)
+        console.log('📍 NEW_USER_SESSION: added mapping', sessionData.agent_name, sessionData.agent_session_id, '→', sessionData.session_id)
       }
     },
 

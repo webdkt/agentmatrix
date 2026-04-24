@@ -382,7 +382,7 @@ export const useSessionStore = defineStore('session', {
     },
 
     /**
-     * 构建 agent_name + agent_session_id → user_session_id 的映射表
+     * 构建 agent_name + agent_session_id → user_session_id 的映射表（全量重建）
      */
     buildAgentSessionMap() {
       const map = {}
@@ -394,6 +394,19 @@ export const useSessionStore = defineStore('session', {
         }
       }
       this.agentToUserSessionMap = map
+    },
+
+    /**
+     * 增量添加单个 session 映射（用于 NEW_USER_SESSION 等场景）
+     * @param {object} session - session 对象
+     */
+    addAgentSessionMapping(session) {
+      const agentName = session.agent_name || session.name
+      const agentSessionId = session.agent_session_id
+      if (agentName && agentSessionId) {
+        const key = `${agentName}:${agentSessionId}`
+        this.agentToUserSessionMap[key] = session.session_id
+      }
     },
 
     /**

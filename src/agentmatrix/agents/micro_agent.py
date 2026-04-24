@@ -340,6 +340,20 @@ class MicroAgent(AutoLoggerMixin):
 
         return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明，请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
 
+    def _build_exit_verification_prompt(self, raw_reply: str) -> str:
+        return f"""判断以下文本的意思是否表明说话的人认为"目前没什么可做或者暂时不需要做什么，或者应该等待"。
+
+文本：
+```
+{raw_reply}
+```
+
+你需要作出的回答：
+- YES: 表示"目前没什么可做的"、"暂时不需要做什么"、"已完成"、"需要等待"这样的意思
+- NO: 表示不是上述意思
+
+只回答 YES 或 NO。"""
+
     def _signal_text(self, signal, compress=False) -> str:
         """单个 signal 的纯文本生成（无副作用）"""
         if signal.type == "email":
@@ -357,6 +371,8 @@ class MicroAgent(AutoLoggerMixin):
                 signal.payload.get("results", []), compress=compress
             )
         elif signal.type == "no_action_reflect":
+            return signal.payload["message"]
+        elif signal.type == "action_continue":  # 🆕 新增：验证后继续执行
             return signal.payload["message"]
         return ""
 
@@ -393,12 +409,6 @@ class MicroAgent(AutoLoggerMixin):
             if sig.type == "email":
                 self._pending_processed_ids.extend(sig.payload.get("email_ids", []))
 
-    def compress_signals(self, signals):
-        """Post-think: 生成压缩文本，替换 messages[-1]"""
-        if not signals or not self.messages:
-            return
-        text = self._signals_text(signals, compress=True)
-        self.messages[-1]["content"] = text
 
     def _on_batch_done(self, action_id, task):
         """batch task 完成后的回调 - 发送原始 results 数组"""
@@ -1038,7 +1048,8 @@ Start generating the Working Notes now.
         # ========== 4. 保存到 session（确保压缩后的 messages 被持久化）==========
         if self.session and self.session_manager:
             self.session["history"] = self.messages  # 直接引用，不 copy
-            asyncio.create_task(self.session_manager.save_session(self.session))  # 异步保存
+            # 🔥 修复：使用 await 确保保存完成，避免异步任务未完成就退出导致 working notes 丢失
+            await self.session_manager.save_session(self.session)
 
         # 重置计数器
         # self.last_compression_step = self.current_step
@@ -1340,6 +1351,15 @@ Start generating the Working Notes now.
 
         finally:
             await self._cleanup_skills()
+
+            # 🔥 确保 session 最终状态被持久化（等待所有后台保存任务完成）
+            if self.session and self.session_manager:
+                # 保存最新的 session 状态
+                self.session["history"] = self.messages
+                await self.session_manager.save_session(self.session)
+
+                # 等待一小段时间，让其他可能的异步保存任务完成
+                await asyncio.sleep(0.1)
 
     def _initialize_session(self):
         """初始化对话历史"""
@@ -1687,7 +1707,7 @@ Start generating the Working Notes now.
             elapsed_minutes = elapsed / 60
             step_info += f" (时间: {elapsed_minutes:.1f}分钟)"
             self.logger.debug(step_info)
-
+            self._no_action_reflected = False  # 重置本轮是否有 action 被反映的标记
             # 🔀 检查点2：think 之前检查是否暂停
             await self.root_agent._checkpoint()
 
@@ -1743,11 +1763,6 @@ Start generating the Working Notes now.
                         "thought": think_event
                     })
                 
-                
-
-                # 压缩本轮 signal 文本，节省上下文窗口
-                if signals:
-                    self.compress_signals(signals)
 
                 # 2. 检测 actions（多个，保持顺序）
                 action_names = await self._detect_actions(action_section_text)
@@ -1819,7 +1834,48 @@ Start generating the Working Notes now.
 
                 # 声明式退出：没有新 action 要执行，且没有 running action 在跑
                 if not action_names and not self._running_actions:
-                    # 检查 [ACTION] 文本中是否有疑似幻觉的函数调用 pattern
+                    # 🆕 仅对 top-level micro agent 进行智能验证
+                    if self._is_top_level_microagent():
+                        # 第一次检测到无 action：进行智能验证
+                        self.logger.info("No actions detected - initiating simple verification for top-level micro agent")
+
+                        # 构建简化的验证提示
+                        verification_prompt = self._build_exit_verification_prompt(raw_reply or "")
+
+                        # 独立的 LLM 调用，只传入验证提示（不携带 run_loop 上下文）
+                        try:
+                            verification_result = await self.brain.think_with_retry(
+                                initial_messages=[{"role": "user", "content": verification_prompt}],
+                                parser=self._parse_simple_yes_no,
+                                max_retries=3,  # 简单分类任务，最多重试 3 次
+                            )
+
+                            should_exit = verification_result.get("should_exit", False)
+                            self.logger.info(f"Verification result: should_exit={should_exit}")
+                            if not should_exit:
+                                # LLM 判断应该继续 → 注入继续信号
+                                self.logger.info("LLM determined task should continue")
+                                # 构建继续提示消息
+                                continue_message = """继续,给出你要执行的ACTION"""
+                                
+                                # 注入继续信号
+                                self.signal_queue.put_nowait(Signal(
+                                    type="action_continue",
+                                    payload={"message": continue_message},
+                                ))
+                                continue  # 回到循环顶部，重新进入 think
+                            else:
+                                # LLM 确认应该退出
+                                self.logger.info("LLM confirmed should exit")
+                                break
+
+                        except Exception as e:
+                            # 验证失败（解析错误、LLM 错误等）→ 降级到原有逻辑
+                            self.logger.warning(f"Verification failed: {str(e)}, falling back to legacy logic")
+                            # 继续执行原有的 no_action_reflect 逻辑
+                            pass
+
+                    # 原有的 no_action_reflect 逻辑（作为降级方案或非 top-level agent）
                     if not self._no_action_reflected:
                         reflect_msg = self._build_no_action_reflect_message(action_section_text, raw_reply or "")
                         if reflect_msg:
@@ -1831,7 +1887,8 @@ Start generating the Working Notes now.
                                 payload={"message": reflect_msg},
                             ))
                             continue
-                    # 没有疑似幻觉，或者已经 reflect 过 → 真正退出
+
+                    # 没有疑似幻觉，或者已经 reflect/验证过 → 真正退出
                     self.logger.info("Loop exit: no actions detected, no running actions")
                     break
 
@@ -2068,6 +2125,38 @@ Start generating the Working Notes now.
             content = {"[ACTION]": "", "[RAW_REPLY]": raw_reply}
 
         return {"status": "success", "content": content}
+
+    def _parse_simple_yes_no(self, raw_reply: str) -> dict:
+        """
+        解析简单的 YES/NO 响应
+
+        Parser Contract for think_with_retry:
+        - Returns {"status": "success", "content": dict} on success
+        - Returns {"status": "error", "feedback": str} on error
+
+        Args:
+            raw_reply: LLM 的原始输出
+
+        Returns:
+            dict: 解析结果，{"should_exit": bool}
+        """
+        cleaned = raw_reply.strip().upper()
+
+        if "YES" in cleaned and "NO" not in cleaned:
+            return {
+                "status": "success",
+                "content": {"should_exit": True}
+            }
+        elif "NO" in cleaned and "YES" not in cleaned:
+            return {
+                "status": "success",
+                "content": {"should_exit": False}
+            }
+        else:
+            return {
+                "status": "error",
+                "feedback": "请只回答 YES 或 NO"
+            }
 
     def _extract_mentioned_actions(self, thought: str) -> List[str]:
         """
