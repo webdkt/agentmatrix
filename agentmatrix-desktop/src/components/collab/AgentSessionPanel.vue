@@ -738,7 +738,7 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__messages {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 36px;
+  padding: 32px 36px 44px 36px;
   display: flex;
   flex-direction: column;
   gap: 24px;

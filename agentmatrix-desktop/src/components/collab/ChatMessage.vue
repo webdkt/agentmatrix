@@ -180,11 +180,9 @@ const handleAttachmentClick = async (attachment) => {
     </div>
   </div>
 
-  <!-- Thought (agent's inner monologue, bubble style) -->
+  <!-- Thought (agent's inner monologue, natural display) -->
   <div v-else-if="message.type === 'thought'" class="chat-msg chat-msg--thought-row">
-    <div class="chat-msg__bubble chat-msg__bubble--thought">
-      <div class="chat-msg__body chat-msg__body--thought">{{ renderedBody }}</div>
-    </div>
+    <div class="chat-msg__body chat-msg__body--thought markdown-content" v-html="renderedBody"></div>
   </div>
 
   <!-- Agent-to-agent communication (subtle, centered) -->
@@ -197,7 +195,7 @@ const handleAttachmentClick = async (attachment) => {
 
   <!-- Status pill (action events) -->
   <div v-else-if="message.type === 'pill'" class="chat-pill">
-    <div class="chat-pill__capsule">
+    <div class="chat-pill__capsule" :class="`chat-pill__capsule--${message.data.eventName}`">
       <span class="chat-pill__text">{{ pillText }}</span>
     </div>
   </div>
@@ -248,8 +246,37 @@ const handleAttachmentClick = async (attachment) => {
 .chat-msg:not(.chat-msg--user) .chat-msg__bubble {
   background: var(--surface-base);
   color: var(--text-primary);
-  border: 1px solid var(--border);
+  border: 2px solid var(--text-quaternary);
   border-radius: 8px 8px 8px 4px;
+  position: relative;
+  margin-bottom: 12px;
+  overflow: visible;
+}
+
+.chat-msg:not(.chat-msg--user) .chat-msg__bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 10px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 10px solid var(--surface-base);
+  z-index: 1;
+}
+
+.chat-msg:not(.chat-msg--user) .chat-msg__bubble::before {
+  content: '';
+  position: absolute;
+  bottom: -13px;
+  left: 7px;
+  width: 0;
+  height: 0;
+  border-left: 13px solid transparent;
+  border-right: 13px solid transparent;
+  border-top: 13px solid var(--text-quaternary);
+  z-index: 0;
 }
 
 /* User bubble: light gray */
@@ -293,23 +320,25 @@ const handleAttachmentClick = async (attachment) => {
 
 /* ===== Action pill (colored dot, no background) ===== */
 .chat-pill {
-  display: flex;
+  display: inline-flex;
   justify-content: flex-start;
-  padding: 3px 0;
+  padding: 0;
   animation: fadeIn 250ms var(--ease-out);
+  margin: -12px 12px -12px 0;
+  vertical-align: top;
 }
 
 .chat-pill__capsule {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   padding: 0;
   background: transparent;
   border: none;
   border-radius: 0;
   font-size: 12px;
   color: var(--text-secondary);
-  max-width: 80%;
+  max-width: 100%;
 }
 
 .chat-pill__capsule::before {
@@ -321,28 +350,35 @@ const handleAttachmentClick = async (attachment) => {
   flex-shrink: 0;
 }
 
+.chat-pill__capsule--started::before {
+  background: var(--info);
+}
+
+.chat-pill__capsule--completed::before {
+  background: var(--success);
+}
+
+.chat-pill__capsule--error::before {
+  background: var(--error);
+}
+
 .chat-pill__text {
   color: var(--text-secondary);
 }
 
-/* ===== Thought (inner monologue, rose-tinted card) ===== */
-.chat-msg__bubble--thought {
-  background: var(--accent-soft);
-  border: none;
-  border-left: 2px solid var(--accent);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
-  margin-top: 10px;
-  opacity: 1;
+/* ===== Thought (inner monologue, natural display) ===== */
+.chat-msg--thought-row {
+  align-self: flex-start;
+  max-width: 68%;
 }
 
 .chat-msg__body--thought {
-  font-style: italic;
-  color: var(--text-secondary);
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: 14px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  font-style: normal;
 }
 
 /* ===== System event ===== */
