@@ -30,8 +30,8 @@ const handleClose = (notificationId) => {
 <style scoped>
 .toast-container {
   position: fixed;
-  top: var(--spacing-lg);
-  right: var(--spacing-lg);
+  top: var(--spacing-6);
+  right: var(--spacing-6);
   z-index: var(--z-popover);
   display: flex;
   flex-direction: column;

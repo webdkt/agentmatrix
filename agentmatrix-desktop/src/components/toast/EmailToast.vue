@@ -86,13 +86,13 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 12px;
   padding: 12px 16px;
-  background: var(--parchment-100, #faf8f5);
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   cursor: pointer;
   max-width: 300px;
   transition: all 0.2s ease;
-  border: 1px solid var(--parchment-300, #e5e0d8);
+  border: 1px solid var(--border);
 }
 
 .email-toast:hover {
@@ -107,9 +107,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-100, #f5efe9);
-  border-radius: 8px;
-  color: var(--accent-500, #6b4c3b);
+  background: var(--accent-muted);
+  border-radius: var(--radius-md);
+  color: var(--accent);
   font-size: 18px;
 }
 
@@ -121,15 +121,13 @@ onUnmounted(() => {
 .email-toast__title {
   font-size: 12px;
   font-weight: 500;
-  color: var(--accent-500, #6b4c3b);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--accent);
 }
 
 .email-toast__sender {
   font-size: 13px;
   font-weight: 600;
-  color: var(--neutral-800, #2d2d2d);
+  color: var(--text-primary);
   margin-top: 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -138,7 +136,7 @@ onUnmounted(() => {
 
 .email-toast__subject {
   font-size: 12px;
-  color: var(--neutral-500, #6b6b6b);
+  color: var(--text-tertiary);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -151,18 +149,18 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   padding: 4px;
-  color: var(--neutral-400, #9b9b9b);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s;
   font-size: 14px;
 }
 
 .email-toast__close:hover {
-  background: var(--parchment-200, #e8e4de);
-  color: var(--neutral-600, #5d5d5d);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .toast-enter-active {

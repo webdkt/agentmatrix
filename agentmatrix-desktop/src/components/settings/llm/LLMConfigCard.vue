@@ -34,7 +34,7 @@ const handleDelete = () => {
 }
 
 const configIcon = computed(() => {
-  return props.isRequired ? 'ti-shield-check' : 'ti-cpu'
+  return props.isRequired ? 'shield-check' : 'cpu'
 })
 
 const configIconClass = computed(() => {
@@ -47,7 +47,7 @@ const configIconClass = computed(() => {
     <!-- Card Header -->
     <div class="card-header">
       <div :class="['card-icon', configIconClass]">
-        <MIcon :name="configIcon.replace('ti-', '')" />
+        <MIcon :name="configIcon" />
       </div>
       <div v-if="isRequired" class="required-badge">
         <MIcon name="shield" />
@@ -115,23 +115,23 @@ export default {
 
 <style scoped>
 .llm-config-card {
-  background: var(--parchment-100);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-lg);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-6);
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .llm-config-card:hover {
-  border-color: var(--neutral-300);
+  border-color: var(--border-strong);
 }
 
 .llm-config-card.card-required {
-  border-color: var(--neutral-200);
-  background: var(--parchment-100);
+  border-color: var(--border);
+  background: var(--surface-secondary);
 }
 
 .card-header {
@@ -144,7 +144,7 @@ export default {
 .card-icon {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -158,7 +158,7 @@ export default {
 }
 
 .icon-custom {
-  background: var(--ink-300);
+  background: var(--text-quaternary);
   color: white;
 }
 
@@ -169,12 +169,9 @@ export default {
   padding: var(--spacing-1) var(--spacing-3);
   background: transparent;
   color: var(--accent);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: var(--font-semibold);
-  font-variant: small-caps;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
   flex-shrink: 0;
 }
 
@@ -192,7 +189,7 @@ export default {
 .config-name {
   font-size: var(--font-base);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -201,7 +198,7 @@ export default {
 
 .config-description {
   font-size: var(--font-sm);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   margin: 0;
   line-height: var(--leading-relaxed);
 }
@@ -211,7 +208,7 @@ export default {
   flex-direction: column;
   gap: var(--spacing-2);
   padding-top: var(--spacing-2);
-  border-top: 1px solid var(--neutral-100);
+  border-top: 1px solid var(--surface-hover);
 }
 
 .detail-item {
@@ -223,18 +220,18 @@ export default {
 
 .detail-item i {
   font-size: var(--icon-md);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
 .detail-label {
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   font-weight: var(--font-medium);
   flex-shrink: 0;
 }
 
 .detail-value {
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   font-weight: var(--font-medium);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -246,7 +243,7 @@ export default {
   display: flex;
   gap: var(--spacing-2);
   padding-top: var(--spacing-3);
-  border-top: 1px solid var(--neutral-100);
+  border-top: 1px solid var(--surface-hover);
 }
 
 .btn-action {
@@ -255,8 +252,8 @@ export default {
   justify-content: center;
   gap: var(--spacing-2);
   padding: var(--spacing-3);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -266,19 +263,19 @@ export default {
 
 .btn-edit {
   flex: 1;
-  color: var(--neutral-700);
+  color: var(--text-secondary);
 }
 
 .btn-edit:hover {
-  background: var(--neutral-50);
-  border-color: var(--neutral-400);
+  background: var(--surface-base);
+  border-color: var(--text-tertiary);
   color: var(--accent);
 }
 
 .btn-delete {
   padding: var(--spacing-3);
-  color: var(--neutral-400);
-  border-color: var(--neutral-200);
+  color: var(--text-tertiary);
+  border-color: var(--border);
 }
 
 .btn-delete:hover {

@@ -177,8 +177,8 @@ function handleViewLog() {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--parchment-50);
-  border-left: 1px solid var(--neutral-200);
+  background: var(--surface-base);
+  border-left: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -186,8 +186,8 @@ function handleViewLog() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--spacing-md) var(--spacing-md);
-  border-bottom: 1px solid var(--neutral-200);
+  padding: var(--spacing-4) var(--spacing-4);
+  border-bottom: 1px solid var(--border);
   background: white;
   flex-shrink: 0;
 }
@@ -195,29 +195,27 @@ function handleViewLog() {
 .agent-status-panel__title {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .agent-status-panel__name {
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-  color: var(--ink-700);
+  color: var(--text-secondary);
 }
 
 .agent-status-panel__status {
   font-size: var(--font-xs);
-  color: var(--ink-400);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
 }
 
 .agent-status-panel__close {
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   font-size: var(--icon-sm);
   cursor: pointer;
   display: flex;
@@ -227,14 +225,14 @@ function handleViewLog() {
 }
 
 .agent-status-panel__close:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .agent-status-panel__body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-sm);
+  padding: var(--spacing-2);
 }
 
 .agent-status-panel__empty {
@@ -242,7 +240,7 @@ function handleViewLog() {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-size: var(--font-sm);
 }
 
@@ -250,8 +248,8 @@ function handleViewLog() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--spacing-sm);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-md);
   transition: background var(--duration-base) var(--ease-out);
 }
 
@@ -261,22 +259,22 @@ function handleViewLog() {
 
 .agent-status-panel__entry-time {
   font-size: var(--font-xs);
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
 .agent-status-panel__entry-message {
   font-size: var(--font-sm);
-  color: var(--ink-600);
+  color: var(--text-secondary);
   line-height: var(--leading-normal);
 }
 
 /* Control Toolbar */
 .agent-status-panel__toolbar {
   display: flex;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-top: 1px solid var(--neutral-200);
+  gap: var(--spacing-1);
+  padding: var(--spacing-2) var(--spacing-4);
+  border-top: 1px solid var(--border);
   background: white;
   flex-shrink: 0;
   justify-content: center;
@@ -285,10 +283,10 @@ function handleViewLog() {
 .toolbar-button {
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
   background: white;
-  color: var(--ink-600);
+  color: var(--text-secondary);
   font-size: var(--icon-sm, 14px);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -299,8 +297,8 @@ function handleViewLog() {
 }
 
 .toolbar-button:hover:not(:disabled) {
-  background: var(--neutral-100);
-  border-color: var(--neutral-400);
+  background: var(--surface-hover);
+  border-color: var(--text-tertiary);
 }
 
 .toolbar-button--disabled,
@@ -310,20 +308,20 @@ function handleViewLog() {
 }
 
 .toolbar-button--stop:hover:not(:disabled) {
-  background: var(--error-50, #fee2e2);
-  border-color: var(--error-300, #fca5a5);
-  color: var(--error-600, #dc2626);
+  background: var(--error-50);
+  border-color: var(--error-300);
+  color: var(--error-600);
 }
 
 .toolbar-button--pause:hover:not(:disabled) {
-  background: var(--warning-50, #fef3c7);
-  border-color: var(--warning-300, #fcd34d);
-  color: var(--warning-600, #d97706);
+  background: var(--warning-50);
+  border-color: var(--warning-300);
+  color: var(--warning-600);
 }
 
 .toolbar-button--log:hover:not(:disabled) {
-  background: var(--accent-50, #f5e6d3);
-  border-color: var(--accent-300, #c9a882);
-  color: var(--accent-600, #8b6f47);
+  background: var(--accent-muted);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 </style>

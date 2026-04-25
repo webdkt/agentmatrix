@@ -108,18 +108,18 @@ const selectAgent = (agent) => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
   overflow-y: auto;
 }
 
 .collab-start__header {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-6);
 }
 
 .collab-start__title {
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -129,9 +129,9 @@ const selectAgent = (agent) => {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
   flex: 1;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-size: var(--font-sm);
 }
 
@@ -142,23 +142,23 @@ const selectAgent = (agent) => {
 
 .collab-start__empty-icon {
   font-size: 32px;
-  color: var(--neutral-300);
+  color: var(--border-strong);
 }
 
 .collab-start__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .collab-start__card {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
+  gap: var(--spacing-2);
+  padding: var(--spacing-4);
   background: white;
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   text-align: left;
@@ -173,15 +173,15 @@ const selectAgent = (agent) => {
 .collab-start__card-header {
   display: flex;
   align-items: flex-start;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .collab-start__avatar {
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-sm);
-  background: var(--primary-100);
-  color: var(--primary-600);
+  border-radius: var(--radius-md);
+  background: var(--accent-muted);
+  color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -198,12 +198,12 @@ const selectAgent = (agent) => {
 .collab-start__card-name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-800);
+  color: var(--text-primary);
 }
 
 .collab-start__card-desc {
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   margin-top: 2px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -214,11 +214,11 @@ const selectAgent = (agent) => {
 .collab-start__card-status {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
   font-size: var(--font-xs);
-  color: var(--neutral-400);
-  padding-top: var(--spacing-xs);
-  border-top: 1px solid var(--neutral-100);
+  color: var(--text-tertiary);
+  padding-top: var(--spacing-1);
+  border-top: 1px solid var(--surface-hover);
 }
 
 .collab-start__status-icon {
@@ -231,7 +231,7 @@ const selectAgent = (agent) => {
 }
 
 .collab-start__status-label--idle {
-  color: var(--neutral-300);
+  color: var(--border-strong);
 }
 
 @keyframes collab-spin {

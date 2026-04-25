@@ -162,7 +162,7 @@ const handleAttachmentClick = async (attachment) => {
               class="email-card__attachment-main"
             >
               <div class="email-card__attachment-icon">
-                <MIcon :name="getAttachmentIcon(attachment.filename).replace('ti-', '')" />
+                <MIcon :name="getAttachmentIcon(attachment.filename)" />
               </div>
               <div class="email-card__attachment-info">
                 <span class="email-card__attachment-name">{{ attachment.filename }}</span>
@@ -269,11 +269,8 @@ const handleAttachmentClick = async (attachment) => {
 }
 
 .email-card__label {
-  font-size: 11px;
-  font-weight: var(--font-semibold);
-  font-variant: small-caps;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
   padding: 3px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid;
@@ -353,8 +350,6 @@ const handleAttachmentClick = async (attachment) => {
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
   color: var(--neutral-500);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: var(--spacing-xs);
 }
 

@@ -85,7 +85,7 @@ const formatFileSize = (bytes) => {
   display: flex;
   flex-direction: column;
   background: white;
-  border-left: 1px solid var(--neutral-200);
+  border-left: 1px solid var(--border);
   flex-shrink: 0;
   overflow: hidden;
   z-index: 5;
@@ -94,24 +94,22 @@ const formatFileSize = (bytes) => {
 .task-files-panel__header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--neutral-200);
+  gap: var(--spacing-1);
+  padding: var(--spacing-2) var(--spacing-4);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .task-files-panel__header .m-icon {
   font-size: var(--font-sm);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .task-files-panel__title {
   flex: 1;
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
-  color: var(--neutral-600);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--text-secondary);
 }
 
 .task-files-panel__refresh,
@@ -120,9 +118,9 @@ const formatFileSize = (bytes) => {
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -132,8 +130,8 @@ const formatFileSize = (bytes) => {
 
 .task-files-panel__refresh:hover:not(:disabled),
 .task-files-panel__close:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-600);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .task-files-panel__refresh:disabled {
@@ -144,11 +142,11 @@ const formatFileSize = (bytes) => {
 .task-files-panel__path-bar {
   display: flex;
   align-items: center;
-  padding: 2px var(--spacing-md);
+  padding: 2px var(--spacing-4);
   font-size: 10px;
-  color: var(--neutral-400);
-  background: var(--neutral-50);
-  border-bottom: 1px solid var(--neutral-100);
+  color: var(--text-tertiary);
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--surface-hover);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -172,28 +170,28 @@ const formatFileSize = (bytes) => {
 .task-files-panel__list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-xs) 0;
+  padding: var(--spacing-1) 0;
   position: relative;
 }
 
 .task-files-panel__file-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: 4px var(--spacing-md);
+  gap: var(--spacing-1);
+  padding: 4px var(--spacing-4);
   font-size: var(--font-sm);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   cursor: default;
   transition: background var(--duration-base) var(--ease-out);
 }
 
 .task-files-panel__file-item:hover {
-  background: var(--neutral-50);
+  background: var(--surface-base);
 }
 
 .task-files-panel__file-item .m-icon {
   font-size: var(--font-sm);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
@@ -206,14 +204,14 @@ const formatFileSize = (bytes) => {
 
 .task-files-panel__file-size {
   font-size: 10px;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
 .task-files-panel__empty {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-2) var(--spacing-4);
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-style: italic;
 }
 </style>

@@ -157,8 +157,8 @@ onUnmounted(() => {
 .app-loading__spinner {
   width: 32px;
   height: 32px;
-  border: 2px solid var(--parchment-300);
-  border-top-color: var(--vermillion);
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -170,7 +170,7 @@ onUnmounted(() => {
 .status-indicator {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -180,7 +180,7 @@ onUnmounted(() => {
 }
 
 .status-indicator:hover {
-  background: var(--parchment-300);
+  background: var(--surface-hover);
 }
 
 .status-indicator__dot {
@@ -192,12 +192,12 @@ onUnmounted(() => {
 
 .status-indicator__dot--running,
 .status-indicator__dot--connected {
-  background: var(--verdant);
+  background: var(--success);
 }
 
 .status-indicator__dot--stopped,
 .status-indicator__dot--disconnected {
-  background: var(--fault);
+  background: var(--error);
 }
 
 .status-indicator__dot--starting,
@@ -217,10 +217,10 @@ onUnmounted(() => {
   left: calc(100% + 12px);
   top: 50%;
   transform: translateY(-50%);
-  background: var(--neutral-800);
+  background: var(--text-primary);
   color: white;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   white-space: nowrap;
   z-index: var(--z-tooltip);

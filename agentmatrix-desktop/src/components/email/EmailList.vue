@@ -767,8 +767,6 @@ const handleAgentQuestionSubmit = async () => {
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
 }
 
 .email-list__question-btn--primary {

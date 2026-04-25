@@ -35,7 +35,7 @@ const isActive = (categoryId) => {
         :title="category.description"
       >
         <div class="nav-item-icon-wrapper">
-          <MIcon :name="category.icon.replace('ti-', '')" class="nav-item-icon" />
+          <MIcon :name="category.icon" class="nav-item-icon" />
         </div>
         <div class="nav-item-content">
           <span class="nav-item-label">{{ category.label }}</span>
@@ -50,14 +50,14 @@ const isActive = (categoryId) => {
 .settings-sidebar {
   width: 280px;
   flex-shrink: 0;
-  background: var(--neutral-100);
-  border-right: 1px solid var(--neutral-200);
+  background: var(--surface-hover);
+  border-right: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .sidebar-nav {
-  padding: var(--spacing-md);
+  padding: var(--spacing-4);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
@@ -68,10 +68,10 @@ const isActive = (categoryId) => {
   align-items: center;
   gap: var(--spacing-3);
   padding: var(--spacing-4);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   background: transparent;
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -79,33 +79,33 @@ const isActive = (categoryId) => {
 }
 
 .nav-item:hover {
-  background: var(--parchment-50);
+  background: var(--surface-base);
   border-color: transparent;
-  color: var(--neutral-900);
+  color: var(--text-primary);
 }
 
 .nav-item.active {
-  background: var(--parchment-50);
+  background: var(--surface-base);
   border-left: 2px solid var(--accent);
   border-color: transparent;
   border-left-color: var(--accent);
-  color: var(--neutral-900);
+  color: var(--text-primary);
 }
 
 .nav-item-icon-wrapper {
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: var(--neutral-200);
+  background: var(--border);
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .nav-item:hover .nav-item-icon-wrapper {
-  background: var(--neutral-300);
+  background: var(--border-strong);
 }
 
 .nav-item.active .nav-item-icon-wrapper {
@@ -135,7 +135,7 @@ const isActive = (categoryId) => {
 
 .nav-item-description {
   font-size: var(--font-xs);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -143,6 +143,6 @@ const isActive = (categoryId) => {
 }
 
 .nav-item.active .nav-item-description {
-  color: var(--neutral-600);
+  color: var(--text-secondary);
 }
 </style>

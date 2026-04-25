@@ -241,7 +241,7 @@ const goBack = () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
   position: relative;
 }
 
@@ -253,33 +253,33 @@ const goBack = () => {
 .new-task-panel__header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-6);
 }
 
 .new-task-panel__back {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   font-size: var(--font-sm);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .new-task-panel__back:hover {
-  background: var(--neutral-100);
-  border-color: var(--neutral-300);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .new-task-panel__title {
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -287,30 +287,30 @@ const goBack = () => {
   display: block;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
-  margin-bottom: var(--spacing-xs);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-1);
 }
 
 .new-task-panel__agent {
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-4);
 }
 
 .new-task-panel__agent-display {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 
 .new-task-panel__agent-avatar {
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-sm);
-  background: var(--primary-100);
-  color: var(--primary-600);
+  border-radius: var(--radius-md);
+  background: var(--accent-muted);
+  color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -322,7 +322,7 @@ const goBack = () => {
 .new-task-panel__agent-name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
 }
 
 .new-task-panel__message {
@@ -341,21 +341,21 @@ const goBack = () => {
 .new-task-panel__textarea {
   width: 100%;
   height: 100%;
-  padding: var(--spacing-md);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-4);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-size: var(--font-base);
   font-family: inherit;
   line-height: var(--leading-relaxed);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   resize: none;
   transition: all var(--duration-base) var(--ease-out);
   box-sizing: border-box;
 }
 
 .new-task-panel__textarea::placeholder {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .new-task-panel__textarea:focus {
@@ -371,47 +371,45 @@ const goBack = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
   background: rgba(255, 255, 255, 0.85);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: 2px dashed var(--accent);
   pointer-events: none;
 }
 
 .new-task-panel__attachments {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-2);
 }
 
 .new-task-panel__attachments-header {
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
-  color: var(--neutral-500);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: var(--spacing-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--spacing-1);
 }
 
 .new-task-panel__attachments-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
 }
 
 .new-task-panel__attachment {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 
 .new-task-panel__attachment-icon {
-  color: var(--primary-600);
+  color: var(--accent);
   font-size: var(--font-sm);
 }
 
@@ -419,13 +417,13 @@ const goBack = () => {
   flex: 1;
   min-width: 0;
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .new-task-panel__attachment-name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -433,7 +431,7 @@ const goBack = () => {
 
 .new-task-panel__attachment-size {
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
@@ -442,12 +440,12 @@ const goBack = () => {
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   transition: all var(--duration-base) var(--ease-out);
 }
 
@@ -457,45 +455,45 @@ const goBack = () => {
 }
 
 .new-task-panel__upload {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-2);
 }
 
 .new-task-panel__upload-btn {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--neutral-100);
-  border: 1px dashed var(--neutral-300);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  background: var(--surface-hover);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .new-task-panel__upload-btn:hover {
-  background: var(--neutral-200);
-  border-color: var(--neutral-400);
+  background: var(--border);
+  border-color: var(--text-tertiary);
 }
 
 .new-task-panel__spacer {
   flex: 1;
-  min-height: var(--spacing-md);
+  min-height: var(--spacing-4);
 }
 
 .new-task-panel__footer {
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--neutral-200);
+  padding-top: var(--spacing-4);
+  border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
 }
 
 .new-task-panel__send {
   height: 40px;
-  padding: 0 var(--spacing-xl);
-  border-radius: var(--radius-sm);
+  padding: 0 var(--spacing-8);
+  border-radius: var(--radius-md);
   border: 1px solid var(--accent);
   background: var(--accent);
   color: white;
@@ -505,7 +503,7 @@ const goBack = () => {
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .new-task-panel__send:hover:not(:disabled) {
@@ -521,7 +519,7 @@ const goBack = () => {
 .new-task-panel__sending {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
 }
 
 .new-task-panel__spinner {

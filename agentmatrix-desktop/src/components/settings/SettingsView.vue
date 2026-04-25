@@ -19,19 +19,19 @@ const categories = computed(() => [
   {
     id: 'llm',
     label: 'LLM Configuration',
-    icon: 'ti-brain',
+    icon: 'brain',
     description: 'Manage language model providers'
   },
   {
     id: 'email-proxy',
     label: 'Email Proxy',
-    icon: 'ti-mail',
+    icon: 'mail',
     description: 'Configure email proxy service'
   },
   {
     id: 'proxy',
     label: 'HTTP Proxy',
-    icon: 'ti-shield',
+    icon: 'shield',
     description: 'Configure HTTP proxy for network access'
   }
 ])
@@ -107,29 +107,29 @@ const handleBackClick = () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--neutral-50);
+  background: var(--surface-base);
 }
 
 .settings-header {
   flex-shrink: 0;
   background: white;
-  border-bottom: 1px solid var(--neutral-200);
-  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: 1px solid var(--border);
+  padding: var(--spacing-6) var(--spacing-8);
 }
 
 .header-content {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .back-button {
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-sm);
-  background: var(--neutral-100);
+  border-radius: var(--radius-md);
+  background: var(--surface-hover);
   border: none;
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -139,7 +139,7 @@ const handleBackClick = () => {
 }
 
 .back-button:hover {
-  background: var(--neutral-200);
+  background: var(--border);
 }
 
 .back-button:active {
@@ -149,32 +149,32 @@ const handleBackClick = () => {
 .header-info {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .header-icon {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-sm);
-  background: var(--neutral-100);
+  border-radius: var(--radius-md);
+  background: var(--surface-hover);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--icon-xl);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
 }
 
 .header-title {
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
   line-height: var(--leading-tight);
 }
 
 .header-subtitle {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
   margin-top: 2px;
 }

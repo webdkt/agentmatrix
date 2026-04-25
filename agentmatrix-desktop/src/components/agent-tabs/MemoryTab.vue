@@ -93,11 +93,11 @@ function truncateId(id) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-md);
+  padding: var(--spacing-4);
 }
 
 .memory-tab__loading {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-8);
 }
 
 .thinking-bar {
@@ -118,14 +118,14 @@ function truncateId(id) {
 }
 
 .session-item {
-  padding: var(--spacing-md);
-  border-bottom: 1px solid var(--parchment-300);
+  padding: var(--spacing-4);
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background-color 0.15s;
 }
 
 .session-item:hover {
-  background: var(--parchment-200);
+  background: var(--surface-hover);
 }
 
 .session-item__header {
@@ -136,37 +136,37 @@ function truncateId(id) {
 }
 
 .session-item__subject {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 14px;
-  color: var(--ink-900);
+  color: var(--text-primary);
   flex: 1;
-  margin-right: var(--spacing-md);
+  margin-right: var(--spacing-4);
 }
 
 .session-item__time {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   white-space: nowrap;
 }
 
 .session-item__meta {
   display: flex;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
   font-size: 12px;
-  color: var(--ink-500);
+  color: var(--text-tertiary);
 }
 
 .session-item__id {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-400);
+  color: var(--text-tertiary);
 }
 
 .session-item__participants {
   font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--ink-500);
+  color: var(--text-tertiary);
 }
 
 .memory-tab__empty {
@@ -175,18 +175,18 @@ function truncateId(id) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--ink-400);
+  color: var(--text-tertiary);
 }
 
 .memory-tab__empty-icon {
   width: 48px;
   height: 48px;
-  margin-bottom: var(--spacing-md);
-  color: var(--ink-300);
+  margin-bottom: var(--spacing-4);
+  color: var(--text-quaternary);
 }
 
 .memory-tab__empty-text {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 14px;
   font-style: italic;
 }

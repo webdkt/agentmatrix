@@ -201,7 +201,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: #1e1e1e;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   overflow: hidden;
   user-select: none;
@@ -214,8 +214,8 @@ onUnmounted(() => {
 .agent-terminal__header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: 4px var(--spacing-sm);
+  gap: var(--spacing-1);
+  padding: 4px var(--spacing-2);
   background: #2d2d2d;
   cursor: grab;
   flex-shrink: 0;
@@ -262,7 +262,7 @@ onUnmounted(() => {
 .agent-terminal__output {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-1) var(--spacing-2);
   min-height: 0;
 }
 
@@ -279,7 +279,7 @@ onUnmounted(() => {
   font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   font-size: 11px;
   color: #d4d4d4;
-  padding: var(--spacing-xs);
+  padding: var(--spacing-1);
 }
 
 .terminal-line {
@@ -352,7 +352,7 @@ onUnmounted(() => {
   font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   font-size: 11px;
   color: #6a9955;
-  padding: 6px 0 6px var(--spacing-sm);
+  padding: 6px 0 6px var(--spacing-2);
   flex-shrink: 0;
   user-select: none;
 }
@@ -365,7 +365,7 @@ onUnmounted(() => {
   color: #d4d4d4;
   font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   font-size: 11px;
-  padding: 6px var(--spacing-sm);
+  padding: 6px var(--spacing-2);
   caret-color: #d4d4d4;
 }
 

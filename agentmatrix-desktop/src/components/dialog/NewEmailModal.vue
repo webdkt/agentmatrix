@@ -503,12 +503,12 @@ const close = () => {
 .new-email-modal__content {
   position: relative;
   background: white;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   width: 100%;
   max-width: 700px; /* Larger than before (was 2xl) */
   max-height: 90vh;
-  margin: var(--spacing-md);
+  margin: var(--spacing-4);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -525,25 +525,25 @@ const close = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--spacing-lg);
-  border-bottom: 1px solid var(--neutral-200);
-  background: var(--neutral-50);
+  padding: var(--spacing-6);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 .new-email-modal__title {
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .new-email-modal__close {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-size: var(--icon-lg);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -553,18 +553,18 @@ const close = () => {
 }
 
 .new-email-modal__close:hover {
-  color: var(--neutral-600);
-  background: var(--neutral-100);
+  color: var(--text-secondary);
+  background: var(--surface-hover);
 }
 
 /* Form */
 .new-email-modal__form {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .new-email-modal__field {
@@ -575,8 +575,8 @@ const close = () => {
   display: block;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
-  margin-bottom: var(--spacing-xs);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-1);
 }
 
 .new-email-modal__input-wrapper {
@@ -589,24 +589,24 @@ const close = () => {
   top: 50%;
   transform: translateY(-50%);
   font-size: var(--icon-md);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   pointer-events: none;
 }
 
 .new-email-modal__input {
   width: 100%;
   height: var(--input-height-md);
-  padding: 0 var(--spacing-md) 0 40px;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  padding: 0 var(--spacing-4) 0 40px;
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .new-email-modal__input::placeholder {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .new-email-modal__input:focus {
@@ -624,7 +624,7 @@ const close = () => {
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-size: var(--icon-sm);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -634,7 +634,7 @@ const close = () => {
 }
 
 .new-email-modal__clear:hover {
-  color: var(--neutral-600);
+  color: var(--text-secondary);
 }
 
 /* Dropdown */
@@ -644,52 +644,52 @@ const close = () => {
   width: 100%;
   max-height: 200px;
   background: white;
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   overflow-y: auto;
   margin-top: 4px;
 }
 
 .new-email-modal__dropdown-item {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-2) var(--spacing-4);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .new-email-modal__dropdown-item:hover {
-  background: var(--neutral-50);
+  background: var(--surface-base);
 }
 
 .new-email-modal__agent-name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
 }
 
 .new-email-modal__agent-desc {
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .new-email-modal__dropdown-empty {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-2) var(--spacing-4);
   font-size: var(--font-sm);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 /* Recipient Display (reply mode) */
 .new-email-modal__recipient-display {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-4);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   min-height: var(--input-height-md);
 }
 
@@ -697,7 +697,7 @@ const close = () => {
   flex: 1;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
 }
 
 /* Message */
@@ -715,20 +715,20 @@ const close = () => {
 .new-email-modal__textarea {
   width: 100%;
   min-height: 300px;
-  padding: var(--spacing-md);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-4);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-size: var(--font-base);
   font-family: inherit;
   line-height: var(--leading-relaxed);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   resize: none;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .new-email-modal__textarea::placeholder {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .new-email-modal__textarea:focus {
@@ -744,12 +744,12 @@ const close = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
   background: rgba(255, 255, 255, 0.85);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: 2px dashed var(--accent);
   pointer-events: none;
 }
@@ -762,48 +762,46 @@ const close = () => {
 .new-email-modal__attachments {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
 }
 
 .new-email-modal__attachments-header {
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
-  color: var(--neutral-500);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
 }
 
 .new-email-modal__attachments-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
 }
 
 .new-email-modal__attachment {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .new-email-modal__attachment:hover {
-  background: var(--neutral-100);
-  border-color: var(--neutral-300);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .new-email-modal__attachment-icon {
   width: 28px;
   height: 28px;
-  background: var(--primary-100);
-  border-radius: var(--radius-sm);
+  background: var(--accent-muted);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--primary-600);
+  color: var(--accent);
   font-size: var(--font-sm);
   flex-shrink: 0;
 }
@@ -819,7 +817,7 @@ const close = () => {
 .new-email-modal__attachment-name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -827,7 +825,7 @@ const close = () => {
 
 .new-email-modal__attachment-size {
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .new-email-modal__attachment-remove {
@@ -835,7 +833,7 @@ const close = () => {
   height: 24px;
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-size: var(--icon-sm);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -851,27 +849,27 @@ const close = () => {
 
 /* Upload button */
 .new-email-modal__upload {
-  padding: var(--spacing-sm) 0;
+  padding: var(--spacing-2) 0;
 }
 
 .new-email-modal__upload-btn {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--neutral-100);
-  border: 1px dashed var(--neutral-300);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  background: var(--surface-hover);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .new-email-modal__upload-btn:hover {
-  background: var(--neutral-200);
-  border-color: var(--neutral-400);
+  background: var(--border);
+  border-color: var(--text-tertiary);
 }
 
 /* Footer */
@@ -879,33 +877,33 @@ const close = () => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-lg);
-  border-top: 1px solid var(--neutral-200);
-  background: var(--neutral-50);
+  gap: var(--spacing-2);
+  padding: var(--spacing-6);
+  border-top: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 .new-email-modal__btn {
   height: var(--button-height-md);
-  padding: 0 var(--spacing-lg);
-  border-radius: var(--radius-sm);
+  padding: 0 var(--spacing-6);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .new-email-modal__btn--secondary {
   background: transparent;
-  border: 1px solid var(--neutral-200);
-  color: var(--neutral-700);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
 }
 
 .new-email-modal__btn--secondary:hover {
-  background: var(--neutral-100);
+  background: var(--surface-hover);
 }
 
 .new-email-modal__btn--primary {

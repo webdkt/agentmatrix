@@ -199,10 +199,7 @@ const adjustHeight = (event) => {
 }
 
 .email-reply__info-text {
-  font-size: 11px;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--font-xs);
   color: var(--ink-500);
   display: flex;
   align-items: center;
@@ -319,10 +316,7 @@ const adjustHeight = (event) => {
 }
 
 .email-reply__hint-text {
-  font-size: 10px;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--font-xs);
   color: var(--ink-300);
   line-height: 1;
 }

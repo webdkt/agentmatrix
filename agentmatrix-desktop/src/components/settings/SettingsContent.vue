@@ -138,9 +138,9 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  gap: var(--spacing-md);
-  color: var(--neutral-500);
-  padding: var(--spacing-xl);
+  gap: var(--spacing-4);
+  color: var(--text-tertiary);
+  padding: var(--spacing-8);
 }
 
 .loading-spinner {
@@ -165,13 +165,13 @@ onMounted(async () => {
 .error-state h3 {
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   margin: 0;
 }
 
 .error-state p {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
 }
 
@@ -183,28 +183,28 @@ onMounted(async () => {
 
 .category-header {
   flex-shrink: 0;
-  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-lg) var(--spacing-xl);
-  border-bottom: 1px solid var(--neutral-100);
+  padding: var(--spacing-8) var(--spacing-8) var(--spacing-6) var(--spacing-8);
+  border-bottom: 1px solid var(--surface-hover);
 }
 
 .category-title {
   font-size: var(--font-2xl);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0 0 var(--spacing-2) 0;
   line-height: var(--leading-tight);
 }
 
 .category-description {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
 }
 
 .category-content {
   flex: 1;
   overflow-y: auto;
-  padding: 0 var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
+  padding: 0 var(--spacing-8) var(--spacing-8) var(--spacing-8);
 }
 
 .not-found {
@@ -213,8 +213,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   height: 400px;
-  gap: var(--spacing-md);
-  color: var(--neutral-400);
+  gap: var(--spacing-4);
+  color: var(--text-tertiary);
 }
 
 .not-found i {

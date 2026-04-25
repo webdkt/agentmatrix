@@ -36,9 +36,6 @@ export const useUIStore = defineStore('ui', {
     // 错误信息
     error: null,
 
-    // 主题
-    theme: 'light', // light, dark
-
     // 是否显示调试信息
     debugMode: false,
   }),
@@ -56,13 +53,6 @@ export const useUIStore = defineStore('ui', {
      */
     unreadNotificationCount: (state) => {
       return state.notifications.filter(n => !n.read).length
-    },
-
-    /**
-     * 当前主题是否为暗色
-     */
-    isDarkMode: (state) => {
-      return state.theme === 'dark'
     },
   },
 
@@ -210,27 +200,6 @@ export const useUIStore = defineStore('ui', {
     },
 
     /**
-     * 切换主题
-     */
-    toggleTheme() {
-      this.theme = this.theme === 'light' ? 'dark' : 'light'
-      // 保存到 localStorage
-      localStorage.setItem('theme', this.theme)
-      // 应用主题到 document
-      document.documentElement.setAttribute('data-theme', this.theme)
-    },
-
-    /**
-     * 设置主题
-     * @param {string} theme - 主题名称
-     */
-    setTheme(theme) {
-      this.theme = theme
-      localStorage.setItem('theme', theme)
-      document.documentElement.setAttribute('data-theme', theme)
-    },
-
-    /**
      * 切换调试模式
      */
     toggleDebugMode() {
@@ -245,12 +214,6 @@ export const useUIStore = defineStore('ui', {
       const savedSidebarWidth = localStorage.getItem('sidebarWidth')
       if (savedSidebarWidth) {
         this.sidebarWidth = parseInt(savedSidebarWidth, 10)
-      }
-
-      // 恢复主题
-      const savedTheme = localStorage.getItem('theme')
-      if (savedTheme) {
-        this.setTheme(savedTheme)
       }
     },
   },

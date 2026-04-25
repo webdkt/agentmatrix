@@ -40,17 +40,17 @@ const statusConfig = {
     text: 'IDLE'
   },
   THINKING: {
-    icon: 'ti-brain',
+    icon: 'brain',
     color: 'text-blue-400',
     text: '思考中...'
   },
   WORKING: {
-    icon: 'ti-loader',
+    icon: 'loader',
     color: 'text-emerald-400',
     text: '工作中...'
   },
   WAITING_FOR_USER: {
-    icon: 'ti-message-circle',
+    icon: 'message-circle',
     color: 'text-amber-400',
     text: '等待回复'
   }
@@ -77,7 +77,7 @@ const currentStatusConfig = computed(() => {
       <!-- 为当前会话工作 -->
       <div v-if="isWorkingOnCurrentSession" class="space-y-1.5">
         <div class="flex items-center gap-2 text-sm" :class="currentStatusConfig.color">
-          <span class="animate-spin"><MIcon :name="currentStatusConfig.icon.replace('ti-', '')" /></span>
+          <span class="animate-spin"><MIcon :name="currentStatusConfig.icon" /></span>
           <span>{{ agentName }}: {{ currentStatusConfig.text }}</span>
         </div>
 
@@ -112,23 +112,21 @@ const currentStatusConfig = computed(() => {
   align-items: center;
   padding: 2px 8px;
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  border-radius: 4px;
-  text-transform: uppercase;
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-sm);
 }
 
 .status-badge--idle {
-  background: var(--parchment-200, #e8e4de);
-  color: var(--ink-500, #6b6560);
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
 }
 
 :deep(.text-slate-400) {
-  color: var(--ink-400);
+  color: var(--text-tertiary);
 }
 
 :deep(.text-slate-500) {
-  color: var(--ink-300);
+  color: var(--text-quaternary);
 }
 
 :deep(.text-blue-400) {
@@ -136,7 +134,7 @@ const currentStatusConfig = computed(() => {
 }
 
 :deep(.text-emerald-400) {
-  color: var(--verdant);
+  color: var(--success);
 }
 
 :deep(.text-amber-400) {
@@ -180,7 +178,7 @@ const currentStatusConfig = computed(() => {
 }
 
 :deep(.ml-4) {
-  margin-left: var(--spacing-md);
+  margin-left: var(--spacing-4);
 }
 
 :deep(.animate-spin) {

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { marked } from 'marked'
 import MIcon from '@/components/icons/MIcon.vue'
+import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
 
 const props = defineProps({
   message: {
@@ -104,6 +105,32 @@ const formatTime = (timestamp) => {
   if (isToday) return time
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`
 }
+
+// ---- Attachments ----
+
+const attachments = computed(() => {
+  return props.message.data?.detail?.attachments || []
+})
+
+const formatFileSize = (bytes) => {
+  if (!bytes) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+}
+
+const handleAttachmentClick = async (attachment) => {
+  try {
+    await openAttachment(
+      props.user_agent_name,
+      props.message.data?.detail?.task_id,
+      attachment.filename
+    )
+  } catch (error) {
+    console.error('Failed to open attachment:', error)
+  }
+}
 </script>
 
 <template>
@@ -111,6 +138,19 @@ const formatTime = (timestamp) => {
   <div v-if="message.type === 'bubble-user'" class="chat-msg chat-msg--user">
     <div class="chat-msg__bubble">
       <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+      <div v-if="attachments.length > 0" class="chat-msg__attachments">
+        <div
+          v-for="(attachment, index) in attachments"
+          :key="index"
+          class="chat-msg__attachment"
+          @click="handleAttachmentClick(attachment)"
+        >
+          <div class="chat-msg__attachment-dot"></div>
+          <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
+          <span class="chat-msg__attachment-name">{{ attachment.filename }}</span>
+          <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -118,6 +158,19 @@ const formatTime = (timestamp) => {
   <div v-else-if="message.type === 'bubble-agent'" class="chat-msg">
     <div class="chat-msg__bubble">
       <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+      <div v-if="attachments.length > 0" class="chat-msg__attachments">
+        <div
+          v-for="(attachment, index) in attachments"
+          :key="index"
+          class="chat-msg__attachment"
+          @click="handleAttachmentClick(attachment)"
+        >
+          <div class="chat-msg__attachment-dot"></div>
+          <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
+          <span class="chat-msg__attachment-name">{{ attachment.filename }}</span>
+          <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -155,42 +208,55 @@ const formatTime = (timestamp) => {
 </template>
 
 <style scoped>
-/* ===== User chat bubble (right-aligned, green) ===== */
+/* ===== Message base ===== */
 .chat-msg {
   display: flex;
-  padding: var(--spacing-xs) 0;
-  animation: fadeIn 200ms var(--ease-out);
+  flex-direction: column;
+  max-width: 68%;
+  animation: fadeIn 250ms var(--ease-out);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px) }
+  from { opacity: 0; transform: translateY(6px) }
   to { opacity: 1; transform: translateY(0) }
 }
 
-.chat-msg__bubble {
-  max-width: 75%;
-  background: var(--parchment-100);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-}
-
 .chat-msg--user {
-  justify-content: flex-end;
+  align-self: flex-end;
+  align-items: flex-end;
 }
 
+.chat-msg:not(.chat-msg--user):not(.chat-msg--thought-row) {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+/* ===== Bubble base ===== */
+.chat-msg__bubble {
+  padding: 14px 18px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* Agent bubble: white with border */
+.chat-msg:not(.chat-msg--user) .chat-msg__bubble {
+  background: var(--surface-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px 8px 8px 4px;
+}
+
+/* User bubble: light gray */
 .chat-msg--user .chat-msg__bubble {
-  background: var(--success-50);
-  border-color: var(--success-200);
-  border-radius: var(--radius-md);
-  border-bottom-right-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-radius: 8px 8px 4px 8px;
 }
 
 .chat-msg__body {
-  font-size: var(--font-sm);
-  color: var(--neutral-700);
-  line-height: var(--leading-relaxed);
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.65;
 }
 
 /* ===== Agent-to-agent communication ===== */
@@ -199,60 +265,76 @@ const formatTime = (timestamp) => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 4px 0;
-  animation: fadeIn 200ms var(--ease-out);
+  padding: 8px 0;
+  width: 100%;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  animation: fadeIn 250ms var(--ease-out);
 }
 
 .chat-agent-comm__icon {
   font-size: var(--font-xs);
-  color: var(--neutral-300);
+  color: var(--text-quaternary);
   display: flex;
   align-items: center;
 }
 
 .chat-agent-comm__text {
-  font-size: 11px;
-  color: var(--neutral-400);
+  font-size: 12px;
+  color: var(--text-quaternary);
   font-style: italic;
 }
 
-/* ===== Status pill ===== */
+/* ===== Action pill (colored dot, no background) ===== */
 .chat-pill {
   display: flex;
   justify-content: flex-start;
-  padding: var(--spacing-xs) 0;
-  animation: fadeIn 200ms var(--ease-out);
+  padding: 3px 0;
+  animation: fadeIn 250ms var(--ease-out);
 }
 
 .chat-pill__capsule {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 14px;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: 999px;
-  font-size: var(--font-xs);
-  color: var(--neutral-400);
+  gap: 7px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
   max-width: 80%;
 }
 
-.chat-pill__text {
-  color: var(--neutral-500);
+.chat-pill__capsule::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--teal);
+  flex-shrink: 0;
 }
 
-/* ===== Thought (inner monologue, bubble variant) ===== */
+.chat-pill__text {
+  color: var(--text-secondary);
+}
+
+/* ===== Thought (inner monologue, rose-tinted card) ===== */
 .chat-msg__bubble--thought {
-  background: var(--neutral-100);
-  border: 1px solid var(--neutral-200);
+  background: var(--accent-soft);
+  border: none;
+  border-left: 2px solid var(--accent);
   border-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-sm);
-  opacity: 0.85;
+  padding: 12px 16px;
+  margin-top: 10px;
+  opacity: 1;
 }
 
 .chat-msg__body--thought {
   font-style: italic;
-  color: var(--neutral-500);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -269,7 +351,7 @@ const formatTime = (timestamp) => {
 
 .chat-system__text {
   font-size: 11px;
-  color: var(--neutral-300);
+  color: var(--text-quaternary);
 }
 
 /* ===== Session start/end time ===== */
@@ -279,19 +361,19 @@ const formatTime = (timestamp) => {
   justify-content: center;
   padding: 8px 0;
   font-size: 11px;
-  color: var(--neutral-300);
+  color: var(--text-quaternary);
   animation: fadeIn 200ms var(--ease-out);
 }
 
 /* ===== Markdown styles ===== */
 .markdown-content :deep(p) {
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(ul),
 .markdown-content :deep(ol) {
-  margin-left: var(--spacing-md);
-  margin-bottom: var(--spacing-xs);
+  margin-left: var(--spacing-4);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(li) {
@@ -299,20 +381,20 @@ const formatTime = (timestamp) => {
 }
 
 .markdown-content :deep(code) {
-  background: var(--neutral-100);
+  background: var(--surface-hover);
   color: var(--accent);
   padding: 1px 4px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-xs);
 }
 
 .markdown-content :deep(pre) {
-  background: var(--neutral-800);
-  color: var(--neutral-50);
-  padding: var(--spacing-sm);
-  border-radius: var(--radius-sm);
+  background: var(--text-primary);
+  color: var(--surface-base);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(pre code) {
@@ -322,15 +404,15 @@ const formatTime = (timestamp) => {
 }
 
 .markdown-content :deep(blockquote) {
-  border-left: 3px solid var(--neutral-300);
-  padding-left: var(--spacing-sm);
+  border-left: 3px solid var(--text-quaternary);
+  padding-left: var(--spacing-2);
   font-style: italic;
-  color: var(--neutral-500);
-  margin-bottom: var(--spacing-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(a) {
-  color: var(--info-500);
+  color: var(--info);
   text-decoration: underline;
 }
 
@@ -338,8 +420,61 @@ const formatTime = (timestamp) => {
 .markdown-content :deep(h2),
 .markdown-content :deep(h3) {
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
-  margin-bottom: var(--spacing-xs);
-  margin-top: var(--spacing-xs);
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-1);
+  margin-top: var(--spacing-1);
+}
+
+/* ===== Attachments (zen-v2-dot style) ===== */
+.chat-msg__attachments {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-msg__attachment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--ease-out);
+}
+
+.chat-msg__attachment:hover {
+  background: var(--surface-hover);
+}
+
+.chat-msg__attachment-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--teal);
+  flex-shrink: 0;
+}
+
+.chat-msg__attachment-icon {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.chat-msg__attachment-name {
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.chat-msg__attachment-size {
+  font-size: 12px;
+  color: var(--text-quaternary);
+  flex-shrink: 0;
+  margin-left: auto;
 }
 </style>

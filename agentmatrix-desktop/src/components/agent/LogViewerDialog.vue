@@ -212,9 +212,9 @@ function getLineClass(line) {
   max-width: 1000px;
   height: 80vh;
   max-height: 700px;
-  background: var(--parchment-100, #faf8f5);
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -225,8 +225,8 @@ function getLineClass(line) {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--parchment-300, #e5e0d8);
-  background: var(--parchment-50, #fdfcfa);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 .log-modal__title-group {
@@ -236,15 +236,15 @@ function getLineClass(line) {
 }
 
 .log-modal__icon {
-  color: var(--accent-500, #6b4c3b);
+  color: var(--accent);
   font-size: 18px;
 }
 
 .log-modal__title {
-  font-family: var(--font-sans, system-ui);
+  font-family: var(--font-sans);
   font-size: 15px;
   font-weight: 600;
-  color: var(--ink-700, #2d2a26);
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -256,54 +256,54 @@ function getLineClass(line) {
   height: 32px;
   border: none;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--ink-500, #6b6560);
+  color: var(--text-tertiary);
   transition: all 0.15s ease;
 }
 
 .log-modal__close:hover {
-  background: var(--parchment-300, #e5e0d8);
-  color: var(--ink-700, #2d2a26);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .log-modal__toolbar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm, 8px);
-  padding: var(--spacing-sm, 8px) var(--spacing-md, 12px);
-  border-bottom: 1px solid var(--parchment-300, #e5e0d8);
-  background: var(--parchment-100, #faf8f5);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-secondary);
 }
 
 .log-modal__btn {
-  font-family: var(--font-sans, system-ui);
+  font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--ink-500, #6b6560);
+  color: var(--text-tertiary);
   background: none;
-  border: 1px solid var(--parchment-300, #e5e0d8);
+  border: 1px solid var(--border);
   padding: 4px 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .log-modal__btn:hover {
-  background: var(--parchment-200, #f0ede8);
-  color: var(--ink-700, #2d2a26);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .log-modal__btn--active {
-  background: var(--accent-muted, #e8dccf);
-  border-color: var(--accent-500, #6b4c3b);
-  color: var(--accent-500, #6b4c3b);
+  background: var(--accent-muted);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .log-modal__info {
   margin-left: auto;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-400, #9a9590);
+  color: var(--text-tertiary);
 }
 
 .log-modal__body {
@@ -321,15 +321,15 @@ function getLineClass(line) {
   justify-content: center;
   gap: 12px;
   height: 100%;
-  color: var(--ink-500, #6b6560);
-  font-family: var(--font-sans, system-ui);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
   font-size: 14px;
 }
 
 .thinking-bar {
   width: 120px;
   height: 2px;
-  background: var(--accent-500, #6b4c3b);
+  background: var(--accent);
   animation: thinking 1.5s ease-in-out infinite;
 }
 
@@ -342,60 +342,60 @@ function getLineClass(line) {
 .log-modal__log-content {
   flex: 1;
   overflow-y: auto;
-  background: var(--parchment-100, #faf8f5);
-  padding: var(--spacing-sm, 8px) 0;
+  background: var(--surface-secondary);
+  padding: var(--spacing-2) 0;
 }
 
 .log-line {
   display: flex;
-  padding: 0 var(--spacing-md, 12px);
-  font-family: var(--font-mono, monospace);
+  padding: 0 var(--spacing-4);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
   min-width: 0;
 }
 
 .log-line:hover {
-  background: var(--parchment-200, #f0ede8);
+  background: var(--surface-hover);
 }
 
 .log-line__num {
   min-width: 40px;
-  color: var(--ink-300, #d4cfc7);
+  color: var(--text-quaternary);
   text-align: right;
-  padding-right: var(--spacing-sm, 8px);
+  padding-right: var(--spacing-2);
   user-select: none;
 }
 
 .log-line__text {
   flex: 1;
   min-width: 0;
-  color: var(--ink-700, #2d2a26);
+  color: var(--text-secondary);
   white-space: pre;
   overflow-x: auto;
 }
 
 .log-line__text--error {
-  color: var(--fault, #c45c4a);
+  color: var(--error);
 }
 
 .log-line__text--warning {
-  color: var(--amber, #d9952c);
+  color: var(--amber);
 }
 
 .log-line__text--info {
-  color: var(--verdant, #5c8a6d);
+  color: var(--success);
 }
 
 .log-line__text--debug {
-  color: var(--ink-400, #9a9590);
+  color: var(--text-tertiary);
 }
 
 .log-modal__empty {
-  padding: var(--spacing-xl, 24px);
+  padding: var(--spacing-8);
   text-align: center;
-  color: var(--ink-400, #9a9590);
-  font-family: var(--font-serif, serif);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
   font-style: italic;
 }
 
@@ -403,8 +403,8 @@ function getLineClass(line) {
   display: flex;
   justify-content: flex-end;
   padding: 12px 20px;
-  border-top: 1px solid var(--parchment-300, #e5e0d8);
-  background: var(--parchment-50, #fdfcfa);
+  border-top: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 /* Transitions */

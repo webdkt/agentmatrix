@@ -19,39 +19,37 @@ const configStore = useConfigStore()
   display: flex;
   align-items: center;
   gap: 12px;
-  border-bottom: 2px solid var(--parchment-300);
+  border-bottom: 2px solid var(--border);
   padding: 12px 0;
   cursor: pointer;
   transition: border-color 0.3s;
 }
 
 .me-dir:hover {
-  border-bottom-color: var(--vermillion);
+  border-bottom-color: var(--accent);
 }
 
 .me-dir-path {
   flex: 1;
   font-family: var(--font-mono);
   font-size: 20px;
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   text-align: center;
 }
 
 .me-dir-path.has {
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 .me-dir-browse {
-  font-size: 12px;
+  font-size: var(--font-xs);
   color: var(--amber);
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
   flex-shrink: 0;
   transition: color 0.2s;
-  font-weight: 600;
+  font-weight: var(--font-medium);
 }
 
 .me-dir:hover .me-dir-browse {
-  color: var(--vermillion);
+  color: var(--accent);
 }
 </style>

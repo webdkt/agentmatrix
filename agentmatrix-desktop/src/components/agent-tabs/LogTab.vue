@@ -142,27 +142,27 @@ function getLineClass(line) {
 .log-tab__toolbar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--parchment-300);
-  background: var(--parchment-100);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-secondary);
 }
 
 .log-tab__btn {
   font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--ink-500);
+  color: var(--text-tertiary);
   background: none;
-  border: 1px solid var(--parchment-300);
+  border: 1px solid var(--border);
   padding: 4px 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .log-tab__btn:hover {
-  background: var(--parchment-200);
-  color: var(--ink-700);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .log-tab__btn--active {
@@ -175,19 +175,19 @@ function getLineClass(line) {
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-400);
+  color: var(--text-tertiary);
 }
 
 .log-tab__content {
   flex: 1;
   min-width: 0;
   overflow: auto;
-  background: var(--parchment-100);
-  padding: var(--spacing-sm) 0;
+  background: var(--surface-secondary);
+  padding: var(--spacing-2) 0;
 }
 
 .log-tab__loading {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-8);
 }
 
 .thinking-bar {
@@ -204,7 +204,7 @@ function getLineClass(line) {
 
 .log-line {
   display: flex;
-  padding: 0 var(--spacing-md);
+  padding: 0 var(--spacing-4);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
@@ -212,27 +212,27 @@ function getLineClass(line) {
 }
 
 .log-line:hover {
-  background: var(--parchment-200);
+  background: var(--surface-hover);
 }
 
 .log-line__num {
   min-width: 40px;
-  color: var(--ink-300);
+  color: var(--text-quaternary);
   text-align: right;
-  padding-right: var(--spacing-sm);
+  padding-right: var(--spacing-2);
   user-select: none;
 }
 
 .log-line__text {
   flex: 1;
   min-width: 0;
-  color: var(--ink-700);
+  color: var(--text-secondary);
   white-space: pre;
   overflow-x: auto;
 }
 
 .log-line__text--error {
-  color: var(--fault);
+  color: var(--error);
 }
 
 .log-line__text--warning {
@@ -240,18 +240,18 @@ function getLineClass(line) {
 }
 
 .log-line__text--info {
-  color: var(--verdant);
+  color: var(--success);
 }
 
 .log-line__text--debug {
-  color: var(--ink-400);
+  color: var(--text-tertiary);
 }
 
 .log-tab__empty {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-8);
   text-align: center;
-  color: var(--ink-400);
-  font-family: var(--font-serif);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
   font-style: italic;
 }
 </style>

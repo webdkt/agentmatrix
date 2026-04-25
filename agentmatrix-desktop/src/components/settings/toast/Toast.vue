@@ -36,12 +36,12 @@ onUnmounted(() => {
   }
 })
 
-const iconClass = computed(() => {
+const iconName = computed(() => {
   const icons = {
-    success: 'ti-check-circle',
-    error: 'ti-x-circle',
-    warning: 'ti-alert-triangle',
-    info: 'ti-info-circle'
+    success: 'check-circle',
+    error: 'x-circle',
+    warning: 'alert-triangle',
+    info: 'info-circle'
   }
   return icons[props.type] || icons.info
 })
@@ -97,7 +97,7 @@ const textColor = computed(() => {
         borderColor: borderColor
       }"
     >
-      <MIcon :name="iconClass.replace('ti-', '')" class="toast-icon" :style="{ color: iconColor }" />
+      <MIcon :name="iconName" class="toast-icon" :style="{ color: iconColor }" />
       <span class="toast-message" :style="{ color: textColor }">
         {{ message }}
       </span>
@@ -118,7 +118,7 @@ const textColor = computed(() => {
   align-items: center;
   gap: var(--spacing-3);
   padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border-left: 4px solid;
   box-shadow: var(--shadow-sm);
   min-width: 300px;
@@ -140,7 +140,7 @@ const textColor = computed(() => {
 .toast-close {
   width: 20px;
   height: 20px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
   border: none;
   cursor: pointer;

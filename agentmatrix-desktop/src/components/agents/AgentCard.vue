@@ -186,18 +186,18 @@ function handleViewPrompt(event) {
 <style scoped>
 .agent-card {
   background: white;
-  border: 1px solid var(--parchment-200);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-lg);
+  border: 1px solid var(--surface-hover);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-6);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .agent-card:hover {
-  border-color: var(--parchment-300);
+  border-color: var(--border);
   box-shadow: var(--shadow-sm);
   transform: translateY(-2px);
 }
@@ -206,7 +206,7 @@ function handleViewPrompt(event) {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .agent-card__info {
@@ -221,8 +221,8 @@ function handleViewPrompt(event) {
 .agent-card__name {
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--ink-900);
-  margin: 0 0 var(--spacing-xs) 0;
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-1) 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -230,7 +230,7 @@ function handleViewPrompt(event) {
 
 .agent-card__description {
   font-size: var(--font-sm);
-  color: var(--ink-500);
+  color: var(--text-tertiary);
   margin: 0;
   line-height: var(--leading-tight);
   display: -webkit-box;
@@ -240,15 +240,15 @@ function handleViewPrompt(event) {
 }
 
 .agent-card__status {
-  padding: var(--spacing-sm) 0;
-  border-top: 1px solid var(--parchment-100);
-  border-bottom: 1px solid var(--parchment-100);
+  padding: var(--spacing-2) 0;
+  border-top: 1px solid var(--surface-secondary);
+  border-bottom: 1px solid var(--surface-secondary);
   min-height: 72px;
 }
 
 .agent-card__controls {
   display: flex;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
   justify-content: flex-end;
   align-items: center;
 }
@@ -256,10 +256,10 @@ function handleViewPrompt(event) {
 .control-button {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--parchment-300);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
   background: white;
-  color: var(--ink-600);
+  color: var(--text-secondary);
   font-size: var(--icon-sm, 14px);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -271,8 +271,8 @@ function handleViewPrompt(event) {
 }
 
 .control-button:hover:not(:disabled) {
-  background: var(--parchment-100);
-  border-color: var(--parchment-400);
+  background: var(--surface-secondary);
+  border-color: var(--border);
 }
 
 .control-button--disabled,
@@ -312,9 +312,9 @@ function handleViewPrompt(event) {
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--neutral-800);
+  background: var(--text-primary);
   color: white;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-1) var(--spacing-2);
   border-radius: var(--radius-sm);
   font-size: var(--font-xs);
   white-space: nowrap;
@@ -328,12 +328,12 @@ function handleViewPrompt(event) {
   justify-content: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--parchment-200, #e8e4de);
-  border: 1px solid var(--parchment-300, #d4cfc7);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm, 12px);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
   font-weight: 500;
-  color: var(--ink-700, #3d3833);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   flex-shrink: 0;

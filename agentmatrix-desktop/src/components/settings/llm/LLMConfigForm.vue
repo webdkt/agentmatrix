@@ -295,12 +295,12 @@ const selectModel = (model) => {
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
-  padding: var(--spacing-md);
+  padding: var(--spacing-4);
 }
 
 .modal-container {
   background: white;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   max-width: 600px;
   width: 100%;
@@ -314,8 +314,8 @@ const selectModel = (model) => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: var(--spacing-lg);
-  border-bottom: 1px solid var(--neutral-200);
+  padding: var(--spacing-6);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -332,7 +332,7 @@ const selectModel = (model) => {
 .modal-title {
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
   line-height: var(--leading-tight);
 }
@@ -344,12 +344,9 @@ const selectModel = (model) => {
   padding: var(--spacing-1) var(--spacing-3);
   background: transparent;
   color: var(--accent);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: var(--font-semibold);
-  font-variant: small-caps;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
 }
 
 .required-badge-inline i {
@@ -358,17 +355,17 @@ const selectModel = (model) => {
 
 .modal-subtitle {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: var(--spacing-2) 0 0 0;
 }
 
 .btn-close {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
   border: none;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -379,29 +376,29 @@ const selectModel = (model) => {
 }
 
 .btn-close:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-600);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .modal-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-6);
 }
 
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .section-label {
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   display: block;
   margin-bottom: var(--spacing-1);
 }
@@ -412,7 +409,7 @@ const selectModel = (model) => {
   gap: var(--spacing-2);
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -429,7 +426,7 @@ const selectModel = (model) => {
 .model-card {
   padding: var(--spacing-3);
   background: white;
-  border: 1px solid var(--neutral-300);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   text-align: left;
   cursor: pointer;
@@ -437,20 +434,20 @@ const selectModel = (model) => {
 }
 
 .model-card:hover {
-  background: var(--neutral-50);
-  border-color: var(--neutral-400);
+  background: var(--surface-base);
+  border-color: var(--text-tertiary);
 }
 
 .model-name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin-bottom: var(--spacing-1);
 }
 
 .model-url {
   font-size: var(--font-xs);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -465,7 +462,7 @@ const selectModel = (model) => {
 .form-label {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   display: block;
 }
 
@@ -478,10 +475,10 @@ const selectModel = (model) => {
   width: 100%;
   padding: var(--spacing-3);
   background: white;
-  border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   transition: all var(--duration-base) var(--ease-out);
 }
 
@@ -492,8 +489,8 @@ const selectModel = (model) => {
 }
 
 .form-input:disabled {
-  background: var(--neutral-100);
-  color: var(--neutral-500);
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
   cursor: not-allowed;
 }
 
@@ -504,7 +501,7 @@ const selectModel = (model) => {
 
 .form-hint {
   font-size: var(--font-xs);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
 }
 
@@ -520,16 +517,16 @@ const selectModel = (model) => {
   padding: var(--spacing-1) var(--spacing-2);
   background: transparent;
   border: none;
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: var(--icon-md);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .btn-toggle-visibility:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .modal-footer {
@@ -537,17 +534,17 @@ const selectModel = (model) => {
   align-items: center;
   justify-content: flex-end;
   gap: var(--spacing-3);
-  padding: var(--spacing-lg);
-  border-top: 1px solid var(--neutral-200);
+  padding: var(--spacing-6);
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .btn-secondary {
   padding: var(--spacing-3) var(--spacing-4);
   background: transparent;
-  color: var(--neutral-700);
-  border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -555,7 +552,7 @@ const selectModel = (model) => {
 }
 
 .btn-secondary:hover {
-  background: var(--neutral-100);
+  background: var(--surface-hover);
 }
 
 .btn-primary {
@@ -566,7 +563,7 @@ const selectModel = (model) => {
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -578,8 +575,8 @@ const selectModel = (model) => {
 }
 
 .btn-primary:disabled {
-  background: var(--neutral-300);
-  color: var(--neutral-500);
+  background: var(--border-strong);
+  color: var(--text-tertiary);
   cursor: not-allowed;
 }
 

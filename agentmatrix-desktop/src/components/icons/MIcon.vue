@@ -1,29 +1,6 @@
-<template>
-  <svg
-    v-if="customPath"
-    :width="size"
-    :height="size"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="1.5"
-    stroke-linecap="butt"
-    stroke-linejoin="miter"
-    xmlns="http://www.w3.org/2000/svg"
-    class="m-icon"
-    v-html="customPath"
-  />
-  <i
-    v-else
-    :class="['ti', `ti-${name}`]"
-    :style="{ fontSize: size + 'px' }"
-    class="m-icon"
-  />
-</template>
-
 <script setup>
 import { computed } from 'vue'
-import { iconRegistry } from './iconRegistry.js'
+import { iconMap } from './iconRegistry.js'
 
 const props = defineProps({
   name: {
@@ -36,10 +13,23 @@ const props = defineProps({
   },
 })
 
-const customPath = computed(() => {
-  return iconRegistry[props.name] || null
-})
+const component = computed(() => iconMap[props.name] || null)
 </script>
+
+<template>
+  <component
+    v-if="component"
+    :is="component"
+    :size="size"
+    :stroke-width="1.75"
+    class="m-icon"
+  />
+  <span
+    v-else
+    class="m-icon m-icon--fallback"
+    :style="{ fontSize: size + 'px' }"
+  >?</span>
+</template>
 
 <style scoped>
 .m-icon {
@@ -49,5 +39,9 @@ const customPath = computed(() => {
   flex-shrink: 0;
   vertical-align: middle;
   color: inherit;
+}
+
+.m-icon--fallback {
+  opacity: 0.3;
 }
 </style>

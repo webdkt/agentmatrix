@@ -336,12 +336,12 @@ const copyImapToSmtp = () => {
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
-  padding: var(--spacing-md);
+  padding: var(--spacing-4);
 }
 
 .modal-container {
   background: white;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   max-width: 700px;
   width: 100%;
@@ -355,8 +355,8 @@ const copyImapToSmtp = () => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: var(--spacing-lg);
-  border-bottom: 1px solid var(--neutral-200);
+  padding: var(--spacing-6);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -367,24 +367,24 @@ const copyImapToSmtp = () => {
 .modal-title {
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
   line-height: var(--leading-tight);
 }
 
 .modal-subtitle {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: var(--spacing-1) 0 0 0;
 }
 
 .btn-close {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
   border: none;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -395,23 +395,23 @@ const copyImapToSmtp = () => {
 }
 
 .btn-close:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-600);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .modal-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-6);
 }
 
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .section-header {
@@ -426,7 +426,7 @@ const copyImapToSmtp = () => {
   gap: var(--spacing-2);
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -439,9 +439,9 @@ const copyImapToSmtp = () => {
   align-items: center;
   gap: var(--spacing-1);
   padding: var(--spacing-2) var(--spacing-3);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   color: var(--accent);
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
@@ -450,14 +450,14 @@ const copyImapToSmtp = () => {
 }
 
 .btn-copy:hover {
-  background: var(--neutral-100);
-  border-color: var(--neutral-300);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .form-group {
@@ -469,7 +469,7 @@ const copyImapToSmtp = () => {
 .form-label {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   display: block;
 }
 
@@ -481,10 +481,10 @@ const copyImapToSmtp = () => {
   width: 100%;
   padding: var(--spacing-3);
   background: white;
-  border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   transition: all var(--duration-base) var(--ease-out);
 }
 
@@ -505,16 +505,16 @@ const copyImapToSmtp = () => {
   padding: var(--spacing-1) var(--spacing-2);
   background: transparent;
   border: none;
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: var(--icon-md);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .btn-toggle-visibility:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .help-section {
@@ -522,7 +522,7 @@ const copyImapToSmtp = () => {
   gap: var(--spacing-3);
   padding: var(--spacing-4);
   background: var(--info-50);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: 1px solid var(--info-100);
 }
 
@@ -567,17 +567,17 @@ const copyImapToSmtp = () => {
   align-items: center;
   justify-content: flex-end;
   gap: var(--spacing-3);
-  padding: var(--spacing-lg);
-  border-top: 1px solid var(--neutral-200);
+  padding: var(--spacing-6);
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .btn-secondary {
   padding: var(--spacing-3) var(--spacing-4);
   background: transparent;
-  color: var(--neutral-700);
-  border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -585,7 +585,7 @@ const copyImapToSmtp = () => {
 }
 
 .btn-secondary:hover {
-  background: var(--neutral-100);
+  background: var(--surface-hover);
 }
 
 .btn-primary {
@@ -596,7 +596,7 @@ const copyImapToSmtp = () => {
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -608,8 +608,8 @@ const copyImapToSmtp = () => {
 }
 
 .btn-primary:disabled {
-  background: var(--neutral-300);
-  color: var(--neutral-500);
+  background: var(--border-strong);
+  color: var(--text-tertiary);
   cursor: not-allowed;
 }
 

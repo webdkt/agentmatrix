@@ -147,7 +147,7 @@ const handleNewEmailFailed = ({ emailData, error }) => {
 
 <template>
   <aside class="session-list">
-    <!-- New Email Button (Large, Prominent, Full-Width) -->
+    <!-- Header: Button + Search -->
     <div class="session-list__header">
       <button
         @click="handleNewClick"
@@ -156,18 +156,16 @@ const handleNewEmailFailed = ({ emailData, error }) => {
         <MIcon name="plus" />
         <span>{{ newButtonLabel }}</span>
       </button>
-    </div>
-
-    <!-- Search Box (Full-Width) -->
-    <div class="session-list__search">
-      <MIcon name="search" />
-      <input
-        type="text"
-        :placeholder="t('sessions.search')"
-        :value="searchQuery"
-        @input="handleSearch"
-        class="session-list__search-input"
-      />
+      <div class="session-list__search">
+        <MIcon name="search" />
+        <input
+          type="text"
+          :placeholder="t('sessions.search')"
+          :value="searchQuery"
+          @input="handleSearch"
+          class="session-list__search-input"
+        />
+      </div>
     </div>
 
     <!-- Session List -->
@@ -222,7 +220,7 @@ const handleNewEmailFailed = ({ emailData, error }) => {
   width: var(--session-list-width);
   height: 100%;
   background: white;
-  border-right: 1px solid var(--neutral-200);
+  border-right: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -230,30 +228,34 @@ const handleNewEmailFailed = ({ emailData, error }) => {
 
 /* Header with New Email Button */
 .session-list__header {
-  padding: var(--spacing-md);
-  padding-bottom: var(--spacing-sm);
+  padding: 28px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .session-list__new-email-btn {
   width: 100%;
-  height: var(--button-height-md);
-  padding: 0 var(--spacing-md);
-  background: var(--accent);
+  height: 42px;
+  padding: 0 18px;
+  background: var(--text-primary);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
+  gap: 8px;
   cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
+  transition: all 0.15s ease;
 }
 
 .session-list__new-email-btn:hover {
-  opacity: 0.9;
+  background: #27272A;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .session-list__new-email-btn:active {
@@ -267,79 +269,73 @@ const handleNewEmailFailed = ({ emailData, error }) => {
 /* Search Box */
 .session-list__search {
   position: relative;
-  padding: 0 var(--spacing-md);
-  padding-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--neutral-100);
 }
 
-.session-list__search-icon {
+.session-list__search .m-icon {
   position: absolute;
-  left: calc(var(--spacing-md) + 12px);
+  left: 11px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: var(--icon-md);
-  color: var(--neutral-400);
+  font-size: 16px;
+  color: var(--text-tertiary);
   pointer-events: none;
 }
 
 .session-list__search-input {
   width: 100%;
-  height: 36px;
-  padding: 0 var(--spacing-sm) 0 36px;
+  height: 38px;
+  padding: 0 14px 0 34px;
   background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--neutral-200);
-  border-radius: 0;
-  font-size: var(--font-sm);
-  color: var(--neutral-700);
-  transition: all var(--duration-base) var(--ease-out);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  color: var(--text-primary);
+  transition: all 0.15s ease;
 }
 
 .session-list__search-input::placeholder {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .session-list__search-input:focus {
   outline: none;
-  border-bottom-color: var(--accent);
-  background: transparent;
+  border-color: var(--text-primary);
 }
 
 /* Session Items Container */
 .session-list__items {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-sm) 0;
+  padding: 4px 8px;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm); /* 8px compact spacing */
 }
 
 /* Load More Button */
 .session-list__load-more {
-  padding: var(--spacing-sm) 0;
+  padding: var(--spacing-2) 0;
 }
 
 .session-list__load-more-btn {
   width: 100%;
   height: var(--button-height-sm);
-  padding: 0 var(--spacing-md);
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  padding: 0 var(--spacing-4);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .session-list__load-more-btn:hover:not(:disabled) {
-  background: var(--neutral-200);
+  background: var(--border);
 }
 
 .session-list__load-more-btn:disabled {
@@ -353,34 +349,34 @@ const handleNewEmailFailed = ({ emailData, error }) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-xl) var(--spacing-md);
+  padding: var(--spacing-8) var(--spacing-4);
   text-align: center;
 }
 
 .session-list__empty-icon {
   width: 64px;
   height: 64px;
-  background: var(--neutral-100);
-  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32px;
-  color: var(--neutral-300);
-  margin-bottom: var(--spacing-md);
+  color: var(--text-quaternary);
+  margin-bottom: var(--spacing-4);
 }
 
 .session-list__empty-text {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   margin: 0;
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-1);
 }
 
 .session-list__empty-hint {
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   margin: 0;
 }
 

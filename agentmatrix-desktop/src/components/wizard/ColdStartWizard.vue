@@ -437,7 +437,7 @@ onUnmounted(() => {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: var(--parchment-50);
+  background: var(--surface-base);
   position: relative;
   cursor: default;
 }
@@ -458,7 +458,7 @@ onUnmounted(() => {
   top: 0;
   left: 0;
   height: 2px;
-  background: var(--vermillion);
+  background: var(--accent);
   z-index: 10;
   transition: width 0.5s ease;
 }
@@ -495,7 +495,7 @@ onUnmounted(() => {
 .me-title {
   font-size: 52px;
   font-weight: 700;
-  color: var(--ink-900);
+  color: var(--text-primary);
   line-height: 1.2;
   letter-spacing: -0.5px;
   margin-bottom: 32px;
@@ -507,7 +507,7 @@ onUnmounted(() => {
   cursor: pointer;
   position: relative;
   display: inline-block;
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 /* CRT effect container - like question mark structure */
@@ -715,36 +715,36 @@ onUnmounted(() => {
   margin: 0 auto;
   background: transparent;
   border: none;
-  border-bottom: 2px solid var(--parchment-300);
-  color: var(--ink-900);
+  border-bottom: 2px solid var(--border);
+  color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 44px;
   padding: 14px 0;
   outline: none;
   text-align: center;
   transition: border-color 0.3s;
-  caret-color: var(--vermillion);
+  caret-color: var(--accent);
   cursor: text;
 }
 
 .me-inp::placeholder {
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   font-style: normal;
   font-size: 24px;
 }
 
 .me-inp:focus {
-  border-bottom-color: var(--vermillion);
+  border-bottom-color: var(--accent);
 }
 
 .me-inp.done {
-  border-bottom-color: var(--verdant);
+  border-bottom-color: var(--success);
 }
 
 /* Error state */
 .me-inp.me-error,
 .me-dir.me-error {
-  border-bottom-color: var(--fault) !important;
+  border-bottom-color: var(--error) !important;
   animation: me-error-flash 0.4s ease;
 }
 
@@ -760,26 +760,26 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  border-bottom: 2px solid var(--parchment-300);
+  border-bottom: 2px solid var(--border);
   padding: 12px 0;
   cursor: pointer;
   transition: border-color 0.3s;
 }
 
 .me-dir:hover {
-  border-bottom-color: var(--vermillion);
+  border-bottom-color: var(--accent);
 }
 
 .me-dir-path {
   flex: 1;
   font-family: var(--font-mono);
   font-size: 20px;
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   text-align: center;
 }
 
 .me-dir-path.has {
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 .me-dir-browse {
@@ -799,7 +799,7 @@ onUnmounted(() => {
 }
 
 .me-dir:hover .me-dir-browse {
-  color: var(--vermillion);
+  color: var(--accent);
 }
 
 /* Same checkbox */
@@ -829,7 +829,7 @@ onUnmounted(() => {
 
 .me-summary {
   font-size: 13px;
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   margin-top: 20px;
   letter-spacing: 0.05em;
 }
@@ -840,12 +840,12 @@ onUnmounted(() => {
   margin-right: auto;
   max-width: 480px;
   padding: 12px 16px;
-  background: var(--fault-muted);
-  color: var(--fault);
+  background: var(--error-muted);
+  color: var(--error);
   font-size: 13px;
   line-height: 1.5;
   border-radius: 2px;
-  border-left: 3px solid var(--fault);
+  border-left: 3px solid var(--error);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -864,9 +864,9 @@ onUnmounted(() => {
 }
 
 .me-info-msg {
-  background: var(--verdant-muted);
-  color: var(--verdant);
-  border-left: 3px solid var(--verdant);
+  background: var(--success-muted);
+  color: var(--success);
+  border-left: 3px solid var(--success);
 }
 
 /* Back indicator */
@@ -876,7 +876,7 @@ onUnmounted(() => {
   left: 20px;
   z-index: 5;
   font-size: 20px;
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   cursor: pointer;
   padding: 8px 12px;
   border-radius: 2px;
@@ -885,8 +885,8 @@ onUnmounted(() => {
 }
 
 .me-back:hover {
-  color: var(--ink-900);
-  background: var(--parchment-200);
+  color: var(--text-primary);
+  background: var(--surface-hover);
 }
 
 /* Hint */
@@ -898,7 +898,7 @@ onUnmounted(() => {
   right: 0;
   text-align: center;
   font-size: 13px;
-  color: var(--ink-dim);
+  color: var(--text-tertiary);
   letter-spacing: 0.15em;
   z-index: 2;
   pointer-events: none;
@@ -915,7 +915,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: var(--parchment-50);
+  background: var(--surface-base);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -931,15 +931,15 @@ onUnmounted(() => {
 .me-overlay-spin {
   width: 32px;
   height: 32px;
-  border: 2px solid var(--parchment-300);
-  border-top-color: var(--vermillion);
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: me-spin 1s linear infinite;
 }
 
 .me-overlay-text {
   font-size: 14px;
-  color: var(--ink-dim);
+  color: var(--text-tertiary);
   letter-spacing: 0.15em;
 }
 

@@ -567,44 +567,55 @@ const taskFilesWidth = computed(() => {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--neutral-50);
+  background: var(--surface-base);
 }
 
 /* ---- Top Bar ---- */
 .agent-session-panel__topbar {
-  height: 48px;
+  height: 56px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--spacing-md);
-  background: white;
-  border-bottom: 1px solid var(--neutral-200);
+  padding: 0 28px;
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .agent-session-panel__agent-info {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: 14px;
 }
 
 .agent-session-panel__avatar {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: var(--accent);
-  color: white;
-  font-size: var(--font-xs);
+  background: var(--morandi-mauve);
+  color: rgba(255,255,255,0.9);
+  font-size: 13px;
   font-weight: var(--font-semibold);
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-session-panel__avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
 }
 
 .agent-session-panel__agent-name {
-  font-size: var(--font-sm);
+  font-size: 15px;
   font-weight: var(--font-semibold);
-  color: var(--neutral-800);
+  color: var(--text-primary);
 }
 
 .agent-session-panel__status {
@@ -612,11 +623,11 @@ const taskFilesWidth = computed(() => {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: var(--radius-sm);
+  background: var(--surface-secondary);
+  border: 1px solid var(--surface-hover);
+  border-radius: var(--radius-md);
   font-size: 10px;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   animation: fadeIn 200ms var(--ease-out);
 }
 
@@ -624,7 +635,7 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .agent-session-panel__status-icon--spinning {
@@ -632,7 +643,7 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status-label {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -647,8 +658,8 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status--clickable:hover {
-  background: var(--neutral-100);
-  border-color: var(--neutral-200);
+  background: var(--surface-hover);
+  border-color: var(--border);
 }
 
 .agent-session-panel__status-jump {
@@ -658,37 +669,37 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__toolbar {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
 }
 
 .agent-session-panel__toolbar-btn {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-size: var(--icon-md);
   cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
+  transition: all 0.12s ease;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .agent-session-panel__toolbar-btn:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .agent-session-panel__toolbar-btn--active {
-  background: var(--parchment-100);
+  background: var(--surface-secondary);
   color: var(--accent);
 }
 
 .agent-session-panel__toolbar-btn--active:hover {
-  background: var(--parchment-200);
+  background: var(--surface-hover);
 }
 
 .agent-session-panel__toolbar-btn--disabled {
@@ -711,7 +722,7 @@ const taskFilesWidth = computed(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--success-500, #22c55e);
+  background: var(--success);
   border: 1.5px solid white;
 }
 
@@ -727,9 +738,10 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__messages {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: 32px 36px;
   display: flex;
   flex-direction: column;
+  gap: 24px;
   min-width: 0;
 }
 
@@ -737,8 +749,8 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm);
+  gap: var(--spacing-1);
+  padding: var(--spacing-2);
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
 }
@@ -765,45 +777,45 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__empty-icon {
   width: 64px;
   height: 64px;
-  background: var(--neutral-100);
-  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32px;
-  color: var(--neutral-300);
-  margin-bottom: var(--spacing-md);
+  color: var(--text-quaternary);
+  margin-bottom: var(--spacing-4);
 }
 
 .agent-session-panel__empty-icon--loading {
-  background: var(--parchment-50);
+  background: var(--surface-base);
   color: var(--accent);
 }
 
 .agent-session-panel__empty-icon--error {
-  background: var(--error-50);
-  color: var(--error-500);
+  background: var(--error-muted);
+  color: var(--error);
 }
 
 .agent-session-panel__empty-text {
   font-size: var(--font-base);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
-  margin: 0 0 var(--spacing-xs) 0;
+  color: var(--text-secondary);
+  margin: 0 0 var(--spacing-1) 0;
 }
 
 .agent-session-panel__empty-hint {
   font-size: var(--font-sm);
-  color: var(--neutral-400);
-  margin: 0 0 var(--spacing-md) 0;
+  color: var(--text-tertiary);
+  margin: 0 0 var(--spacing-4) 0;
 }
 
 .agent-session-panel__retry-btn {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-2) var(--spacing-4);
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -815,12 +827,12 @@ const taskFilesWidth = computed(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  margin-top: var(--spacing-sm);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: var(--radius-sm);
+  margin-top: var(--spacing-2);
+  background: var(--surface-secondary);
+  border: 1px solid var(--surface-hover);
+  border-radius: var(--radius-md);
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   animation: fadeIn 200ms var(--ease-out);
   flex-shrink: 0;
   align-self: flex-start;
@@ -830,7 +842,7 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   font-size: var(--font-sm);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .agent-session-panel__status-indicator-icon--spinning {
@@ -839,11 +851,11 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__status-indicator-agent {
   font-weight: var(--font-semibold);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
 }
 
 .agent-session-panel__status-indicator-label {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -858,68 +870,63 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status-indicator--clickable:hover {
-  background: var(--neutral-100);
-  border-color: var(--neutral-200);
+  background: var(--surface-hover);
+  border-color: var(--border);
 }
 
 /* ---- Bottom Input Area ---- */
 .agent-session-panel__bottom {
   flex-shrink: 0;
-  background: var(--parchment-50);
-  padding: var(--spacing-md);
+  background: var(--surface-base);
 }
 
 /* ---- Ask User Question ---- */
 .agent-session-panel__ask-user-form {
-  padding: var(--spacing-lg);
-  background: var(--parchment-50);
-  border: 2px solid var(--accent);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 2px 12px rgba(194, 59, 34, 0.15);
-}
-
-.agent-session-panel__ask-user-form:focus-within {
-  border-color: var(--parchment-300);
-  box-shadow: none;
+  padding: 18px;
+  background: var(--warning-soft);
+  border: 1px solid rgba(196,162,101,0.15);
+  border-radius: var(--radius-lg);
 }
 
 .agent-session-panel__ask-user-header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
 .agent-session-panel__ask-user-header .m-icon {
-  font-size: var(--icon-md);
-  color: var(--accent);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  font-size: 13px;
+  color: var(--warning);
 }
 
 .agent-session-panel__ask-user-title {
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--ink-900);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warning);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .agent-session-panel__ask-user-text {
-  font-size: var(--font-sm);
-  color: var(--ink-700);
-  margin: 0 0 var(--spacing-sm) 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+  margin: 0 0 14px 0;
   line-height: var(--leading-relaxed);
 }
 
 .agent-session-panel__ask-user-input {
   width: 100%;
-  padding: var(--spacing-sm);
-  background: var(--parchment-50);
-  border: 1px solid var(--parchment-300);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
-  color: var(--ink-700);
+  padding: var(--spacing-2);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-primary);
   resize: none;
-  margin-bottom: var(--spacing-sm);
-  transition: all var(--duration-base) var(--ease-out);
+  margin-bottom: 10px;
+  transition: all 0.15s ease;
 }
 
 .agent-session-panel__ask-user-input:focus {
@@ -933,21 +940,21 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__ask-user-btn {
-  padding: var(--spacing-xs) var(--spacing-lg);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: var(--font-medium);
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  background: var(--ink-900);
-  color: var(--parchment-50);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  transition: all var(--duration-base) var(--ease-out);
+  background: white;
+  color: var(--text-primary);
+  transition: all 0.12s ease;
 }
 
 .agent-session-panel__ask-user-btn:hover:not(:disabled) {
-  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .agent-session-panel__ask-user-btn:disabled {
@@ -969,7 +976,7 @@ const taskFilesWidth = computed(() => {
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
   border: 2px dashed var(--accent);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   z-index: 20;
   pointer-events: none;
 }

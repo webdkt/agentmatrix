@@ -183,24 +183,24 @@ watch(() => props.modelValue, (v) => {
   width: 100%;
   background: transparent;
   border: none;
-  border-bottom: 2px solid var(--parchment-300);
-  color: var(--ink-900);
+  border-bottom: 2px solid var(--border);
+  color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 24px;
   padding: 12px 60px 12px 0;
   outline: none;
   text-align: center;
   transition: border-color 0.3s;
-  caret-color: var(--vermillion);
+  caret-color: var(--accent);
 }
 
 .ms-input::placeholder {
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   font-size: 18px;
 }
 
 .ms-input:focus {
-  border-bottom-color: var(--vermillion);
+  border-bottom-color: var(--accent);
 }
 
 .ms-new,
@@ -211,11 +211,8 @@ watch(() => props.modelValue, (v) => {
   transform: translateY(-50%);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-variant: small-caps;
   padding: 2px 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .ms-new {
@@ -224,7 +221,7 @@ watch(() => props.modelValue, (v) => {
 }
 
 .ms-provider {
-  color: var(--verdant);
+  color: var(--success);
   background: rgba(45, 106, 79, 0.08);
 }
 
@@ -236,9 +233,9 @@ watch(() => props.modelValue, (v) => {
   width: 100%;
   max-height: 200px;
   overflow-y: auto;
-  background: var(--parchment-50);
-  border: 1px solid var(--parchment-300);
-  border-radius: 2px;
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   z-index: 50;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
@@ -259,26 +256,24 @@ watch(() => props.modelValue, (v) => {
 
 .ms-option:hover,
 .ms-option.hover {
-  background: var(--parchment-200);
+  background: var(--surface-hover);
 }
 
 .ms-option-model {
   font-size: 16px;
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 .ms-option-provider {
   font-size: 11px;
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .ms-empty-text {
   padding: 12px 14px;
   font-size: 13px;
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   text-align: center;
 }
 </style>

@@ -137,24 +137,24 @@ const handleOverlayClick = (e) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-lg) var(--spacing-xl);
-  border-bottom: 1px solid var(--neutral-200);
+  padding: var(--spacing-6) var(--spacing-8);
+  border-bottom: 1px solid var(--border);
 }
 
 .modal-title {
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .close-button {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -163,41 +163,41 @@ const handleOverlayClick = (e) => {
 }
 
 .close-button:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .modal-body {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-8);
   overflow-y: auto;
 }
 
 .form-section-description {
   font-size: var(--font-sm);
-  color: var(--neutral-600);
-  margin: 0 0 var(--spacing-lg) 0;
+  color: var(--text-secondary);
+  margin: 0 0 var(--spacing-6) 0;
   line-height: 1.5;
 }
 
 .form-group {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-6);
 }
 
 .form-label {
   display: block;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-700);
-  margin-bottom: var(--spacing-xs);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-1);
 }
 
 .form-input {
   width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--neutral-300);
-  border-radius: var(--radius-base);
+  padding: var(--spacing-2) var(--spacing-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   background: white;
   transition: border-color var(--duration-base) var(--ease-out);
   box-sizing: border-box;
@@ -205,49 +205,49 @@ const handleOverlayClick = (e) => {
 
 .form-input:focus {
   outline: none;
-  border-color: var(--primary-500);
-  box-shadow: 0 0 0 3px var(--primary-100);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
 .form-input::placeholder {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .form-hint {
   display: block;
   font-size: var(--font-xs);
-  color: var(--neutral-500);
-  margin-top: var(--spacing-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--spacing-1);
 }
 
 .form-help {
-  margin-top: var(--spacing-lg);
-  padding: var(--spacing-md);
-  background: var(--neutral-50);
-  border-radius: var(--radius-base);
-  border: 1px solid var(--neutral-200);
+  margin-top: var(--spacing-6);
+  padding: var(--spacing-4);
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
 }
 
 .form-help h4 {
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-  color: var(--neutral-700);
-  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--text-secondary);
+  margin: 0 0 var(--spacing-2) 0;
 }
 
 .form-help ul {
   margin: 0;
-  padding-left: var(--spacing-lg);
+  padding-left: var(--spacing-6);
 }
 
 .form-help li {
   font-size: var(--font-xs);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   line-height: 1.6;
 }
 
 .form-help code {
-  background: var(--neutral-200);
+  background: var(--border);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: var(--font-xs);
@@ -256,17 +256,17 @@ const handleOverlayClick = (e) => {
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-lg) var(--spacing-xl);
-  border-top: 1px solid var(--neutral-200);
+  gap: var(--spacing-2);
+  padding: var(--spacing-6) var(--spacing-8);
+  border-top: 1px solid var(--border);
 }
 
 .cancel-button {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-base);
-  border: 1px solid var(--neutral-300);
+  padding: var(--spacing-2) var(--spacing-6);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
   background: white;
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -274,14 +274,14 @@ const handleOverlayClick = (e) => {
 }
 
 .cancel-button:hover {
-  background: var(--neutral-50);
+  background: var(--surface-base);
 }
 
 .save-button {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-base);
+  padding: var(--spacing-2) var(--spacing-6);
+  border-radius: var(--radius-md);
   border: none;
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
@@ -290,7 +290,7 @@ const handleOverlayClick = (e) => {
 }
 
 .save-button:hover:not(:disabled) {
-  background: var(--primary-700);
+  background: var(--accent-hover);
 }
 
 .save-button:disabled {

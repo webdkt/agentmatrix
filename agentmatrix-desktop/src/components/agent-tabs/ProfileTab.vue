@@ -214,11 +214,11 @@ watch(() => props.agentName, async (newName) => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
 }
 
 .profile-tab__loading {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-8);
 }
 
 .thinking-bar {
@@ -234,19 +234,17 @@ watch(() => props.agentName, async (newName) => {
 }
 
 .profile-section {
-  margin-bottom: var(--spacing-xl);
+  margin-bottom: var(--spacing-8);
 }
 
 .profile-section__title {
   font-family: var(--font-sans);
-  font-size: 11px;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-500);
-  margin-bottom: var(--spacing-md);
-  padding-bottom: var(--spacing-xs);
-  border-bottom: 1px solid var(--parchment-300);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  font-weight: var(--font-medium);
+  margin-bottom: var(--spacing-4);
+  padding-bottom: var(--spacing-1);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Action Buttons */
@@ -264,17 +262,17 @@ watch(() => props.agentName, async (newName) => {
   font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 500;
-  color: var(--ink-600);
+  color: var(--text-secondary);
   background: white;
-  border: 1px solid var(--parchment-300);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .profile-action:hover:not(:disabled) {
-  background: var(--parchment-100);
-  border-color: var(--parchment-400);
+  background: var(--surface-secondary);
+  border-color: var(--border);
 }
 
 .profile-action:disabled {
@@ -283,14 +281,14 @@ watch(() => props.agentName, async (newName) => {
 }
 
 .profile-action--primary {
-  color: var(--accent-600, #5a3d2e);
-  background: var(--accent-50, #f9f6f4);
-  border-color: var(--accent-200, #d4c4b8);
+  color: var(--accent);
+  background: var(--accent-muted);
+  border-color: var(--accent);
 }
 
 .profile-action--primary:hover:not(:disabled) {
-  background: var(--accent-100, #f0e9e4);
-  border-color: var(--accent-300, #c4a894);
+  background: var(--accent-medium);
+  border-color: var(--accent-hover);
 }
 
 .profile-action--loading {
@@ -306,28 +304,25 @@ watch(() => props.agentName, async (newName) => {
 .profile-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .profile-field {
   display: flex;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .profile-field__label {
   font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--ink-500);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
   min-width: 120px;
-  font-variant: small-caps;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .profile-field__value {
   font-family: var(--font-sans);
   font-size: 14px;
-  color: var(--ink-700);
+  color: var(--text-secondary);
 }
 
 .profile-field__value--mono {
@@ -338,32 +333,32 @@ watch(() => props.agentName, async (newName) => {
 .profile-skills {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .profile-skill {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-700);
-  background: var(--parchment-200);
+  color: var(--text-secondary);
+  background: var(--surface-hover);
   padding: 2px 8px;
   border-radius: 2px;
-  border: 1px solid var(--parchment-300);
+  border: 1px solid var(--border);
 }
 
 .profile-persona {
-  background: var(--parchment-100);
-  border: 1px solid var(--parchment-300);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
   border-radius: 2px;
-  padding: var(--spacing-md);
+  padding: var(--spacing-4);
   max-height: 300px;
   overflow-y: auto;
 }
 
 .profile-persona__text {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 14px;
-  color: var(--ink-700);
+  color: var(--text-secondary);
   line-height: 1.8;
   white-space: pre-wrap;
   word-break: break-word;
@@ -375,8 +370,8 @@ watch(() => props.agentName, async (newName) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink-400);
-  font-family: var(--font-serif);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
   font-style: italic;
 }
 </style>

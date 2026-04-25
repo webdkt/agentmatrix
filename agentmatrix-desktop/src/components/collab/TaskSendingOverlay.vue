@@ -70,7 +70,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .task-sending-overlay__spinner {
@@ -82,7 +82,7 @@ onUnmounted(() => {
 .task-sending-overlay__text {
   font-size: var(--font-base);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
 }
 
 .fade-slide-enter-active,
