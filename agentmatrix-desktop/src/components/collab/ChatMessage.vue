@@ -122,6 +122,10 @@ const formatFileSize = (bytes) => {
 
 const handleAttachmentClick = async (attachment) => {
   try {
+    if (!attachment || !attachment.filename) {
+      console.warn('Invalid attachment:', attachment)
+      return
+    }
     await openAttachment(
       props.user_agent_name,
       props.message.data?.detail?.task_id,
@@ -142,12 +146,13 @@ const handleAttachmentClick = async (attachment) => {
         <div
           v-for="(attachment, index) in attachments"
           :key="index"
+          v-show="attachment.filename"
           class="chat-msg__attachment"
           @click="handleAttachmentClick(attachment)"
         >
           <div class="chat-msg__attachment-dot"></div>
           <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
-          <span class="chat-msg__attachment-name">{{ attachment.filename }}</span>
+          <span class="chat-msg__attachment-name">{{ attachment.filename || 'Unknown file' }}</span>
           <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
         </div>
       </div>
@@ -162,12 +167,13 @@ const handleAttachmentClick = async (attachment) => {
         <div
           v-for="(attachment, index) in attachments"
           :key="index"
+          v-show="attachment.filename"
           class="chat-msg__attachment"
           @click="handleAttachmentClick(attachment)"
         >
           <div class="chat-msg__attachment-dot"></div>
           <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
-          <span class="chat-msg__attachment-name">{{ attachment.filename }}</span>
+          <span class="chat-msg__attachment-name">{{ attachment.filename || 'Unknown file' }}</span>
           <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
         </div>
       </div>

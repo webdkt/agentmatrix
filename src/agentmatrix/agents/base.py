@@ -981,6 +981,8 @@ class BaseAgent(AutoLoggerMixin):
                 "subject": email.subject or "",
                 "body_preview": body_preview,
                 "has_more": bool(email.body and len(email.body) > 200),
+                "attachments": email.attachments or [],
+                "task_id": email.task_id,
             },
         )
 

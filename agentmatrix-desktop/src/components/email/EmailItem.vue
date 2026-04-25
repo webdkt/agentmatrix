@@ -109,6 +109,10 @@ const handleDelete = async () => {
 // 处理附件点击
 const handleAttachmentClick = async (attachment) => {
   try {
+    if (!attachment || !attachment.filename) {
+      console.warn('Invalid attachment:', attachment)
+      return
+    }
     // 附件永远保存在 User 的工作目录下
     // 无论邮件是发出还是收到，前端都是 User 打开的，所有文件都在 User 目录里
     await openAttachment(
@@ -155,6 +159,7 @@ const handleAttachmentClick = async (attachment) => {
           <div
             v-for="(attachment, index) in email.attachments"
             :key="index"
+            v-show="attachment.filename"
             class="email-card__attachment"
           >
             <div
@@ -165,7 +170,7 @@ const handleAttachmentClick = async (attachment) => {
                 <MIcon :name="getAttachmentIcon(attachment.filename)" />
               </div>
               <div class="email-card__attachment-info">
-                <span class="email-card__attachment-name">{{ attachment.filename }}</span>
+                <span class="email-card__attachment-name">{{ attachment.filename || 'Unknown file' }}</span>
                 <span class="email-card__attachment-size">{{ formatFileSize(attachment.size) }}</span>
               </div>
             </div>

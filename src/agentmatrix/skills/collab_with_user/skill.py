@@ -152,7 +152,7 @@ class Collab_with_userSkillMixin:
 
     def _resolve_container_abs_path_to_host(self, container_abs_path: str) -> str:
         """
-        将容器内绝对路径转换为宿主机路径
+        将容器内绝对路径转换为宿主机路径（使用公共方法）
 
         前提：路径必须是可映射的（在 /data/agents/{agent_name}/ 下）
         映射关系：/data/agents/{agent_name}/... → workspace/agent_files/{agent_name}/...
@@ -163,22 +163,22 @@ class Collab_with_userSkillMixin:
         Returns:
             str: 宿主机路径，如果不可映射则返回 None
         """
-        if not self._is_mappable_path(container_abs_path):
+        runtime = self.root_agent.runtime
+        if not runtime:
             return None
 
-        runtime = self.root_agent.runtime
         agent_name = self.root_agent.name
+        task_id = self.current_task_id or "default"
 
-        # 提取 /data/agents/{agent_name}/ 后面的部分
-        prefix = f"/data/agents/{agent_name}/"
-        relative_path = container_abs_path[len(prefix):]
-
-        # 构造宿主机路径
-        return str(runtime.paths.workspace_dir / "agent_files" / agent_name / relative_path)
+        # 使用公共方法
+        host_path = runtime.paths.container_path_to_host(
+            container_abs_path, agent_name, task_id
+        )
+        return str(host_path) if host_path else None
 
     def _resolve_container_path_to_host(self, container_path: str, task_id: str) -> str:
         """
-        将容器内路径转换为宿主机路径
+        将容器内路径转换为宿主机路径（使用公共方法）
 
         容器内 → 宿主机的映射（基于 docs/core/10-容器与文件系统.md）：
         - ~/ → /home/{agent_name} → workspace/agent_files/{agent_name}/home/
@@ -191,36 +191,21 @@ class Collab_with_userSkillMixin:
 
         agent_name = self.root_agent.name
 
-        # 情况 1: ~/current_task/... （软链接）
-        if container_path.startswith("~/current_task"):
-            rel_path = container_path[len("~/current_task/"):].lstrip("/")
-            return str(
-                runtime.paths.get_agent_work_files_dir(agent_name, task_id) / rel_path
+        # 使用公共方法处理 ~、~/current_task、/data/agents 等路径
+        if container_path.startswith("~") or container_path.startswith("/data/agents/"):
+            host_path = runtime.paths.container_path_to_host(
+                container_path, agent_name, task_id
             )
+            return str(host_path) if host_path else None
 
-        # 情况 2: ~/... （主目录）
-        if container_path.startswith("~/"):
-            rel_path = container_path[2:].lstrip("/")  # 移除 "~"
-            return str(
-                runtime.paths.get_agent_home_dir(agent_name) / rel_path
-            )
-
-        # 情况 3: /data/agents/{agent_name}/...
-        if container_path.startswith("/data/agents/"):
-            # 提取 {agent_name}/...
-            parts = container_path.split("/", 3)  # ["", "data", "agents", "{agent_name}", ...]
-            if len(parts) > 3:
-                relative = "/".join(parts[3:])  # {agent_name}/...
-                return str(runtime.paths.workspace_dir / "agent_files" / relative)
-
-        # 情况 4: 相对路径
+        # 相对路径 → 基于当前任务目录 (work_files/{task_id}/)
         if not Path(container_path).is_absolute():
             return str(
                 runtime.paths.get_agent_work_files_dir(agent_name, task_id)
                 / container_path
             )
 
-        # 情况 5: 其他绝对路径（容器内其他路径，无法映射）
+        # 其他绝对路径（容器内其他路径，无法映射）
         return None
 
     async def _copy_file_from_container(self, container_path: str) -> str:
