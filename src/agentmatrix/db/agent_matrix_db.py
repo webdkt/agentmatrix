@@ -393,6 +393,7 @@ class AgentMatrixDB(AutoLoggerMixin):
         self, user_session_id: str, timestamp: str = None,
         last_email_id: str = None, agent_session_id: str = None,
         last_agent_mail_time: str = None, last_check_time: str = None,
+        subject: str = None,
     ):
         sets = []
         params = []
@@ -411,6 +412,9 @@ class AgentMatrixDB(AutoLoggerMixin):
         if last_check_time is not None:
             sets.append("last_check_time = ?")
             params.append(last_check_time)
+        if subject is not None:
+            sets.append("subject = ?")
+            params.append(subject)
         if not sets:
             return
         params.append(user_session_id)

@@ -110,6 +110,15 @@ export const sessionAPI = {
   },
 
   /**
+   * 更新会话标题
+   * @param {string} sessionId - 会话 ID
+   * @param {string} subject - 新标题
+   */
+  async updateSessionSubject(sessionId, subject) {
+    return API.put(`/api/sessions/${sessionId}/subject`, { subject })
+  },
+
+  /**
    * 获取 Agent session 的事件列表
    * @param {string} agentName - Agent 名称
    * @param {string} sessionId - Agent session ID

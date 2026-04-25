@@ -9,6 +9,7 @@ import { useCollabFile } from '@/composables/useCollabFile'
 import { useTaskFiles } from '@/composables/useTaskFiles'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { agentAPI } from '@/api/agent'
+import { sessionAPI } from '@/api/session'
 import ChatMessage from './ChatMessage.vue'
 import CollabInput from './CollabInput.vue'
 import CollabStartPanel from './CollabStartPanel.vue'
@@ -100,8 +101,47 @@ provide('collabDraftMessage', collabDraftMessage)
 // ---- UI State ----
 const showTaskFiles = ref(false)
 const showTerminal = ref(false)
-const terminalMinimized = ref(true)
+const terminalFullscreen = ref(false)
 const isCollabMode = ref(false)
+const subjectInput = ref(null)
+
+// ---- Update session subject ----
+async function updateSubject(event) {
+  const newSubject = event.target.value.trim()
+  if (!currentSession.value) return
+
+  const sessionId = currentSession.value.session_id
+  const oldSubject = currentSession.value.subject || ''
+
+  if (newSubject === oldSubject) return
+
+  try {
+    // 调用 API 更新 subject
+    await sessionAPI.updateSessionSubject(sessionId, newSubject)
+
+    // 更新前端 session store 中的 subject
+    const index = sessionStore.sessions.findIndex(s => s.session_id === sessionId)
+    if (index !== -1) {
+      sessionStore.sessions[index] = {
+        ...sessionStore.sessions[index],
+        subject: newSubject
+      }
+    }
+
+    // 更新 currentSession
+    sessionStore.currentSession = {
+      ...sessionStore.currentSession,
+      subject: newSubject
+    }
+
+    console.log('✅ Session subject updated:', sessionId, newSubject)
+  } catch (error) {
+    console.error('❌ Failed to update session subject:', error)
+    // 恢复原值
+    event.target.value = oldSubject
+    alert('Failed to update subject: ' + error.message)
+  }
+}
 
 // ---- Task files (single instance shared with TaskFilesPanel) ----
 const taskFiles = useTaskFiles({
@@ -262,22 +302,23 @@ watch(() => sessionStore.sessions.length, (newLen, oldLen) => {
 
 // ---- Terminal toggle: hidden → minimized → expanded → hidden ----
 const toggleTerminal = () => {
+  showTerminal.value = !showTerminal.value
   if (!showTerminal.value) {
-    // Hidden → show minimized
-    showTerminal.value = true
-    terminalMinimized.value = true
-  } else if (terminalMinimized.value) {
-    // Minimized → expand
-    terminalMinimized.value = false
-  } else {
-    // Expanded → hide
-    showTerminal.value = false
+    // 隐藏时退出全屏模式
+    terminalFullscreen.value = false
   }
 }
 
 const handleTerminalClose = () => {
-  // Close button: go to minimized (not hidden)
-  terminalMinimized.value = true
+  // 关闭按钮 = 隐藏 terminal
+  showTerminal.value = false
+  terminalFullscreen.value = false
+}
+
+const handleTerminalToggleMinimize = () => {
+  // 最小化/最大化按钮 = 在默认大小和全屏之间切换
+  if (!showTerminal.value) return
+  terminalFullscreen.value = !terminalFullscreen.value
 }
 
 // ---- Collab mode toggle ----
@@ -352,6 +393,19 @@ const taskFilesWidth = computed(() => {
             </template>
           </span>
         </span>
+
+        <!-- Editable subject title -->
+        <div class="agent-session-panel__subject-wrapper">
+          <input
+            v-if="currentSession"
+            ref="subjectInput"
+            class="agent-session-panel__subject-input"
+            :value="currentSession.subject || ''"
+            placeholder="输入标题..."
+            @blur="updateSubject"
+            @keyup.enter="subjectInput?.blur()"
+          />
+        </div>
       </div>
 
       <div class="agent-session-panel__toolbar">
@@ -363,41 +417,7 @@ const taskFilesWidth = computed(() => {
           title="Toggle Collab Mode"
         >
           <MIcon name="users" />
-        </button>
-
-        <!-- Collabring File indicator -->
-        <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{
-            'agent-session-panel__toolbar-btn--active': collabFile,
-            'agent-session-panel__toolbar-btn--disabled': !collabFile,
-          }"
-          @click="openCollabFile"
-          :disabled="!collabFileName"
-          :title="collabFileName || 'No collab file'"
-        >
-          <MIcon name="file" />
-          <span v-if="collabFile" class="agent-session-panel__indicator-dot" />
-        </button>
-
-        <!-- Task Files toggle -->
-        <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{ 'agent-session-panel__toolbar-btn--active': showTaskFiles }"
-          @click="showTaskFiles = !showTaskFiles"
-          title="Task Files"
-        >
-          <MIcon name="folder" />
-        </button>
-
-        <!-- Terminal toggle -->
-        <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{ 'agent-session-panel__toolbar-btn--active': showTerminal }"
-          @click="toggleTerminal"
-          title="Terminal"
-        >
-          <MIcon name="terminal" />
+          <span class="agent-session-panel__toolbar-btn-text">Collab</span>
         </button>
 
         <!-- Refresh -->
@@ -407,6 +427,7 @@ const taskFilesWidth = computed(() => {
           title="Refresh"
         >
           <MIcon name="refresh" />
+          <span class="agent-session-panel__toolbar-btn-text">Refresh</span>
         </button>
       </div>
     </header>
@@ -504,10 +525,11 @@ const taskFilesWidth = computed(() => {
       <AgentTerminal
         v-if="showTerminal && currentAgentName"
         :agent-name="currentAgentName"
-        :minimized="terminalMinimized"
+        :minimized="false"
+        :fullscreen="terminalFullscreen"
         :parent-width="middleSize.width"
         :parent-height="middleSize.height"
-        @toggle-minimize="terminalMinimized = !terminalMinimized"
+        @toggle-minimize="handleTerminalToggleMinimize"
         @close="handleTerminalClose"
       />
 
@@ -520,6 +542,44 @@ const taskFilesWidth = computed(() => {
 
     <!-- Bottom Input Area -->
     <div data-drop-zone="input" class="agent-session-panel__bottom">
+      <!-- Floating toolbar (sits on right shoulder) -->
+      <div class="agent-session-panel__floating-toolbar">
+        <!-- CollabFile indicator -->
+        <button
+          class="floating-toolbar-btn"
+          :class="{
+            'floating-toolbar-btn--active': collabFile,
+            'floating-toolbar-btn--disabled': !collabFile,
+          }"
+          @click="openCollabFile"
+          :disabled="!collabFileName"
+          :title="collabFileName || 'No collab file'"
+        >
+          <MIcon name="file" />
+          <span class="floating-toolbar-btn__dot" v-if="collabFile"></span>
+        </button>
+
+        <!-- Task Files toggle -->
+        <button
+          class="floating-toolbar-btn"
+          :class="{ 'floating-toolbar-btn--active': showTaskFiles }"
+          @click="showTaskFiles = !showTaskFiles"
+          title="Task Files"
+        >
+          <MIcon name="folder" />
+        </button>
+
+        <!-- Terminal toggle -->
+        <button
+          class="floating-toolbar-btn"
+          :class="{ 'floating-toolbar-btn--active': showTerminal }"
+          @click="toggleTerminal"
+          title="Terminal"
+        >
+          <MIcon name="monitor-play" />
+        </button>
+      </div>
+
       <!-- Ask User Question form -->
       <div v-if="pendingQuestion" class="agent-session-panel__ask-user">
         <div class="agent-session-panel__ask-user-form">
@@ -618,6 +678,38 @@ const taskFilesWidth = computed(() => {
   color: var(--text-primary);
 }
 
+.agent-session-panel__subject-wrapper {
+  margin-left: 32px;
+  flex: 1;
+}
+
+.agent-session-panel__subject-input {
+  width: 100%;
+  font-size: 15px;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  outline: none;
+  transition: all 0.12s ease;
+}
+
+.agent-session-panel__subject-input:hover {
+  background: var(--surface-hover);
+}
+
+.agent-session-panel__subject-input:focus {
+  background: var(--surface-base);
+  border-color: var(--accent);
+}
+
+.agent-session-panel__subject-input::placeholder {
+  color: var(--text-quaternary);
+  font-weight: var(--font-normal);
+}
+
 .agent-session-panel__status {
   display: flex;
   align-items: center;
@@ -669,13 +761,13 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__toolbar {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 .agent-session-panel__toolbar-btn {
   position: relative;
-  width: 36px;
   height: 36px;
+  padding: 0 10px;
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
@@ -686,6 +778,13 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+}
+
+.agent-session-panel__toolbar-btn-text {
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__toolbar-btn:hover {
@@ -693,8 +792,16 @@ const taskFilesWidth = computed(() => {
   color: var(--text-primary);
 }
 
+.agent-session-panel__toolbar-btn:hover .agent-session-panel__toolbar-btn-text {
+  color: var(--text-primary);
+}
+
 .agent-session-panel__toolbar-btn--active {
   background: var(--surface-secondary);
+  color: var(--accent);
+}
+
+.agent-session-panel__toolbar-btn--active .agent-session-panel__toolbar-btn-text {
   color: var(--accent);
 }
 
@@ -738,7 +845,7 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__messages {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 36px 44px 36px;
+  padding: 32px 36px 16px 36px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -876,6 +983,7 @@ const taskFilesWidth = computed(() => {
 
 /* ---- Bottom Input Area ---- */
 .agent-session-panel__bottom {
+  position: relative;
   flex-shrink: 0;
   background: var(--surface-base);
 }
@@ -960,6 +1068,106 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__ask-user-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* ---- Floating Toolbar ---- */
+.agent-session-panel__floating-toolbar {
+  position: absolute;
+  top: -16px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(200, 200, 200, 0.3);
+  border-radius: 12px;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  z-index: 10;
+  animation: floatUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes floatUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.floating-toolbar-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #f8f9fa 0%, #f0f1f3 100%);
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.floating-toolbar-btn:hover {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
+.floating-toolbar-btn:active {
+  transform: translateY(0);
+}
+
+.floating-toolbar-btn--active {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  color: #10b981;
+  box-shadow:
+    0 1px 3px rgba(16, 185, 129, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.floating-toolbar-btn--active:hover {
+  background: linear-gradient(135deg, #d4efd6 0%, #b9e6c1 100%);
+  color: #059669;
+}
+
+.floating-toolbar-btn--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.floating-toolbar-btn--disabled:hover {
+  transform: none;
+  background: linear-gradient(135deg, #f8f9fa 0%, #f0f1f3 100%);
+  color: var(--text-secondary);
+}
+
+.floating-toolbar-btn__dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 /* ---- Drag-drop overlay ---- */

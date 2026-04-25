@@ -24,7 +24,7 @@ import {
   Database, Cpu, Link,
   EllipsisVertical, FlaskConical, CircleHelp,
   File, FileText,
-  Square, Terminal, Moon, Bed, Loader2,
+  Square, Terminal, MonitorPlay, Moon, Bed, Loader2,
 
   // Former Tabler fallbacks
   Maximize2, Minimize2, ShieldOff, Plug, AtSign,
@@ -41,6 +41,7 @@ export const iconMap = {
   send: Send,
   plus: Plus,
   close: X,
+  x: X,
   check: Check,
   refresh: RefreshCw,
   'arrow-left': ArrowLeft,
@@ -91,6 +92,7 @@ export const iconMap = {
   'file-text': FileText,
   square: Square,
   terminal: Terminal,
+  'monitor-play': MonitorPlay,
   moon: Moon,
   bed: Bed,
   loader: Loader2,

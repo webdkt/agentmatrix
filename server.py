@@ -1042,6 +1042,28 @@ async def select_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.put("/api/sessions/{session_id}/subject")
+async def update_session_subject(session_id: str, request: Request):
+    """Update session subject"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        data = await request.json()
+        new_subject = data.get("subject", "").strip()
+
+        await matrix_runtime.post_office.email_db.update_user_session(
+            user_session_id=session_id,
+            subject=new_subject if new_subject else None,
+        )
+
+        return {"success": True, "subject": new_subject}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sessions/{session_id}/emails/{email_id}/attachments/{filename}")
 async def download_email_attachment(session_id: str, email_id: str, filename: str):
     """Download an attachment from an email"""

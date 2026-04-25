@@ -44,7 +44,7 @@ const pillText = computed(() => {
   const { eventType, eventName, detail } = props.message.data
   if (eventType === 'action') {
     if (eventName === 'started') {
-      return `执行 ${detail.action_name || ''}`
+      return detail.action_name || ''
     }
     if (eventName === 'completed') {
       const label = detail.action_label || detail.action_name || ''
@@ -54,7 +54,8 @@ const pillText = computed(() => {
       if (detail.status === 'canceled') {
         return `${label} 已取消`
       }
-      return `${label} 完成`
+      // 正常完成：只显示 label，勾勾用 CSS 显示
+      return label
     }
     if (eventName === 'error') {
       const label = detail.action_label || detail.action_name || ''
@@ -359,6 +360,15 @@ const handleAttachmentClick = async (attachment) => {
   background: var(--success);
 }
 
+.chat-pill__capsule--completed::after {
+  content: '✓';
+  color: #10b981;
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 4px;
+  vertical-align: baseline;
+}
+
 .chat-pill__capsule--error::before {
   background: var(--error);
 }
@@ -402,13 +412,19 @@ const handleAttachmentClick = async (attachment) => {
 
 /* ===== Session start/end time ===== */
 .chat-session-time {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 0;
+  padding: 4px 12px;
   font-size: 11px;
-  color: var(--text-quaternary);
+  color: var(--text-tertiary);
+  background: var(--surface-elevated);
+  border-radius: 12px;
+  margin: 0 auto;
   animation: fadeIn 200ms var(--ease-out);
+  /* 减少上下间距（抵消父容器的 gap: 24px） */
+  margin-top: -16px;
+  margin-bottom: -16px;
 }
 
 /* ===== Markdown styles ===== */
