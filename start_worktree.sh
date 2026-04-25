@@ -61,7 +61,11 @@ log_info "创建新 worktree: $WORKTREE_NAME"
 cd "$BASE_DIR/$MAIN_REPO"
 
 # 同步远程
-git fetch origin main >/dev/null 2>&1
+log_info "同步远程分支..."
+if ! git fetch origin main; then
+    log_error "git fetch 失败，请检查网络连接"
+    exit 1
+fi
 
 # 创建 worktree 和分支
 git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME" origin/main
