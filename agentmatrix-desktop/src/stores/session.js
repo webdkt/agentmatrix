@@ -30,6 +30,21 @@ export const useSessionStore = defineStore('session', {
     },
 
     /**
+     * 计算 session 未读状态（基于时间比较）
+     */
+    isSessionUnread: (state) => (sessionId) => {
+      const session = state.sessions.find(s => s.session_id === sessionId)
+      if (!session) return false
+
+      const lastAgentTime = session.last_agent_mail_time
+      const lastCheckTime = session.last_check_time
+
+      if (!lastAgentTime) return false
+      if (!lastCheckTime) return true
+      return new Date(lastAgentTime) > new Date(lastCheckTime)
+    },
+
+    /**
      * 当前会话的参与者名称
      */
     currentParticipants: (state) => {
@@ -84,7 +99,13 @@ export const useSessionStore = defineStore('session', {
      * 是否有未读会话
      */
     hasUnreadSessions: (state) => {
-      return state.sessions.some(s => s.is_unread)
+      return state.sessions.some(s => {
+        const lastAgentTime = s.last_agent_mail_time
+        const lastCheckTime = s.last_check_time
+        if (!lastAgentTime) return false
+        if (!lastCheckTime) return true
+        return new Date(lastAgentTime) > new Date(lastCheckTime)
+      })
     },
 
     /**
@@ -160,6 +181,10 @@ export const useSessionStore = defineStore('session', {
       } else {
         this.currentSession = session
       }
+
+      // 立即调用 API 更新查看时间
+      this.updateCheckTime(session.session_id)
+
       console.log('🔄 Session selected (will trigger loadEmails):', this.currentSession.session_id)
     },
 
@@ -212,22 +237,43 @@ export const useSessionStore = defineStore('session', {
     },
 
     /**
-     * 标记会话为已读（本地更新，用于即时反馈）
+     * 更新会话查看时间（本地乐观更新）
+     * 用户发信/查看会话时调用
      */
-    markSessionRead(sessionId) {
+    updateCheckTimeLocal(sessionId) {
       const index = this.sessions.findIndex(s => s.session_id === sessionId)
       if (index !== -1) {
-        this.sessions[index] = { ...this.sessions[index], is_unread: false }
+        this.sessions[index] = {
+          ...this.sessions[index],
+          last_check_time: new Date().toISOString()
+        }
       }
     },
 
     /**
-     * 标记会话为未读（本地更新，用于即时反馈）
+     * 更新 Agent 发信时间（本地乐观更新）
+     * Agent 发信时调用
      */
-    markSessionUnread(sessionId) {
+    updateAgentMailTimeLocal(sessionId) {
       const index = this.sessions.findIndex(s => s.session_id === sessionId)
       if (index !== -1) {
-        this.sessions[index] = { ...this.sessions[index], is_unread: true }
+        this.sessions[index] = {
+          ...this.sessions[index],
+          last_agent_mail_time: new Date().toISOString()
+        }
+      }
+    },
+
+    /**
+     * 更新会话查看时间（API + 本地乐观更新）
+     */
+    async updateCheckTime(sessionId) {
+      try {
+        await sessionAPI.selectSession(sessionId)
+        // 本地乐观更新
+        this.updateCheckTimeLocal(sessionId)
+      } catch (error) {
+        console.error('❌ Failed to update check time:', error)
       }
     },
 
@@ -415,53 +461,6 @@ export const useSessionStore = defineStore('session', {
      */
     setLastSessionEvent(event) {
       this.lastSessionEvent = event
-    },
-
-    /**
-     * 根据 WebSocket 事件更新本地 session 状态
-     * @param {object} data - user_session_updated 事件数据
-     */
-    updateSessionFromEvent(data) {
-      const { session_id, is_read, subject, timestamp, agent_session_id } = data
-      const index = this.sessions.findIndex(s => s.session_id === session_id)
-
-      if (index !== -1) {
-        const updated = { ...this.sessions[index] }
-
-        // 更新未读状态：is_read=0 → 未读, is_read=1 → 已读
-        if (is_read !== undefined) {
-          updated.is_unread = is_read === 0
-        }
-
-        // 更新显示字段
-        if (subject) updated.subject = subject
-        if (timestamp) {
-          updated.timestamp = timestamp
-          updated.last_email_time = timestamp  // 同时更新 last_email_time（用于 UI 显示）
-        }
-        if (agent_session_id) updated.agent_session_id = agent_session_id
-
-        // 移除旧项，重新排序后插入
-        this.sessions.splice(index, 1)
-
-        // 按时间降序插入（最新的在前面）
-        const insertIndex = this.sessions.findIndex(s => {
-          return new Date(s.last_email_time || s.timestamp) < new Date(updated.last_email_time || updated.timestamp)
-        })
-
-        if (insertIndex === -1) {
-          // 没找到更晚的，追加到末尾
-          this.sessions.push(updated)
-        } else {
-          // 插入到正确位置
-          this.sessions.splice(insertIndex, 0, updated)
-        }
-
-        console.log('🔄 Session updated and re-sorted:', session_id, { is_unread: updated.is_unread, last_email_time: updated.last_email_time, position: insertIndex === -1 ? 'end' : insertIndex })
-      } else {
-        // session 不存在 → 跳过。新邮件场景中 handleEmailSent 已增量插入了真实 session。
-        console.log('⏭️ Session not found, skipping:', session_id)
-      }
     },
   },
 })

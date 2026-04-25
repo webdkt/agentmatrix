@@ -102,6 +102,14 @@ export const sessionAPI = {
   },
 
   /**
+   * 选择会话（更新查看时间）
+   * @param {string} sessionId - 会话 ID
+   */
+  async selectSession(sessionId) {
+    return API.post(`/api/sessions/${sessionId}/select`)
+  },
+
+  /**
    * 获取 Agent session 的事件列表
    * @param {string} agentName - Agent 名称
    * @param {string} sessionId - Agent session ID

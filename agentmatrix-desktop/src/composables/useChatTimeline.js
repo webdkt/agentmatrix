@@ -110,7 +110,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       events.value = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
       totalEventCount.value = result.total || 0
       hasMoreEvents.value = events.value.length < totalEventCount.value
-      sessionStore.markSessionRead(session.session_id)
+      sessionStore.updateCheckTimeLocal(session.session_id)
     } catch (err) {
       error.value = err.message
       console.error('Failed to load session events:', err)

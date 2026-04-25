@@ -237,7 +237,7 @@ const handleAttachmentClick = async (attachment) => {
 
 /* ===== Bubble base ===== */
 .chat-msg__bubble {
-  padding: 14px 18px;
+  padding: 12px 16px;
   font-size: 14px;
   line-height: 1.65;
 }
@@ -246,7 +246,7 @@ const handleAttachmentClick = async (attachment) => {
 .chat-msg:not(.chat-msg--user) .chat-msg__bubble {
   background: var(--surface-base);
   color: var(--text-primary);
-  border: 2px solid var(--text-quaternary);
+  border: 2px solid var(--text-tertiary);
   border-radius: 8px 8px 8px 4px;
   position: relative;
   margin-bottom: 12px;
@@ -275,7 +275,7 @@ const handleAttachmentClick = async (attachment) => {
   height: 0;
   border-left: 13px solid transparent;
   border-right: 13px solid transparent;
-  border-top: 13px solid var(--text-quaternary);
+  border-top: 13px solid var(--text-tertiary);
   z-index: 0;
 }
 
@@ -326,6 +326,7 @@ const handleAttachmentClick = async (attachment) => {
   animation: fadeIn 250ms var(--ease-out);
   margin: -12px 12px -12px 0;
   vertical-align: top;
+  padding-left: 20px;
 }
 
 .chat-pill__capsule {
@@ -373,12 +374,15 @@ const handleAttachmentClick = async (attachment) => {
 }
 
 .chat-msg__body--thought {
-  color: var(--text-primary);
+  color: rgba(60, 60, 60, 0.75);
   font-size: 14px;
-  line-height: 1.5;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', 'PingFang SC', 'Microsoft YaHei', monospace;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
   white-space: pre-wrap;
   word-break: break-word;
   font-style: normal;
+  font-feature-settings: 'tnum' 1;
 }
 
 /* ===== System event ===== */
@@ -401,7 +405,7 @@ const handleAttachmentClick = async (attachment) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 0;
+  padding: 4px 0;
   font-size: 11px;
   color: var(--text-quaternary);
   animation: fadeIn 200ms var(--ease-out);

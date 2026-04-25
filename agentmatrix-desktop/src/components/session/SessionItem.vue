@@ -100,7 +100,7 @@ const hasPending = computed(() => {
 
 // 检查是否有未读邮件
 const isUnread = computed(() => {
-  return props.session.is_unread
+  return sessionStore.isSessionUnread(props.session.session_id)
 })
 </script>
 

@@ -1014,14 +1014,29 @@ async def get_session_emails(session_id: str):
 
 @app.post("/api/sessions/{session_id}/mark-read")
 async def mark_session_read(session_id: str):
-    """Mark a user session as read"""
+    """Mark a user session as read by updating check time"""
     global matrix_runtime
 
     if not matrix_runtime:
         raise HTTPException(status_code=503, detail="Runtime not initialized")
 
     try:
-        await matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
+        await matrix_runtime.post_office.email_db.update_check_time(session_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sessions/{session_id}/select")
+async def select_session(session_id: str):
+    """User selects a session - update check time"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        await matrix_runtime.post_office.email_db.update_check_time(session_id)
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

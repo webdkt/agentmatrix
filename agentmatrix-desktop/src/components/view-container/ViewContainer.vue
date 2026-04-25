@@ -59,6 +59,8 @@ async function setupAppAfterBackend() {
       const config = await configAPI.getFullConfig()
       if (config?.user_agent_name) {
         userAgentName.value = config.user_agent_name
+        // 存储到 configStore，供其他组件使用（如 websocket store）
+        configStore.config.user_agent_name = config.user_agent_name
       }
     } catch (e) {
       console.warn('Failed to fetch user_agent_name, using default:', e)
