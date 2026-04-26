@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use serde_json::Value as JsonValue;
+use serde_yaml;
 
 /// 扩展 ~ 路径为完整路径（辅助函数）
 fn expand_path(path: &str) -> PathBuf {
@@ -32,5 +33,26 @@ pub fn save_llm_config(matrix_world_path: String, llm_config: JsonValue) -> Resu
         .map_err(|e| format!("Failed to write llm_config.json: {}", e))?;
 
     println!("✅ Saved LLM config to {:?}", config_path);
+    Ok(())
+}
+
+/// 保存邮件代理配置
+#[tauri::command]
+pub fn save_email_proxy_config_cmd(matrix_world_path: String, email_proxy: JsonValue) -> Result<(), String> {
+    let config_path = expand_path(&matrix_world_path)
+        .join(".matrix/configs/email_proxy_config.yml");
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    let yaml_str = serde_yaml::to_string(&email_proxy)
+        .map_err(|e| format!("Failed to serialize YAML: {}", e))?;
+
+    std::fs::write(&config_path, yaml_str)
+        .map_err(|e| format!("Failed to write email_proxy_config.yml: {}", e))?;
+
+    println!("✅ Saved email proxy config to {:?}", config_path);
     Ok(())
 }

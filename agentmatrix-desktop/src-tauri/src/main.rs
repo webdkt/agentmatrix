@@ -137,25 +137,6 @@ fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name
 }
 
 
-#[tauri::command]
-fn save_email_proxy_config_cmd(matrix_world_path: String, email_proxy: JsonValue) -> Result<(), String> {
-    let config_path = expand_path(&matrix_world_path)
-        .join(".matrix/configs/email_proxy_config.yml");
-
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
-
-    let yaml_str = serde_yaml::to_string(&email_proxy)
-        .map_err(|e| format!("Failed to serialize YAML: {}", e))?;
-
-    std::fs::write(&config_path, yaml_str)
-        .map_err(|e| format!("Failed to write email_proxy_config.yml: {}", e))?;
-
-    println!("✅ Saved email proxy config to {:?}", config_path);
-    Ok(())
-}
 
 #[tauri::command]
 fn save_env_file(matrix_world_path: String, env_vars: JsonValue) -> Result<(), String> {
@@ -1786,7 +1767,7 @@ fn main() {
             commands::filesystem::copy_file,
             commands::filesystem::file_exists,
             commands::config::save_llm_config,
-            save_email_proxy_config_cmd,
+            commands::config::save_email_proxy_config_cmd,
             save_env_file,
             check_container_runtime,
             install_podman,
