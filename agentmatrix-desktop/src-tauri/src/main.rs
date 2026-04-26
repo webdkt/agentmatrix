@@ -536,25 +536,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-#[tauri::command]
-async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    app.dialog()
-        .file()
-        .set_title("Select MatrixWorld Directory")
-        .pick_folder(move |path| {
-            let _ = tx.send(path.map(|p| p.to_string()));
-        });
-
-    match rx.recv() {
-        Ok(Some(path)) => Ok(Some(path)),
-        Ok(None) => Ok(None),
-        Err(_) => Err("Dialog closed".to_string()),
-    }
-}
 
 #[tauri::command]
 async fn show_notification(title: String, body: String) -> Result<(), String> {
@@ -1696,7 +1677,7 @@ fn main() {
             commands::config::update_config,
             commands::config::is_first_run,
             commands::config::mark_configured,
-            select_directory,
+            commands::config::select_directory,
             show_notification,
             open_attachment_path,
             commands::filesystem::open_folder,

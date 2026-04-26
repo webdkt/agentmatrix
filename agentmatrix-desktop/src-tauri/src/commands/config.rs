@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use serde_json::Value as JsonValue;
 use serde_yaml;
 use crate::config::AppConfig;
+use tauri::AppHandle;
 
 /// 扩展 ~ 路径为完整路径（辅助函数）
 fn expand_path(path: &str) -> PathBuf {
@@ -126,4 +127,25 @@ pub async fn mark_configured(matrix_world_path: String) -> Result<(), String> {
     config.save()?;
     println!("✅ Config saved");
     Ok(())
+}
+
+/// 选择目录（用于配置）
+#[tauri::command]
+pub async fn select_directory(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog()
+        .file()
+        .set_title("Select MatrixWorld Directory")
+        .pick_folder(move |path| {
+            let _ = tx.send(path.map(|p| p.to_string()));
+        });
+
+    match rx.recv() {
+        Ok(Some(path)) => Ok(Some(path)),
+        Ok(None) => Ok(None),
+        Err(_) => Err("Dialog closed".to_string()),
+    }
 }
