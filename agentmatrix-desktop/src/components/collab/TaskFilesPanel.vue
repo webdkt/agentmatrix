@@ -101,6 +101,10 @@ const formatFileSize = (bytes) => {
       :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
       @click.stop
     >
+      <button @click="emit('menu-action', 'reveal')" class="task-files-panel__menu-item">
+        <MIcon name="external-link" />
+        <span>在文件管理器中显示</span>
+      </button>
       <button @click="emit('menu-action', 'copy')" class="task-files-panel__menu-item">
         <MIcon name="copy" />
         <span>复制到本地</span>

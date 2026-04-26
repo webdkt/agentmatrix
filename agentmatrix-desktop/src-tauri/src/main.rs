@@ -762,6 +762,72 @@ async fn open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn reveal_in_folder(path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&path);
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", path.display()));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: open -R 会在 Finder 中选中文件
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in Finder: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: explorer /select 会在资源管理器中选中文件
+        let path_str = path.to_string_lossy().to_string();
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&path_str)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in Explorer: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: 尝试使用常见的文件管理器
+        // 优先尝试 nautilus (GNOME), dolphin (KDE), thunar (XFCE)
+        let managers = vec![
+            ("nautilus", vec!["--select", path.to_str().unwrap()]),
+            ("dolphin", vec!["--select", path.to_str().unwrap()]),
+            ("thunar", vec!["--select", path.to_str().unwrap()]),
+        ];
+
+        let mut success = false;
+        for (cmd, args) in managers {
+            if std::process::Command::new(&cmd)
+                .args(&args)
+                .spawn()
+                .is_ok()
+            {
+                success = true;
+                println!("✅ Revealed with {} : {}", cmd, path.display());
+                break;
+            }
+        }
+
+        if !success {
+            // 如果都失败了，回退到打开父目录
+            if let Some(parent) = path.parent() {
+                std::process::Command::new("xdg-open")
+                    .arg(parent)
+                    .spawn()
+                    .map_err(|e| format!("Failed to open parent folder: {}", e))?;
+            }
+        }
+    }
+
+    println!("✅ Revealed in file manager: {}", path.display());
+    Ok(())
+}
+
+#[tauri::command]
 async fn read_directory(path: String) -> Result<Vec<serde_json::Value>, String> {
     let dir_path = std::path::Path::new(&path);
     if !dir_path.exists() {
@@ -1890,6 +1956,7 @@ fn main() {
             show_notification,
             open_attachment_path,
             open_folder,
+            reveal_in_folder,
             read_directory,
             open_browser_with_profile,
             init_matrix_world,

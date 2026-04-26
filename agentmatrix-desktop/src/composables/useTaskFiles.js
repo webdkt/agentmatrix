@@ -186,6 +186,21 @@ export function useTaskFiles({ agentName, sessionId } = {}) {
   }
 
   /**
+   * 在文件管理器中显示文件/文件夹
+   */
+  const revealInFolder = async (path) => {
+    const uiStore = useUIStore()
+
+    try {
+      await invoke('reveal_in_folder', { path })
+      console.log(`✅ Revealed in file manager: ${path}`)
+    } catch (err) {
+      console.error('❌ Failed to reveal in folder:', err)
+      uiStore.showNotification(`无法打开文件管理器: ${err}`, 'error')
+    }
+  }
+
+  /**
    * 复制文件到本地目录（不切换文件浏览器的当前目录）
    */
   const copyFilesToLocal = async (filePaths) => {
@@ -304,7 +319,15 @@ export function useTaskFiles({ agentName, sessionId } = {}) {
 
     console.log('Files to process:', filesToProcess)
 
-    if (action === 'copy') {
+    if (action === 'reveal') {
+      // 在文件管理器中显示（只针对右键点击的单个文件）
+      if (targetFile) {
+        await revealInFolder(targetFile.path)
+      } else {
+        const uiStore = useUIStore()
+        uiStore.showNotification('请在文件上右键选择此操作', 'warning')
+      }
+    } else if (action === 'copy') {
       await copyFilesToLocal(filesToProcess)
     } else if (action === 'delete') {
       // 删除功能在后续阶段实现
