@@ -117,3 +117,13 @@ pub async fn is_first_run() -> Result<bool, String> {
     let config = AppConfig::load()?;
     Ok(config.is_first_run())
 }
+
+/// 标记应用已配置
+#[tauri::command]
+pub async fn mark_configured(matrix_world_path: String) -> Result<(), String> {
+    let mut config = AppConfig::load()?;
+    config.matrix_world_path = matrix_world_path;
+    config.save()?;
+    println!("✅ Config saved");
+    Ok(())
+}

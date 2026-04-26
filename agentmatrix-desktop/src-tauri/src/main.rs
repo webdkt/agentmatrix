@@ -535,14 +535,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-#[tauri::command]
-async fn mark_configured(matrix_world_path: String) -> Result<(), String> {
-    let mut config = AppConfig::load()?;
-    config.matrix_world_path = matrix_world_path;
-    config.save()?;
-    println!("✅ Config saved");
-    Ok(())
-}
 
 #[tauri::command]
 async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -1703,7 +1695,7 @@ fn main() {
             commands::config::get_config,
             commands::config::update_config,
             commands::config::is_first_run,
-            mark_configured,
+            commands::config::mark_configured,
             select_directory,
             show_notification,
             open_attachment_path,
