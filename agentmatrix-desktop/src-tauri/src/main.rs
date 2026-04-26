@@ -537,11 +537,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-#[tauri::command]
-async fn show_notification(title: String, body: String) -> Result<(), String> {
-    println!("Notification: {} - {}", title, body);
-    Ok(())
-}
 
 #[tauri::command]
 async fn is_window_focused(app: tauri::AppHandle) -> Result<bool, String> {
@@ -1678,7 +1673,7 @@ fn main() {
             commands::config::is_first_run,
             commands::config::mark_configured,
             commands::config::select_directory,
-            show_notification,
+            commands::ui::show_notification,
             open_attachment_path,
             commands::filesystem::open_folder,
             commands::filesystem::reveal_in_folder,
