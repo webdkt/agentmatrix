@@ -78,6 +78,11 @@ fn copy_file(src: String, dest: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn file_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
+#[tauri::command]
 fn init_matrix_world(app: tauri::AppHandle, matrix_world_path: String, user_name: String) -> Result<(), String> {
     // In dev mode, use local resources directory (fixes worktree symlink issues)
     // In production, use resource_dir from the bundle
@@ -1889,6 +1894,7 @@ fn main() {
             open_browser_with_profile,
             init_matrix_world,
             copy_file,
+            file_exists,
             save_llm_config,
             save_email_proxy_config_cmd,
             save_env_file,

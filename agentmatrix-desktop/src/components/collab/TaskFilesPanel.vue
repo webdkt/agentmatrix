@@ -9,9 +9,23 @@ const props = defineProps({
   rootDir: { type: String, default: '' },
   isAtRoot: { type: Boolean, default: true },
   relativePath: { type: String, default: '' },
+  selectedFiles: { type: Object, default: () => new Set() },
+  contextMenu: { type: Object, default: () => ({ show: false }) },
 })
 
-const emit = defineEmits(['load-files', 'open-entry', 'go-up', 'go-root', 'close'])
+const emit = defineEmits(['load-files', 'open-entry', 'go-up', 'go-root', 'close', 'select-file', 'contextmenu', 'hide-context-menu', 'menu-action'])
+
+const isFileSelected = (path) => props.selectedFiles.has(path)
+
+const handleFileClick = (entry, event) => {
+  // 阻止双击触发单击
+  if (event.detail === 2) return
+  emit('select-file', entry, event)
+}
+
+const handleContextMenu = (entry, event) => {
+  emit('contextmenu', entry, event)
+}
 
 const formatFileSize = (bytes) => {
   if (!bytes) return ''
@@ -23,7 +37,7 @@ const formatFileSize = (bytes) => {
 </script>
 
 <template>
-  <div class="task-files-panel" data-drop-zone="task-files" :style="{ width: `${width}px` }">
+  <div class="task-files-panel" data-drop-zone="task-files" :style="{ width: `${width}px` }" @click="emit('hide-context-menu')">
     <!-- Header -->
     <div class="task-files-panel__header">
       <MIcon name="folder" />
@@ -61,7 +75,10 @@ const formatFileSize = (bytes) => {
         v-for="entry in files"
         :key="entry.path"
         class="task-files-panel__file-item"
+        :class="{ 'task-files-panel__file-item--selected': isFileSelected(entry.path) }"
+        @click="handleFileClick(entry, $event)"
         @dblclick="emit('open-entry', entry)"
+        @contextmenu="handleContextMenu(entry, $event)"
       >
         <MIcon :name="entry.is_dir ? 'folder' : 'file-text'" />
         <span class="task-files-panel__file-name">{{ entry.name }}</span>
@@ -75,6 +92,23 @@ const formatFileSize = (bytes) => {
       <div v-if="filesLoading" class="task-files-panel__empty">
         Loading...
       </div>
+    </div>
+
+    <!-- 右键菜单 -->
+    <div
+      v-if="contextMenu.show"
+      class="task-files-panel__context-menu"
+      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+      @click.stop
+    >
+      <button @click="emit('menu-action', 'copy')" class="task-files-panel__menu-item">
+        <MIcon name="copy" />
+        <span>复制到本地</span>
+      </button>
+      <button @click="emit('menu-action', 'delete')" class="task-files-panel__menu-item task-files-panel__menu-item--danger">
+        <MIcon name="trash" />
+        <span>删除</span>
+      </button>
     </div>
   </div>
 </template>
@@ -189,6 +223,12 @@ const formatFileSize = (bytes) => {
   background: var(--surface-base);
 }
 
+.task-files-panel__file-item--selected {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding-left: calc(var(--spacing-4) - 3px);
+}
+
 .task-files-panel__file-item .m-icon {
   font-size: var(--font-sm);
   color: var(--text-tertiary);
@@ -213,5 +253,54 @@ const formatFileSize = (bytes) => {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
   font-style: italic;
+}
+
+.task-files-panel__context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  min-width: 160px;
+  z-index: var(--z-dropdown);
+  overflow: hidden;
+  animation: menuFadeIn 0.15s ease-out;
+}
+
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.task-files-panel__menu-item {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.task-files-panel__menu-item:hover {
+  background: var(--surface-hover);
+}
+
+.task-files-panel__menu-item--danger {
+  color: var(--error);
+}
+
+.task-files-panel__menu-item .m-icon {
+  font-size: var(--font-sm);
 }
 </style>

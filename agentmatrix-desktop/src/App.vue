@@ -12,6 +12,7 @@ import ViewSelector from '@/components/view-selector/ViewSelector.vue'
 import ViewContainer from '@/components/view-container/ViewContainer.vue'
 import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
 import EmailToast from '@/components/toast/EmailToast.vue'
+import ToastContainer from '@/components/settings/toast/ToastContainer.vue'
 import { configAPI } from '@/api/config'
 
 const windowLabel = getCurrentWebviewWindow().label
@@ -135,6 +136,7 @@ onUnmounted(() => {
     @click="handleEmailToastClick"
     @close="uiStore.emailToast.show = false"
   />
+  <ToastContainer />
 </template>
 
 <style scoped>

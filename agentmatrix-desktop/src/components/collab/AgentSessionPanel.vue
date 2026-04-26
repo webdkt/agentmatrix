@@ -523,10 +523,16 @@ const taskFilesWidth = computed(() => {
           :root-dir="taskFiles.rootDir.value"
           :is-at-root="taskFiles.isAtRoot.value"
           :relative-path="taskFiles.relativePath.value"
+          :selected-files="taskFiles.selectedFiles.value"
+          :context-menu="taskFiles.contextMenu.value"
           @load-files="taskFiles.loadFiles()"
           @open-entry="(entry) => taskFiles.openEntry(entry)"
           @go-up="taskFiles.goUp()"
           @go-root="taskFiles.goRoot()"
+          @select-file="(entry, event) => taskFiles.toggleFileSelection(entry, event)"
+          @contextmenu="(entry, event) => taskFiles.showContextMenu(entry, event)"
+          @hide-context-menu="taskFiles.hideContextMenu()"
+          @menu-action="(action) => taskFiles.handleMenuAction(action)"
           @close="showTaskFiles = false"
         />
       </Transition>
