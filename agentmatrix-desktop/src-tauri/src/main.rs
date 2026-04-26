@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+use commands::container::check_image;
 
 use std::process::{Command, Child};
 use std::sync::Mutex;
@@ -1273,44 +1274,11 @@ async fn wizard_complete(app: tauri::AppHandle, state: State<'_, BackendState>) 
 
 // ─── Docker Image Management ───
 
-#[derive(serde::Serialize)]
-struct ImageInfo {
-    exists: bool,
-    size: Option<String>,
-}
-
 /// Resolve the available container runtime binary (podman preferred, then docker).
 fn find_container_runtime() -> Result<String, String> {
     find_executable("podman")
         .or_else(|| find_executable("docker"))
         .ok_or_else(|| "No container runtime (podman/docker) found".to_string())
-}
-
-#[tauri::command]
-async fn check_image() -> Result<ImageInfo, String> {
-    // Resolve runtime path (GUI apps don't inherit shell PATH on macOS)
-    let runtime_bin = find_container_runtime()?;
-
-    // Check if agentmatrix:latest image exists
-    if let Ok(output) = StdCommand::new(&runtime_bin)
-        .args(["images", "--format", "{{.Size}}", "agentmatrix:latest"])
-        .output()
-    {
-        if output.status.success() {
-            let size_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !size_str.is_empty() {
-                return Ok(ImageInfo {
-                    exists: true,
-                    size: Some(size_str),
-                });
-            }
-        }
-    }
-
-    Ok(ImageInfo {
-        exists: false,
-        size: None,
-    })
 }
 
 #[tauri::command]
@@ -1583,7 +1551,7 @@ fn main() {
             commands::config::save_env_file,
             check_container_runtime,
             install_podman,
-            check_image,
+            commands::container::check_image,
             load_image,
             init_podman_vm,
             ensure_container_image,
