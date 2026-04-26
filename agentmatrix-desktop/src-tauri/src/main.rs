@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
-use commands::container::{check_image, load_image, check_container_runtime, install_podman, init_podman_vm};
+use commands::container::{check_image, load_image, check_container_runtime, install_podman, init_podman_vm, ensure_container_image};
 
 use std::process::{Command, Child};
 use std::sync::Mutex;
@@ -609,26 +609,6 @@ async fn auto_setup_container_runtime(app: tauri::AppHandle) {
 // ─── Initialize Podman VM (for cold start wizard) ───
 
 // ─── Ensure Container Image (for cold start wizard) ───
-
-#[tauri::command]
-async fn ensure_container_image(app: tauri::AppHandle) -> Result<String, String> {
-    println!("🔍 Checking container image...");
-
-    // Check if image exists
-    let image_info = check_image().await.map_err(|e| e.to_string())?;
-
-    if image_info.exists {
-        println!("✅ Container image already loaded: {} ({})", "agentmatrix:latest", image_info.size.unwrap_or_default());
-        return Ok("Container image already loaded".to_string());
-    }
-
-    // Load image
-    println!("📦 Loading container image from bundle...");
-    load_image(app).await?;
-    println!("✅ Container image loaded successfully");
-
-    Ok("Container image loaded successfully".to_string())
-}
 
 // ─── Initialize Container Packages (for lazy loading) ───
 
@@ -1267,7 +1247,7 @@ fn main() {
             commands::container::check_image,
             commands::container::load_image,
             commands::container::init_podman_vm,
-            ensure_container_image,
+            commands::container::ensure_container_image,
             wizard_complete,
             commands::ui::is_window_focused,
             commands::ui::show_window,

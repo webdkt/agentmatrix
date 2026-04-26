@@ -326,3 +326,24 @@ pub async fn init_podman_vm() -> Result<String, String> {
 
     Err("Podman VM did not become ready after 30 seconds".to_string())
 }
+
+/// 确保容器镜像已加载
+#[tauri::command]
+pub async fn ensure_container_image(app: tauri::AppHandle) -> Result<String, String> {
+    println!("🔍 Checking container image...");
+
+    // Check if image exists
+    let image_info = check_image().await.map_err(|e| e.to_string())?;
+
+    if image_info.exists {
+        println!("✅ Container image already loaded: {} ({})", "agentmatrix:latest", image_info.size.unwrap_or_default());
+        return Ok("Container image already loaded".to_string());
+    }
+
+    // Load image
+    println!("📦 Loading container image from bundle...");
+    load_image(app).await?;
+    println!("✅ Container image loaded successfully");
+
+    Ok("Container image loaded successfully".to_string())
+}
