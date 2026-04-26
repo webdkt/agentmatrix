@@ -16,9 +16,13 @@ const emit = defineEmits(['toggle-minimize', 'close', 'update:position', 'update
 const {
   terminalLines,
   terminalContainer,
-  userInput,
+  currentInput,
   isExecuting,
+  inputSpan,
+  handleKeyDown,
+  handleInput,
   handleTerminalSubmit,
+  focusInput,
 } = useTerminal({ agentName: () => props.agentName })
 
 // ---- Position & Size ----
@@ -176,26 +180,20 @@ onUnmounted(() => {
           </template>
           <template v-else>{{ entry.text }}</template>
         </div>
-        <div v-if="!isExecuting" class="terminal-line terminal-line--prompt">
-          <span class="terminal-prompt-cursor">$&nbsp;<span class="terminal-cursor"></span></span>
-        </div>
       </div>
-      <div v-else class="agent-terminal__empty">
-        <span class="terminal-prompt-cursor">$&nbsp;<span class="terminal-cursor"></span></span>
-      </div>
-    </div>
 
-    <!-- Input (hidden in fullscreen) -->
-    <div v-if="!fullscreen" class="agent-terminal__input">
-      <span class="agent-terminal__prompt">$</span>
-      <input
-        v-model="userInput"
-        type="text"
-        :disabled="isExecuting"
-        :placeholder="isExecuting ? 'Agent is running...' : 'Type a command...'"
-        class="agent-terminal__field"
-        @keydown.enter="handleTerminalSubmit"
-      />
+      <!-- Inline input line -->
+      <div v-if="!isExecuting" class="agent-terminal__input-line">
+        <span class="agent-terminal__prompt">$</span>
+        <span
+          ref="inputSpan"
+          class="agent-terminal__inline-input"
+          contenteditable="true"
+          spellcheck="false"
+          @keydown="handleKeyDown"
+          @input="handleInput"
+        ></span>
+      </div>
     </div>
 
     <!-- Resize handle (hidden in fullscreen) -->
@@ -287,13 +285,6 @@ onUnmounted(() => {
   word-break: break-all;
 }
 
-.agent-terminal__empty {
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 13px;
-  color: #e4e4e4;
-  padding: var(--spacing-1);
-}
-
 .terminal-line {
   color: #e4e4e4;
 }
@@ -331,63 +322,30 @@ onUnmounted(() => {
   to { max-width: 100% }
 }
 
-.terminal-line--prompt {
-  color: #d4d4d4;
-}
-
-.terminal-prompt-cursor {
-  color: #6a9955;
-}
-
-.terminal-cursor {
-  display: inline-block;
-  width: 8px;
-  height: 14px;
-  background: #d4d4d4;
-  vertical-align: text-bottom;
-  animation: blink-cursor 1s step-end infinite;
-}
-
-@keyframes blink-cursor {
-  50% { opacity: 0 }
-}
-
-.agent-terminal__input {
+.agent-terminal__input-line {
   display: flex;
   align-items: center;
-  background: #1e1e1e;
-  border-top: 1px solid #333;
-  flex-shrink: 0;
+  padding: 4px var(--spacing-2);
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 13px;
+  color: #e4e4e4;
 }
 
 .agent-terminal__prompt {
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 13px;
   color: #7cb068;
-  padding: 6px 0 6px var(--spacing-2);
+  padding-right: 4px;
   flex-shrink: 0;
   user-select: none;
 }
 
-.agent-terminal__field {
+.agent-terminal__inline-input {
   flex: 1;
-  background: transparent;
-  border: none;
   outline: none;
+  white-space: pre;
+  min-width: 1em;
+  min-height: 1.2em;
   color: #e4e4e4;
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 13px;
-  padding: 6px var(--spacing-2);
   caret-color: #e4e4e4;
-}
-
-.agent-terminal__field::placeholder {
-  color: #555;
-}
-
-.agent-terminal__field:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .agent-terminal__resize-handle {

@@ -105,6 +105,16 @@ const terminalFullscreen = ref(false)
 const isCollabMode = ref(false)
 const subjectInput = ref(null)
 
+// ---- Close panels when switching sessions ----
+watch(currentSessionId, (newId, oldId) => {
+  if (newId && oldId && newId !== oldId) {
+    // Close terminal and files panel when switching to a different session
+    showTerminal.value = false
+    terminalFullscreen.value = false
+    showTaskFiles.value = false
+  }
+})
+
 // ---- Update session subject ----
 async function updateSubject(event) {
   const newSubject = event.target.value.trim()
