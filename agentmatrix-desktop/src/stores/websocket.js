@@ -126,8 +126,8 @@ export const useWebSocketStore = defineStore('websocket', {
           // 1. 更新前端缓存，更新 Agent 发信时间
           sessionStore.updateAgentMailTimeLocal(userSessionId)
 
-          // 2. 显示 toast 通知
-          if (detail) {
+          // 2. 仅当不是当前正在查看的 session 时才显示 toast
+          if (detail && !isCurrentSession) {
             import('@/stores/ui').then(({ useUIStore }) => {
               const uiStore = useUIStore()
               uiStore.emailToast = {

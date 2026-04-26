@@ -217,6 +217,10 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     const parsed = parseEvent(evt.data)
     if (parsed.renderType === 'skip') return
 
+    // User messages are always sent from the frontend with a placeholder,
+    // no need to append the backend echo — loadEvents() handles historical data on session switch
+    if (parsed.renderType === 'bubble-user') return
+
     events.value.push(parsed)
     totalEventCount.value++
     nextTick(() => scrollToBottom())
