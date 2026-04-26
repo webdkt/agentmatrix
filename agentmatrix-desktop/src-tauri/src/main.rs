@@ -534,11 +534,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 }
 
 
-#[tauri::command]
-async fn is_first_run() -> Result<bool, String> {
-    let config = AppConfig::load()?;
-    Ok(config.is_first_run())
-}
 
 #[tauri::command]
 async fn mark_configured(matrix_world_path: String) -> Result<(), String> {
@@ -1707,7 +1702,7 @@ fn main() {
             get_backend_port,
             commands::config::get_config,
             commands::config::update_config,
-            is_first_run,
+            commands::config::is_first_run,
             mark_configured,
             select_directory,
             show_notification,

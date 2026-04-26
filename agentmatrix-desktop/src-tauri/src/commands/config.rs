@@ -110,3 +110,10 @@ pub async fn update_config(matrix_world_path: Option<String>, auto_start_backend
     config.save()?;
     Ok(config)
 }
+
+/// 检查是否首次运行
+#[tauri::command]
+pub async fn is_first_run() -> Result<bool, String> {
+    let config = AppConfig::load()?;
+    Ok(config.is_first_run())
+}
