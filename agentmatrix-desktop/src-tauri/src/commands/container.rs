@@ -1,6 +1,6 @@
 use std::process::Command as StdCommand;
 use serde::{Serialize};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Serialize)]
 pub struct RuntimeInfo {
@@ -346,4 +346,343 @@ pub async fn ensure_container_image(app: tauri::AppHandle) -> Result<String, Str
     println!("✅ Container image loaded successfully");
 
     Ok("Container image loaded successfully".to_string())
+}
+
+// ─── Initialize Container Packages (for lazy loading) ───
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InstallProgress {
+    pub stage: String,        // core, libreoffice, browsers, npm, complete
+    pub percent: u8,          // 0-100
+    pub message: String,
+}
+
+/// 解析安装脚本的 PROGRESS 输出
+/// 输入格式: PROGRESS:stage:stage_name:percent:message
+fn parse_progress_line(line: &str) -> Option<InstallProgress> {
+    if !line.starts_with("PROGRESS:") {
+        return None;
+    }
+
+    let parts: Vec<&str> = line.trim_start_matches("PROGRESS:").split(':').collect();
+    if parts.len() < 4 {
+        return None;
+    }
+
+    let stage = parts.get(1)?.to_string();
+    let percent = parts.get(2)?.parse::<u8>().ok()?;
+    let message = parts.get(3)?.to_string();
+
+    Some(InstallProgress {
+        stage,
+        percent,
+        message,
+    })
+}
+
+/// 过滤安装输出，提取有用的信息
+/// 返回简化的消息，None 表示忽略此行
+fn filter_install_output(line: &str) -> Option<String> {
+    let line = line.trim();
+
+    // 过滤掉无用的行
+    if line.is_empty() {
+        return None;
+    }
+
+    // 过滤掉进度条相关的行（如 [###.......]）
+    if line.contains('[') && line.contains("...") && line.contains(']') {
+        return None;
+    }
+
+    // 过滤掉纯百分比行
+    if line.chars().all(|c| c.is_numeric() || c == '%' || c.is_whitespace()) {
+        return None;
+    }
+
+    // apt-get 输出过滤
+    if line.starts_with("Selecting ") || line.starts_with("Preparing ") || line.starts_with("Unpacking ") {
+        // 提取包名
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if let Some(name) = parts.last() {
+            return Some(format!("正在安装: {}", name.trim_end_matches(':')));
+        }
+    }
+
+    if line.starts_with("Setting up ") {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if let Some(name) = parts.get(2) {
+            return Some(format!("配置中: {}", name.trim_end_matches(':')));
+        }
+    }
+
+    // pip 输出过滤
+    if line.contains("Collecting ") {
+        if let Some(pkg) = line.split("Collecting ").nth(1) {
+            return Some(format!("下载中: {}", pkg.trim()));
+        }
+    }
+
+    if line.contains("Downloading ") {
+        if let Some(pkg) = line.split("Downloading ").nth(1) {
+            let pkg_name = pkg.split_whitespace().next().unwrap_or("");
+            return Some(format!("下载: {}", pkg_name));
+        }
+    }
+
+    if line.contains("Installing collected packages") {
+        return Some("正在安装已下载的包...".to_string());
+    }
+
+    if line.starts_with("Successfully installed ") {
+        return Some("✅ 安装成功".to_string());
+    }
+
+    // npm 输出过滤
+    if line.contains("added ") && line.contains("package") {
+        return Some("npm 包安装完成".to_string());
+    }
+
+    if line.starts_with("+ ") {
+        let pkg = line.trim_start_matches("+ ").trim();
+        return Some(format!("npm: {}", pkg));
+    }
+
+    // Playwright 输出过滤
+    if line.contains("Chromium") {
+        return Some(format!("Playwright: {}", line.trim()));
+    }
+
+    // 默认：返回原始行（但限制长度）
+    if line.len() > 100 {
+        Some(format!("{}...", &line[..97]))
+    } else {
+        Some(line.to_string())
+    }
+}
+
+/// 初始化容器包（延迟加载）
+/// 在 cold start 流程中执行一次，安装重型依赖
+/// 注意：此函数会检查 container_packages_initialized 标志，只在第一次安装
+#[tauri::command]
+pub async fn initialize_container_packages(app: tauri::AppHandle) -> Result<(), String> {
+    // 检查是否已经初始化过，或者是否是冷启动
+    let config = crate::config::AppConfig::load()?;
+    if config.container_packages_initialized {
+        println!("✅ 容器包已经初始化过，跳过安装");
+        return Ok(());
+    }
+    if !config.is_first_run() {
+        println!("✅ 非冷启动且容器包未标记已初始化，跳过安装");
+        return Ok(());
+    }
+
+    println!("📦 开始容器初始化（安装重型依赖）...");
+
+    // 1. 获取容器运行时
+    let runtime_info = check_container_runtime().await.map_err(|e| e.to_string())?;
+    let runtime_bin = runtime_info.path.unwrap_or_else(|| runtime_info.runtime.clone());
+
+    // 2. 使用主容器而不是临时容器
+    let container_name = "agentmatrix_shared";
+    println!("📥 在主容器中执行初始化: {}", container_name);
+
+    // 获取配置信息
+    let matrix_world_path = config.get_matrix_world_path();
+    let agents_root = matrix_world_path.join("agent_files");
+
+    // 3. 检查主容器是否存在，不存在则创建
+    let check_output = StdCommand::new(&runtime_bin)
+        .args(["ps", "-a", "-q", "-f", &format!("name={}", container_name)])
+        .output();
+    let container_exists = match check_output {
+        Ok(output) => output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        Err(_) => false,
+    };
+
+    if !container_exists {
+        println!("🔧 主容器不存在，创建主容器...");
+
+        // 确保宿主机目录存在
+        std::fs::create_dir_all(&agents_root)
+            .map_err(|e| format!("Failed to create agents_root: {}", e))?;
+
+        // 创建主容器（使用与 Backend 相同的配置）
+        let agents_root_str = agents_root.to_str()
+            .ok_or_else(|| "Failed to convert agents_root to string".to_string())?;
+
+        let create_output = StdCommand::new(&runtime_bin)
+            .args([
+                "run",
+                "-d",
+                "--name", container_name,
+                "-v", &format!("{}:/data/agents:rw", agents_root_str),
+                "-e", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "-e", "PYTHONPATH=/data/agents:$PYTHONPATH",
+                "--tty",  // TTY 模式
+                "agentmatrix:latest",
+                "tail", "-f", "/dev/null",  // 保持容器运行
+            ])
+            .output()
+            .map_err(|e| format!("Failed to create main container: {}", e))?;
+        if !create_output.status.success() {
+            let stderr = String::from_utf8_lossy(&create_output.stderr);
+            return Err(format!("Failed to create main container: {}", stderr));
+        }
+        println!("✅ 主容器已创建");
+    } else {
+        // 检查容器状态，如果未运行则启动
+        let status_output = StdCommand::new(&runtime_bin)
+            .args(["inspect", "-f", "{{.State.Status}}", container_name])
+            .output();
+
+        if let Ok(output) = status_output {
+            let status = String::from_utf8_lossy(&output.stdout);
+            let status = status.trim();
+            if status != "running" {
+                println!("🔄 主容器未运行，启动中...");
+                let _ = StdCommand::new(&runtime_bin)
+                    .args(["start", container_name])
+                    .output();
+            }
+        }
+    }
+
+    // 3. 拷贝并执行初始化脚本
+    let script_path = if cfg!(dev) {
+        // Dev mode: 使用源代码中的脚本
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("container-init-scripts")
+            .join("install_packages.sh")
+    } else {
+        // Production: 使用打包的脚本
+        let resource_dir = app.path().resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+        resource_dir.join("container-init-scripts").join("install_packages.sh")
+    };
+
+    let container_script_path = "/tmp/install_packages.sh";
+
+    if !script_path.exists() {
+        return Err(format!("脚本文件不存在: {:?}", script_path));
+    }
+
+    println!("📄 拷贝脚本到主容器: {:?} -> {}", script_path, container_script_path);
+
+    // 拷贝脚本到主容器
+    let copy_output = StdCommand::new(&runtime_bin)
+        .args(["cp", script_path.to_str().unwrap(), &format!("{}:{}", container_name, container_script_path)])
+        .output()
+        .map_err(|e| format!("Failed to copy script: {}", e))?;
+
+    if !copy_output.status.success() {
+        let stderr = String::from_utf8_lossy(&copy_output.stderr);
+        return Err(format!("拷贝脚本失败: {}", stderr));
+    }
+
+    println!("✅ 脚本已拷贝到主容器");
+
+    // 4. 执行初始化脚本并监控进度
+    println!("⚙️  在主容器中执行初始化脚本...");
+
+    let mut child = StdCommand::new(&runtime_bin)
+        .args(["exec", container_name, "bash", container_script_path])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            format!("Failed to exec install script: {}", e)
+        })?;
+
+    // 读取输出并发送进度事件
+    let mut stderr_output = String::new();
+    let mut stdout_output = String::new();
+
+    if let Some(stdout) = child.stdout.take() {
+        use std::io::{BufRead, BufReader};
+        let reader = BufReader::new(stdout);
+
+        for line in reader.lines() {
+            if let Ok(line_text) = line {
+                stdout_output.push_str(&line_text);
+                stdout_output.push('\n');
+
+                if let Some(progress) = parse_progress_line(&line_text) {
+                    println!("📊 进度: {} - {}% - {}", progress.stage, progress.percent, progress.message);
+
+                    // 发送 Tauri 事件到 splash 窗口
+                    if let Some(splash) = app.get_webview_window("splash") {
+                        let _ = splash.emit("installation-progress", &progress);
+                    } else {
+                        // 如果 splash 窗口不存在，使用全局广播作为后备
+                        let _ = app.emit("installation-progress", &progress);
+                    }
+                } else if !line_text.is_empty() {
+                    // 过滤并发送有用的安装输出
+                    let filtered = filter_install_output(&line_text);
+                    if let Some(message) = filtered {
+                        println!("📄 {}", message);
+
+                        // 发送真实安装进度到前端
+                        let progress = InstallProgress {
+                            stage: "install".to_string(),
+                            percent: 0,
+                            message,
+                        };
+
+                        if let Some(splash) = app.get_webview_window("splash") {
+                            let _ = splash.emit("installation-progress", &progress);
+                        }
+                    } else {
+                        // 打印所有输出，方便调试
+                        println!("📄 {}", line_text);
+                    }
+                }
+            }
+        }
+    }
+
+    // 读取 stderr（错误信息）
+    if let Some(stderr) = child.stderr.take() {
+        use std::io::{BufRead, BufReader};
+        let reader = BufReader::new(stderr);
+
+        for line in reader.lines() {
+            if let Ok(line_text) = line {
+                stderr_output.push_str(&line_text);
+                stderr_output.push('\n');
+                if !line_text.is_empty() {
+                    println!("⚠️  STDERR: {}", line_text);
+                }
+            }
+        }
+    }
+
+    // 5. 等待脚本完成
+    let status = child.wait()
+        .map_err(|e| format!("Failed to wait for install script: {}", e))?;
+
+    if !status.success() {
+        // 构建详细的错误信息
+        let mut error_msg = format!("核心组件安装失败 (退出码: {:?})\n", status.code());
+        error_msg.push_str(&format!("\n📤 标准输出:\n{}\n", stdout_output));
+        error_msg.push_str(&format!("\n⚠️  错误输出:\n{}\n", stderr_output));
+
+        println!("{}", error_msg);
+        return Err(error_msg);
+    }
+
+    // 6. 安装成功后，标记为已初始化
+    let mut config = crate::config::AppConfig::load()?;
+    config.container_packages_initialized = true;
+    config.save()?;
+    println!("✅ 已标记容器包为已初始化");
+
+    println!("✅ 容器包初始化完成");
+
+    // 注意：不再删除容器（去掉 cleanup_container 调用）
+    // 主容器 agentmatrix_shared 会保留，供 Backend 复用
+
+    Ok(())
 }
