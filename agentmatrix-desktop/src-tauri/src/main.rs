@@ -584,55 +584,6 @@ async fn open_attachment_path(path: String) -> Result<(), String> {
 
 
 
-#[tauri::command]
-async fn open_browser_with_profile(profile_path: String) -> Result<(), String> {
-    // Chrome paths by platform
-    #[cfg(target_os = "macos")]
-    let chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-
-    #[cfg(target_os = "windows")]
-    let chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe";
-
-    #[cfg(target_os = "linux")]
-    let chrome_path = "google-chrome";
-
-    let chrome = std::path::Path::new(chrome_path);
-
-    #[cfg(target_os = "macos")]
-    {
-        if !chrome.exists() {
-            // Fallback: try to open with `open -a`
-            std::process::Command::new("open")
-                .args(["-a", "Google Chrome", "--args", &format!("--user-data-dir={}", profile_path)])
-                .spawn()
-                .map_err(|e| format!("Failed to open Chrome: {}", e))?;
-        } else {
-            std::process::Command::new(chrome)
-                .arg(&format!("--user-data-dir={}", profile_path))
-                .spawn()
-                .map_err(|e| format!("Failed to open Chrome: {}", e))?;
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new(chrome)
-            .arg(&format!("--user-data-dir={}", profile_path))
-            .spawn()
-            .map_err(|e| format!("Failed to open Chrome: {}", e))?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new(chrome)
-            .arg(&format!("--user-data-dir={}", profile_path))
-            .spawn()
-            .map_err(|e| format!("Failed to open Chrome: {}", e))?;
-    }
-
-    println!("✅ Opened Chrome with profile: {}", profile_path);
-    Ok(())
-}
 
 // ─── Container Runtime Detection ───
 
@@ -1663,7 +1614,7 @@ fn main() {
             commands::filesystem::open_folder,
             commands::filesystem::reveal_in_folder,
             commands::filesystem::read_directory,
-            open_browser_with_profile,
+            commands::ui::open_browser_with_profile,
             init_matrix_world,
             commands::filesystem::copy_file,
             commands::filesystem::file_exists,
