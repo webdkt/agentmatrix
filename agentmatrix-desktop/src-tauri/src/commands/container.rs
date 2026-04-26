@@ -1,5 +1,6 @@
 use std::process::Command as StdCommand;
 use serde::{Serialize};
+use tauri::Manager;
 
 #[derive(Serialize)]
 pub struct RuntimeInfo {
@@ -92,4 +93,44 @@ pub async fn check_image() -> Result<ImageInfo, String> {
         exists: false,
         size: None,
     })
+}
+
+/// 加载容器镜像（从应用资源中）
+#[tauri::command]
+pub async fn load_image(app: tauri::AppHandle) -> Result<String, String> {
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let image_path = resource_dir.join("resources").join("docker").join("image.tar.gz");
+    if !image_path.exists() {
+        return Err(format!("Docker image not found in bundle. Looking for: {:?}", image_path));
+    }
+
+    println!("Loading Docker image from: {:?}", image_path);
+
+    // Resolve runtime path (GUI apps don't inherit shell PATH on macOS)
+    let runtime_bin = find_container_runtime()?;
+
+    // Load image: gunzip | runtime load
+    let output = if cfg!(target_os = "windows") {
+        StdCommand::new("cmd")
+            .args(["/c", "type", &image_path.to_string_lossy(), "|", "gzip", "-d", "|", &runtime_bin, "load"])
+            .output()
+            .map_err(|e| format!("Failed to load image: {}", e))?
+    } else {
+        StdCommand::new("sh")
+            .args(["-c", &format!("gunzip -c '{}' | '{}' load", image_path.to_string_lossy(), runtime_bin)])
+            .output()
+            .map_err(|e| format!("Failed to load image: {}", e))?
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to load image: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    println!("✅ Image loaded: {}", stdout);
+
+    Ok("Image loaded successfully".to_string())
 }
