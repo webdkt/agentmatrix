@@ -538,13 +538,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-#[tauri::command]
-async fn is_window_focused(app: tauri::AppHandle) -> Result<bool, String> {
-    if let Some(window) = app.get_webview_window("main") {
-        return window.is_focused().map_err(|e| e.to_string());
-    }
-    Ok(false)
-}
 
 #[tauri::command]
 async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
@@ -1692,7 +1685,7 @@ fn main() {
             init_podman_vm,
             ensure_container_image,
             wizard_complete,
-            is_window_focused,
+            commands::ui::is_window_focused,
             show_window,
         ])
         .build(tauri::generate_context!())
