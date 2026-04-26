@@ -539,14 +539,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-#[tauri::command]
-async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
 
 #[tauri::command]
 async fn open_attachment_path(path: String) -> Result<(), String> {
@@ -1686,7 +1678,7 @@ fn main() {
             ensure_container_image,
             wizard_complete,
             commands::ui::is_window_focused,
-            show_window,
+            commands::ui::show_window,
         ])
         .build(tauri::generate_context!())
         .expect("error with building tauri application")
