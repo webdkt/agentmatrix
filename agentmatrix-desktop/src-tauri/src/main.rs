@@ -534,12 +534,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 }
 
 #[tauri::command]
-async fn get_config() -> Result<AppConfig, String> {
-    let config = AppConfig::load()?;
-    Ok(config)
-}
-
-#[tauri::command]
 async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Option<bool>, enable_notifications: Option<bool>) -> Result<AppConfig, String> {
     let mut config = AppConfig::load()?;
     
@@ -1728,7 +1722,7 @@ fn main() {
             stop_backend,
             check_backend,
             get_backend_port,
-            get_config,
+            commands::config::get_config,
             update_config,
             is_first_run,
             mark_configured,

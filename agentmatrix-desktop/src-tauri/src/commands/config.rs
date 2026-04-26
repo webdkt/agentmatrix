@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use serde_json::Value as JsonValue;
 use serde_yaml;
+use crate::config::AppConfig;
 
 /// 扩展 ~ 路径为完整路径（辅助函数）
 fn expand_path(path: &str) -> PathBuf {
@@ -82,4 +83,11 @@ pub fn save_env_file(matrix_world_path: String, env_vars: JsonValue) -> Result<(
 
     println!("✅ Saved .env to {:?}", env_path);
     Ok(())
+}
+
+/// 获取应用配置
+#[tauri::command]
+pub async fn get_config() -> Result<AppConfig, String> {
+    let config = AppConfig::load()?;
+    Ok(config)
 }
