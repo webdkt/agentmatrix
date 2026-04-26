@@ -56,3 +56,30 @@ pub fn save_email_proxy_config_cmd(matrix_world_path: String, email_proxy: JsonV
     println!("✅ Saved email proxy config to {:?}", config_path);
     Ok(())
 }
+
+/// 保存环境变量文件
+#[tauri::command]
+pub fn save_env_file(matrix_world_path: String, env_vars: JsonValue) -> Result<(), String> {
+    let env_path = expand_path(&matrix_world_path)
+        .join(".matrix/configs/.env");
+
+    if let Some(parent) = env_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    let mut content = String::new();
+    if let Some(obj) = env_vars.as_object() {
+        for (key, value) in obj {
+            if let Some(val_str) = value.as_str() {
+                content.push_str(&format!("{}={}\n", key, val_str));
+            }
+        }
+    }
+
+    std::fs::write(&env_path, content)
+        .map_err(|e| format!("Failed to write .env: {}", e))?;
+
+    println!("✅ Saved .env to {:?}", env_path);
+    Ok(())
+}
