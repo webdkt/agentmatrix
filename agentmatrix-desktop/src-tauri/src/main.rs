@@ -540,46 +540,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-#[tauri::command]
-async fn open_attachment_path(path: String) -> Result<(), String> {
-    // 展开 ~ 为用户主目录
-    let expanded_path = if path.starts_with("~/") {
-        if let Some(home_dir) = dirs::home_dir() {
-            path.replacen("~", &home_dir.to_string_lossy(), 1)
-        } else {
-            return Err("Failed to determine home directory".to_string());
-        }
-    } else {
-        path
-    };
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&expanded_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/c", "start", "", &expanded_path])
-            .spawn()
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&expanded_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-    }
-
-    println!("✅ Opened: {}", expanded_path);
-    Ok(())
-}
 
 
 
@@ -1610,7 +1570,7 @@ fn main() {
             commands::config::mark_configured,
             commands::config::select_directory,
             commands::ui::show_notification,
-            open_attachment_path,
+            commands::filesystem::open_attachment_path,
             commands::filesystem::open_folder,
             commands::filesystem::reveal_in_folder,
             commands::filesystem::read_directory,
