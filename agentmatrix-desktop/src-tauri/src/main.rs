@@ -533,23 +533,6 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
     }
 }
 
-#[tauri::command]
-async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Option<bool>, enable_notifications: Option<bool>) -> Result<AppConfig, String> {
-    let mut config = AppConfig::load()?;
-    
-    if let Some(path) = matrix_world_path {
-        config.matrix_world_path = path;
-    }
-    if let Some(auto_start) = auto_start_backend {
-        config.auto_start_backend = auto_start;
-    }
-    if let Some(notifications) = enable_notifications {
-        config.enable_notifications = notifications;
-    }
-    
-    config.save()?;
-    Ok(config)
-}
 
 #[tauri::command]
 async fn is_first_run() -> Result<bool, String> {
@@ -1723,7 +1706,7 @@ fn main() {
             check_backend,
             get_backend_port,
             commands::config::get_config,
-            update_config,
+            commands::config::update_config,
             is_first_run,
             mark_configured,
             select_directory,

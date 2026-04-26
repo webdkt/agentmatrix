@@ -91,3 +91,22 @@ pub async fn get_config() -> Result<AppConfig, String> {
     let config = AppConfig::load()?;
     Ok(config)
 }
+
+/// 更新应用配置
+#[tauri::command]
+pub async fn update_config(matrix_world_path: Option<String>, auto_start_backend: Option<bool>, enable_notifications: Option<bool>) -> Result<AppConfig, String> {
+    let mut config = AppConfig::load()?;
+
+    if let Some(path) = matrix_world_path {
+        config.matrix_world_path = path;
+    }
+    if let Some(auto_start) = auto_start_backend {
+        config.auto_start_backend = auto_start;
+    }
+    if let Some(notifications) = enable_notifications {
+        config.enable_notifications = notifications;
+    }
+
+    config.save()?;
+    Ok(config)
+}
