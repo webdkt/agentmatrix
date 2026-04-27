@@ -1336,7 +1336,7 @@ async def get_agent_sessions(agent_name: str):
 
 
 @app.get("/api/agents/{agent_name}/sessions/{session_id}/events")
-async def get_session_events(agent_name: str, session_id: str, limit: int = 200, offset: int = 0, direction: str = "latest", before: str = None):
+async def get_session_events(agent_name: str, session_id: str, limit: int = 200, direction: str = "latest", before: str = None):
     """获取 Agent session 的事件列表
 
     direction=latest: 默认，取最新的 N 条
@@ -1351,8 +1351,6 @@ async def get_session_events(agent_name: str, session_id: str, limit: int = 200,
         db = matrix_runtime.post_office.email_db
         if direction == "older" and before:
             events = await db.get_session_events_before(agent_name, session_id, before, limit)
-        elif direction == "older":
-            events = await db.get_session_events(agent_name, session_id, limit, offset)
         else:
             events = await db.get_latest_session_events(agent_name, session_id, limit)
         total = await db.get_session_event_count(agent_name, session_id)

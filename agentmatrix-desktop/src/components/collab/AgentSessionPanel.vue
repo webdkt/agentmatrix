@@ -45,7 +45,6 @@ const {
   currentSession,
   chatTimeline,
   hasContent,
-  hasMoreEvents,
   pendingQuestion,
   primaryAgentName,
   loadEvents,

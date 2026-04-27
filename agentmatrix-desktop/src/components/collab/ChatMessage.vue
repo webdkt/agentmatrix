@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { marked } from 'marked'
 import MIcon from '@/components/icons/MIcon.vue'
 import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
@@ -18,6 +18,8 @@ const props = defineProps({
     default: null
   }
 })
+
+const expanded = ref(false)
 
 // ---- Bubble (user / agent) ----
 
@@ -67,16 +69,33 @@ const pillText = computed(() => {
 
 // ---- Agent comm (agent-to-agent email) ----
 
-const agentCommText = computed(() => {
+const agentCommLabel = computed(() => {
+  if (props.message.type !== 'agent-comm') return ''
+  const { eventType, eventName } = props.message.data
+  const name = props.agentName || 'Agent'
+  if (eventType === 'email' && eventName === 'received') return `${name}收到邮件`
+  if (eventType === 'email' && eventName === 'sent') return `${name}发出邮件`
+  return ''
+})
+
+const agentCommMeta = computed(() => {
   if (props.message.type !== 'agent-comm') return ''
   const { eventType, eventName, detail } = props.message.data
-  if (eventType === 'email' && eventName === 'received') {
-    return `收到来自 ${detail.sender || '未知'} 的邮件${detail.subject ? ': ' + detail.subject : ''}`
-  }
-  if (eventType === 'email' && eventName === 'sent') {
-    return `给 ${detail.recipient || '未知'} 发了邮件${detail.subject ? ': ' + detail.subject : ''}`
-  }
+  if (eventType === 'email' && eventName === 'received') return `来自: ${detail.sender || '未知'}`
+  if (eventType === 'email' && eventName === 'sent') return `致: ${detail.recipient || '未知'}`
   return ''
+})
+
+const agentCommSubject = computed(() => {
+  if (props.message.type !== 'agent-comm') return ''
+  return props.message.data?.detail?.subject || ''
+})
+
+const agentCommBody = computed(() => {
+  if (props.message.type !== 'agent-comm') return ''
+  const body = props.message.data?.detail?.body_preview
+  if (!body) return ''
+  try { return marked(body).trim() } catch { return body }
 })
 
 // ---- System event ----
@@ -186,12 +205,37 @@ const handleAttachmentClick = async (attachment) => {
     <div class="chat-msg__body chat-msg__body--thought markdown-content" v-html="renderedBody"></div>
   </div>
 
-  <!-- Agent-to-agent communication (subtle, centered) -->
-  <div v-else-if="message.type === 'agent-comm'" class="chat-agent-comm">
-    <span class="chat-agent-comm__icon">
-      <MIcon name="mail" />
-    </span>
-    <span class="chat-agent-comm__text">{{ agentCommText }}</span>
+  <!-- Agent-to-agent email (left-aligned bubble, expandable) -->
+  <div v-else-if="message.type === 'agent-comm'" class="chat-agent-comm" @click="expanded = !expanded">
+    <div class="chat-agent-comm__header">
+      <MIcon name="mail" class="chat-agent-comm__icon" />
+      <span class="chat-agent-comm__label">{{ agentCommLabel }}</span>
+      <span class="chat-agent-comm__time">{{ formatTime(message.timestamp) }}</span>
+      <MIcon :name="expanded ? 'chevron-down' : 'chevron-right'" class="chat-agent-comm__chevron" />
+    </div>
+    <div class="chat-agent-comm__meta">
+      <span class="chat-agent-comm__sender">{{ agentCommMeta }}</span>
+      <span v-if="agentCommSubject" class="chat-agent-comm__subject">主题: {{ agentCommSubject }}</span>
+    </div>
+    <Transition name="comm-expand">
+      <div v-if="expanded" class="chat-agent-comm__body" @click.stop>
+        <div v-if="agentCommBody" class="chat-agent-comm__body-content markdown-content" v-html="agentCommBody"></div>
+        <div v-if="attachments.length > 0" class="chat-msg__attachments">
+          <div
+            v-for="(attachment, index) in attachments"
+            :key="index"
+            v-show="attachment.filename"
+            class="chat-msg__attachment"
+            @click="handleAttachmentClick(attachment)"
+          >
+            <div class="chat-msg__attachment-dot"></div>
+            <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
+            <span class="chat-msg__attachment-name">{{ attachment.filename || 'Unknown file' }}</span>
+            <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 
   <!-- Status pill (action events) -->
@@ -293,30 +337,96 @@ const handleAttachmentClick = async (attachment) => {
   line-height: 1.65;
 }
 
-/* ===== Agent-to-agent communication ===== */
+/* ===== Agent-to-agent email bubble ===== */
 .chat-agent-comm {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 0;
-  width: 100%;
-  border-top: 1px dashed var(--border);
-  border-bottom: 1px dashed var(--border);
+  flex-direction: column;
+  align-self: flex-start;
+  max-width: 68%;
+  background: var(--surface-secondary);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
   animation: fadeIn 250ms var(--ease-out);
+  transition: background var(--duration-base) var(--ease-out);
+}
+
+.chat-agent-comm:hover {
+  background: var(--surface-hover);
+}
+
+.chat-agent-comm__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .chat-agent-comm__icon {
-  font-size: var(--font-xs);
-  color: var(--text-quaternary);
-  display: flex;
-  align-items: center;
+  font-size: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
-.chat-agent-comm__text {
+.chat-agent-comm__label {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chat-agent-comm__time {
+  font-size: 11px;
   color: var(--text-quaternary);
-  font-style: italic;
+  margin-left: auto;
+}
+
+.chat-agent-comm__chevron {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.chat-agent-comm__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.chat-agent-comm__sender {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.chat-agent-comm__subject {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.chat-agent-comm__body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-agent-comm__body-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.comm-expand-enter-active {
+  animation: expandIn 200ms var(--ease-out);
+}
+
+.comm-expand-leave-active {
+  animation: expandIn 150ms var(--ease-out) reverse;
+}
+
+@keyframes expandIn {
+  from { opacity: 0; max-height: 0; overflow: hidden; }
+  to { opacity: 1; max-height: 500px; overflow: hidden; }
 }
 
 /* ===== Action pill (colored dot, no background) ===== */

@@ -122,13 +122,12 @@ export const sessionAPI = {
    * 获取 Agent session 的事件列表
    * @param {string} agentName - Agent 名称
    * @param {string} sessionId - Agent session ID
-   * @param {number} limit - 最大数量
-   * @param {number} offset - 偏移量
+   * @param {number} limit - 每页数量
    * @param {string} direction - 'latest' 或 'older'
-   * @param {string} before - direction='older' 时的时间戳
+   * @param {string} before - direction='older' 时的时间戳 cursor
    */
-  async getSessionEvents(agentName, sessionId, limit = 200, offset = 0, direction = 'latest', before = null) {
-    const params = { limit, offset, direction }
+  async getSessionEvents(agentName, sessionId, limit = 200, direction = 'latest', before = null) {
+    const params = { limit, direction }
     if (before) params.before = before
     return API.get(`/api/agents/${agentName}/sessions/${sessionId}/events`, { params })
   },

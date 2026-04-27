@@ -39,8 +39,19 @@ class APIClient {
       config.body = options.body
     }
 
+    // Append query parameters
+    let fullURL = this.baseURL + url
+    if (options.params) {
+      const searchParams = new URLSearchParams()
+      for (const [key, value] of Object.entries(options.params)) {
+        if (value != null) searchParams.append(key, value)
+      }
+      const qs = searchParams.toString()
+      if (qs) fullURL += (fullURL.includes('?') ? '&' : '?') + qs
+    }
+
     try {
-      const response = await fetch(this.baseURL + url, config)
+      const response = await fetch(fullURL, config)
       const data = await response.json()
 
       if (!response.ok) {
