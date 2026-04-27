@@ -130,8 +130,8 @@ const loadEmails = async (sessionId) => {
     // (placeholder emails are shown via watch(currentSession) for placeholder sessions only)
     emails.value = serverEmails
 
-    // 标记会话为已读（后端已处理，前端同步更新本地状态）
-    sessionStore.markSessionRead(sessionId)
+    // 更新查看时间（后端已处理，前端同步更新本地状态）
+    sessionStore.updateCheckTimeLocal(sessionId)
 
     await nextTick()
   } catch (err) {
@@ -169,7 +169,7 @@ watch(currentSession, async (newSession) => {
     if (resolved) {
       emails.value = [resolved]
       isLoading.value = false
-      sessionStore.markSessionRead(newSession.session_id)
+      sessionStore.updateCheckTimeLocal(newSession.session_id)
       await nextTick()
       return
     }
@@ -767,8 +767,6 @@ const handleAgentQuestionSubmit = async () => {
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
 }
 
 .email-list__question-btn--primary {

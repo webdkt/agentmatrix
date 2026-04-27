@@ -69,7 +69,7 @@ onUnmounted(() => {
 .resizable-divider {
   position: relative;
   width: 4px;
-  background: var(--neutral-200, #e5e0d8);
+  background: var(--border, #e5e0d8);
   cursor: col-resize;
   transition: background 0.15s ease;
   flex-shrink: 0;
@@ -77,7 +77,7 @@ onUnmounted(() => {
 }
 
 .resizable-divider:hover {
-  background: var(--neutral-300, #d4cfc7);
+  background: var(--border-strong, #d4cfc7);
 }
 
 .resizable-divider--dragging {
@@ -109,13 +109,13 @@ onUnmounted(() => {
   position: absolute;
   width: 2px;
   height: 12px;
-  background: var(--ink-400, #9a9590);
+  background: var(--text-tertiary, #9a9590);
   border-radius: 1px;
 }
 
 .resizable-divider:hover .resizable-divider__handle::before,
 .resizable-divider:hover .resizable-divider__handle::after {
-  background: var(--ink-600, #4a4642);
+  background: var(--text-secondary, #4a4642);
 }
 
 .resizable-divider--dragging .resizable-divider__handle::before,

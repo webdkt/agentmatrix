@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { useSessionStore } from './session'
 import { useAgentStore } from './agent'
+import { useConfigStore } from './config'
 
 /**
  * WebSocket 事件管理 Store
@@ -108,41 +109,55 @@ export const useWebSocketStore = defineStore('websocket', {
      */
     _handleEmailEvent(userSessionId, isCurrentSession, eventName, detail, agentName) {
       const sessionStore = useSessionStore()
+      const configStore = useConfigStore()
+      const userAgentName = configStore.config?.user_agent_name
 
-      if (isCurrentSession) {
-        // 当前 session — 标记需要 reload
-        // 通过 force selectSession 触发 EmailList/ChatHistory 的 watch 重新加载
-        if (sessionStore.currentSession) {
-          sessionStore.selectSession(sessionStore.currentSession, true)
-        }
-
-        // 自动标记已读（延迟 3 秒）
-        setTimeout(() => {
-          sessionStore.markSessionRead(userSessionId)
-          import('@/api/session').then(({ sessionAPI }) => {
-            sessionAPI.markAsRead(userSessionId)
-          })
-        }, 3000)
-      } else {
-        // 非当前 session — 标记未读
-        sessionStore.markSessionUnread(userSessionId)
-
-        // toast + 系统通知
-        if (eventName === 'received' && detail) {
-          import('@/stores/ui').then(({ useUIStore }) => {
-            const uiStore = useUIStore()
-            uiStore.emailToast = {
-              show: true,
-              emailData: {
-                recipient_session_id: userSessionId,
-                sender: detail.sender || agentName,
-                subject: detail.subject || '',
-                ...detail,
-              },
-            }
-          })
-        }
+      if (!userAgentName) {
+        console.warn('⚠️ user_agent_name not found in config, skipping email event handling')
+        return
       }
+
+      // Agent 发送邮件（sent）= 判断接收者
+      if (eventName === 'sent') {
+        const recipient = detail?.recipient
+
+        if (recipient === userAgentName) {
+          // 发送给 User → User 收到邮件
+          // 1. 更新前端缓存，更新 Agent 发信时间
+          sessionStore.updateAgentMailTimeLocal(userSessionId)
+
+          // 2. 仅当不是当前正在查看的 session 时才显示 toast
+          if (detail && !isCurrentSession) {
+            import('@/stores/ui').then(({ useUIStore }) => {
+              const uiStore = useUIStore()
+              uiStore.emailToast = {
+                show: true,
+                emailData: {
+                  recipient_session_id: userSessionId,
+                  sender: detail.sender || agentName,
+                  subject: detail.subject || '',
+                  ...detail,
+                },
+              }
+            })
+          }
+        }
+        // 其他情况：发给其他 Agent 的邮件，不做任何处理
+      }
+      // Agent 收到邮件（received）= 判断发送者
+      else if (eventName === 'received') {
+        const sender = detail?.sender
+
+        if (sender === userAgentName) {
+          // 用户发送的邮件 → 用户发信 = 用户查看
+          // 更新前端缓存，更新查看时间
+          sessionStore.updateCheckTimeLocal(userSessionId)
+        }
+        // 其他情况：Agent 之间的邮件，不做任何处理
+      }
+      // 注意：不需要在这里调用 selectSession，因为：
+      // - setLastSessionEvent 已经被调用（第 94 行）
+      // - useChatTimeline 会 watch 这个事件并增量更新 timeline
     },
 
     /**

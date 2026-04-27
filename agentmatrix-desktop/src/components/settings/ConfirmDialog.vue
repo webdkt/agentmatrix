@@ -52,17 +52,13 @@ const buttonClass = computed(() => {
   return props.type === 'danger' ? 'btn-danger' : 'btn-warning'
 })
 
-const iconClass = computed(() => {
+const iconName = computed(() => {
   const icons = {
-    danger: 'ti-alert-circle',
-    warning: 'ti-alert-triangle',
-    info: 'ti-info-circle'
+    danger: 'alert-circle',
+    warning: 'alert-triangle',
+    info: 'info-circle'
   }
   return icons[props.type] || icons.info
-})
-
-const iconName = computed(() => {
-  return iconClass.value.replace('ti-', '')
 })
 
 const iconColor = computed(() => {
@@ -131,13 +127,13 @@ const iconColor = computed(() => {
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
-  padding: var(--spacing-md);
+  padding: var(--spacing-4);
 }
 
 .confirm-dialog {
   background: white;
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-xl);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-8);
   box-shadow: var(--shadow-sm);
   max-width: 400px;
   width: 100%;
@@ -145,7 +141,7 @@ const iconColor = computed(() => {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .confirm-icon {
@@ -161,13 +157,13 @@ const iconColor = computed(() => {
 .confirm-title {
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .confirm-message {
   font-size: var(--font-sm);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   margin: 0;
   line-height: var(--leading-relaxed);
 }
@@ -183,7 +179,7 @@ const iconColor = computed(() => {
 .btn-confirm {
   flex: 1;
   padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: none;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
@@ -192,12 +188,12 @@ const iconColor = computed(() => {
 }
 
 .btn-cancel {
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .btn-cancel:hover {
-  background: var(--neutral-200);
+  background: var(--border);
 }
 
 .btn-confirm {

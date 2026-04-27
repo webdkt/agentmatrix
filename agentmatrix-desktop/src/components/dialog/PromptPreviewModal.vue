@@ -128,9 +128,9 @@ const handleOverlayClick = () => {
   max-width: 900px;
   height: 80vh;
   max-height: 700px;
-  background: var(--parchment-100, #faf8f5);
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -141,8 +141,8 @@ const handleOverlayClick = () => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--parchment-300, #e5e0d8);
-  background: var(--parchment-50, #fdfcfa);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 .prompt-modal__title-group {
@@ -152,15 +152,15 @@ const handleOverlayClick = () => {
 }
 
 .prompt-modal__icon {
-  color: var(--accent-500, #6b4c3b);
+  color: var(--accent);
   font-size: 18px;
 }
 
 .prompt-modal__title {
-  font-family: var(--font-sans, system-ui);
+  font-family: var(--font-sans);
   font-size: 15px;
   font-weight: 600;
-  color: var(--ink-700, #2d2a26);
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -172,15 +172,15 @@ const handleOverlayClick = () => {
   height: 32px;
   border: none;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--ink-500, #6b6560);
+  color: var(--text-tertiary);
   transition: all 0.15s ease;
 }
 
 .prompt-modal__close:hover {
-  background: var(--parchment-300, #e5e0d8);
-  color: var(--ink-700, #2d2a26);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .prompt-modal__body {
@@ -196,15 +196,15 @@ const handleOverlayClick = () => {
   justify-content: center;
   gap: 12px;
   height: 100%;
-  color: var(--ink-500, #6b6560);
-  font-family: var(--font-sans, system-ui);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
   font-size: 14px;
 }
 
 .thinking-bar {
   width: 120px;
   height: 2px;
-  background: var(--accent-500, #6b4c3b);
+  background: var(--accent);
   animation: thinking 1.5s ease-in-out infinite;
 }
 
@@ -220,8 +220,8 @@ const handleOverlayClick = () => {
   justify-content: center;
   gap: 10px;
   height: 100%;
-  color: var(--error-500, #c45c4a);
-  font-family: var(--font-sans, system-ui);
+  color: var(--error);
+  font-family: var(--font-sans);
   font-size: 14px;
 }
 
@@ -231,43 +231,43 @@ const handleOverlayClick = () => {
 }
 
 .prompt-modal__text {
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
-  color: var(--ink-700, #2d2a26);
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
   margin: 0;
-  background: var(--parchment-50, #fdfcfa);
+  background: var(--surface-base);
   padding: 16px;
-  border-radius: 4px;
-  border: 1px solid var(--parchment-300, #e5e0d8);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
 }
 
 .prompt-modal__footer {
   display: flex;
   justify-content: flex-end;
   padding: 12px 20px;
-  border-top: 1px solid var(--parchment-300, #e5e0d8);
-  background: var(--parchment-50, #fdfcfa);
+  border-top: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 .prompt-modal__btn {
-  font-family: var(--font-sans, system-ui);
+  font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;
   padding: 8px 16px;
-  border: 1px solid var(--parchment-300, #e5e0d8);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: white;
-  color: var(--ink-700, #2d2a26);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .prompt-modal__btn:hover {
-  background: var(--parchment-100, #faf8f5);
-  border-color: var(--parchment-400, #d4cfc7);
+  background: var(--surface-secondary);
+  border-color: var(--border);
 }
 
 /* Transitions */

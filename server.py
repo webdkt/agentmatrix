@@ -1014,15 +1014,52 @@ async def get_session_emails(session_id: str):
 
 @app.post("/api/sessions/{session_id}/mark-read")
 async def mark_session_read(session_id: str):
-    """Mark a user session as read"""
+    """Mark a user session as read by updating check time"""
     global matrix_runtime
 
     if not matrix_runtime:
         raise HTTPException(status_code=503, detail="Runtime not initialized")
 
     try:
-        await matrix_runtime.post_office.email_db.mark_session_as_read(session_id)
+        await matrix_runtime.post_office.email_db.update_check_time(session_id)
         return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sessions/{session_id}/select")
+async def select_session(session_id: str):
+    """User selects a session - update check time"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        await matrix_runtime.post_office.email_db.update_check_time(session_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/sessions/{session_id}/subject")
+async def update_session_subject(session_id: str, request: Request):
+    """Update session subject"""
+    global matrix_runtime
+
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    try:
+        data = await request.json()
+        new_subject = data.get("subject", "").strip()
+
+        await matrix_runtime.post_office.email_db.update_user_session(
+            user_session_id=session_id,
+            subject=new_subject if new_subject else None,
+        )
+
+        return {"success": True, "subject": new_subject}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1299,7 +1336,7 @@ async def get_agent_sessions(agent_name: str):
 
 
 @app.get("/api/agents/{agent_name}/sessions/{session_id}/events")
-async def get_session_events(agent_name: str, session_id: str, limit: int = 200, offset: int = 0, direction: str = "latest", before: str = None):
+async def get_session_events(agent_name: str, session_id: str, limit: int = 200, direction: str = "latest", before: str = None):
     """获取 Agent session 的事件列表
 
     direction=latest: 默认，取最新的 N 条
@@ -1314,8 +1351,6 @@ async def get_session_events(agent_name: str, session_id: str, limit: int = 200,
         db = matrix_runtime.post_office.email_db
         if direction == "older" and before:
             events = await db.get_session_events_before(agent_name, session_id, before, limit)
-        elif direction == "older":
-            events = await db.get_session_events(agent_name, session_id, limit, offset)
         else:
             events = await db.get_latest_session_events(agent_name, session_id, limit)
         total = await db.get_session_event_count(agent_name, session_id)

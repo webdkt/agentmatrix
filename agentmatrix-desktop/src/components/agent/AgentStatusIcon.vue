@@ -74,7 +74,7 @@ const isSpinning = computed(() => {
 .agent-status-icon {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
 }
 
 .status-icon {
@@ -83,47 +83,45 @@ const isSpinning = computed(() => {
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: 14px;
 }
 
 .status-badge {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-size: 10px;
+  font-weight: var(--font-medium);
   padding: 3px 6px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  background: var(--parchment-200, #e8e4de);
-  color: var(--ink-500, #6b6560);
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
   width: auto;
   height: auto;
 }
 
 .status-name {
   font-size: var(--font-sm);
-  color: var(--ink-500);
+  color: var(--text-tertiary);
 }
 
 /* 状态颜色 */
 .status--thinking {
-  color: var(--accent, #c23b22);
+  color: var(--accent);
 }
 
 .status--working {
-  color: var(--verdant, #22c55e);
+  color: var(--success);
 }
 
 .status--waiting {
-  color: var(--amber, #f59e0b);
+  color: var(--amber);
 }
 
 .status--paused {
-  color: var(--ink-400, #9ca3af);
+  color: var(--text-tertiary);
 }
 
 .status--error {
-  color: var(--fault, #ef4444);
+  color: var(--error);
 }
 
 .animate-spin {

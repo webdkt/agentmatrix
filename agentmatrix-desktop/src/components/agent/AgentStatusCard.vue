@@ -119,11 +119,11 @@ const handleClick = () => {
 .agent-status-card {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  border-radius: var(--radius-md);
   background: white;
-  border: 1px solid var(--neutral-200);
+  border: 1px solid var(--border);
   transition: all var(--duration-base) var(--ease-out);
   user-select: none;
 }
@@ -133,13 +133,13 @@ const handleClick = () => {
 }
 
 .agent-status-card--clickable:hover {
-  border-color: var(--neutral-300);
-  background: var(--neutral-50);
+  border-color: var(--border-strong);
+  background: var(--surface-base);
 }
 
 .agent-status-card--selected {
   border-color: var(--accent);
-  background: var(--parchment-50);
+  background: var(--surface-base);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
@@ -149,20 +149,18 @@ const handleClick = () => {
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: 14px;
   flex-shrink: 0;
 }
 
 .status-badge {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-size: 10px;
+  font-weight: var(--font-medium);
   padding: 3px 6px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  background: var(--parchment-200, #e8e4de);
-  color: var(--ink-500, #6b6560);
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
 }
 
 .agent-status-card__info {
@@ -176,7 +174,7 @@ const handleClick = () => {
 .agent-status-card__name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--ink-700);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -184,7 +182,7 @@ const handleClick = () => {
 
 .agent-status-card__message {
   font-size: var(--font-xs);
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -192,7 +190,7 @@ const handleClick = () => {
 
 .agent-status-card__arrow {
   font-size: 16px;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   flex-shrink: 0;
   transition: transform var(--duration-base) var(--ease-out);
 }
@@ -202,11 +200,11 @@ const handleClick = () => {
 }
 
 /* Status colors */
-.status--thinking { color: var(--accent, #c23b22); }
-.status--working { color: var(--verdant, #22c55e); }
-.status--waiting { color: var(--amber, #f59e0b); }
-.status--paused { color: var(--ink-400, #9ca3af); }
-.status--error { color: var(--fault, #ef4444); }
+.status--thinking { color: var(--accent); }
+.status--working { color: var(--success); }
+.status--waiting { color: var(--amber); }
+.status--paused { color: var(--text-tertiary); }
+.status--error { color: var(--error); }
 
 .animate-spin {
   animation: spin 1s linear infinite;

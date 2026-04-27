@@ -373,31 +373,30 @@ class AgentMatrixDB(AutoLoggerMixin):
 
     async def create_user_session(
         self, user_session_id: str, agent_name: str, task_id: str, subject: str,
-        is_read: int = 0, agent_session_id: str = None, timestamp: str = None,
-        last_email_id: str = None,
+        agent_session_id: str = None, timestamp: str = None,
+        last_email_id: str = None, last_agent_mail_time: str = None,
+        last_check_time: str = None,
     ):
         if timestamp is None:
             timestamp = datetime.now().isoformat()
         await self.conn.execute(
             """INSERT OR IGNORE INTO user_sessions
                 (user_session_id, agent_name, agent_session_id, task_id, subject,
-                 is_read, timestamp, created_at, last_email_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 timestamp, created_at, last_email_id, last_agent_mail_time, last_check_time)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_session_id, agent_name, agent_session_id, task_id, subject,
-             is_read, timestamp, timestamp, last_email_id),
+             timestamp, timestamp, last_email_id, last_agent_mail_time, last_check_time),
         )
         await self.conn.commit()
 
     async def update_user_session(
-        self, user_session_id: str, is_read: int = None,
-        timestamp: str = None, last_email_id: str = None,
-        agent_session_id: str = None,
+        self, user_session_id: str, timestamp: str = None,
+        last_email_id: str = None, agent_session_id: str = None,
+        last_agent_mail_time: str = None, last_check_time: str = None,
+        subject: str = None,
     ):
         sets = []
         params = []
-        if is_read is not None:
-            sets.append("is_read = ?")
-            params.append(is_read)
         if timestamp is not None:
             sets.append("timestamp = ?")
             params.append(timestamp)
@@ -407,6 +406,15 @@ class AgentMatrixDB(AutoLoggerMixin):
         if agent_session_id is not None:
             sets.append("agent_session_id = ?")
             params.append(agent_session_id)
+        if last_agent_mail_time is not None:
+            sets.append("last_agent_mail_time = ?")
+            params.append(last_agent_mail_time)
+        if last_check_time is not None:
+            sets.append("last_check_time = ?")
+            params.append(last_check_time)
+        if subject is not None:
+            sets.append("subject = ?")
+            params.append(subject)
         if not sets:
             return
         params.append(user_session_id)
@@ -425,19 +433,20 @@ class AgentMatrixDB(AutoLoggerMixin):
         await cursor.close()
         return dict(row) if row else None
 
-    async def mark_session_unread(self, user_session_id: str, timestamp: str = None):
-        if timestamp is None:
-            timestamp = datetime.now().isoformat()
-        await self.conn.execute(
-            "UPDATE user_sessions SET is_read = 0, timestamp = ? WHERE user_session_id = ?",
-            (timestamp, user_session_id),
-        )
-        await self.conn.commit()
+    async def update_check_time(self, user_session_id: str, check_time: str = None):
+        """
+        更新用户查看时间（用于标记已读）
 
-    async def mark_session_as_read(self, user_session_id: str):
+        Args:
+            user_session_id: 会话ID
+            check_time: 查看时间（默认为当前时间）
+        """
+        if check_time is None:
+            check_time = datetime.now().isoformat()
+
         await self.conn.execute(
-            "UPDATE user_sessions SET is_read = 1 WHERE user_session_id = ?",
-            (user_session_id,),
+            "UPDATE user_sessions SET last_check_time = ? WHERE user_session_id = ?",
+            (check_time, user_session_id),
         )
         await self.conn.commit()
 
@@ -451,8 +460,8 @@ class AgentMatrixDB(AutoLoggerMixin):
         offset = (page - 1) * per_page
         cursor = await self.conn.execute(
             """SELECT user_session_id AS session_id, agent_name, agent_session_id,
-                      task_id, subject, timestamp AS last_email_time, is_read,
-                      last_email_id
+                      task_id, subject, timestamp AS last_email_time,
+                      last_email_id, last_agent_mail_time, last_check_time
                FROM user_sessions
                ORDER BY timestamp DESC
                LIMIT ? OFFSET ?""",
@@ -464,7 +473,17 @@ class AgentMatrixDB(AutoLoggerMixin):
         sessions = []
         for r in rows:
             d = dict(r)
-            d["is_unread"] = d.pop("is_read", 0) == 0
+            # 新逻辑：基于时间比较计算未读状态
+            last_agent_time = d.get("last_agent_mail_time")
+            last_check_time = d.get("last_check_time")
+
+            if last_agent_time and last_check_time:
+                d["is_unread"] = last_agent_time > last_check_time
+            elif last_agent_time and not last_check_time:
+                d["is_unread"] = True
+            else:
+                d["is_unread"] = False
+
             d["participants"] = [d["agent_name"]] if d.get("agent_name") else []
             sessions.append(d)
 

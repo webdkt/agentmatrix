@@ -102,16 +102,32 @@ export const sessionAPI = {
   },
 
   /**
+   * 选择会话（更新查看时间）
+   * @param {string} sessionId - 会话 ID
+   */
+  async selectSession(sessionId) {
+    return API.post(`/api/sessions/${sessionId}/select`)
+  },
+
+  /**
+   * 更新会话标题
+   * @param {string} sessionId - 会话 ID
+   * @param {string} subject - 新标题
+   */
+  async updateSessionSubject(sessionId, subject) {
+    return API.put(`/api/sessions/${sessionId}/subject`, { subject })
+  },
+
+  /**
    * 获取 Agent session 的事件列表
    * @param {string} agentName - Agent 名称
    * @param {string} sessionId - Agent session ID
-   * @param {number} limit - 最大数量
-   * @param {number} offset - 偏移量
+   * @param {number} limit - 每页数量
    * @param {string} direction - 'latest' 或 'older'
-   * @param {string} before - direction='older' 时的时间戳
+   * @param {string} before - direction='older' 时的时间戳 cursor
    */
-  async getSessionEvents(agentName, sessionId, limit = 200, offset = 0, direction = 'latest', before = null) {
-    const params = { limit, offset, direction }
+  async getSessionEvents(agentName, sessionId, limit = 200, direction = 'latest', before = null) {
+    const params = { limit, direction }
     if (before) params.before = before
     return API.get(`/api/agents/${agentName}/sessions/${sessionId}/events`, { params })
   },

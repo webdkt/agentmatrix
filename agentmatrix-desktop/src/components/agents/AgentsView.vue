@@ -97,6 +97,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--parchment-50);
+  background: var(--surface-base);
 }
 </style>

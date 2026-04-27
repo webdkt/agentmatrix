@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Selector Card Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --surface-base: #FFFFFF;
+    --surface-secondary: #FAFAFA;
+    --surface-hover: #F4F4F5;
+    --border: #E4E4E7;
+    --border-light: #F0F0F2;
+    --border-strong: #D4D4D8;
+    --text-primary: #18181B;
+    --text-secondary: #52525B;
+    --text-tertiary: #A1A1AA;
+    --text-quaternary: #D4D4D8;
+
+    --accent: #A67B7B;
+    --accent-hover: #8E6666;
+    --accent-soft: rgba(166,123,123,0.06);
+
+    --success: #7D9B76;
+    --warning: #C4A265;
+    --error: #B57171;
+    --info: #7B8FA1;
+
+    /* Morandi avatar colors */
+    --morandi-rose: #C4A4A0;
+    --morandi-sage: #9CAF88;
+    --morandi-slate: #8E9AAF;
+    --morandi-mauve: #B8A9C9;
+    --morandi-taupe: #B5A89A;
+    --morandi-terracotta: #C08B6E;
+    --morandi-olive: #A8B09A;
+    --morandi-blue: #7B8FA1;
+
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.03);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.04);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.06);
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Noto Sans SC', sans-serif;
+    background: var(--surface-base);
+    color: var(--text-primary);
+    padding: 40px;
+    min-height: 100vh;
+  }
+
+  .page-header {
+    margin-bottom: 40px;
+  }
+
+  .page-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+
+  .page-subtitle {
+    font-size: 14px;
+    color: var(--text-tertiary);
+  }
+
+  .agent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    max-width: 1400px;
+  }
+
+  /* ─── Agent Selector Card ─── */
+  .agent-card {
+    background: var(--surface-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    min-height: 220px;
+    overflow: hidden;
+  }
+
+  /* Left color accent */
+  .agent-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--card-color);
+    opacity: 0.6;
+    transition: opacity 0.25s ease;
+  }
+
+  .agent-card:hover::before {
+    opacity: 1;
+  }
+
+  .agent-card:hover {
+    border-color: var(--card-color);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    transform: translateY(-3px);
+  }
+
+  .agent-card:active {
+    transform: translateY(-1px);
+  }
+
+  /* Card color variations */
+  .agent-card.rose { --card-color: var(--morandi-rose); }
+  .agent-card.sage { --card-color: var(--morandi-sage); }
+  .agent-card.slate { --card-color: var(--morandi-slate); }
+  .agent-card.mauve { --card-color: var(--morandi-mauve); }
+  .agent-card.taupe { --card-color: var(--morandi-taupe); }
+  .agent-card.terracotta { --card-color: var(--morandi-terracotta); }
+  .agent-card.olive { --card-color: var(--morandi-olive); }
+  .agent-card.blue { --card-color: var(--morandi-blue); }
+
+  /* Card Header */
+  .agent-card__header {
+    margin-bottom: 12px;
+  }
+
+  .agent-card__name-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .agent-card__name {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.3;
+    flex: 1;
+  }
+
+  /* Status Badge - larger and more prominent */
+  .agent-card__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .agent-card__status.idle {
+    background: var(--surface-secondary);
+    color: var(--text-quaternary);
+    border: 1px solid var(--border-light);
+  }
+
+  .agent-card__status.thinking,
+  .agent-card__status.working {
+    background: rgba(196,162,101,0.12);
+    color: var(--warning);
+    border: 1px solid rgba(196,162,101,0.25);
+  }
+
+  .agent-card__status.error {
+    background: rgba(181,113,113,0.12);
+    color: var(--error);
+    border: 1px solid rgba(181,113,113,0.25);
+  }
+
+  .agent-card__status.waiting {
+    background: rgba(123,143,161,0.12);
+    color: var(--info);
+    border: 1px solid rgba(123,143,161,0.25);
+  }
+
+  .agent-card__status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .agent-card__status.thinking .agent-card__status-dot,
+  .agent-card__status.working .agent-card__status-dot {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.1); }
+  }
+
+  /* Description with visual emphasis */
+  .agent-card__description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 14px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Card Meta - asymmetric layout */
+  .agent-card__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .agent-card__meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .agent-card__meta-row.right {
+    justify-content: flex-end;
+  }
+
+  .agent-card__tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .agent-card__tag svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  /* Model tag - distinct style */
+  .agent-card__tag.model {
+    background: rgba(166,123,123,0.08);
+    color: var(--accent);
+    border: 1px solid rgba(166,123,123,0.18);
+  }
+
+  /* Skill tags - subtle style */
+  .agent-card__tag.skill {
+    background: var(--surface-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+
+  /* Decorative icon in footer */
+  .agent-card__decor {
+    width: 18px;
+    height: 18px;
+    color: var(--text-quaternary);
+    opacity: 0.5;
+    transition: all 0.25s ease;
+  }
+
+  .agent-card:hover .agent-card__decor {
+    color: var(--card-color);
+    opacity: 1;
+    transform: rotate(15deg) scale(1.1);
+  }
+
+  /* Empty State */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-tertiary);
+  }
+
+  .empty-state__icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    color: var(--border-strong);
+  }
+
+  .empty-state__text {
+    font-size: 15px;
+    color: var(--text-secondary);
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1 class="page-title">选择一个 Agent</h1>
+  <p class="page-subtitle">Pick an Agent for Task</p>
+</div>
+
+<div class="agent-grid">
+
+  <!-- Card 1: IDLE - Rose -->
+  <div class="agent-card rose">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">Research Agent</div>
+        <div class="agent-card__status idle">
+          <span class="agent-card__status-dot"></span>
+          Idle
+        </div>
+      </div>
+      <div class="agent-card__description">深度研究分析，擅长数据收集和报告撰写，提供全面的洞察和结论</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          GPT-4
+        </span>
+        <span class="agent-card__tag skill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Research
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 2: THINKING - Sage -->
+  <div class="agent-card sage">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">Writer Agent</div>
+        <div class="agent-card__status thinking">
+          <span class="agent-card__status-dot"></span>
+          Thinking
+        </div>
+      </div>
+      <div class="agent-card__description">专业写作助手，擅长各类文档创作和编辑，确保内容清晰流畅</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          Claude 3.5
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <span class="agent-card__tag skill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+          Writing
+        </span>
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 3: WORKING - Slate -->
+  <div class="agent-card slate">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">Coder Agent</div>
+        <div class="agent-card__status working">
+          <span class="agent-card__status-dot"></span>
+          Working
+        </div>
+      </div>
+      <div class="agent-card__description">全栈开发专家，处理各类编程任务和技术架构设计</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          GPT-4
+        </span>
+        <span class="agent-card__tag skill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Coding
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 4: WAITING - Mauve -->
+  <div class="agent-card mauve">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">Planner Agent</div>
+        <div class="agent-card__status waiting">
+          <span class="agent-card__status-dot"></span>
+          Waiting
+        </div>
+      </div>
+      <div class="agent-card__description">项目规划与任务分解，确保目标清晰可执行，合理分配资源</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          Claude 3.5
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <span class="agent-card__tag skill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+          Planning
+        </span>
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 5: ERROR - Terracotta -->
+  <div class="agent-card terracotta">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">SystemAdmin</div>
+        <div class="agent-card__status error">
+          <span class="agent-card__status-dot"></span>
+          Error
+        </div>
+      </div>
+      <div class="agent-card__description">系统管理和运维，处理服务器配置、部署和故障排除</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          GPT-4
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 6: IDLE - Olive -->
+  <div class="agent-card olive">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">Designer Agent</div>
+        <div class="agent-card__status idle">
+          <span class="agent-card__status-dot"></span>
+          Idle
+        </div>
+      </div>
+      <div class="agent-card__description">UI/UX 设计专家，创建美观易用的用户界面和交互体验</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          Claude 3.5
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <span class="agent-card__tag skill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16L3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94"/></svg>
+          Design
+        </span>
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16L3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 7: IDLE - Blue -->
+  <div class="agent-card blue">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">Analyst Agent</div>
+        <div class="agent-card__status idle">
+          <span class="agent-card__status-dot"></span>
+          Idle
+        </div>
+      </div>
+      <div class="agent-card__description">数据分析专家，处理复杂数据集和可视化，发现业务洞察</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          GPT-4
+        </span>
+        <span class="agent-card__tag skill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Analytics
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 8: IDLE - Taupe -->
+  <div class="agent-card taupe">
+    <div class="agent-card__header">
+      <div class="agent-card__name-row">
+        <div class="agent-card__name">Tester Agent</div>
+        <div class="agent-card__status idle">
+          <span class="agent-card__status-dot"></span>
+          Idle
+        </div>
+      </div>
+      <div class="agent-card__description">质量保证和测试专家，确保代码质量和功能正确性</div>
+    </div>
+
+    <div class="agent-card__meta">
+      <div class="agent-card__meta-row">
+        <span class="agent-card__tag model">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          Claude 3.5
+        </span>
+      </div>
+      <div class="agent-card__meta-row right">
+        <span class="agent-card__tag skill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Testing
+        </span>
+        <svg class="agent-card__decor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

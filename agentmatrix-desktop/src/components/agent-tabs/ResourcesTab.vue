@@ -125,37 +125,37 @@ async function openSkillsFolder() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
 }
 
 .resources-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .resources-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .resource-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: var(--spacing-lg);
-  background: var(--parchment-50);
-  border: 1px solid var(--parchment-300);
-  border-radius: 2px;
+  padding: var(--spacing-6);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s;
   text-align: left;
 }
 
 .resource-card:hover {
-  background: var(--parchment-200);
-  border-color: var(--ink-300);
+  background: var(--surface-hover);
+  border-color: var(--text-quaternary);
 }
 
 .resource-card--disabled {
@@ -164,15 +164,15 @@ async function openSkillsFolder() {
 }
 
 .resource-card--disabled:hover {
-  background: var(--parchment-50);
-  border-color: var(--parchment-300);
+  background: var(--surface-base);
+  border-color: var(--border);
 }
 
 .resource-card__icon {
   width: 32px;
   height: 32px;
-  color: var(--ink-500);
-  margin-bottom: var(--spacing-md);
+  color: var(--text-tertiary);
+  margin-bottom: var(--spacing-4);
   transition: color 0.15s;
 }
 
@@ -184,13 +184,13 @@ async function openSkillsFolder() {
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 600;
-  color: var(--ink-900);
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .resource-card__desc {
   font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--ink-500);
+  color: var(--text-tertiary);
 }
 </style>

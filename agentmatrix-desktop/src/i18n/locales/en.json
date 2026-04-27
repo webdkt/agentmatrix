@@ -39,6 +39,19 @@
     "noSessions": "No sessions yet",
     "startNew": "Start a new session to begin"
   },
+  "collab": {
+    "pickAgentTitle": "Pick an Agent for Task",
+    "pickAgentSubtitle": "选择一个 Agent",
+    "loadingAgents": "Loading agents...",
+    "noAgentsAvailable": "No agents available",
+    "status": {
+      "idle": "Idle",
+      "thinking": "Thinking",
+      "working": "Working",
+      "waiting": "Waiting",
+      "error": "Error"
+    }
+  },
   "emails": {
     "subject": "Subject",
     "from": "From",

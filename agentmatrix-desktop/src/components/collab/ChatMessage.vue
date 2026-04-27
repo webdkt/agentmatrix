@@ -1,7 +1,8 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { marked } from 'marked'
 import MIcon from '@/components/icons/MIcon.vue'
+import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
 
 const props = defineProps({
   message: {
@@ -17,6 +18,8 @@ const props = defineProps({
     default: null
   }
 })
+
+const expanded = ref(false)
 
 // ---- Bubble (user / agent) ----
 
@@ -43,7 +46,7 @@ const pillText = computed(() => {
   const { eventType, eventName, detail } = props.message.data
   if (eventType === 'action') {
     if (eventName === 'started') {
-      return `执行 ${detail.action_name || ''}`
+      return detail.action_name || ''
     }
     if (eventName === 'completed') {
       const label = detail.action_label || detail.action_name || ''
@@ -53,7 +56,8 @@ const pillText = computed(() => {
       if (detail.status === 'canceled') {
         return `${label} 已取消`
       }
-      return `${label} 完成`
+      // 正常完成：只显示 label，勾勾用 CSS 显示
+      return label
     }
     if (eventName === 'error') {
       const label = detail.action_label || detail.action_name || ''
@@ -65,16 +69,33 @@ const pillText = computed(() => {
 
 // ---- Agent comm (agent-to-agent email) ----
 
-const agentCommText = computed(() => {
+const agentCommLabel = computed(() => {
+  if (props.message.type !== 'agent-comm') return ''
+  const { eventType, eventName } = props.message.data
+  const name = props.agentName || 'Agent'
+  if (eventType === 'email' && eventName === 'received') return `${name}收到邮件`
+  if (eventType === 'email' && eventName === 'sent') return `${name}发出邮件`
+  return ''
+})
+
+const agentCommMeta = computed(() => {
   if (props.message.type !== 'agent-comm') return ''
   const { eventType, eventName, detail } = props.message.data
-  if (eventType === 'email' && eventName === 'received') {
-    return `收到来自 ${detail.sender || '未知'} 的邮件${detail.subject ? ': ' + detail.subject : ''}`
-  }
-  if (eventType === 'email' && eventName === 'sent') {
-    return `给 ${detail.recipient || '未知'} 发了邮件${detail.subject ? ': ' + detail.subject : ''}`
-  }
+  if (eventType === 'email' && eventName === 'received') return `来自: ${detail.sender || '未知'}`
+  if (eventType === 'email' && eventName === 'sent') return `致: ${detail.recipient || '未知'}`
   return ''
+})
+
+const agentCommSubject = computed(() => {
+  if (props.message.type !== 'agent-comm') return ''
+  return props.message.data?.detail?.subject || ''
+})
+
+const agentCommBody = computed(() => {
+  if (props.message.type !== 'agent-comm') return ''
+  const body = props.message.data?.detail?.body_preview
+  if (!body) return ''
+  try { return marked(body).trim() } catch { return body }
 })
 
 // ---- System event ----
@@ -104,6 +125,36 @@ const formatTime = (timestamp) => {
   if (isToday) return time
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`
 }
+
+// ---- Attachments ----
+
+const attachments = computed(() => {
+  return props.message.data?.detail?.attachments || []
+})
+
+const formatFileSize = (bytes) => {
+  if (!bytes) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+}
+
+const handleAttachmentClick = async (attachment) => {
+  try {
+    if (!attachment || !attachment.filename) {
+      console.warn('Invalid attachment:', attachment)
+      return
+    }
+    await openAttachment(
+      props.user_agent_name,
+      props.message.data?.detail?.task_id,
+      attachment.filename
+    )
+  } catch (error) {
+    console.error('Failed to open attachment:', error)
+  }
+}
 </script>
 
 <template>
@@ -111,6 +162,20 @@ const formatTime = (timestamp) => {
   <div v-if="message.type === 'bubble-user'" class="chat-msg chat-msg--user">
     <div class="chat-msg__bubble">
       <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+      <div v-if="attachments.length > 0" class="chat-msg__attachments">
+        <div
+          v-for="(attachment, index) in attachments"
+          :key="index"
+          v-show="attachment.filename"
+          class="chat-msg__attachment"
+          @click="handleAttachmentClick(attachment)"
+        >
+          <div class="chat-msg__attachment-dot"></div>
+          <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
+          <span class="chat-msg__attachment-name">{{ attachment.filename || 'Unknown file' }}</span>
+          <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -118,27 +183,64 @@ const formatTime = (timestamp) => {
   <div v-else-if="message.type === 'bubble-agent'" class="chat-msg">
     <div class="chat-msg__bubble">
       <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+      <div v-if="attachments.length > 0" class="chat-msg__attachments">
+        <div
+          v-for="(attachment, index) in attachments"
+          :key="index"
+          v-show="attachment.filename"
+          class="chat-msg__attachment"
+          @click="handleAttachmentClick(attachment)"
+        >
+          <div class="chat-msg__attachment-dot"></div>
+          <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
+          <span class="chat-msg__attachment-name">{{ attachment.filename || 'Unknown file' }}</span>
+          <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- Thought (agent's inner monologue, bubble style) -->
+  <!-- Thought (agent's inner monologue, natural display) -->
   <div v-else-if="message.type === 'thought'" class="chat-msg chat-msg--thought-row">
-    <div class="chat-msg__bubble chat-msg__bubble--thought">
-      <div class="chat-msg__body chat-msg__body--thought">{{ renderedBody }}</div>
-    </div>
+    <div class="chat-msg__body chat-msg__body--thought markdown-content" v-html="renderedBody"></div>
   </div>
 
-  <!-- Agent-to-agent communication (subtle, centered) -->
-  <div v-else-if="message.type === 'agent-comm'" class="chat-agent-comm">
-    <span class="chat-agent-comm__icon">
-      <MIcon name="mail" />
-    </span>
-    <span class="chat-agent-comm__text">{{ agentCommText }}</span>
+  <!-- Agent-to-agent email (left-aligned bubble, expandable) -->
+  <div v-else-if="message.type === 'agent-comm'" class="chat-agent-comm" @click="expanded = !expanded">
+    <div class="chat-agent-comm__header">
+      <MIcon name="mail" class="chat-agent-comm__icon" />
+      <span class="chat-agent-comm__label">{{ agentCommLabel }}</span>
+      <span class="chat-agent-comm__time">{{ formatTime(message.timestamp) }}</span>
+      <MIcon :name="expanded ? 'chevron-down' : 'chevron-right'" class="chat-agent-comm__chevron" />
+    </div>
+    <div class="chat-agent-comm__meta">
+      <span class="chat-agent-comm__sender">{{ agentCommMeta }}</span>
+      <span v-if="agentCommSubject" class="chat-agent-comm__subject">主题: {{ agentCommSubject }}</span>
+    </div>
+    <Transition name="comm-expand">
+      <div v-if="expanded" class="chat-agent-comm__body" @click.stop>
+        <div v-if="agentCommBody" class="chat-agent-comm__body-content markdown-content" v-html="agentCommBody"></div>
+        <div v-if="attachments.length > 0" class="chat-msg__attachments">
+          <div
+            v-for="(attachment, index) in attachments"
+            :key="index"
+            v-show="attachment.filename"
+            class="chat-msg__attachment"
+            @click="handleAttachmentClick(attachment)"
+          >
+            <div class="chat-msg__attachment-dot"></div>
+            <MIcon :name="getAttachmentIcon(attachment.filename)" class="chat-msg__attachment-icon" />
+            <span class="chat-msg__attachment-name">{{ attachment.filename || 'Unknown file' }}</span>
+            <span class="chat-msg__attachment-size">{{ formatFileSize(attachment.size) }}</span>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 
   <!-- Status pill (action events) -->
   <div v-else-if="message.type === 'pill'" class="chat-pill">
-    <div class="chat-pill__capsule">
+    <div class="chat-pill__capsule" :class="`chat-pill__capsule--${message.data.eventName}`">
       <span class="chat-pill__text">{{ pillText }}</span>
     </div>
   </div>
@@ -155,106 +257,252 @@ const formatTime = (timestamp) => {
 </template>
 
 <style scoped>
-/* ===== User chat bubble (right-aligned, green) ===== */
+/* ===== Message base ===== */
 .chat-msg {
   display: flex;
-  padding: var(--spacing-xs) 0;
-  animation: fadeIn 200ms var(--ease-out);
+  flex-direction: column;
+  max-width: 68%;
+  animation: fadeIn 250ms var(--ease-out);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px) }
+  from { opacity: 0; transform: translateY(6px) }
   to { opacity: 1; transform: translateY(0) }
 }
 
-.chat-msg__bubble {
-  max-width: 75%;
-  background: var(--parchment-100);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-}
-
 .chat-msg--user {
-  justify-content: flex-end;
+  align-self: flex-end;
+  align-items: flex-end;
 }
 
+.chat-msg:not(.chat-msg--user):not(.chat-msg--thought-row) {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+/* ===== Bubble base ===== */
+.chat-msg__bubble {
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* Agent bubble: white with border */
+.chat-msg:not(.chat-msg--user) .chat-msg__bubble {
+  background: var(--surface-base);
+  color: var(--text-primary);
+  border: 2px solid var(--text-tertiary);
+  border-radius: 8px 8px 8px 4px;
+  position: relative;
+  margin-bottom: 12px;
+  overflow: visible;
+}
+
+.chat-msg:not(.chat-msg--user) .chat-msg__bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 10px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 10px solid var(--surface-base);
+  z-index: 1;
+}
+
+.chat-msg:not(.chat-msg--user) .chat-msg__bubble::before {
+  content: '';
+  position: absolute;
+  bottom: -13px;
+  left: 7px;
+  width: 0;
+  height: 0;
+  border-left: 13px solid transparent;
+  border-right: 13px solid transparent;
+  border-top: 13px solid var(--text-tertiary);
+  z-index: 0;
+}
+
+/* User bubble: light gray */
 .chat-msg--user .chat-msg__bubble {
-  background: var(--success-50);
-  border-color: var(--success-200);
-  border-radius: var(--radius-md);
-  border-bottom-right-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-radius: 8px 8px 4px 8px;
 }
 
 .chat-msg__body {
-  font-size: var(--font-sm);
-  color: var(--neutral-700);
-  line-height: var(--leading-relaxed);
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.65;
 }
 
-/* ===== Agent-to-agent communication ===== */
+/* ===== Agent-to-agent email bubble ===== */
 .chat-agent-comm {
   display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  max-width: 68%;
+  background: var(--surface-secondary);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
+  animation: fadeIn 250ms var(--ease-out);
+  transition: background var(--duration-base) var(--ease-out);
+}
+
+.chat-agent-comm:hover {
+  background: var(--surface-hover);
+}
+
+.chat-agent-comm__header {
+  display: flex;
   align-items: center;
-  justify-content: center;
   gap: 6px;
-  padding: 4px 0;
-  animation: fadeIn 200ms var(--ease-out);
 }
 
 .chat-agent-comm__icon {
-  font-size: var(--font-xs);
-  color: var(--neutral-300);
-  display: flex;
-  align-items: center;
+  font-size: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
-.chat-agent-comm__text {
+.chat-agent-comm__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chat-agent-comm__time {
   font-size: 11px;
-  color: var(--neutral-400);
-  font-style: italic;
+  color: var(--text-quaternary);
+  margin-left: auto;
 }
 
-/* ===== Status pill ===== */
-.chat-pill {
+.chat-agent-comm__chevron {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.chat-agent-comm__meta {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.chat-agent-comm__sender {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.chat-agent-comm__subject {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.chat-agent-comm__body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-agent-comm__body-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.comm-expand-enter-active {
+  animation: expandIn 200ms var(--ease-out);
+}
+
+.comm-expand-leave-active {
+  animation: expandIn 150ms var(--ease-out) reverse;
+}
+
+@keyframes expandIn {
+  from { opacity: 0; max-height: 0; overflow: hidden; }
+  to { opacity: 1; max-height: 500px; overflow: hidden; }
+}
+
+/* ===== Action pill (colored dot, no background) ===== */
+.chat-pill {
+  display: inline-flex;
   justify-content: flex-start;
-  padding: var(--spacing-xs) 0;
-  animation: fadeIn 200ms var(--ease-out);
+  padding: 0;
+  animation: fadeIn 250ms var(--ease-out);
+  margin: -12px 12px -12px 0;
+  vertical-align: top;
+  padding-left: 20px;
 }
 
 .chat-pill__capsule {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 14px;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: 999px;
-  font-size: var(--font-xs);
-  color: var(--neutral-400);
-  max-width: 80%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 100%;
+}
+
+.chat-pill__capsule::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--teal);
+  flex-shrink: 0;
+}
+
+.chat-pill__capsule--started::before {
+  background: var(--info);
+}
+
+.chat-pill__capsule--completed::before {
+  background: var(--success);
+}
+
+.chat-pill__capsule--completed::after {
+  content: '✓';
+  color: #10b981;
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 4px;
+  vertical-align: baseline;
+}
+
+.chat-pill__capsule--error::before {
+  background: var(--error);
 }
 
 .chat-pill__text {
-  color: var(--neutral-500);
+  color: var(--text-secondary);
 }
 
-/* ===== Thought (inner monologue, bubble variant) ===== */
-.chat-msg__bubble--thought {
-  background: var(--neutral-100);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-sm);
-  opacity: 0.85;
+/* ===== Thought (inner monologue, natural display) ===== */
+.chat-msg--thought-row {
+  align-self: flex-start;
+  max-width: 68%;
 }
 
 .chat-msg__body--thought {
-  font-style: italic;
-  color: var(--neutral-500);
+  color: rgba(60, 60, 60, 0.75);
+  font-size: 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', 'PingFang SC', 'Microsoft YaHei', monospace;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
   white-space: pre-wrap;
   word-break: break-word;
+  font-style: normal;
+  font-feature-settings: 'tnum' 1;
 }
 
 /* ===== System event ===== */
@@ -269,29 +517,35 @@ const formatTime = (timestamp) => {
 
 .chat-system__text {
   font-size: 11px;
-  color: var(--neutral-300);
+  color: var(--text-quaternary);
 }
 
 /* ===== Session start/end time ===== */
 .chat-session-time {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 0;
+  padding: 4px 12px;
   font-size: 11px;
-  color: var(--neutral-300);
+  color: var(--text-tertiary);
+  background: var(--surface-elevated);
+  border-radius: 12px;
+  margin: 0 auto;
   animation: fadeIn 200ms var(--ease-out);
+  /* 减少上下间距（抵消父容器的 gap: 24px） */
+  margin-top: -16px;
+  margin-bottom: -16px;
 }
 
 /* ===== Markdown styles ===== */
 .markdown-content :deep(p) {
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(ul),
 .markdown-content :deep(ol) {
-  margin-left: var(--spacing-md);
-  margin-bottom: var(--spacing-xs);
+  margin-left: var(--spacing-4);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(li) {
@@ -299,20 +553,20 @@ const formatTime = (timestamp) => {
 }
 
 .markdown-content :deep(code) {
-  background: var(--neutral-100);
+  background: var(--surface-hover);
   color: var(--accent);
   padding: 1px 4px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-xs);
 }
 
 .markdown-content :deep(pre) {
-  background: var(--neutral-800);
-  color: var(--neutral-50);
-  padding: var(--spacing-sm);
-  border-radius: var(--radius-sm);
+  background: var(--text-primary);
+  color: var(--surface-base);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(pre code) {
@@ -322,15 +576,15 @@ const formatTime = (timestamp) => {
 }
 
 .markdown-content :deep(blockquote) {
-  border-left: 3px solid var(--neutral-300);
-  padding-left: var(--spacing-sm);
+  border-left: 3px solid var(--text-quaternary);
+  padding-left: var(--spacing-2);
   font-style: italic;
-  color: var(--neutral-500);
-  margin-bottom: var(--spacing-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--spacing-1);
 }
 
 .markdown-content :deep(a) {
-  color: var(--info-500);
+  color: var(--info);
   text-decoration: underline;
 }
 
@@ -338,8 +592,61 @@ const formatTime = (timestamp) => {
 .markdown-content :deep(h2),
 .markdown-content :deep(h3) {
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
-  margin-bottom: var(--spacing-xs);
-  margin-top: var(--spacing-xs);
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-1);
+  margin-top: var(--spacing-1);
+}
+
+/* ===== Attachments (zen-v2-dot style) ===== */
+.chat-msg__attachments {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-msg__attachment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--ease-out);
+}
+
+.chat-msg__attachment:hover {
+  background: var(--surface-hover);
+}
+
+.chat-msg__attachment-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--teal);
+  flex-shrink: 0;
+}
+
+.chat-msg__attachment-icon {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.chat-msg__attachment-name {
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.chat-msg__attachment-size {
+  font-size: 12px;
+  color: var(--text-quaternary);
+  flex-shrink: 0;
+  margin-left: auto;
 }
 </style>

@@ -83,12 +83,7 @@ class FileSkillMixin:
 
     def _container_path_to_host(self, container_path: str) -> Optional[Path]:
         """
-        将容器内路径转换为宿主路径
-
-        路径映射规则：
-        - ~ → {matrix_root}/workspace/agent_files/{agent_name}/home/
-        - ~/current_task → {matrix_root}/workspace/agent_files/{agent_name}/work_files/{task_id}/
-        - /data/agents/{agent_name}/ → {matrix_root}/workspace/agent_files/{agent_name}/
+        将容器内路径转换为宿主路径（使用公共方法）
 
         Args:
             container_path: 容器内路径（如 ~/current_task/data.txt）
@@ -100,28 +95,7 @@ class FileSkillMixin:
         task_id = self.root_agent.current_task_id
         paths = self.root_agent.runtime.paths
 
-        # 1. 处理 ~ 开头的路径
-        if container_path.startswith("~"):
-            # ~/current_task → 工作目录
-            if container_path == "~/current_task" or container_path.startswith("~/current_task/"):
-                relative_path = container_path[len("~/current_task/"):].lstrip("/")
-                host_dir = paths.get_agent_work_files_dir(agent_name, task_id)
-                return host_dir / relative_path if relative_path else host_dir
-
-            # ~ 或 ~/xxx → home目录
-            relative_path = container_path[len("~/"):].lstrip("/")
-            host_dir = paths.get_agent_home_dir(agent_name)
-            return host_dir / relative_path if relative_path else host_dir
-
-        # 2. 处理 /data/agents/{agent_name}/ 开头的路径
-        container_base = f"/data/agents/{agent_name}/"
-        if container_path.startswith(container_base):
-            relative_path = container_path[len(container_base):].lstrip("/")
-            host_base = paths.workspace_dir / "agent_files" / agent_name
-            return host_base / relative_path
-
-        # 3. 其他路径（如 /tmp, /proc 等）返回 None，需要通过容器执行
-        return None
+        return paths.container_path_to_host(container_path, agent_name, task_id)
 
     @register_action(
         short_desc="读取文本文件内容[file_path, start_line=1,end_line=200]",

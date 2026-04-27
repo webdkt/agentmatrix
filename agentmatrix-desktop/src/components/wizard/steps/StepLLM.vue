@@ -112,7 +112,7 @@ function togEye(btn) {
 /* Error state */
 .me-error :deep(.ms-input),
 .me-error :deep(.me-inp) {
-  border-bottom-color: var(--fault) !important;
+  border-bottom-color: var(--error) !important;
 }
 
 .me-fg {
@@ -134,24 +134,24 @@ function togEye(btn) {
   margin: 0;
   background: transparent;
   border: none;
-  border-bottom: 2px solid var(--parchment-300);
-  color: var(--ink-900);
+  border-bottom: 2px solid var(--border);
+  color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 24px;
   padding: 12px 40px 12px 0;
   outline: none;
   text-align: center;
   transition: border-color 0.3s;
-  caret-color: var(--vermillion);
+  caret-color: var(--accent);
 }
 
 .me-inp::placeholder {
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   font-size: 18px;
 }
 
 .me-inp:focus {
-  border-bottom-color: var(--vermillion);
+  border-bottom-color: var(--accent);
 }
 
 .me-eye {
@@ -161,7 +161,7 @@ function togEye(btn) {
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   cursor: pointer;
   font-size: 20px;
   padding: 4px;
@@ -169,7 +169,7 @@ function togEye(btn) {
 }
 
 .me-eye:hover {
-  color: var(--ink-dim);
+  color: var(--text-tertiary);
 }
 
 /* URL field - always visible */
@@ -187,23 +187,23 @@ function togEye(btn) {
   width: 100%;
   background: transparent;
   border: none;
-  border-bottom: 2px solid var(--parchment-300);
-  color: var(--ink-900);
+  border-bottom: 2px solid var(--border);
+  color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 24px;
   padding: 12px 0;
   outline: none;
   text-align: center;
   transition: border-color 0.3s;
-  caret-color: var(--vermillion);
+  caret-color: var(--accent);
 }
 
 .me-url::placeholder {
-  color: var(--ink-ghost);
+  color: var(--text-quaternary);
   font-size: 18px;
 }
 
 .me-url:focus {
-  border-bottom-color: var(--vermillion);
+  border-bottom-color: var(--accent);
 }
 </style>

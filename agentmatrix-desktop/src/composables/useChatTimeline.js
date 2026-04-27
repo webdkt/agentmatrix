@@ -14,10 +14,10 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   const events = ref([])
   const isLoading = ref(false)
   const isLoadingMore = ref(false)
+  const isAutoFilling = ref(false)
   const error = ref(null)
   const messagesContainer = ref(null)
   const answer = ref('')
-  const hasMoreEvents = ref(false)
   const totalEventCount = ref(0)
 
   // ---- Computed ----
@@ -106,11 +106,10 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     error.value = null
 
     try {
-      const result = await sessionAPI.getSessionEvents(agentName, agentSessionId, 200, 0, 'latest')
+      const result = await sessionAPI.getSessionEvents(agentName, agentSessionId, 200)
       events.value = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
       totalEventCount.value = result.total || 0
-      hasMoreEvents.value = events.value.length < totalEventCount.value
-      sessionStore.markSessionRead(session.session_id)
+      sessionStore.updateCheckTimeLocal(session.session_id)
     } catch (err) {
       error.value = err.message
       console.error('Failed to load session events:', err)
@@ -118,56 +117,61 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       isLoading.value = false
       await nextTick()
       scrollToBottom()
+
+      // If content doesn't fill the viewport, keep loading older
+      isAutoFilling.value = true
+      try {
+        while (true) {
+          const container = messagesContainer.value
+          if (!container) break
+          if (container.scrollHeight > container.clientHeight) break
+          const loaded = await loadOlderEvents()
+          if (!loaded) break
+          await nextTick()
+        }
+      } finally {
+        isAutoFilling.value = false
+      }
     }
   }
 
   const loadOlderEvents = async () => {
-    if (isLoadingMore.value || !hasMoreEvents.value || !currentSession.value) return
+    if (isLoadingMore.value || !currentSession.value) return false
 
     const session = currentSession.value
     const agentName = session.agent_name || session.name
     const agentSessionId = session.agent_session_id
-    if (!agentName || !agentSessionId || events.value.length === 0) return
+    if (!agentName || !agentSessionId || events.value.length === 0) return false
 
-    // 用最早的事件时间戳作为 cursor
-    const oldestEvent = events.value.reduce((oldest, e) => {
-      return new Date(e.timestamp) < new Date(oldest.timestamp) ? e : oldest
-    }, events.value[0])
-    const before = oldestEvent.timestamp
+    // Find the oldest loaded event's timestamp as cursor
+    const oldest = events.value.reduce((min, e) =>
+      e.timestamp < min ? e.timestamp : min, events.value[0].timestamp)
 
     isLoadingMore.value = true
 
-    // 记住当前滚动位置和高度
     const container = messagesContainer.value
     const prevScrollHeight = container ? container.scrollHeight : 0
 
     try {
-      const result = await sessionAPI.getSessionEvents(agentName, agentSessionId, 200, 0, 'older', before)
+      const result = await sessionAPI.getSessionEvents(agentName, agentSessionId, 200, 'older', oldest)
       const olderEvents = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
 
       if (olderEvents.length === 0) {
-        hasMoreEvents.value = false
-      } else {
-        // prepend 到头部（按 id 去重，防止时间戳边界重叠）
-        const existingIds = new Set(events.value.map(e => e.id))
-        const unique = olderEvents.filter(e => !existingIds.has(e.id))
-        if (unique.length === 0) {
-          hasMoreEvents.value = false
-        } else {
-          events.value = [...unique, ...events.value]
-          totalEventCount.value = result.total || totalEventCount.value
-          hasMoreEvents.value = events.value.length < totalEventCount.value
-
-          // 保持滚动位置不变（prepend 后恢复）
-          await nextTick()
-          if (container) {
-            const newScrollHeight = container.scrollHeight
-            container.scrollTop = newScrollHeight - prevScrollHeight
-          }
-        }
+        return false
       }
+
+      events.value = [...olderEvents, ...events.value]
+
+      // Preserve scroll position
+      await nextTick()
+      if (container) {
+        container.scrollTop = container.scrollHeight - prevScrollHeight
+      }
+
+      return true
     } catch (err) {
       console.error('Failed to load older events:', err)
+      return false
     } finally {
       isLoadingMore.value = false
     }
@@ -176,7 +180,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   const onScroll = () => {
     const container = messagesContainer.value
     if (!container) return
-    if (container.scrollTop <= 0 && hasMoreEvents.value && !isLoadingMore.value) {
+    if (container.scrollTop <= 50 && !isLoadingMore.value && !isAutoFilling.value) {
       loadOlderEvents()
     }
   }
@@ -193,7 +197,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
 
   watch(currentSession, async (newSession) => {
     events.value = []
-    hasMoreEvents.value = false
     totalEventCount.value = 0
 
     if (newSession) {
@@ -216,6 +219,10 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
 
     const parsed = parseEvent(evt.data)
     if (parsed.renderType === 'skip') return
+
+    // User messages are always sent from the frontend with a placeholder,
+    // no need to append the backend echo — loadEvents() handles historical data on session switch
+    if (parsed.renderType === 'bubble-user') return
 
     events.value.push(parsed)
     totalEventCount.value++
@@ -274,10 +281,10 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     events,
     isLoading,
     isLoadingMore,
+    isAutoFilling,
     error,
     messagesContainer,
     answer,
-    hasMoreEvents,
     totalEventCount,
     // Computed
     currentSession,

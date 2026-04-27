@@ -9,6 +9,7 @@ import { useCollabFile } from '@/composables/useCollabFile'
 import { useTaskFiles } from '@/composables/useTaskFiles'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { agentAPI } from '@/api/agent'
+import { sessionAPI } from '@/api/session'
 import ChatMessage from './ChatMessage.vue'
 import CollabInput from './CollabInput.vue'
 import CollabStartPanel from './CollabStartPanel.vue'
@@ -44,7 +45,6 @@ const {
   currentSession,
   chatTimeline,
   hasContent,
-  hasMoreEvents,
   pendingQuestion,
   primaryAgentName,
   loadEvents,
@@ -100,8 +100,57 @@ provide('collabDraftMessage', collabDraftMessage)
 // ---- UI State ----
 const showTaskFiles = ref(false)
 const showTerminal = ref(false)
-const terminalMinimized = ref(true)
+const terminalFullscreen = ref(false)
 const isCollabMode = ref(false)
+const subjectInput = ref(null)
+
+// ---- Close panels when switching sessions ----
+watch(currentSessionId, (newId, oldId) => {
+  if (newId && oldId && newId !== oldId) {
+    // Close terminal and files panel when switching to a different session
+    showTerminal.value = false
+    terminalFullscreen.value = false
+    showTaskFiles.value = false
+  }
+})
+
+// ---- Update session subject ----
+async function updateSubject(event) {
+  const newSubject = event.target.value.trim()
+  if (!currentSession.value) return
+
+  const sessionId = currentSession.value.session_id
+  const oldSubject = currentSession.value.subject || ''
+
+  if (newSubject === oldSubject) return
+
+  try {
+    // 调用 API 更新 subject
+    await sessionAPI.updateSessionSubject(sessionId, newSubject)
+
+    // 更新前端 session store 中的 subject
+    const index = sessionStore.sessions.findIndex(s => s.session_id === sessionId)
+    if (index !== -1) {
+      sessionStore.sessions[index] = {
+        ...sessionStore.sessions[index],
+        subject: newSubject
+      }
+    }
+
+    // 更新 currentSession
+    sessionStore.currentSession = {
+      ...sessionStore.currentSession,
+      subject: newSubject
+    }
+
+    console.log('✅ Session subject updated:', sessionId, newSubject)
+  } catch (error) {
+    console.error('❌ Failed to update session subject:', error)
+    // 恢复原值
+    event.target.value = oldSubject
+    alert('Failed to update subject: ' + error.message)
+  }
+}
 
 // ---- Task files (single instance shared with TaskFilesPanel) ----
 const taskFiles = useTaskFiles({
@@ -262,22 +311,23 @@ watch(() => sessionStore.sessions.length, (newLen, oldLen) => {
 
 // ---- Terminal toggle: hidden → minimized → expanded → hidden ----
 const toggleTerminal = () => {
+  showTerminal.value = !showTerminal.value
   if (!showTerminal.value) {
-    // Hidden → show minimized
-    showTerminal.value = true
-    terminalMinimized.value = true
-  } else if (terminalMinimized.value) {
-    // Minimized → expand
-    terminalMinimized.value = false
-  } else {
-    // Expanded → hide
-    showTerminal.value = false
+    // 隐藏时退出全屏模式
+    terminalFullscreen.value = false
   }
 }
 
 const handleTerminalClose = () => {
-  // Close button: go to minimized (not hidden)
-  terminalMinimized.value = true
+  // 关闭按钮 = 隐藏 terminal
+  showTerminal.value = false
+  terminalFullscreen.value = false
+}
+
+const handleTerminalToggleMinimize = () => {
+  // 最小化/最大化按钮 = 在默认大小和全屏之间切换
+  if (!showTerminal.value) return
+  terminalFullscreen.value = !terminalFullscreen.value
 }
 
 // ---- Collab mode toggle ----
@@ -352,6 +402,19 @@ const taskFilesWidth = computed(() => {
             </template>
           </span>
         </span>
+
+        <!-- Editable subject title -->
+        <div class="agent-session-panel__subject-wrapper">
+          <input
+            v-if="currentSession"
+            ref="subjectInput"
+            class="agent-session-panel__subject-input"
+            :value="currentSession.subject || ''"
+            placeholder="输入标题..."
+            @blur="updateSubject"
+            @keyup.enter="subjectInput?.blur()"
+          />
+        </div>
       </div>
 
       <div class="agent-session-panel__toolbar">
@@ -363,41 +426,7 @@ const taskFilesWidth = computed(() => {
           title="Toggle Collab Mode"
         >
           <MIcon name="users" />
-        </button>
-
-        <!-- Collabring File indicator -->
-        <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{
-            'agent-session-panel__toolbar-btn--active': collabFile,
-            'agent-session-panel__toolbar-btn--disabled': !collabFile,
-          }"
-          @click="openCollabFile"
-          :disabled="!collabFileName"
-          :title="collabFileName || 'No collab file'"
-        >
-          <MIcon name="file" />
-          <span v-if="collabFile" class="agent-session-panel__indicator-dot" />
-        </button>
-
-        <!-- Task Files toggle -->
-        <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{ 'agent-session-panel__toolbar-btn--active': showTaskFiles }"
-          @click="showTaskFiles = !showTaskFiles"
-          title="Task Files"
-        >
-          <MIcon name="folder" />
-        </button>
-
-        <!-- Terminal toggle -->
-        <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{ 'agent-session-panel__toolbar-btn--active': showTerminal }"
-          @click="toggleTerminal"
-          title="Terminal"
-        >
-          <MIcon name="terminal" />
+          <span class="agent-session-panel__toolbar-btn-text">Collab</span>
         </button>
 
         <!-- Refresh -->
@@ -407,6 +436,7 @@ const taskFilesWidth = computed(() => {
           title="Refresh"
         >
           <MIcon name="refresh" />
+          <span class="agent-session-panel__toolbar-btn-text">Refresh</span>
         </button>
       </div>
     </header>
@@ -492,10 +522,16 @@ const taskFilesWidth = computed(() => {
           :root-dir="taskFiles.rootDir.value"
           :is-at-root="taskFiles.isAtRoot.value"
           :relative-path="taskFiles.relativePath.value"
+          :selected-files="taskFiles.selectedFiles.value"
+          :context-menu="taskFiles.contextMenu.value"
           @load-files="taskFiles.loadFiles()"
           @open-entry="(entry) => taskFiles.openEntry(entry)"
           @go-up="taskFiles.goUp()"
           @go-root="taskFiles.goRoot()"
+          @select-file="(entry, event) => taskFiles.toggleFileSelection(entry, event)"
+          @contextmenu="(entry, event) => taskFiles.showContextMenu(entry, event)"
+          @hide-context-menu="taskFiles.hideContextMenu()"
+          @menu-action="(action) => taskFiles.handleMenuAction(action)"
           @close="showTaskFiles = false"
         />
       </Transition>
@@ -504,10 +540,11 @@ const taskFilesWidth = computed(() => {
       <AgentTerminal
         v-if="showTerminal && currentAgentName"
         :agent-name="currentAgentName"
-        :minimized="terminalMinimized"
+        :minimized="false"
+        :fullscreen="terminalFullscreen"
         :parent-width="middleSize.width"
         :parent-height="middleSize.height"
-        @toggle-minimize="terminalMinimized = !terminalMinimized"
+        @toggle-minimize="handleTerminalToggleMinimize"
         @close="handleTerminalClose"
       />
 
@@ -520,6 +557,44 @@ const taskFilesWidth = computed(() => {
 
     <!-- Bottom Input Area -->
     <div data-drop-zone="input" class="agent-session-panel__bottom">
+      <!-- Floating toolbar (sits on right shoulder) -->
+      <div class="agent-session-panel__floating-toolbar">
+        <!-- CollabFile indicator -->
+        <button
+          class="floating-toolbar-btn"
+          :class="{
+            'floating-toolbar-btn--active': collabFile,
+            'floating-toolbar-btn--disabled': !collabFile,
+          }"
+          @click="openCollabFile"
+          :disabled="!collabFileName"
+          :title="collabFileName || 'No collab file'"
+        >
+          <MIcon name="file" />
+          <span class="floating-toolbar-btn__dot" v-if="collabFile"></span>
+        </button>
+
+        <!-- Task Files toggle -->
+        <button
+          class="floating-toolbar-btn"
+          :class="{ 'floating-toolbar-btn--active': showTaskFiles }"
+          @click="showTaskFiles = !showTaskFiles"
+          title="Task Files"
+        >
+          <MIcon name="folder" />
+        </button>
+
+        <!-- Terminal toggle -->
+        <button
+          class="floating-toolbar-btn"
+          :class="{ 'floating-toolbar-btn--active': showTerminal }"
+          @click="toggleTerminal"
+          title="Terminal"
+        >
+          <MIcon name="monitor-play" />
+        </button>
+      </div>
+
       <!-- Ask User Question form -->
       <div v-if="pendingQuestion" class="agent-session-panel__ask-user">
         <div class="agent-session-panel__ask-user-form">
@@ -567,44 +642,87 @@ const taskFilesWidth = computed(() => {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--neutral-50);
+  background: var(--surface-base);
 }
 
 /* ---- Top Bar ---- */
 .agent-session-panel__topbar {
-  height: 48px;
+  height: 56px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--spacing-md);
-  background: white;
-  border-bottom: 1px solid var(--neutral-200);
+  padding: 0 28px;
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .agent-session-panel__agent-info {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: 14px;
 }
 
 .agent-session-panel__avatar {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: var(--accent);
-  color: white;
-  font-size: var(--font-xs);
+  background: var(--morandi-mauve);
+  color: rgba(255,255,255,0.9);
+  font-size: 13px;
   font-weight: var(--font-semibold);
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-session-panel__avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
 }
 
 .agent-session-panel__agent-name {
-  font-size: var(--font-sm);
+  font-size: 15px;
   font-weight: var(--font-semibold);
-  color: var(--neutral-800);
+  color: var(--text-primary);
+}
+
+.agent-session-panel__subject-wrapper {
+  margin-left: 32px;
+  flex: 1;
+}
+
+.agent-session-panel__subject-input {
+  width: 100%;
+  font-size: 15px;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  outline: none;
+  transition: all 0.12s ease;
+}
+
+.agent-session-panel__subject-input:hover {
+  background: var(--surface-hover);
+}
+
+.agent-session-panel__subject-input:focus {
+  background: var(--surface-base);
+  border-color: var(--accent);
+}
+
+.agent-session-panel__subject-input::placeholder {
+  color: var(--text-quaternary);
+  font-weight: var(--font-normal);
 }
 
 .agent-session-panel__status {
@@ -612,11 +730,11 @@ const taskFilesWidth = computed(() => {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: var(--radius-sm);
+  background: var(--surface-secondary);
+  border: 1px solid var(--surface-hover);
+  border-radius: var(--radius-md);
   font-size: 10px;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   animation: fadeIn 200ms var(--ease-out);
 }
 
@@ -624,7 +742,7 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .agent-session-panel__status-icon--spinning {
@@ -632,7 +750,7 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status-label {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -647,8 +765,8 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status--clickable:hover {
-  background: var(--neutral-100);
-  border-color: var(--neutral-200);
+  background: var(--surface-hover);
+  border-color: var(--border);
 }
 
 .agent-session-panel__status-jump {
@@ -658,37 +776,52 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__toolbar {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
 .agent-session-panel__toolbar-btn {
   position: relative;
-  width: 34px;
-  height: 34px;
+  height: 36px;
+  padding: 0 10px;
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-size: var(--icon-md);
   cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
+  transition: all 0.12s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+}
+
+.agent-session-panel__toolbar-btn-text {
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__toolbar-btn:hover {
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.agent-session-panel__toolbar-btn:hover .agent-session-panel__toolbar-btn-text {
+  color: var(--text-primary);
 }
 
 .agent-session-panel__toolbar-btn--active {
-  background: var(--parchment-100);
+  background: var(--surface-secondary);
+  color: var(--accent);
+}
+
+.agent-session-panel__toolbar-btn--active .agent-session-panel__toolbar-btn-text {
   color: var(--accent);
 }
 
 .agent-session-panel__toolbar-btn--active:hover {
-  background: var(--parchment-200);
+  background: var(--surface-hover);
 }
 
 .agent-session-panel__toolbar-btn--disabled {
@@ -711,7 +844,7 @@ const taskFilesWidth = computed(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--success-500, #22c55e);
+  background: var(--success);
   border: 1.5px solid white;
 }
 
@@ -727,9 +860,10 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__messages {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: 32px 36px 16px 36px;
   display: flex;
   flex-direction: column;
+  gap: 24px;
   min-width: 0;
 }
 
@@ -737,8 +871,8 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm);
+  gap: var(--spacing-1);
+  padding: var(--spacing-2);
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
 }
@@ -765,45 +899,45 @@ const taskFilesWidth = computed(() => {
 .agent-session-panel__empty-icon {
   width: 64px;
   height: 64px;
-  background: var(--neutral-100);
-  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32px;
-  color: var(--neutral-300);
-  margin-bottom: var(--spacing-md);
+  color: var(--text-quaternary);
+  margin-bottom: var(--spacing-4);
 }
 
 .agent-session-panel__empty-icon--loading {
-  background: var(--parchment-50);
+  background: var(--surface-base);
   color: var(--accent);
 }
 
 .agent-session-panel__empty-icon--error {
-  background: var(--error-50);
-  color: var(--error-500);
+  background: var(--error-muted);
+  color: var(--error);
 }
 
 .agent-session-panel__empty-text {
   font-size: var(--font-base);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
-  margin: 0 0 var(--spacing-xs) 0;
+  color: var(--text-secondary);
+  margin: 0 0 var(--spacing-1) 0;
 }
 
 .agent-session-panel__empty-hint {
   font-size: var(--font-sm);
-  color: var(--neutral-400);
-  margin: 0 0 var(--spacing-md) 0;
+  color: var(--text-tertiary);
+  margin: 0 0 var(--spacing-4) 0;
 }
 
 .agent-session-panel__retry-btn {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-2) var(--spacing-4);
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -815,12 +949,12 @@ const taskFilesWidth = computed(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  margin-top: var(--spacing-sm);
-  background: var(--neutral-50);
-  border: 1px solid var(--neutral-100);
-  border-radius: var(--radius-sm);
+  margin-top: var(--spacing-2);
+  background: var(--surface-secondary);
+  border: 1px solid var(--surface-hover);
+  border-radius: var(--radius-md);
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   animation: fadeIn 200ms var(--ease-out);
   flex-shrink: 0;
   align-self: flex-start;
@@ -830,7 +964,7 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   font-size: var(--font-sm);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
 }
 
 .agent-session-panel__status-indicator-icon--spinning {
@@ -839,11 +973,11 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__status-indicator-agent {
   font-weight: var(--font-semibold);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
 }
 
 .agent-session-panel__status-indicator-label {
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -858,68 +992,64 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status-indicator--clickable:hover {
-  background: var(--neutral-100);
-  border-color: var(--neutral-200);
+  background: var(--surface-hover);
+  border-color: var(--border);
 }
 
 /* ---- Bottom Input Area ---- */
 .agent-session-panel__bottom {
+  position: relative;
   flex-shrink: 0;
-  background: var(--parchment-50);
-  padding: var(--spacing-md);
+  background: var(--surface-base);
 }
 
 /* ---- Ask User Question ---- */
 .agent-session-panel__ask-user-form {
-  padding: var(--spacing-lg);
-  background: var(--parchment-50);
-  border: 2px solid var(--accent);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 2px 12px rgba(194, 59, 34, 0.15);
-}
-
-.agent-session-panel__ask-user-form:focus-within {
-  border-color: var(--parchment-300);
-  box-shadow: none;
+  padding: 18px;
+  background: var(--warning-soft);
+  border: 1px solid rgba(196,162,101,0.15);
+  border-radius: var(--radius-lg);
 }
 
 .agent-session-panel__ask-user-header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
 .agent-session-panel__ask-user-header .m-icon {
-  font-size: var(--icon-md);
-  color: var(--accent);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  font-size: 13px;
+  color: var(--warning);
 }
 
 .agent-session-panel__ask-user-title {
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--ink-900);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warning);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .agent-session-panel__ask-user-text {
-  font-size: var(--font-sm);
-  color: var(--ink-700);
-  margin: 0 0 var(--spacing-sm) 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+  margin: 0 0 14px 0;
   line-height: var(--leading-relaxed);
 }
 
 .agent-session-panel__ask-user-input {
   width: 100%;
-  padding: var(--spacing-sm);
-  background: var(--parchment-50);
-  border: 1px solid var(--parchment-300);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
-  color: var(--ink-700);
+  padding: var(--spacing-2);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-primary);
   resize: none;
-  margin-bottom: var(--spacing-sm);
-  transition: all var(--duration-base) var(--ease-out);
+  margin-bottom: 10px;
+  transition: all 0.15s ease;
 }
 
 .agent-session-panel__ask-user-input:focus {
@@ -933,26 +1063,126 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__ask-user-btn {
-  padding: var(--spacing-xs) var(--spacing-lg);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: var(--font-medium);
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  background: var(--ink-900);
-  color: var(--parchment-50);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  transition: all var(--duration-base) var(--ease-out);
+  background: white;
+  color: var(--text-primary);
+  transition: all 0.12s ease;
 }
 
 .agent-session-panel__ask-user-btn:hover:not(:disabled) {
-  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .agent-session-panel__ask-user-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* ---- Floating Toolbar ---- */
+.agent-session-panel__floating-toolbar {
+  position: absolute;
+  top: -16px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(200, 200, 200, 0.3);
+  border-radius: 12px;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  z-index: 10;
+  animation: floatUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes floatUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.floating-toolbar-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #f8f9fa 0%, #f0f1f3 100%);
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.floating-toolbar-btn:hover {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
+.floating-toolbar-btn:active {
+  transform: translateY(0);
+}
+
+.floating-toolbar-btn--active {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  color: #10b981;
+  box-shadow:
+    0 1px 3px rgba(16, 185, 129, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.floating-toolbar-btn--active:hover {
+  background: linear-gradient(135deg, #d4efd6 0%, #b9e6c1 100%);
+  color: #059669;
+}
+
+.floating-toolbar-btn--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.floating-toolbar-btn--disabled:hover {
+  transform: none;
+  background: linear-gradient(135deg, #f8f9fa 0%, #f0f1f3 100%);
+  color: var(--text-secondary);
+}
+
+.floating-toolbar-btn__dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 /* ---- Drag-drop overlay ---- */
@@ -969,7 +1199,7 @@ const taskFilesWidth = computed(() => {
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
   border: 2px dashed var(--accent);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   z-index: 20;
   pointer-events: none;
 }

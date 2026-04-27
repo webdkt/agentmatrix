@@ -77,59 +77,56 @@ const handleBack = () => {
 }
 
 .agent-dashboard__header {
-  padding: var(--spacing-md) var(--spacing-lg);
-  background: var(--parchment-50);
-  border-bottom: 1px solid var(--parchment-200);
+  padding: var(--spacing-4) var(--spacing-6);
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--surface-hover);
 }
 
 .back-button {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
   background: transparent;
-  border: 1px solid var(--parchment-200);
-  border-radius: var(--radius-sm);
-  color: var(--ink-600);
+  border: 1px solid var(--surface-hover);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   font-size: var(--font-sm);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .back-button:hover {
-  background: var(--parchment-100);
-  border-color: var(--parchment-300);
-  color: var(--ink-800);
+  background: var(--surface-secondary);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 
 .agent-dashboard__tabs {
   display: flex;
-  border-bottom: 1px solid var(--parchment-300);
-  background: var(--parchment-50);
-  padding: 0 var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-base);
+  padding: 0 var(--spacing-4);
 }
 
 .agent-dashboard__tab {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-4) var(--spacing-6);
   border: none;
   background: none;
   font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--ink-500);
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
   cursor: pointer;
   position: relative;
   transition: color 0.2s;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .agent-dashboard__tab:hover {
-  color: var(--ink-700);
+  color: var(--text-secondary);
 }
 
 .agent-dashboard__tab--active {
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 .agent-dashboard__tab--active::after {
@@ -155,8 +152,8 @@ const handleBack = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink-400);
-  font-family: var(--font-serif);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
   font-size: 16px;
   font-style: italic;
 }

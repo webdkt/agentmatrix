@@ -152,20 +152,20 @@ const showEmailProxy = ref(false)
 .step {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-6);
 }
 
 .step__title {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
-  color: var(--neutral-800);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .step__desc {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
   line-height: 1.6;
 }
@@ -174,16 +174,16 @@ const showEmailProxy = ref(false)
 .step__summary {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .step__summary-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--neutral-50);
-  border-radius: var(--radius-sm);
+  gap: var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-4);
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
 }
 
 .step__summary-item > i {
@@ -200,13 +200,13 @@ const showEmailProxy = ref(false)
 
 .step__summary-label {
   font-size: var(--font-xs);
-  color: var(--neutral-400);
+  color: var(--text-tertiary);
   font-weight: var(--font-medium);
 }
 
 .step__summary-value {
   font-size: var(--font-sm);
-  color: var(--neutral-800);
+  color: var(--text-primary);
   font-weight: var(--font-medium);
 }
 
@@ -218,33 +218,30 @@ const showEmailProxy = ref(false)
 .step__badge {
   display: inline-block;
   padding: 1px 6px;
-  background: var(--neutral-100);
-  color: var(--neutral-700);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
   font-weight: var(--font-medium);
-  font-variant: small-caps;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 /* Optional section */
 .step__optional {
-  border-top: 1px solid var(--neutral-200);
-  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border);
+  padding-top: var(--spacing-4);
 }
 
 .step__optional-toggle {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
   background: none;
   border: none;
   cursor: pointer;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
-  padding: var(--spacing-xs) 0;
+  color: var(--text-secondary);
+  padding: var(--spacing-1) 0;
 }
 
 .step__optional-toggle:hover {
@@ -255,22 +252,22 @@ const showEmailProxy = ref(false)
 .step__email-proxy {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  background: var(--neutral-50);
-  border-radius: var(--radius-sm);
-  margin-top: var(--spacing-sm);
+  gap: var(--spacing-2);
+  padding: var(--spacing-4);
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  margin-top: var(--spacing-2);
 }
 
 .step__row {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .step__field {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
   flex: 1;
 }
 
@@ -281,15 +278,15 @@ const showEmailProxy = ref(false)
 .step__label {
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
-  color: var(--neutral-600);
+  color: var(--text-secondary);
 }
 
 .step__checkbox-label {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
   font-size: var(--font-sm);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   cursor: pointer;
 }
 </style>

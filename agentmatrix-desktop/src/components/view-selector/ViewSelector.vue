@@ -66,24 +66,24 @@ const handleViewClick = (viewId) => {
 .view-selector {
   width: var(--view-selector-width);
   height: 100vh;
-  background: var(--neutral-100);
-  border-right: 1px solid var(--neutral-200);
+  background: var(--surface-secondary);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--spacing-md) 0;
+  padding: var(--spacing-4) 0;
   flex-shrink: 0;
 }
 
 .view-selector__logo {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-6);
 }
 
 .logo-icon {
   width: 44px;
   height: 44px;
   background: var(--accent);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -95,18 +95,18 @@ const handleViewClick = (viewId) => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
   width: 100%;
-  padding: 0 var(--spacing-sm);
+  padding: 0 var(--spacing-2);
 }
 
 .view-selector__item {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: none;
   background: transparent;
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   font-size: var(--icon-lg);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
@@ -117,12 +117,12 @@ const handleViewClick = (viewId) => {
 }
 
 .view-selector__item:hover {
-  background: var(--neutral-200);
-  color: var(--neutral-700);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .view-selector__item--active {
-  background: var(--parchment-50);
+  background: var(--surface-base);
   color: var(--accent);
 }
 
@@ -133,7 +133,7 @@ const handleViewClick = (viewId) => {
   width: 3px;
   height: 24px;
   background: var(--accent);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 
 .view-selector__icon {
@@ -147,16 +147,16 @@ const handleViewClick = (viewId) => {
   right: 8px;
   width: 8px;
   height: 8px;
-  background: var(--fault);
+  background: var(--error);
   border-radius: 50%;
 }
 
 .view-selector__status {
   width: 100%;
-  padding: 0 var(--spacing-sm);
+  padding: 0 var(--spacing-2);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-1);
 }
 
 /* Tooltip styles */
@@ -166,11 +166,11 @@ const handleViewClick = (viewId) => {
   left: calc(100% + 12px);
   top: 50%;
   transform: translateY(-50%);
-  background: var(--neutral-800);
+  background: var(--text-primary);
   color: white;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-1) var(--spacing-2);
   border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;

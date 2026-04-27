@@ -193,13 +193,13 @@ onMounted(() => {
 .proxy-config {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
-  padding-top: var(--spacing-lg);
+  gap: var(--spacing-6);
+  padding-top: var(--spacing-6);
 }
 
 .config-card {
   background: white;
-  border: 1px solid var(--neutral-200);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -208,8 +208,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-lg);
-  gap: var(--spacing-md);
+  padding: var(--spacing-6);
+  gap: var(--spacing-4);
 }
 
 .card-title-group {
@@ -219,28 +219,28 @@ onMounted(() => {
 .card-title {
   font-size: var(--font-base);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .card-description {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 2px 0 0 0;
 }
 
 .card-actions {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
   align-items: center;
 }
 
 .toggle-button {
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-radius: var(--radius-base);
-  border: 1px solid var(--neutral-300);
-  background: var(--neutral-100);
-  color: var(--neutral-700);
+  padding: var(--spacing-1) var(--spacing-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -261,20 +261,20 @@ onMounted(() => {
 .action-button {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-base);
-  border: 1px solid var(--neutral-200);
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
   background: white;
-  color: var(--neutral-600);
+  color: var(--text-secondary);
   font-size: var(--font-sm);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .action-button:hover:not(:disabled) {
-  background: var(--neutral-50);
-  border-color: var(--neutral-300);
+  background: var(--surface-base);
+  border-color: var(--border-strong);
 }
 
 .action-button:disabled {
@@ -283,9 +283,9 @@ onMounted(() => {
 }
 
 .config-details {
-  padding: 0 var(--spacing-lg) var(--spacing-lg);
+  padding: 0 var(--spacing-6) var(--spacing-6);
   display: flex;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-8);
 }
 
 .config-field {
@@ -297,14 +297,12 @@ onMounted(() => {
 .field-label {
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
-  color: var(--neutral-500);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
 }
 
 .field-value {
   font-size: var(--font-sm);
-  color: var(--neutral-800);
+  color: var(--text-primary);
   font-family: var(--font-mono);
 }
 
@@ -312,37 +310,37 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--spacing-2xl);
-  gap: var(--spacing-sm);
+  padding: var(--spacing-12);
+  gap: var(--spacing-2);
   text-align: center;
 }
 
 .empty-icon {
   font-size: 48px;
-  color: var(--neutral-300);
-  margin-bottom: var(--spacing-sm);
+  color: var(--border-strong);
+  margin-bottom: var(--spacing-2);
 }
 
 .empty-state h3 {
   font-size: var(--font-base);
   font-weight: var(--font-semibold);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   margin: 0;
 }
 
 .empty-state p {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
   max-width: 320px;
 }
 
 .primary-button {
-  margin-top: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-base);
+  margin-top: var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-6);
+  border-radius: var(--radius-md);
   border: none;
-  background: var(--primary-600);
+  background: var(--accent);
   color: white;
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
@@ -351,6 +349,6 @@ onMounted(() => {
 }
 
 .primary-button:hover {
-  background: var(--primary-700);
+  background: var(--accent-hover);
 }
 </style>

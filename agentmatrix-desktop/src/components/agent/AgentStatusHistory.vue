@@ -68,12 +68,12 @@ const currentStatusText = computed(() => {
 }
 
 .status-current {
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-1);
 }
 
 .status-current__text {
   font-size: var(--font-sm);
-  color: var(--ink-600);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -85,7 +85,7 @@ const currentStatusText = computed(() => {
 
 .status-history__item {
   font-size: var(--font-xs);
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   line-height: 1.6;
   overflow: hidden;
   text-overflow: ellipsis;

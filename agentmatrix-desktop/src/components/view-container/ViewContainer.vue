@@ -59,6 +59,8 @@ async function setupAppAfterBackend() {
       const config = await configAPI.getFullConfig()
       if (config?.user_agent_name) {
         userAgentName.value = config.user_agent_name
+        // 存储到 configStore，供其他组件使用（如 websocket store）
+        configStore.config.user_agent_name = config.user_agent_name
       }
     } catch (e) {
       console.warn('Failed to fetch user_agent_name, using default:', e)
@@ -231,7 +233,7 @@ onMounted(async () => {
 }
 
 .view-container__content--full {
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
 }
 
 .placeholder-view {
@@ -240,32 +242,32 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
 }
 
 .placeholder-view__icon {
   width: 80px;
   height: 80px;
-  background: var(--neutral-100);
-  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 40px;
-  color: var(--neutral-300);
-  margin-bottom: var(--spacing-lg);
+  color: var(--border-strong);
+  margin-bottom: var(--spacing-6);
 }
 
 .placeholder-view h2 {
   font-size: var(--font-2xl);
   font-weight: var(--font-semibold);
-  color: var(--neutral-700);
-  margin-bottom: var(--spacing-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-2);
 }
 
 .placeholder-view p {
   font-size: var(--font-base);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
 }
 
 /* Panel slide transition */

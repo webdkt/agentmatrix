@@ -151,9 +151,9 @@ const handleOverlayClick = () => {
   max-width: 800px;
   height: 80vh;
   max-height: 700px;
-  background: var(--parchment-100, #faf8f5);
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -164,8 +164,8 @@ const handleOverlayClick = () => {
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid var(--parchment-300, #e5e0d8);
-  background: var(--parchment-50, #fdfcfa);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 .email-notify-modal__title-group {
@@ -180,9 +180,9 @@ const handleOverlayClick = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-100, #f5efe9);
-  border-radius: 10px;
-  color: var(--accent-500, #6b4c3b);
+  background: var(--accent-muted);
+  border-radius: var(--radius-lg);
+  color: var(--accent);
   font-size: 22px;
 }
 
@@ -195,13 +195,13 @@ const handleOverlayClick = () => {
 .email-notify-modal__title {
   font-size: 18px;
   font-weight: 600;
-  color: var(--neutral-800, #2d2d2d);
+  color: var(--text-primary);
   margin: 0;
 }
 
 .email-notify-modal__time {
   font-size: 12px;
-  color: var(--neutral-400, #9b9b9b);
+  color: var(--text-tertiary);
 }
 
 .email-notify-modal__close {
@@ -209,32 +209,32 @@ const handleOverlayClick = () => {
   border: none;
   cursor: pointer;
   padding: 8px;
-  color: var(--neutral-500, #6b6b6b);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   transition: all 0.2s;
   font-size: 18px;
 }
 
 .email-notify-modal__close:hover {
-  background: var(--parchment-200, #e8e4de);
-  color: var(--neutral-700, #3d3d3d);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .email-notify-modal__body {
   flex: 1;
   padding: 24px;
   overflow-y: auto;
-  background: var(--parchment-50, #fdfcfa);
+  background: var(--surface-base);
 }
 
 .email-email-card {
-  background: var(--parchment-100);
-  border: 1px solid var(--neutral-200);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-lg);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-6);
   position: relative;
   border-left: 4px solid var(--accent);
 }
@@ -243,29 +243,26 @@ const handleOverlayClick = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--spacing-md);
-  padding-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--neutral-100);
+  margin-bottom: var(--spacing-4);
+  padding-bottom: var(--spacing-4);
+  border-bottom: 1px solid var(--surface-hover);
 }
 
 .email-email-card__sender,
 .email-email-card__recipient {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .email-email-card__label {
-  font-size: 11px;
-  font-weight: 600;
-  font-variant: small-caps;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
   padding: 4px 10px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--accent);
-  background: var(--parchment-100);
-  border: 1px solid var(--neutral-200);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
 }
 
 .email-email-card__recipient .email-email-card__label {
@@ -280,7 +277,7 @@ const handleOverlayClick = () => {
   gap: 6px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--neutral-900);
+  color: var(--text-primary);
 }
 
 .email-email-card__name i {
@@ -295,15 +292,15 @@ const handleOverlayClick = () => {
 .email-email-card__subject {
   font-size: 16px;
   font-weight: 600;
-  color: var(--neutral-900);
-  padding-bottom: var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--neutral-100);
+  color: var(--text-primary);
+  padding-bottom: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+  border-bottom: 1px solid var(--surface-hover);
 }
 
 .email-email-card__body {
   font-size: 14px;
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   line-height: 1.7;
 }
 
@@ -312,13 +309,13 @@ const handleOverlayClick = () => {
   gap: 12px;
   justify-content: flex-end;
   padding: 16px 24px;
-  border-top: 1px solid var(--parchment-300, #e5e0d8);
-  background: var(--parchment-50, #fdfcfa);
+  border-top: 1px solid var(--border);
+  background: var(--surface-base);
 }
 
 .email-notify-modal__btn {
   padding: 10px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -330,21 +327,21 @@ const handleOverlayClick = () => {
 }
 
 .email-notify-modal__btn--secondary {
-  background: var(--parchment-200, #e8e4de);
-  color: var(--neutral-700, #3d3d3d);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .email-notify-modal__btn--secondary:hover {
-  background: var(--parchment-300, #dcd8d2);
+  background: var(--border);
 }
 
 .email-notify-modal__btn--primary {
-  background: var(--accent-500, #6b4c3b);
+  background: var(--accent);
   color: white;
 }
 
 .email-notify-modal__btn--primary:hover {
-  background: var(--accent-600, #5a3f2f);
+  background: var(--accent-hover);
 }
 
 .fade-enter-active,
@@ -370,18 +367,18 @@ const handleOverlayClick = () => {
 
 .markdown-content :deep(th),
 .markdown-content :deep(td) {
-  border: 1px solid var(--neutral-200);
+  border: 1px solid var(--border);
   padding: 8px 12px;
   text-align: left;
 }
 
 .markdown-content :deep(th) {
-  background: var(--parchment-100);
+  background: var(--surface-secondary);
   font-weight: 600;
 }
 
 .markdown-content :deep(code) {
-  background: var(--parchment-200);
+  background: var(--surface-hover);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 13px;

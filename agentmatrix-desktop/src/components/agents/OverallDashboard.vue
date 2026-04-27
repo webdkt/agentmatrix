@@ -111,9 +111,9 @@ const handleViewPrompt = (agentName) => {
 }
 
 .overall-dashboard__search {
-  padding: var(--spacing-lg);
-  background: var(--parchment-50);
-  border-bottom: 1px solid var(--parchment-200);
+  padding: var(--spacing-6);
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--surface-hover);
   flex-shrink: 0;
 }
 
@@ -129,42 +129,42 @@ const handleViewPrompt = (agentName) => {
   top: 50%;
   transform: translateY(-50%);
   font-size: var(--icon-md);
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   pointer-events: none;
 }
 
 .search-input {
   width: 100%;
   height: var(--input-height-md);
-  padding: 0 var(--spacing-md) 0 40px;
+  padding: 0 var(--spacing-4) 0 40px;
   background: white;
-  border: 1px solid var(--parchment-300);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-size: var(--font-base);
-  color: var(--ink-700);
+  color: var(--text-secondary);
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .search-input::placeholder {
-  color: var(--ink-400);
+  color: var(--text-tertiary);
 }
 
 .search-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(194, 59, 34, 0.1);
+  box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
 .overall-dashboard__content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
 }
 
 .agents-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--spacing-lg);
+  gap: var(--spacing-6);
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -177,32 +177,32 @@ const handleViewPrompt = (agentName) => {
   height: 100%;
   min-height: 300px;
   text-align: center;
-  color: var(--ink-500);
+  color: var(--text-tertiary);
 }
 
 .empty-icon {
   width: 80px;
   height: 80px;
-  background: var(--parchment-100);
-  border-radius: var(--radius-sm);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 40px;
-  color: var(--ink-300);
-  margin-bottom: var(--spacing-lg);
+  color: var(--text-quaternary);
+  margin-bottom: var(--spacing-6);
 }
 
 .overall-dashboard__empty h3 {
   font-size: var(--font-xl);
   font-weight: var(--font-semibold);
-  color: var(--ink-700);
-  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--text-secondary);
+  margin: 0 0 var(--spacing-2) 0;
 }
 
 .overall-dashboard__empty p {
   font-size: var(--font-base);
-  color: var(--ink-500);
+  color: var(--text-tertiary);
   margin: 0;
 }
 </style>

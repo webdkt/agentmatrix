@@ -1,9 +1,42 @@
 /**
- * Local Fonts - JetBrains Mono + Noto Sans SC
+ * Local Fonts - Plus Jakarta Sans + JetBrains Mono + Noto Sans SC
  * Downloaded from Google Fonts for offline use in Tauri app.
  */
 
-/* JetBrains Mono - Monospace, code, technical */
+/* Plus Jakarta Sans - Primary UI font */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/PlusJakartaSans-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/PlusJakartaSans-Medium.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/PlusJakartaSans-SemiBold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/PlusJakartaSans-Bold.ttf') format('truetype');
+}
+
+/* JetBrains Mono - Monospace, code, terminal */
 @font-face {
   font-family: 'JetBrains Mono';
   font-style: normal;

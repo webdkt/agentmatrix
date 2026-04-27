@@ -131,7 +131,7 @@ class EmailSkillMixin:
         await self.root_agent.post_office.dispatch(msg)
 
         # 📝 写入 session event: email.sent
-        
+
         await self._log_event("email", "sent", {
             "email_id": msg.id,
             "subject": subject,
@@ -139,7 +139,8 @@ class EmailSkillMixin:
             "sender": self.root_agent.name,
             "recipient": to,
             "has_more": len(body) > 200 if body else False,
-            "attachments": [att.get("filename") for att in attachment_metadata] if attachment_metadata else [],
+            "attachments": attachment_metadata if attachment_metadata else [],
+            "task_id": msg.task_id,
         })
 
         # 更新 reply_mapping（自动保存到磁盘，通过 root_agent 的 session_manager）
@@ -222,7 +223,7 @@ class EmailSkillMixin:
                 {
                     "filename": filename,
                     "size": target_file.stat().st_size,
-                    "container_path": f"~/current_task/attachments/{filename}",
+                    "container_path": container_path,
                 }
             )
 
@@ -280,45 +281,36 @@ class EmailSkillMixin:
 
     def _resolve_container_path_to_host(self, container_path: str, task_id: str) -> str:
         """
-        将容器内路径转换为宿主机路径
-
-        路径映射规则：
-        - 相对路径（如 'report.pdf'）→ 基于当前任务目录
-        - ~/current_task/... → 基于当前任务目录
-        - /data/agents/{username}/... → workspace/agent_files/{username}/...
+        将容器内路径转换为宿主机路径（使用公共方法）
 
         Args:
             container_path: 容器内路径或宿主机路径
             task_id: 用户会话 ID
 
         Returns:
-            宿主机路径
+            宿主机路径字符串，如果路径无法转换则返回原路径
         """
         runtime = self.root_agent.runtime
         if not runtime:
             return container_path
 
         agent_name = self.root_agent.name
-        path = Path(container_path)
+        path_obj = Path(container_path)
 
-        # 情况 1: ~/current_task/... 展开为绝对路径（必须先于相对路径检查）
-        if container_path.startswith("~"):
-            rel = container_path.lstrip("~/")
-            return str(
-                runtime.paths.get_agent_work_files_dir(agent_name, task_id) / rel
+        # 1. 使用公共方法处理 ~、~/current_task、/data/agents 等路径
+        if container_path.startswith("~") or container_path.startswith("/data/agents/"):
+            host_path = runtime.paths.container_path_to_host(
+                container_path, agent_name, task_id
             )
+            return str(host_path) if host_path else container_path
 
-        # 情况 2: 相对路径 → 基于当前任务目录
-        if not path.is_absolute():
+        # 2. 相对路径 → 基于当前任务目录 (work_files/{task_id}/)
+        if not path_obj.is_absolute():
             return str(
                 runtime.paths.get_agent_work_files_dir(agent_name, task_id)
                 / container_path
             )
 
-        # 情况 3: /data/agents/{username}/... → workspace/agent_files/{username}/...
-        if container_path.startswith("/data/agents/"):
-            relative = container_path.split("/data/agents/")[1]
-            return str(runtime.paths.workspace_dir / "agent_files" / relative)
-
-        # 情况 4: 其他绝对路径（可能是宿主机路径，直接返回）
+        # 3. 其他绝对路径（可能是宿主机路径，直接返回）
         return container_path
+

@@ -339,8 +339,8 @@ function closeModal() {
   position: relative;
   max-width: 560px;
   width: 100%;
-  background: var(--parchment-50);
-  border: 1px solid var(--parchment-300);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
   border-radius: 4px;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
   transform: translateY(20px) scale(0.98);
@@ -354,7 +354,7 @@ function closeModal() {
 .modal-header {
   position: relative;
   padding: 24px 32px 20px;
-  border-bottom: 1px solid var(--parchment-300);
+  border-bottom: 1px solid var(--border);
 }
 
 .modal-header-line {
@@ -367,10 +367,10 @@ function closeModal() {
 }
 
 .modal-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 20px;
   font-weight: 600;
-  color: var(--ink-900);
+  color: var(--text-primary);
   margin: 0;
   line-height: 1.4;
 }
@@ -384,7 +384,7 @@ function closeModal() {
   border: none;
   background: transparent;
   font-size: 28px;
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -398,8 +398,8 @@ function closeModal() {
 }
 
 .modal-close:hover {
-  color: var(--ink-900);
-  background: var(--parchment-200);
+  color: var(--text-primary);
+  background: var(--surface-hover);
 }
 
 .modal-body {
@@ -409,10 +409,10 @@ function closeModal() {
 }
 
 .modal-content {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.8;
-  color: var(--ink-700);
+  color: var(--text-secondary);
 }
 
 .modal-content :deep(p) {
@@ -425,16 +425,16 @@ function closeModal() {
 
 .modal-content :deep(strong) {
   font-weight: 600;
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 .modal-content :deep(code) {
   font-family: var(--font-mono);
   font-size: 14px;
-  background: var(--parchment-200);
+  background: var(--surface-hover);
   padding: 2px 6px;
   border-radius: 2px;
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 .modal-content :deep(.highlight) {
@@ -447,22 +447,20 @@ function closeModal() {
 
 .modal-footer {
   padding: 16px 32px 20px;
-  border-top: 1px solid var(--parchment-300);
+  border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
 }
 
 .modal-btn {
-  background: #1A1A1A;
-  color: #FDFCF9;
+  background: var(--text-primary);
+  color: white;
   border: none;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
   padding: 12px 24px;
-  border-radius: 2px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: background 0.2s;
 }
@@ -497,7 +495,7 @@ function closeModal() {
 .modal-content :deep(.api-links) {
   margin: 16px 0;
   padding: 16px;
-  background: var(--parchment-100);
+  background: var(--surface-secondary);
   border-radius: 4px;
   border-left: 3px solid var(--accent);
 }

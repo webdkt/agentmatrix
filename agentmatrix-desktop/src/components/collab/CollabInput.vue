@@ -135,43 +135,42 @@ const adjustHeight = () => {
 
 <style scoped>
 .collab-input {
-  padding: 0;
+  padding: 18px 36px 28px;
   background: transparent;
+  border-top: 1px solid var(--border-light);
 }
 
 .collab-input__container {
-  background: var(--parchment-50);
-  border: 1px solid var(--parchment-300);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-xs);
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 12px 12px 18px;
   display: flex;
   align-items: flex-end;
-  gap: var(--spacing-xs);
+  gap: 12px;
   transition: border-color var(--duration-base) var(--ease-out);
 }
 
 .collab-input__container:focus-within {
-  border-color: var(--accent);
-  border-left-width: 3px;
-  padding-left: calc(var(--spacing-xs) - 2px);
+  border-color: var(--text-primary);
 }
 
 .collab-input__textarea {
   flex: 1;
-  min-height: 72px;
-  max-height: 200px;
-  padding: var(--spacing-sm);
+  min-height: 24px;
+  max-height: 120px;
+  padding: 0;
   background: transparent;
   border: none;
-  color: var(--ink-700);
-  font-size: var(--font-sm);
-  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
   resize: none;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
 }
 
 .collab-input__textarea::placeholder {
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   font-style: italic;
 }
 
@@ -180,23 +179,24 @@ const adjustHeight = () => {
 }
 
 .collab-input__send {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: none;
-  background: var(--ink-900);
-  color: var(--parchment-50);
-  font-size: var(--icon-md);
+  background: var(--accent);
+  color: white;
+  font-size: 18px;
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
 .collab-input__send:hover:not(:disabled) {
-  background: var(--accent);
+  background: var(--accent-hover);
+  transform: scale(1.05);
 }
 
 .collab-input__send:active:not(:disabled) {
@@ -211,16 +211,13 @@ const adjustHeight = () => {
 .collab-input__hint {
   display: flex;
   justify-content: flex-end;
-  padding-right: var(--spacing-xs);
+  padding-right: var(--spacing-1);
   margin-top: 2px;
 }
 
 .collab-input__hint-text {
   font-size: 10px;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-300);
+  color: var(--text-quaternary);
   line-height: 1;
 }
 

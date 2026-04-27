@@ -21,45 +21,30 @@ const props = defineProps({
 
 const emit = defineEmits(['click'])
 
-// 计算头像颜色 - 智能配色系统
-// 同一agent的不同session使用同色系但有变化，避免单调
+// 计算头像颜色 - Morandi 莫兰迪配色
+const morandiColors = [
+  '#C4A4A0', // rose
+  '#9CAF88', // sage
+  '#8E9AAF', // slate
+  '#B8A9C9', // mauve
+  '#B5A89A', // taupe
+  '#C08B6E', // terracotta
+  '#A8B09A', // olive
+  '#7B8FA1', // blue
+]
+
 const avatarStyle = computed(() => {
   const name = props.session.name || props.session.participants?.[0] || 'New'
   const sessionId = props.session.session_id || ''
-
-  // 第一步：基于agent名称生成基础色相（同一agent = 同一基础色系）
   let hash = 0
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash)
   }
-  const baseHue = Math.abs(hash % 360)
-
-  // 第二步：基于sessionId和名称的组合生成变化因子
-  // 同一agent的不同session会有不同的变化
-  let sessionHash = hash
   for (let i = 0; i < sessionId.length; i++) {
-    sessionHash = sessionId.charCodeAt(i) + ((sessionHash << 3) - sessionHash)
+    hash = sessionId.charCodeAt(i) + ((hash << 5) - hash)
   }
-
-  // 色相偏移：-15到+15度（保持在同一色系）
-  const hueOffset = (sessionHash % 31) - 15
-  const hue = baseHue + hueOffset
-
-  // 饱和度：60-75%（保持柔和）
-  const saturation = 60 + (Math.abs(sessionHash >> 8) % 16)
-
-  // 亮度变化：52-62%（创造层次感）
-  const lightness1 = 52 + (Math.abs(sessionHash >> 12) % 8)
-  const lightness2 = lightness1 - 8 + (Math.abs(sessionHash >> 16) % 4)
-
-  // 渐变角度：135°或145°交替
-  const angle = (sessionHash % 2 === 0) ? 135 : 145
-
-  return {
-    background: `linear-gradient(${angle}deg,
-      hsl(${hue}, ${saturation}%, ${lightness1}%) 0%,
-      hsl(${hue}, ${saturation}%, ${lightness2}%) 100%)`
-  }
+  const colorIndex = Math.abs(hash) % morandiColors.length
+  return { background: morandiColors[colorIndex] }
 })
 
 // 格式化日期
@@ -115,7 +100,7 @@ const hasPending = computed(() => {
 
 // 检查是否有未读邮件
 const isUnread = computed(() => {
-  return props.session.is_unread
+  return sessionStore.isSessionUnread(props.session.session_id)
 })
 </script>
 
@@ -142,22 +127,16 @@ const isUnread = computed(() => {
       </div>
     </div>
 
-    <!-- Content (Left-aligned) -->
-    <div class="session-item__content">
-      <!-- Header: Agent name + Date -->
-      <div class="session-item__header">
-        <span class="session-item__name">
-          {{ displayParticipants }}
-        </span>
-        <span class="session-item__date">
-          {{ formatDate(session.last_email_time) }}
-        </span>
-      </div>
+    <!-- Info -->
+    <div class="session-item__info">
+      <div class="session-item__name">{{ displayParticipants }}</div>
+      <div class="session-item__preview">{{ session.subject || 'No Subject' }}</div>
+    </div>
 
-      <!-- Subject -->
-      <p class="session-item__subject">
-        {{ session.subject || 'No Subject' }}
-      </p>
+    <!-- Meta (right-aligned) -->
+    <div class="session-item__meta">
+      <span class="session-item__time">{{ formatDate(session.last_email_time) }}</span>
+      <div v-if="isUnread" class="session-item__unread">1</div>
     </div>
   </div>
 </template>
@@ -166,35 +145,28 @@ const isUnread = computed(() => {
 .session-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md); /* 12px tight gap */
-  padding: var(--spacing-sm) var(--spacing-md); /* 12px 16px */
+  gap: 14px;
+  padding: 14px 12px;
   background: transparent;
   border: 1px solid transparent;
-  border-left: 3px solid transparent;
-  border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-md);
+  margin-bottom: 3px;
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
 }
 
 .session-item:hover {
-  background: var(--parchment-100);
-  border-color: transparent;
-  border-left-color: var(--neutral-400);
+  background: var(--surface-hover);
 }
 
 .session-item--active {
-  background: var(--parchment-100);
-  border-color: transparent;
-  border-left: 4px solid var(--accent);
-  box-shadow: 0 1px 3px rgba(194, 59, 34, 0.1);
+  background: var(--surface-secondary);
+  border-left-color: var(--accent);
 }
 
 .session-item--active .session-item__name {
-  color: var(--accent);
-}
-
-.session-item--active .session-item__date {
-  color: var(--neutral-600);
+  font-weight: 600;
 }
 
 /* Avatar */
@@ -204,20 +176,35 @@ const isUnread = computed(() => {
 }
 
 .session-item__avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: rgba(255,255,255,0.9);
   font-weight: var(--font-semibold);
-  font-size: var(--font-sm);
-  /* 背景色通过 :style 动态设置 */
+  font-size: 15px;
+  position: relative;
+  overflow: hidden;
+  /* 背景色通过 :style 动态设置（Morandi 色） */
+}
+
+/* Frosted glass overlay */
+.session-item__avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
 }
 
 .session-item__initial {
-  font-size: 14px;
+  position: relative;
+  z-index: 1;
+  font-size: 16px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.15);
 }
 
 /* Pending indicator */
@@ -227,7 +214,7 @@ const isUnread = computed(() => {
   right: -2px;
   width: 18px;
   height: 18px;
-  background: var(--fault);
+  background: var(--error);
   border-radius: 50%;
   border: 2px solid white;
   display: flex;
@@ -242,62 +229,57 @@ const isUnread = computed(() => {
   line-height: 1;
 }
 
-/* Content */
-.session-item__content {
+/* Info */
+.session-item__info {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px; /* Tight internal spacing */
-}
-
-/* Header: Name + Date */
-.session-item__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
 }
 
 .session-item__name {
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
 }
 
-.session-item__date {
-  font-size: var(--font-xs);
-  color: var(--neutral-400);
+.session-item__preview {
+  font-size: 16px;
+  color: #71717A;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+/* Meta (right-aligned) */
+.session-item__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
   flex-shrink: 0;
 }
 
-/* Subject */
-.session-item__subject {
-  font-size: var(--font-sm);
-  font-weight: var(--font-normal);
-  color: var(--neutral-600);
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.3;
+.session-item__time {
+  font-size: 12px;
+  color: var(--text-quaternary);
+}
+
+.session-item__unread {
+  min-width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-/* Unread styling: bold name + subject */
-.session-item--unread .session-item__name {
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.session-item--unread .session-item__subject {
-  font-weight: 600;
-  color: var(--ink);
+  justify-content: center;
+  padding: 0 6px;
 }
 </style>

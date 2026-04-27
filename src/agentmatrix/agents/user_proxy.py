@@ -133,10 +133,11 @@ class UserProxyAgent(BaseAgent):
                 agent_name=email.sender,
                 task_id=session.get("task_id"),
                 subject=email.subject,
-                is_read=0,
                 agent_session_id=email.sender_session_id,
                 timestamp=ts,
                 last_email_id=email.id,
+                last_agent_mail_time=ts,
+                last_check_time=None,
             )
             self.logger.info(f"🔵 user_session created, broadcasting...")
             # 推送新 user session 到前端，增量插入 session list
@@ -161,10 +162,10 @@ class UserProxyAgent(BaseAgent):
             self.logger.info(f"🔵 updating user_session for {session['session_id']}")
             await self.post_office.email_db.update_user_session(
                 user_session_id=session["session_id"],
-                is_read=0,
                 timestamp=ts,
                 last_email_id=email.id,
                 agent_session_id=email.sender_session_id,
+                last_agent_mail_time=ts,
             )
             self.logger.info(f"🔵 user_session updated")
 
@@ -319,14 +320,14 @@ class UserProxyAgent(BaseAgent):
         await self.post_office.dispatch(email)
 
 
-        # 维护 user_sessions（用户发件：is_read=1，对方是收件人）
+        # 维护 user_sessions（用户发件：更新 last_check_time）
         ts = email.timestamp.isoformat() if hasattr(email.timestamp, "isoformat") else str(email.timestamp)
         if in_reply_to:
             await self.post_office.email_db.update_user_session(
                 user_session_id=session["session_id"],
-                is_read=1,
                 timestamp=ts,
                 last_email_id=email.id,
+                last_check_time=ts,
             )
         else:
             await self.post_office.email_db.create_user_session(
@@ -334,10 +335,11 @@ class UserProxyAgent(BaseAgent):
                 agent_name=to,
                 task_id=session["task_id"],
                 subject=subject,
-                is_read=1,
                 agent_session_id=session["session_id"],
                 timestamp=ts,
                 last_email_id=email.id,
+                last_agent_mail_time=None,
+                last_check_time=ts,
             )
 
             # 新任务：广播 NEW_USER_SESSION 让前端立即感知

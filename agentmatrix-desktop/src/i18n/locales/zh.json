@@ -39,6 +39,19 @@
     "noSessions": "暂无会话",
     "startNew": "创建新会话开始使用"
   },
+  "collab": {
+    "pickAgentTitle": "Pick an Agent for Task",
+    "pickAgentSubtitle": "选择一个 Agent",
+    "loadingAgents": "加载中...",
+    "noAgentsAvailable": "暂无可用 Agent",
+    "status": {
+      "idle": "空闲",
+      "thinking": "思考中",
+      "working": "工作中",
+      "waiting": "等待中",
+      "error": "错误"
+    }
+  },
   "emails": {
     "subject": "主题",
     "from": "发件人",

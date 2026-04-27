@@ -29,6 +29,10 @@ export async function openAttachment(recipient, taskId, filename) {
  * @returns {string} 图标类名
  */
 export function getAttachmentIcon(filename) {
+  if (!filename || typeof filename !== 'string') {
+    return 'file'
+  }
+
   const ext = filename.split('.').pop().toLowerCase()
 
   const icons = {

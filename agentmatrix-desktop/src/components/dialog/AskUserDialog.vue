@@ -320,7 +320,7 @@ const close = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-lg);
+  padding: var(--spacing-6);
 }
 
 .ask-user-dialog-backdrop {
@@ -333,9 +333,9 @@ const close = () => {
 /* Modal Content */
 .ask-user-dialog-content {
   position: relative;
-  background: var(--parchment-50);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--parchment-300);
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
   box-shadow: var(--shadow-xl);
   width: 100%;
   max-width: 540px;
@@ -358,13 +358,13 @@ const close = () => {
 /* Close button */
 .ask-user-dialog-close {
   position: absolute;
-  top: var(--spacing-md);
-  right: var(--spacing-md);
+  top: var(--spacing-4);
+  right: var(--spacing-4);
   width: 32px;
   height: 32px;
   border: none;
   background: transparent;
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
@@ -375,136 +375,133 @@ const close = () => {
 }
 
 .ask-user-dialog-close:hover {
-  color: var(--ink-700);
-  background: var(--parchment-100);
-  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-md);
 }
 
 /* Body */
 .ask-user-dialog-body {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-8);
 }
 
 /* Header */
 .ask-user-dialog-header {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-6);
 }
 
 .ask-user-dialog-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: var(--font-xl);
   font-weight: var(--font-medium);
-  color: var(--ink-900);
-  margin: 0 0 var(--spacing-md) 0;
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-4) 0;
   line-height: var(--leading-snug);
 }
 
 .ask-user-dialog-divider {
   height: 1px;
-  background: var(--parchment-300);
+  background: var(--border);
   width: 100%;
 }
 
 /* 🔧 图片样式 */
 .ask-user-dialog-image {
-  margin-bottom: var(--spacing-lg);
-  padding: var(--spacing-md);
-  background: var(--parchment-100);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--parchment-300);
+  margin-bottom: var(--spacing-6);
+  padding: var(--spacing-4);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
 }
 
 .ask-user-dialog-question-image {
   max-width: 100%;
   height: auto;
-  border-radius: var(--radius-sm);
-  margin-top: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  margin-top: var(--spacing-2);
   display: block;
 }
 
 .ask-user-dialog-image-error {
-  padding: var(--spacing-md);
-  background: var(--parchment-200);
-  border-radius: var(--radius-sm);
-  color: var(--ink-700);
+  padding: var(--spacing-4);
+  background: var(--surface-hover);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   text-align: center;
   font-size: var(--font-sm);
 }
 
 /* Question */
 .ask-user-dialog-question {
-  padding: var(--spacing-md);
-  background: var(--parchment-100);
+  padding: var(--spacing-4);
+  background: var(--surface-secondary);
   border-left: 3px solid var(--accent);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  margin-bottom: var(--spacing-lg);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  margin-bottom: var(--spacing-6);
 }
 
 .ask-user-dialog-label {
   display: block;
-  font-size: 11px;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-500);
-  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--spacing-1);
   font-weight: var(--font-medium);
 }
 
 .ask-user-dialog-question-text {
   font-size: var(--font-base);
-  color: var(--ink-700);
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.8;
 }
 
 /* 🔧 选项按钮样式 */
 .ask-user-dialog-options {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-6);
 }
 
 .ask-user-dialog-single-options,
 .ask-user-dialog-multi-options {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-sm);
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
 }
 
 .ask-user-dialog-option-btn {
-  padding: var(--spacing-md);
-  border: 1px solid var(--parchment-300);
-  border-radius: var(--radius-sm);
-  background: var(--parchment-50);
-  color: var(--ink-700);
+  padding: var(--spacing-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
   text-align: left;
   font-size: var(--font-base);
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   line-height: 1.6;
 }
 
 .ask-user-dialog-option-btn:hover {
-  background: var(--parchment-100);
-  border-color: var(--parchment-400);
+  background: var(--surface-secondary);
+  border-color: var(--border);
 }
 
 .ask-user-dialog-option-btn--selected {
   background: var(--accent);
-  color: var(--parchment-50);
+  color: var(--surface-base);
   border-color: var(--accent);
 }
 
 .ask-user-dialog-option-btn--multi {
   position: relative;
-  padding-left: calc(var(--spacing-md) + 24px);
+  padding-left: calc(var(--spacing-4) + 24px);
 }
 
 .ask-user-dialog-option-btn--multi::before {
   content: '☐';
   position: absolute;
-  left: var(--spacing-md);
+  left: var(--spacing-4);
   top: 50%;
   transform: translateY(-50%);
   font-size: 18px;
@@ -518,22 +515,19 @@ const close = () => {
 .ask-user-dialog-input-group {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-2);
 }
 
 .ask-user-dialog-input-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-2);
 }
 
 .ask-user-dialog-input-label {
-  font-size: 11px;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-700);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
   font-weight: var(--font-medium);
 }
 
@@ -549,19 +543,19 @@ const close = () => {
 }
 
 .ask-user-dialog-toggle-btn:hover {
-  color: var(--ink-900);
+  color: var(--text-primary);
 }
 
 .ask-user-dialog-input {
   width: 100%;
-  padding: var(--spacing-md) 0;
+  padding: var(--spacing-4) 0;
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--parchment-300);
+  border-bottom: 1px solid var(--border);
   font-size: var(--font-base);
-  color: var(--ink-700);
+  color: var(--text-secondary);
   resize: none;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   line-height: 1.8;
   transition: border-color var(--duration-base) var(--ease-out);
 }
@@ -573,7 +567,7 @@ const close = () => {
 }
 
 .ask-user-dialog-input::placeholder {
-  color: var(--ink-400);
+  color: var(--text-tertiary);
   font-style: italic;
 }
 
@@ -581,16 +575,16 @@ const close = () => {
 .ask-user-dialog-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg) var(--spacing-xl);
-  border-top: 1px solid var(--parchment-300);
-  background: var(--parchment-100);
+  gap: var(--spacing-4);
+  padding: var(--spacing-6) var(--spacing-8);
+  border-top: 1px solid var(--border);
+  background: var(--surface-secondary);
 }
 
 /* Buttons */
 .ask-user-dialog-btn {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-6);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -598,27 +592,23 @@ const close = () => {
   border: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  letter-spacing: 0.05em;
+  gap: var(--spacing-1);
 }
 
 .ask-user-dialog-btn--secondary {
   background: transparent;
-  border: 1px solid var(--parchment-300);
-  color: var(--ink-700);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
 }
 
 .ask-user-dialog-btn--secondary:hover {
-  background: var(--parchment-200);
-  border-color: var(--parchment-300);
+  background: var(--surface-hover);
+  border-color: var(--border);
 }
 
 .ask-user-dialog-btn--primary {
-  background: var(--ink-900);
-  color: var(--parchment-50);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 11px;
+  background: var(--accent);
+  color: var(--surface-base);
 }
 
 .ask-user-dialog-btn--primary:hover:not(:disabled) {

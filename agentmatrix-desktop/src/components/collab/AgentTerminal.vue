@@ -5,7 +5,8 @@ import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   agentName: { type: String, default: null },
-  minimized: { type: Boolean, default: true },
+  minimized: { type: Boolean, default: false },
+  fullscreen: { type: Boolean, default: false },
   parentWidth: { type: Number, default: 800 },
   parentHeight: { type: Number, default: 600 },
 })
@@ -15,9 +16,13 @@ const emit = defineEmits(['toggle-minimize', 'close', 'update:position', 'update
 const {
   terminalLines,
   terminalContainer,
-  userInput,
+  currentInput,
   isExecuting,
+  inputSpan,
+  handleKeyDown,
+  handleInput,
   handleTerminalSubmit,
+  focusInput,
 } = useTerminal({ agentName: () => props.agentName })
 
 // ---- Position & Size ----
@@ -28,20 +33,27 @@ const size = ref({ w: 400, h: 300 })
 const updateDefaults = () => {
   const pw = props.parentWidth
   const ph = props.parentHeight
-  if (props.minimized) {
-    size.value = { w: Math.min(280, pw * 0.4), h: 60 }
-    pos.value = { x: pw - size.value.w - 16, y: ph - size.value.h - 16 }
+
+  if (props.fullscreen) {
+    // 全屏模式：占据整个父容器（除了顶部 bar 和浮动工具条）
+    size.value = { w: pw, h: ph }
+    pos.value = { x: 0, y: 0 }
   } else {
-    size.value = { w: Math.round(pw * 0.5), h: Math.round(ph * 0.5) }
-    pos.value = { x: Math.round((pw - size.value.w) / 2), y: Math.round((ph - size.value.h) / 2) }
+    // 默认模式：右下角，宽度固定 400px，高度自适应
+    size.value = { w: 500, h: Math.min(400, ph * 0.6) }
+    pos.value = { x: pw - size.value.w - 20, y: ph - size.value.h - 80 }
   }
 }
 
-// Reset position when toggling minimized/expanded
-watch(() => props.minimized, () => updateDefaults())
+// Reset position when toggling fullscreen
+watch(() => props.fullscreen, () => updateDefaults())
 watch([() => props.parentWidth, () => props.parentHeight], () => {
   // Clamp position to new bounds
-  clampPosition()
+  if (!props.fullscreen) {
+    clampPosition()
+  } else {
+    updateDefaults()
+  }
 })
 
 onMounted(() => updateDefaults())
@@ -79,7 +91,7 @@ const isResizing = ref(false)
 let resizeStartX = 0, resizeStartY = 0, resizeOrigW = 0, resizeOrigH = 0
 
 const startResize = (e) => {
-  if (props.minimized) return
+  if (props.fullscreen) return
   isResizing.value = true
   resizeStartX = e.clientX
   resizeStartY = e.clientY
@@ -130,17 +142,17 @@ onUnmounted(() => {
 <template>
   <div
     class="agent-terminal"
-    :class="{ 'agent-terminal--minimized': minimized, 'agent-terminal--dragging': isDragging }"
+    :class="{ 'agent-terminal--fullscreen': fullscreen, 'agent-terminal--dragging': isDragging }"
     :style="style"
   >
     <!-- Header / Drag handle -->
     <div class="agent-terminal__header" @mousedown="startDrag">
-      <MIcon name="terminal" />
+      <MIcon name="monitor-play" />
       <span class="agent-terminal__title">Terminal</span>
-      <button class="agent-terminal__btn" @click.stop="$emit('toggle-minimize')" :title="minimized ? 'Expand' : 'Minimize'">
-        <MIcon :name="minimized ? 'arrows-maximize' : 'arrows-minimize'" />
+      <button class="agent-terminal__btn" @mousedown.stop @click.stop="$emit('toggle-minimize')" :title="fullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+        <MIcon :name="fullscreen ? 'arrows-minimize' : 'arrows-maximize'" />
       </button>
-      <button class="agent-terminal__btn" @click.stop="$emit('close')" title="Close">
+      <button class="agent-terminal__btn" @mousedown.stop @click.stop="$emit('close')" title="Close">
         <MIcon name="x" />
       </button>
     </div>
@@ -168,30 +180,24 @@ onUnmounted(() => {
           </template>
           <template v-else>{{ entry.text }}</template>
         </div>
-        <div v-if="!isExecuting" class="terminal-line terminal-line--prompt">
-          <span class="terminal-prompt-cursor">$&nbsp;<span class="terminal-cursor"></span></span>
-        </div>
       </div>
-      <div v-else class="agent-terminal__empty">
-        <span class="terminal-prompt-cursor">$&nbsp;<span class="terminal-cursor"></span></span>
+
+      <!-- Inline input line -->
+      <div v-if="!isExecuting" class="agent-terminal__input-line">
+        <span class="agent-terminal__prompt">$</span>
+        <span
+          ref="inputSpan"
+          class="agent-terminal__inline-input"
+          contenteditable="true"
+          spellcheck="false"
+          @keydown="handleKeyDown"
+          @input="handleInput"
+        ></span>
       </div>
     </div>
 
-    <!-- Input (hidden when minimized) -->
-    <div v-if="!minimized" class="agent-terminal__input">
-      <span class="agent-terminal__prompt">$</span>
-      <input
-        v-model="userInput"
-        type="text"
-        :disabled="isExecuting"
-        :placeholder="isExecuting ? 'Agent is running...' : 'Type a command...'"
-        class="agent-terminal__field"
-        @keydown.enter="handleTerminalSubmit"
-      />
-    </div>
-
-    <!-- Resize handle (expanded only) -->
-    <div v-if="!minimized" class="agent-terminal__resize-handle" @mousedown="startResize" />
+    <!-- Resize handle (hidden in fullscreen) -->
+    <div v-if="!fullscreen" class="agent-terminal__resize-handle" @mousedown="startResize" />
   </div>
 </template>
 
@@ -201,7 +207,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: #1e1e1e;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   overflow: hidden;
   user-select: none;
@@ -211,11 +217,15 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
+.agent-terminal--fullscreen {
+  border-radius: 0;
+}
+
 .agent-terminal__header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: 4px var(--spacing-sm);
+  gap: var(--spacing-1);
+  padding: 4px var(--spacing-2);
   background: #2d2d2d;
   cursor: grab;
   flex-shrink: 0;
@@ -227,15 +237,15 @@ onUnmounted(() => {
 }
 
 .agent-terminal__header .m-icon {
-  font-size: var(--font-xs);
-  color: #888;
+  font-size: 15px;
+  color: #ccc;
 }
 
 .agent-terminal__title {
   flex: 1;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: var(--font-medium);
-  color: #aaa;
+  color: #e4e4e4;
   letter-spacing: 0.03em;
 }
 
@@ -244,46 +254,39 @@ onUnmounted(() => {
   height: 22px;
   border: none;
   background: transparent;
-  color: #888;
+  color: #ccc;
   cursor: pointer;
   border-radius: 3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-xs);
+  font-size: 15px;
   transition: all 0.15s ease;
 }
 
 .agent-terminal__btn:hover {
   background: #444;
-  color: #ddd;
+  color: #fff;
 }
 
 .agent-terminal__output {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-1) var(--spacing-2);
   min-height: 0;
 }
 
 .agent-terminal__pre {
   margin: 0;
   font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-.agent-terminal__empty {
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 11px;
-  color: #d4d4d4;
-  padding: var(--spacing-xs);
-}
-
 .terminal-line {
-  color: #d4d4d4;
+  color: #e4e4e4;
 }
 
 .terminal-line--stdin {
@@ -319,63 +322,30 @@ onUnmounted(() => {
   to { max-width: 100% }
 }
 
-.terminal-line--prompt {
-  color: #d4d4d4;
-}
-
-.terminal-prompt-cursor {
-  color: #6a9955;
-}
-
-.terminal-cursor {
-  display: inline-block;
-  width: 8px;
-  height: 14px;
-  background: #d4d4d4;
-  vertical-align: text-bottom;
-  animation: blink-cursor 1s step-end infinite;
-}
-
-@keyframes blink-cursor {
-  50% { opacity: 0 }
-}
-
-.agent-terminal__input {
+.agent-terminal__input-line {
   display: flex;
   align-items: center;
-  background: #1e1e1e;
-  border-top: 1px solid #333;
-  flex-shrink: 0;
+  padding: 4px var(--spacing-2);
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 13px;
+  color: #e4e4e4;
 }
 
 .agent-terminal__prompt {
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 11px;
-  color: #6a9955;
-  padding: 6px 0 6px var(--spacing-sm);
+  color: #7cb068;
+  padding-right: 4px;
   flex-shrink: 0;
   user-select: none;
 }
 
-.agent-terminal__field {
+.agent-terminal__inline-input {
   flex: 1;
-  background: transparent;
-  border: none;
   outline: none;
-  color: #d4d4d4;
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-  font-size: 11px;
-  padding: 6px var(--spacing-sm);
-  caret-color: #d4d4d4;
-}
-
-.agent-terminal__field::placeholder {
-  color: #555;
-}
-
-.agent-terminal__field:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  white-space: pre;
+  min-width: 1em;
+  min-height: 1.2em;
+  color: #e4e4e4;
+  caret-color: #e4e4e4;
 }
 
 .agent-terminal__resize-handle {

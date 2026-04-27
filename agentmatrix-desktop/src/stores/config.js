@@ -53,6 +53,11 @@ export const useConfigStore = defineStore('config', {
     // 加载状态
     isLoading: false,
     loadError: null,
+
+    // 后端配置（从 API 加载）
+    config: {
+      user_agent_name: null,
+    },
   }),
 
   getters: {

@@ -183,20 +183,20 @@ const cancelDelete = () => {
 .llm-config-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-8);
 }
 
 .config-section {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-6);
 }
 
 .section-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .section-header-left {
@@ -209,7 +209,7 @@ const cancelDelete = () => {
   gap: var(--spacing-2);
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--neutral-900);
+  color: var(--text-primary);
   margin: 0 0 var(--spacing-2) 0;
 }
 
@@ -219,7 +219,7 @@ const cancelDelete = () => {
 
 .section-description {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
 }
 
@@ -231,7 +231,7 @@ const cancelDelete = () => {
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -250,7 +250,7 @@ const cancelDelete = () => {
 .config-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--spacing-md);
+  gap: var(--spacing-4);
 }
 
 .empty-state {
@@ -258,33 +258,33 @@ const cancelDelete = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-2xl) var(--spacing-lg);
-  gap: var(--spacing-md);
+  padding: var(--spacing-12) var(--spacing-6);
+  gap: var(--spacing-4);
   text-align: center;
 }
 
 .empty-icon {
   width: 80px;
   height: 80px;
-  border-radius: var(--radius-sm);
-  background: var(--neutral-100);
+  border-radius: var(--radius-md);
+  background: var(--surface-hover);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 40px;
-  color: var(--neutral-300);
+  color: var(--border-strong);
 }
 
 .empty-state h3 {
   font-size: var(--font-lg);
   font-weight: var(--font-semibold);
-  color: var(--neutral-700);
+  color: var(--text-secondary);
   margin: 0;
 }
 
 .empty-state p {
   font-size: var(--font-sm);
-  color: var(--neutral-500);
+  color: var(--text-tertiary);
   margin: 0;
 }
 
@@ -296,7 +296,7 @@ const cancelDelete = () => {
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
