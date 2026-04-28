@@ -1,6 +1,6 @@
 name: SystemAdmin
 description: "资深系统管理员，负责 AgentMatrix 系统的配置和管理"
-class_name: agentmatrix.agents.base.BaseAgent
+class_name: agentmatrix.desktop.base_agent.BaseAgent
 backend_model: default_llm
 skills:
   - base

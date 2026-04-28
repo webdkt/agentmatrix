@@ -1,6 +1,6 @@
 name: "{{USER_NAME}}"
 description: "The user who interacts with the AgentMatrix"
-class_name: agentmatrix.agents.user_proxy.UserProxyAgent
+class_name: agentmatrix.desktop.user_proxy.UserProxyAgent
 backend_model: default_llm
 skills:
   - base

@@ -8,9 +8,9 @@ with pluggable skills, backend LLM integrations, and message-based communication
 __version__ = "0.6.9.45"
 
 # Core imports
-from .core.runtime import AgentMatrix
+from .desktop.runtime import AgentMatrix
 from .core.message import Email
-from .agents.post_office import PostOffice
+from .desktop.post_office import PostOffice
 
 __all__ = [
     "AgentMatrix",

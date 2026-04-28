@@ -41,7 +41,7 @@ else:
 
 # Import AgentMatrix
 from agentmatrix import AgentMatrix, __version__
-from agentmatrix.services.config_service import ConfigService
+from agentmatrix.desktop.services.config_service import ConfigService
 
 
 # === Parse Command-Line Arguments at Module Level ===

@@ -1,6 +1,6 @@
 name: Mark
 description: 网络搜索实习生
-class_name: agentmatrix.agents.base.BaseAgent
+class_name: agentmatrix.desktop.base_agent.BaseAgent
 
 # Skills 配置（🆕 新架构）
 skills:

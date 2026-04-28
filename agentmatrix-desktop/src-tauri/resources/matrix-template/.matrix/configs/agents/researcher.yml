@@ -1,6 +1,6 @@
 name: Researcher
 description: 深度研究专家
-class_name: agentmatrix.agents.base.BaseAgent
+class_name: agentmatrix.desktop.base_agent.BaseAgent
 
 # Skills 配置（🆕 新架构）
 skills:

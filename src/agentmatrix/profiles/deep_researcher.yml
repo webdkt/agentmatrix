@@ -1,6 +1,6 @@
 name: DeepResearcher
 description: 深度研究 Agent
-module: agentmatrix.agents.deep_researcher
+module: agentmatrix.desktop.base_agent
 class_name: DeepResearcher
 
 persona: |

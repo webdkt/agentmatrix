@@ -1,7 +1,7 @@
 #You should always have one USER agent
 name: User
 description: Master of world
-module: agentmatrix.agents.user_proxy
+module: agentmatrix.desktop.user_proxy
 class_name: UserProxyAgent
 
 # Skills 配置（🆕 新架构）

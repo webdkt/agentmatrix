@@ -1,6 +1,6 @@
 name: Tom
 description: 研究员
-module: agentmatrix.agents.base
+module: agentmatrix.desktop.base_agent
 class_name: BaseAgent
 
 # Skills 配置（🆕 新架构）

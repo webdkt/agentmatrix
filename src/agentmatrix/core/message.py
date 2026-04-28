@@ -19,9 +19,15 @@ class Email:
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据，包括附件信息等
 
     def __post_init__(self):
-        # 防御 DB 恢复时 metadata=None 的情况
+        # 防御 DB 恢复时 metadata 为 None 或字符串的情况
         if self.metadata is None:
             self.metadata = {}
+        elif isinstance(self.metadata, str):
+            import json
+            try:
+                self.metadata = json.loads(self.metadata)
+            except (json.JSONDecodeError, TypeError):
+                self.metadata = {}
     
     def __repr__(self):
         reply_mark = f" (Re: {self.in_reply_to[:8]})" if self.in_reply_to else ""
