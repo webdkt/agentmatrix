@@ -298,69 +298,9 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
         self._collab_output_loop = None
         self.logger.info("📡 Output mirror 已关闭")
 
-    def deprecated_get_skill_prompt(
-        self, skill_name: str, prompt_name: str, **kwargs
-    ) -> str:
-        """
-        获取并渲染 skill prompt
+    
 
-        Args:
-            skill_name: skill 名称（如 "browser_use"）
-            prompt_name: prompt 名称（如 "task_optimization"）
-            **kwargs: 模板变量
-
-        Returns:
-            渲染后的 prompt 字符串
-
-        Raises:
-            FileNotFoundError: prompt 文件不存在
-            KeyError: 缺少必需的变量
-        """
-        # 从文件加载（带缓存）
-        return self.deprecated_load_skill_prompt(skill_name, prompt_name, **kwargs)
-
-    def deprecated_load_skill_prompt(
-        self, skill_name: str, prompt_name: str, **kwargs
-    ) -> str:
-        """
-        从文件加载 skill prompt
-
-        文件路径：src/agentmatrix/prompts/skills/{skill_name}/{prompt_name}.txt
-
-        Args:
-            skill_name: skill 名称
-            prompt_name: prompt 名称
-            **kwargs: 模板变量
-
-        Returns:
-            渲染后的 prompt 字符串
-
-        Raises:
-            FileNotFoundError: prompt 文件不存在
-            KeyError: 缺少必需的变量
-        """
-        from pathlib import Path
-
-        # 确定 prompts 目录
-        current_file = Path(__file__)
-        agentmatrix_root = current_file.parent.parent
-        prompts_dir = agentmatrix_root / "prompts" / "skills" / skill_name
-        prompt_file = prompts_dir / f"{prompt_name}.txt"
-
-        # 检查文件存在
-        if not prompt_file.exists():
-            raise FileNotFoundError(f"Prompt file not found: {prompt_file}")
-
-        # 读取模板（带缓存）
-        cache_key = f"{skill_name}/{prompt_name}"
-        if cache_key not in self._prompt_cache:
-            with open(prompt_file, "r", encoding="utf-8") as f:
-                self._prompt_cache[cache_key] = f.read()
-
-        template = self._prompt_cache[cache_key]
-
-        # 直接渲染，缺变量会抛出 KeyError
-        return template.format(**kwargs)
+    
 
     @property
     def runtime(self):
@@ -383,6 +323,176 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
     def get_prompt_template(self, name: str) -> str:
         """获取 prompt 模板（AgentShell 接口实现）"""
         return self.runtime.prompt_registry.get(name)
+
+    def render_template(self, template: str, **overrides) -> str:
+        """渲染模板：自动用 self 属性替换 $variable，支持手动覆盖。
+
+        占位符格式: $variable_name（字母、数字、下划线）
+        替换优先级: overrides > self 属性 > 不替换（保留原文）
+
+        Example:
+            self.render_template(template)  # 自动替换 self.persona 等
+            self.render_template(template, yellow_pages_section="...")  # 额外替换
+        """
+        import re
+
+        def replacer(match):
+            key = match.group(1)
+            if key in overrides:
+                return str(overrides[key])
+            if hasattr(self, key):
+                val = getattr(self, key)
+                return str(val) if val is not None else match.group(0)
+            return match.group(0)  # 保留原文
+
+        return re.sub(r'\$([a-zA-Z_][a-zA-Z0-9_]*)', replacer, template)
+
+    async def generate_working_notes(
+        self,
+        messages: list,
+        focus_hint: str = "",
+        scratchpad: list = None,
+        is_top_level: bool = False,
+    ) -> str:
+        """从对话历史生成 Working Notes（AgentShell 接口实现）。
+
+        使用液态金属架构（Liquid Metal）：不固定结构，让 LLM 根据对话场景动态生成 Headers。
+
+        Args:
+            messages: 当前对话历史
+            focus_hint: 可选，指导 LLM 重点关注某方面
+            scratchpad: 工作过程中的自留笔记列表
+            is_top_level: 是否是顶层 Agent（有邮件历史的场景）
+        """
+        from ..core.utils.parser_utils import working_notes_parser
+        from ..core.utils.token_utils import format_session_messages
+
+        # 注入 Agent Persona（如有）
+        persona_hint = ""
+        if self.persona:
+            persona_hint = f"""
+
+[Agent Persona Reference]
+{self.persona[:800]}
+
+Use this to understand the agent's role and bias your scene diagnosis accordingly.
+"""
+
+        # 构造 focus_hint 区块
+        focus_hint_block = ""
+        if focus_hint:
+            focus_hint_block = f"""
+
+# Focus Hint
+**重点关注**：{focus_hint}
+
+请在 Working Notes 中特别突出这方面的信息。
+"""
+
+        # 构造 scratchpad 区块
+        scratchpad_block = ""
+        if scratchpad:
+            items = "\n".join(f"- {s}" for s in scratchpad)
+            scratchpad_block = f"""
+# Scratchpad (工作过程中的自留笔记)
+以下是工作过程中随手记录的要点，可能与 Session History 有重复，但它们标记了你认为重要的信息：
+{items}
+
+---
+"""
+
+        # Top-level 和 Nested 的分层指引不同
+        if is_top_level:
+            step_2_5 = """## Step 2.5: Working Notes 用途意识 (Purpose Awareness)
+
+Working Notes 的读者是你自己——下一轮循环中继续工作的你。
+
+对话历史中，邮件记录始终可读（Email History will always be there）。
+你不需要担心沟通内容丢失或走样，也不需要在 Working Notes 中重述已经通过邮件表达过的内容。
+专注于**如何帮助自己记住对后续工作有必要的东西**。
+
+白问自己：下一轮醒来，你需要立刻知道什么才能接着干？
+
+信息天然分层：
+- **沟通层**（目标、计划、承诺、状态更新）→ 邮件已覆盖，Working Notes 不必重复
+- **执行层**（做了什么、调用了什么、文件在哪里）→ Working Notes 的核心
+- **发现层**（数据长什么样、遇到什么技术约束、搜索到了什么）→ Working Notes 的核心
+- **调整层**（原计划如何、实际为何调整、踩了什么坑）→ Working Notes 的核心"""
+
+            step_3 = """## Step 3: 状态提取 (State Extraction)
+- **去噪**：剔除客套话、重复信息。
+- **消歧**：将代词（他/它/那个）还原为实体全名。
+- **客观**：只记录事实和结论，不记录流水账。
+- **聚焦**：侧重执行层、发现层、调整层的信息。沟通层信息如果在邮件中已经完整记录，无需重复。
+- **完整**：保留继续工作所需的线索——文件路径、中间产物位置、技术决策原因、未完成的子任务。"""
+
+            output_extra = """5. **写完后自问**：这些信息是否能帮助我下一轮立刻接着干？如果某些信息在 Email History 中已经清晰可查，考虑是否需要保留。"""
+        else:
+            step_2_5 = ""
+
+            step_3 = """## Step 3: 状态提取 (State Extraction)
+- **去噪**：剔除客套话、重复信息。
+- **消歧**：将代词（他/它/那个）还原为实体全名。
+- **客观**：只记录事实和结论，不记录流水账。
+- **完整**：保留关键内容和结果，原始目的中不可缺失的部分，后续行动必须持有的线索。"""
+
+            output_extra = ""
+
+        # 构造 Meta-Prompt
+        prompt = f"""
+# Role
+你是一个高维度的对话状态架构师 (Context Architect)。你的任务不是简单的总结，而是根据对话的**本质类型**，动态构建最适合当前语境的"工作笔记 (Working Notes)"。
+
+# Core Instructions
+分析以下对话历史，执行以下步骤：
+## Step 0: 判断有无现存的"工作笔记" (Working Notes)。如果有，继承他的结构，并在此基础上更新内容(Jump to Step 2B)；如果没有，按照Step 1的思路生成新的结构。
+
+## Step 1: 场景识别 (Scene Diagnosis)
+判断当前对话的**核心模式**。例如：
+- **任务导向 (Task-Oriented)**: 编程、订票、数据分析 -> 需要记录：目标、进度、参数、错误栈...
+- **知识探索 (Knowledge-Intensive)**: 教学、头脑风暴、调研 -> 需要记录：核心概念、已验证的事实、待探索的盲区...
+- **情感/咨询 (Emotional/Therapeutic)**: 心理咨询、闲聊 -> 需要记录：用户情绪状态、潜在压力源、共情连接点...
+- **角色扮演 (Roleplay/Creative)**: 小说创作、游戏 -> 需要记录：当前设定、剧情节点、人物关系、物品栏...
+
+
+Note: 场景识别是为你服务的，用于构建结构，其内容不需要记录在笔记中。你只需要根据识别结果，自然地生成适合的结构。
+
+## Step 2A: 结构定义 (Structure Definition)—— 无现有笔记时
+基于场景识别结果，**动态决定 Working Notes 的一级标题 (Headers)**。
+不要使用固定的模板，让结构自然适配对话内容。
+
+## Step 2B: 结构继承和调整 (Structure Inheritance & Adjustment)—— 有现有笔记时
+以原有笔记为基础，继承结构。快速的根据新的对话内容判断，场景是否发生变化，主题是否发生变化，是否需要对结构进行调整
+
+{step_2_5}
+
+{step_3}
+
+# Output Requirements
+1. **必须是 Markdown 格式**
+2. **一级标题由你根据 Step 1 动态决定**
+3. **必须包含一个通用的 `## 🧠 关键上下文` 或 `## 关键上下文` 区域**，用于兜底非结构化信息
+4. 保持简洁：丢弃过时细节、冗余信息、探索过程性信息
+{output_extra}
+
+
+
+{persona_hint}
+---
+{scratchpad_block}
+# Session History
+{format_session_messages(messages)}
+---
+{focus_hint_block}
+
+Start generating the Working Notes now.
+"""
+
+        working_notes = await self.brain.think_with_retry(
+            initial_messages=prompt, parser=working_notes_parser, max_retries=3
+        )
+
+        return working_notes
 
     # ========== MD Skill 管理 ==========
 
@@ -1114,16 +1224,13 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
                 available_skills = [required] + available_skills
 
         # 预组装 system prompt 模板（Shell 选模板、填变量）
-        if getattr(self, "collab_mode", False):
-            template_str = self.get_prompt_template("COLLAB_MODE")
-        else:
-            template_str = self.get_prompt_template("SYSTEM_PROMPT")
-
-        template_str = template_str.replace("$persona", self.persona)
-        template_str = template_str.replace("$user_name", self.runtime.user_agent_name)
-        template_str = template_str.replace("$agent_name", self.name)
-        template_str = template_str.replace("$yellow_pages_section",
-            self.post_office.yellow_page_exclude_me(self.name) or "")
+        template_key = "COLLAB_MODE" if getattr(self, "collab_mode", False) else "SYSTEM_PROMPT"
+        template_str = self.render_template(
+            self.get_prompt_template(template_key),
+            user_name=self.runtime.user_agent_name,
+            agent_name=self.name,
+            yellow_pages_section=self.post_office.yellow_page_exclude_me(self.name) or "",
+        )
 
         # 加载 md skills
         md_skills = self._load_md_skills()
@@ -1397,15 +1504,13 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
                 available_skills = [required] + available_skills
 
         # 预组装 system prompt 模板
-        if getattr(self, "collab_mode", False):
-            template_str = self.get_prompt_template("COLLAB_MODE")
-        else:
-            template_str = self.get_prompt_template("SYSTEM_PROMPT")
-
-        template_str = template_str.replace("$persona", self.persona)
-        template_str = template_str.replace("$user_name", self.runtime.user_agent_name)
-        template_str = template_str.replace("$agent_name", self.name)
-        template_str = template_str.replace("$yellow_pages_section", yellow_pages or "")
+        template_key = "COLLAB_MODE" if getattr(self, "collab_mode", False) else "SYSTEM_PROMPT"
+        template_str = self.render_template(
+            self.get_prompt_template(template_key),
+            user_name=self.runtime.user_agent_name,
+            agent_name=self.name,
+            yellow_pages_section=yellow_pages or "",
+        )
 
         # 加载 md skills
         md_skills = self._load_md_skills()

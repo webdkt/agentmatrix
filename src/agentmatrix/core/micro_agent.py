@@ -19,6 +19,7 @@ import logging
 import time
 import json
 import re
+from .agent_shell import AgentShell
 
 
 @dataclass
@@ -31,7 +32,7 @@ from .log_util import AutoLoggerMixin
 from .exceptions import LLMServiceUnavailableError
 from .action import register_action
 from .message import Email
-from .utils.token_utils import estimate_messages_tokens, format_session_messages
+from .utils.token_utils import estimate_messages_tokens
 
 from .agent_shell import AgentShell
 from .utils import micro_agent_utils as _utils
@@ -69,6 +70,7 @@ class MicroAgent(AutoLoggerMixin):
         available_skills: Optional[List[str]] = None,
         system_prompt: str = "",
         md_skills: Optional[Dict[str, str]] = None,
+        compression_token_threshold: int = 64000,
     ):
         """
         初始化 Micro Agent
@@ -80,6 +82,7 @@ class MicroAgent(AutoLoggerMixin):
             available_skills: 可用技能列表（如 ["file", "browser"]）
             system_prompt: system prompt 模板（Shell 或创建者预组装）
             md_skills: 已加载的 md skill 字典 {name: description}
+            compression_token_threshold: 触发消息压缩的 token 阈值（默认 64000）
         """
         # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
         self.name = name or f"MicroAgent_{uuid.uuid4().hex[:8]}"
@@ -112,7 +115,7 @@ class MicroAgent(AutoLoggerMixin):
         self._internal_logger = parent.logger  # 绕过 AutoLoggerMixin 的懒加载
 
         # ========== 找到根 Agent ==========
-        from .agent_shell import AgentShell
+        
 
         if isinstance(parent, AgentShell):
             self.root_agent = parent
@@ -127,8 +130,8 @@ class MicroAgent(AutoLoggerMixin):
         self.scratchpad: List[str] = []  # 草稿纸：工作过程中随手记录的要点，压缩时辅助生成 Working Notes
         self.scratchpad_limit: int = 8  # scratchpad 积累到此条数时触发自动压缩
 
-        # ========== 🆕 压缩相关（默认开启，无需配置）==========
-        self.compression_token_threshold = 64000  # 64K tokens
+        # ========== 压缩相关 ==========
+        self.compression_token_threshold = compression_token_threshold
         # self.last_compression_step = 0  # 上次压缩时的步数
 
         # ========== system prompt（Shell 或创建者预组装的模板）==========
@@ -152,31 +155,7 @@ class MicroAgent(AutoLoggerMixin):
             f"MicroAgent '{self.name}' initialized (parent: {parent.name})"
         )
 
-    def deprecated_get_skill_prompt(
-        self, skill_name: str, prompt_name: str, **kwargs
-    ) -> str:
-        """
-        获取 skill prompt（从 parent Agent）
-
-        为什么 MicroAgent 也需要这个方法：
-        - Mixin 的 action 运行时注入到 MicroAgent
-        - action 里的 self 是 MicroAgent
-        - 但 skill 的其他方法在 Agent 上
-        - 统一 API，避免混淆
-
-        Args:
-            skill_name: skill 名称
-            prompt_name: prompt 名称
-            **kwargs: 模板变量
-
-        Returns:
-            渲染后的 prompt 字符串
-
-        Raises:
-            AttributeError: parent 没有 get_skill_prompt 方法
-        """
-        # 直接调用 parent 的方法
-        return self.parent.get_skill_prompt(skill_name, prompt_name, **kwargs)
+    
 
     def _create_dynamic_class(self, available_skills: List[str]) -> type:
         """
@@ -674,9 +653,7 @@ class MicroAgent(AutoLoggerMixin):
 
                 raise ValueError(f"Action '{action_call}' not found")
 
-    def deprecated_session_folder(self) -> str:
-        """便捷访问：根 Agent 的 session_folder"""
-        return self.root_agent.get_session_folder()
+
 
     # ==================== 🆕 自动压缩机制 ====================
 
@@ -700,158 +677,6 @@ class MicroAgent(AutoLoggerMixin):
             return True
         return False
 
-    async def _generate_working_notes(
-        self, messages: list, focus_hint: str = ""
-    ) -> str:
-        """
-        LLM 总结：生成 Working Notes（工作笔记）
-
-        使用液态金属架构（Liquid Metal）：
-        - 不固定结构
-        - 让 LLM 根据对话场景动态生成 Headers
-        - 适配任务导向、知识探索、心理咨询、角色扮演等多种场景
-
-        Top-level vs Nested 两种 prompt 变体：
-        - Top-level: 有 Email History，Working Notes 聚焦于执行层/发现层/调整层
-        - Nested: 无 Email History，Working Notes 全面提取所有重要信息
-
-        Args:
-            messages: 当前对话历史
-            focus_hint: 可选，指导 LLM 重点关注某方面
-
-        Returns:
-            str: Markdown 格式的 Working Notes
-        """
-        from .utils.parser_utils import working_notes_parser
-
-        # 注入 Agent Persona（如有）
-        persona_hint = ""
-        if hasattr(self, "persona") and self.persona:
-            persona_hint = f"""
-
-[Agent Persona Reference]
-{self.persona[:800]}
-
-Use this to understand the agent's role and bias your scene diagnosis accordingly.
-"""
-
-        # 构造 focus_hint 区块
-        focus_hint_block = ""
-        if focus_hint:
-            focus_hint_block = f"""
-
-# Focus Hint
-**重点关注**：{focus_hint}
-
-请在 Working Notes 中特别突出这方面的信息。
-"""
-
-        # 构造 scratchpad 区块（工作过程中自留的草稿笔记，辅助生成 Working Notes）
-        scratchpad_block = ""
-        if self.scratchpad:
-            items = "\n".join(f"- {s}" for s in self.scratchpad)
-            scratchpad_block = f"""
-# Scratchpad (工作过程中的自留笔记)
-以下是工作过程中随手记录的要点，可能与 Session History 有重复，但它们标记了你认为重要的信息：
-{items}
-
----
-"""
-
-        # Step 2.5: Top-level 和 Nested 的分层指引不同
-        if self._is_top_level_microagent():
-            step_2_5 = """## Step 2.5: Working Notes 用途意识 (Purpose Awareness)
-
-Working Notes 的读者是你自己——下一轮循环中继续工作的你。
-
-对话历史中，邮件记录始终可读（Email History will always be there）。
-你不需要担心沟通内容丢失或走样，也不需要在 Working Notes 中重述已经通过邮件表达过的内容。
-专注于**如何帮助自己记住对后续工作有必要的东西**。
-
-白问自己：下一轮醒来，你需要立刻知道什么才能接着干？
-
-信息天然分层：
-- **沟通层**（目标、计划、承诺、状态更新）→ 邮件已覆盖，Working Notes 不必重复
-- **执行层**（做了什么、调用了什么、文件在哪里）→ Working Notes 的核心
-- **发现层**（数据长什么样、遇到什么技术约束、搜索到了什么）→ Working Notes 的核心
-- **调整层**（原计划如何、实际为何调整、踩了什么坑）→ Working Notes 的核心"""
-
-            step_3 = """## Step 3: 状态提取 (State Extraction)
-- **去噪**：剔除客套话、重复信息。
-- **消歧**：将代词（他/它/那个）还原为实体全名。
-- **客观**：只记录事实和结论，不记录流水账。
-- **聚焦**：侧重执行层、发现层、调整层的信息。沟通层信息如果在邮件中已经完整记录，无需重复。
-- **完整**：保留继续工作所需的线索——文件路径、中间产物位置、技术决策原因、未完成的子任务。"""
-
-            output_extra = """5. **写完后自问**：这些信息是否能帮助我下一轮立刻接着干？如果某些信息在 Email History 中已经清晰可查，考虑是否需要保留。"""
-        else:
-            step_2_5 = ""
-
-            step_3 = """## Step 3: 状态提取 (State Extraction)
-- **去噪**：剔除客套话、重复信息。
-- **消歧**：将代词（他/它/那个）还原为实体全名。
-- **客观**：只记录事实和结论，不记录流水账。
-- **完整**：保留关键内容和结果，原始目的中不可缺失的部分，后续行动必须持有的线索。"""
-
-            output_extra = ""
-
-        # 构造 Meta-Prompt
-        prompt = f"""
-# Role
-你是一个高维度的对话状态架构师 (Context Architect)。你的任务不是简单的总结，而是根据对话的**本质类型**，动态构建最适合当前语境的"工作笔记 (Working Notes)"。
-
-# Core Instructions
-分析以下对话历史，执行以下步骤：
-## Step 0: 判断有无现存的"工作笔记" (Working Notes)。如果有，继承他的结构，并在此基础上更新内容(Jump to Step 2B)；如果没有，按照Step 1的思路生成新的结构。
-
-## Step 1: 场景识别 (Scene Diagnosis)
-判断当前对话的**核心模式**。例如：
-- **任务导向 (Task-Oriented)**: 编程、订票、数据分析 -> 需要记录：目标、进度、参数、错误栈...
-- **知识探索 (Knowledge-Intensive)**: 教学、头脑风暴、调研 -> 需要记录：核心概念、已验证的事实、待探索的盲区...
-- **情感/咨询 (Emotional/Therapeutic)**: 心理咨询、闲聊 -> 需要记录：用户情绪状态、潜在压力源、共情连接点...
-- **角色扮演 (Roleplay/Creative)**: 小说创作、游戏 -> 需要记录：当前设定、剧情节点、人物关系、物品栏...
-
-
-Note: 场景识别是为你服务的，用于构建结构，其内容不需要记录在笔记中。你只需要根据识别结果，自然地生成适合的结构。
-
-## Step 2A: 结构定义 (Structure Definition)—— 无现有笔记时
-基于场景识别结果，**动态决定 Working Notes 的一级标题 (Headers)**。
-不要使用固定的模板，让结构自然适配对话内容。
-
-## Step 2B: 结构继承和调整 (Structure Inheritance & Adjustment)—— 有现有笔记时
-以原有笔记为基础，继承结构。快速的根据新的对话内容判断，场景是否发生变化，主题是否发生变化，是否需要对结构进行调整
-
-{step_2_5}
-
-{step_3}
-
-# Output Requirements
-1. **必须是 Markdown 格式**
-2. **一级标题由你根据 Step 1 动态决定**
-3. **必须包含一个通用的 `## 🧠 关键上下文` 或 `## 关键上下文` 区域**，用于兜底非结构化信息
-4. 保持简洁：丢弃过时细节、冗余信息、探索过程性信息
-{output_extra}
-
-
-
-{persona_hint}
----
-{scratchpad_block}
-# Session History
-{format_session_messages(messages)}
----
-{focus_hint_block}
-
-Start generating the Working Notes now.
-"""
-
-        # 使用 think_with_retry 精确获取 working notes
-        working_notes = await self.brain.think_with_retry(
-            initial_messages=prompt, parser=working_notes_parser, max_retries=3
-        )
-
-        return working_notes
-
     async def _compress_messages(self) -> str:
         """
         压缩 messages，保留 system_prompt，添加总结
@@ -870,7 +695,11 @@ Start generating the Working Notes now.
         #if self._is_top_level_microagent():
         #    self._push_pending_summary()
 
-        working_notes = await self._generate_working_notes(self.messages)
+        working_notes = await self.root_agent.generate_working_notes(
+            self.messages,
+            scratchpad=self.scratchpad,
+            is_top_level=self._is_top_level_microagent(),
+        )
 
         # 剥掉 working_notes 开头可能带的 [WORKING NOTES]（LLM 从 session history 复读出来的）
         if working_notes and "[WORKING NOTES]" in working_notes:
@@ -985,33 +814,7 @@ Start generating the Working Notes now.
 
         return isinstance(self.parent, AgentShell)
 
-    def _push_pending_summary(self):
-        """
-        推送待总结消息到 root_agent 的队列
-
-        仅 top-level MicroAgent 调用，由 BaseAgent 的 history_worker 处理
-        """
-        import time
-
-        # 过滤掉 system message（总结不需要 system prompt）
-        filtered_messages = [
-            msg.copy() for msg in self.messages if msg.get("role") != "system"
-        ]
-
-        summary_item = {
-            "messages": filtered_messages,
-            "timestamp": time.time(),
-            "agent_name": self.name,
-            "run_label": self.run_label,
-        }
-
-        # 推送到 root_agent 的队列
-        self.root_agent.pending_summaries_queue.append(summary_item)
-
-        self.logger.debug(
-            f"📥 已推送待总结消息到队列 "
-            f"(当前队列长度: {len(self.root_agent.pending_summaries_queue)})"
-        )
+    
 
     def _format_email_history(self, emails: List[Email]) -> str:
         return _utils.format_email_history(emails, self.name)
