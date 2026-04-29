@@ -17,7 +17,7 @@ Core 处理的一切 input 都是 signal：外部消息、action 结果、内部
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 
 # ── 接口 ──────────────────────────────────────────────────
@@ -82,39 +82,54 @@ class TextSignal:
 
 
 @dataclass
-class ActionResultSignal:
+class ActionCompletedSignal:
     """
-    Action 执行完成信号。
+    单个 Action 执行完成信号。
 
+    每个 action 完成后独立产生一个 signal。
     Core 内部产生，不需要可靠投递确认（signal_id 为 None）。
     """
-    results: List[Dict[str, Any]] = field(default_factory=list)
+    action_name: str
+    label: str = ""
+    result: str = ""
+    status: str = "ok"  # "ok" | "canceled" | "error"
+    error: str = ""
 
     @property
     def signal_type(self) -> str:
-        return "actions_completed"
+        return "action_completed"
 
     @property
     def signal_id(self) -> Optional[str]:
         return None
 
     def to_text(self) -> str:
-        lines = []
-        for r in self.results:
-            label = r.get("label", "")
-            display_name = f"{r['action_name']}: {label}" if label else r["action_name"]
-
-            if r["status"] == "ok":
-                lines.append(f"[{display_name} Done]: {r['result']}")
-            elif r["status"] == "canceled":
-                lines.append(f"[{display_name} Canceled]")
-            else:
-                lines.append(f"[{display_name} Failed]: {r.get('error', '')}")
-        return "\n\n".join(lines)
+        display_name = f"{self.action_name}: {self.label}" if self.label else self.action_name
+        if self.status == "ok":
+            return f"[{display_name} Done]: {self.result}"
+        elif self.status == "canceled":
+            return f"[{display_name} Canceled]"
+        else:
+            return f"[{display_name} Failed]: {self.error}"
 
     def log_detail(self) -> Dict[str, Any]:
         return {
-            "signal_type": "actions_completed",
-            "result_count": len(self.results),
-            "action_names": [r.get("action_name", "") for r in self.results],
+            "signal_type": "action_completed",
+            "action_name": self.action_name,
+            "status": self.status,
         }
+
+
+# ── Core → Shell 事件 ─────────────────────────────────────
+
+@dataclass
+class CoreEvent:
+    """
+    Core 向 Shell 输出的事件。
+
+    Core 通过 event_queue 广播发生的事件。
+    Shell 消费这些事件，决定如何响应（DB 持久化、前端通知、邮件标记已读等）。
+    """
+    event_type: str  # "action" | "session" | "think" | "status" | "signal"
+    event_name: str  # "started" | "completed" | "error" | "received" | "processed" | ...
+    detail: Dict[str, Any] = field(default_factory=dict)

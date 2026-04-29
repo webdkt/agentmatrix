@@ -13,7 +13,43 @@ from ..core.log_util import AutoLoggerMixin
 from ..core.agent_shell import AgentShell
 import logging
 from pathlib import Path
-from ..core.micro_agent import MicroAgent, Signal
+from ..core.micro_agent import MicroAgent
+
+
+@dataclass
+class EmailSignal:
+    """邮件信号 — Desktop 层实现，遵循 Signal 协议。"""
+    sender: str
+    recipient: str
+    subject: str
+    body: str
+    attachments: list = field(default_factory=list)
+    email_ids: list = field(default_factory=list)
+
+    @property
+    def signal_type(self) -> str:
+        return "email"
+
+    @property
+    def signal_id(self) -> Optional[str]:
+        # 邮件信号用 email_ids 作为可靠投递标识
+        return ",".join(self.email_ids) if self.email_ids else None
+
+    def to_text(self) -> str:
+        text = f"[新邮件] 来自 {self.sender}: {self.subject}\n{self.body}"
+        if self.attachments:
+            text += "\n" + "\n".join(
+                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
+                for att in self.attachments
+            )
+        return text
+
+    def log_detail(self) -> Dict[str, Any]:
+        return {
+            "signal_type": "email",
+            "email_ids": self.email_ids,
+            "sender": self.sender,
+        }
 
 
 # Agent 状态常量
@@ -516,10 +552,12 @@ Start generating the Working Notes now.
             ).strip()
 
         # 写入 session event
-        await agent._log_event("session", "message_auto_compress", {
-            "step_count": agent.step_count,
-            "working_notes_preview": working_notes if working_notes else None,
-        })
+        session_id = agent.session.get("session_id") if agent.session else None
+        if session_id:
+            await self._log_session_event(session_id, "session", "message_auto_compress", {
+                "step_count": agent.step_count,
+                "working_notes_preview": working_notes if working_notes else None,
+            })
 
         # 保留 system message
         has_system = agent.messages and agent.messages[0].get("role") == "system"
@@ -1256,14 +1294,14 @@ Start generating the Working Notes now.
             # 情况 2：同一 session → 投递 batch 信号
             if self.active_micro_agent:
                 self.active_micro_agent.signal_queue.put_nowait(
-                    Signal(type="email", payload={
-                        "sender": email.sender,
-                        "recipient": email.recipient,
-                        "subject": email.subject,
-                        "body": email.body,
-                        "attachments": email.attachments or [],
-                        "email_ids": [email.id],
-                    })
+                    EmailSignal(
+                        sender=email.sender,
+                        recipient=email.recipient,
+                        subject=email.subject,
+                        body=email.body,
+                        attachments=email.attachments or [],
+                        email_ids=[email.id],
+                    )
                 )
             self.logger.debug(f"📧 邮件路由到 active session {session_id[:8]}")
         else:
@@ -1329,17 +1367,14 @@ Start generating the Working Notes now.
         )
         self.active_micro_agent = micro_agent
 
-        # 首封邮件作为 raw signal 放入 queue，文本转换在 MicroAgent.inject_signals 中完成
-        micro_agent.signal_queue.put_nowait(Signal(
-            type="email",
-            payload={
-                "sender": first_email.sender,
-                "recipient": first_email.recipient,
-                "subject": first_email.subject,
-                "body": first_email.body,
-                "attachments": first_email.attachments or [],
-                "email_ids": [first_email.id],
-            }
+        # 首封邮件作为 signal 放入 queue
+        micro_agent.signal_queue.put_nowait(EmailSignal(
+            sender=first_email.sender,
+            recipient=first_email.recipient,
+            subject=first_email.subject,
+            body=first_email.body,
+            attachments=first_email.attachments or [],
+            email_ids=[first_email.id],
         ))
 
         # 启动 session task — task 为空，邮件通过 signal 进入
@@ -1361,6 +1396,43 @@ Start generating the Working Notes now.
         运行 session 的 MicroAgent，处理完成后的清理。
         """
         session_id = session["session_id"]
+
+        async def _consume_events():
+            """消费 Core event queue，处理 DB 持久化、WebSocket 广播、邮件标记已读等。"""
+            while True:
+                try:
+                    event = await micro_agent.event_queue.get()
+                except asyncio.CancelledError:
+                    break
+
+                if event.event_type == "status":
+                    # 状态事件：只更新状态
+                    self.update_status(new_status=event.event_name.upper())
+
+                elif event.event_type == "signal" and event.event_name == "processed":
+                    # 信号处理完成：提取 signal_id 标记已读（如邮件），不广播
+                    signals = event.detail.get("signals", [])
+                    signal_ids = [s.signal_id for s in signals if s.signal_id]
+                    if signal_ids:
+                        try:
+                            await self.post_office.email_db.mark_emails_processed(signal_ids)
+                        except Exception as e:
+                            self.logger.warning(f"mark_emails_processed failed: {e}")
+
+                elif event.event_type == "signal":
+                    # signal/received 等内部事件，忽略
+                    pass
+
+                else:
+                    # 其他事件：写入 session event + WebSocket 广播
+                    await self._log_session_event(
+                        session_id=session_id,
+                        event_type=event.event_type,
+                        event_name=event.event_name,
+                        event_detail=event.detail or None,
+                    )
+
+        event_task = asyncio.create_task(_consume_events())
         try:
             result = await micro_agent.execute(
                 run_label="Process Email",
@@ -1371,7 +1443,6 @@ Start generating the Working Notes now.
         except asyncio.CancelledError:
             if self._is_stopping:
                 self.logger.info(f"🛑 Session {session_id[:8]} 被 stop() 中断")
-                # 📝 写入 session event: session.user_interrupt
                 await self._log_session_event(
                     session_id=session_id,
                     event_type="session",
@@ -1409,6 +1480,11 @@ Start generating the Working Notes now.
             except Exception as e2:
                 self.logger.error(f"发送错误通知邮件失败: {e2}")
         finally:
+            event_task.cancel()
+            try:
+                await event_task
+            except asyncio.CancelledError:
+                pass
             await self._deactivate_session(session)
 
     async def _deactivate_session(self, session: dict):

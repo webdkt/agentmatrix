@@ -12,24 +12,15 @@ Micro Agent: 临时任务专用的轻量级 Agent
 import asyncio
 import uuid
 import types  # 用于动态绑定
-from datetime import datetime
-from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable, Any, Union
 import logging
 import time
-import json
-
-
-@dataclass
-class Signal:
-    type: str  # "email", "action_completed", "no_action_reflect", "action_continue"
-    payload: Any
-
 
 from .log_util import AutoLoggerMixin
 from .exceptions import LLMServiceUnavailableError
 from .action import register_action
 from .utils.token_utils import estimate_messages_tokens
+from .signals import ActionCompletedSignal, CoreEvent, TextSignal
 
 from .agent_shell import AgentShell
 from .utils import micro_agent_utils as _utils
@@ -141,10 +132,13 @@ class MicroAgent(AutoLoggerMixin):
         self.skill_context: dict = {}
 
         # ========== 信号驱动架构 ==========
-        self.signal_queue: asyncio.Queue = asyncio.Queue()
+        self.signal_queue: asyncio.Queue = asyncio.Queue()  # Shell → Core，每层独立
+        # Core → Shell，嵌套时复用 parent 的 queue（所有 event 汇聚到顶层）
+        self.event_queue: asyncio.Queue = (
+            parent.event_queue if isinstance(parent, MicroAgent) else asyncio.Queue()
+        )
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
         self._action_counter: int = 0
-        self._pending_processed_ids: List[str] = []
         self._no_action_reflected: bool = False  # 是否已经 reflect 过"无 action"的情况
 
         # 日志
@@ -275,50 +269,18 @@ class MicroAgent(AutoLoggerMixin):
     def _build_exit_verification_prompt(self, raw_reply: str) -> str:
         return _utils.build_exit_verification_prompt(raw_reply)
 
-    def _signal_text(self, signal, compress=False) -> str:
-        """单个 signal 的纯文本生成（无副作用）"""
-        if signal.type == "email":
-            batch = signal.payload
-            text = f"[新邮件] 来自 {batch['sender']}: {batch['subject']}\n{batch['body']}"
-            attachments = batch.get("attachments", [])
-            if attachments:
-                text += "\n" + "\n".join(
-                    f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
-                    for att in attachments
-                )
-            return text
-        elif signal.type in ["action_completed", "actions_completed"]:
-            return self._format_combined_results(
-                signal.payload.get("results", []), compress=compress
-            )
-        elif signal.type == "no_action_reflect":
-            return signal.payload["message"]
-        elif signal.type == "action_continue":  # 🆕 新增：验证后继续执行
-            return signal.payload["message"]
-        return ""
-
-    def _signals_text(self, signals, compress=False) -> str:
-        """批量 signal 的文本拼接"""
-        return "\n\n".join(self._signal_text(sig, compress=compress) for sig in signals)
-
     async def inject_signals(self, signals):
         """Pre-think: 生成完整文本并注入 messages"""
         if not signals:
             return
 
-        for signal in signals:
-            self.logger.info(f"Injecting signal: {signal.type}")
-            signal_detail = {"signal_type": signal.type}
-            if signal.type == "email":
-                signal_detail["email_ids"] = signal.payload.get("email_ids", [])
-                signal_detail["sender"] = signal.payload.get("sender")
-            elif signal.type in ["action_completed", "actions_completed"]:
-                results = signal.payload.get("results", [])
-                signal_detail["result_count"] = len(results)
-                signal_detail["action_names"] = [r.get("action_name", "") for r in results]
-            await self._log_event("session", "processing_signal", signal_detail)
+        # 通知 Shell：收到了这些信号（准备处理）
+        self._emit_event("signal", "received", {"signals": signals})
 
-        text = self._signals_text(signals)
+        for signal in signals:
+            self.logger.info(f"Injecting signal: {signal.signal_type}")
+
+        text = "\n\n".join(sig.to_text() for sig in signals)
 
         if self._running_actions:
             parts = []
@@ -330,10 +292,6 @@ class MicroAgent(AutoLoggerMixin):
             text += f"\n\n**Still running: {', '.join(parts)}**"
 
         self._add_message("user", text)
-
-        for sig in signals:
-            if sig.type == "email":
-                self._pending_processed_ids.extend(sig.payload.get("email_ids", []))
 
 
     def _on_actions_done(self, action_ids, task):
@@ -1075,22 +1033,14 @@ class MicroAgent(AutoLoggerMixin):
             # 注入信号为 messages
             await self.inject_signals(signals)
 
-            self.root_agent.update_status(new_status="THINKING")
-
-            # 并行：批量标记邮件已处理 + Think（本地 SQLite 写 vs LLM 网络调用）
-            async def _mark_processed():
-                if self._pending_processed_ids:
-                    ids = self._pending_processed_ids.copy()
-                    self._pending_processed_ids.clear()
-                    await self.root_agent.post_office.email_db.mark_emails_processed(ids)
+            self._emit_event("status", "thinking")
 
             try:
+                thought = await self._think_with_system_failure_recovery()
 
-                _, thought = await asyncio.gather(
-                    _mark_processed(),
-                    self._think_with_system_failure_recovery(),
-                )
-
+                # 通知 Shell：这些信号已被 LLM 消费处理
+                if signals:
+                    self._emit_event("signal", "processed", {"signals": signals})
 
                 # think.brain 的内容已通过 session_events 持久化，不再推 status_history
 
@@ -1100,7 +1050,7 @@ class MicroAgent(AutoLoggerMixin):
                 # 📝 写入 session event: think.brain
                 think_event = raw_reply.replace(action_section_text,"").replace("[ACTION]","").replace("[THOUGHTS]","").strip() if raw_reply else None
                 if think_event:
-                    await self._log_event("think", "brain", {
+                    self._emit_event("think", "brain", {
                         "step_count": step_count,
                         "thought": think_event
                     })
@@ -1113,14 +1063,14 @@ class MicroAgent(AutoLoggerMixin):
 
                 # 📝 写入 session event: action.detected
                 if action_names:
-                    await self._log_event("action", "detected", {
+                    self._emit_event("action", "detected", {
                         "actions": action_names,
                         "step_count": step_count,
                     })
 
-                # ✅ 状态更新：开始执行 actions
+                # 状态更新：开始执行 actions
                 if action_names:
-                    self.root_agent.update_status(new_status="WORKING")
+                    self._emit_event("status", "working")
 
                 # 3. 记录 assistant 的思考（只记录一次）
                 self._add_message("assistant", raw_reply)
@@ -1196,9 +1146,9 @@ class MicroAgent(AutoLoggerMixin):
                             # 有疑似幻觉 → 给 LLM 一次 reflect 机会（比通用验证更精准）
                             self.logger.info("No action detected but hallucination pattern found, sending reflect prompt")
                             self._no_action_reflected = True
-                            self.signal_queue.put_nowait(Signal(
-                                type="no_action_reflect",
-                                payload={"message": reflect_msg},
+                            self.signal_queue.put_nowait(TextSignal(
+                                text=reflect_msg,
+                                type_name="no_action_reflect",
                             ))
                             continue
 
@@ -1227,9 +1177,9 @@ class MicroAgent(AutoLoggerMixin):
                                 continue_message = """没有发现要执行的动作，如果要执行动作，按格式要求在[ACTIOIN]块下输出动作指令。如果没有，可直接确认所有动作已完成"""
 
                                 # 注入继续信号
-                                self.signal_queue.put_nowait(Signal(
-                                    type="action_continue",
-                                    payload={"message": continue_message},
+                                self.signal_queue.put_nowait(TextSignal(
+                                    text=continue_message,
+                                    type_name="action_continue",
                                 ))
                                 continue  # 回到循环顶部，重新进入 think
                             else:
@@ -1329,27 +1279,6 @@ class MicroAgent(AutoLoggerMixin):
                     await result
             except Exception as e:
                 self.logger.warning(f"Skill cleanup failed in {cls.__name__}: {e}")
-
-    def _format_combined_results(self, results: list, compress: bool = False) -> str:
-        return _utils.format_combined_results(results, compress)
-
-    async def _prepare_feedback_message(
-        self, combined_result: str, step_count: int, start_time: float
-    ) -> str:
-        """
-        准备反馈消息（Hook 方法）
-
-        子类可以重写此方法来增强反馈（如添加时间提示）
-
-        Args:
-            combined_result: 所有 action 的执行结果
-            step_count: 当前步数
-            start_time: 循环开始时间
-
-        Returns:
-            反馈消息字符串
-        """
-        return f"{combined_result}"
 
     def _parse_actions_from_thought(
         self, raw_reply: str, action_registry: dict
@@ -1451,7 +1380,7 @@ write, send_mail, write
         _running_actions 中的 entry 在每个 action 完成时逐个 pop。
         """
         for idx, (action_id, action_name) in enumerate(zip(action_ids, action_names)):
-            await self._log_event("action", "started", {
+            self._emit_event("action", "started", {
                 "action_name": action_name,
                 "step_count": self.step_count,
             })
@@ -1470,64 +1399,47 @@ write, send_mail, write
                 action_label = info.get("label", "")
 
                 # 发单个 action 完成信号
-                self.signal_queue.put_nowait(Signal(
-                    type="action_completed",
-                    payload={"results": [{
-                        "action_name": action_name,
-                        "label": action_label,
-                        "result": str(result),
-                        "status": "ok",
-                    }]}
+                self.signal_queue.put_nowait(ActionCompletedSignal(
+                    action_name=action_name,
+                    label=action_label,
+                    result=str(result),
+                    status="ok",
                 ))
 
                 self._running_actions.pop(action_id, None)
 
-                await self._log_event("action", "completed", {
+                self._emit_event("action", "completed", {
                     "action_name": action_name,
                     "action_label": action_label,
                     "result_preview": str(result)[:500] if result else None,
                     "status": "ok",
                 })
             except asyncio.CancelledError:
-                self.signal_queue.put_nowait(Signal(
-                    type="action_completed",
-                    payload={"results": [{
-                        "action_name": action_name,
-                        "label": "",
-                        "result": "Canceled",
-                        "status": "canceled",
-                    }]}
+                self.signal_queue.put_nowait(ActionCompletedSignal(
+                    action_name=action_name,
+                    status="canceled",
                 ))
                 self._running_actions.pop(action_id, None)
-                await self._log_event("action", "completed", {
+                self._emit_event("action", "completed", {
                     "action_name": action_name,
                     "status": "canceled",
                 })
                 # 标记后续所有 action 为 canceled
                 for remaining_id, remaining_name in zip(action_ids[idx+1:], action_names[idx+1:]):
-                    self.signal_queue.put_nowait(Signal(
-                        type="action_completed",
-                        payload={"results": [{
-                            "action_name": remaining_name,
-                            "label": "",
-                            "result": "Canceled",
-                            "status": "canceled",
-                        }]}
+                    self.signal_queue.put_nowait(ActionCompletedSignal(
+                        action_name=remaining_name,
+                        status="canceled",
                     ))
                     self._running_actions.pop(remaining_id, None)
                 break
             except Exception as e:
-                self.signal_queue.put_nowait(Signal(
-                    type="action_completed",
-                    payload={"results": [{
-                        "action_name": action_name,
-                        "label": "",
-                        "error": str(e),
-                        "status": "error",
-                    }]}
+                self.signal_queue.put_nowait(ActionCompletedSignal(
+                    action_name=action_name,
+                    error=str(e),
+                    status="error",
                 ))
                 self._running_actions.pop(action_id, None)
-                await self._log_event("action", "error", {
+                self._emit_event("action", "error", {
                     "action_name": action_name,
                     "error_message": str(e)[:500],
                 })
@@ -1692,38 +1604,13 @@ write, send_mail, write
         """
         return self.messages
 
-    async def _log_event(self, event_type: str, event_name: str, event_detail: dict = None):
-        """异步写入 session 事件 + WebSocket 广播"""
-        if not self.session or not self.root_agent or not self.root_agent.post_office:
-            return
-        session_id = self.session.get("session_id")
-        if not session_id:
-            return
-
-        # DB 写入
-        detail_str = json.dumps(event_detail, ensure_ascii=False) if event_detail else None
-        await self.root_agent.post_office.email_db.insert_session_event(
-            owner=self.root_agent.name,
-            session_id=session_id,
+    def _emit_event(self, event_type: str, event_name: str, detail: dict = None):
+        """向 Shell 广播事件。"""
+        self.event_queue.put_nowait(CoreEvent(
             event_type=event_type,
             event_name=event_name,
-            event_detail=detail_str,
-        )
-
-        # WebSocket 广播
-        if self.root_agent._broadcast_message_callback:
-            message = {
-                "type": "SESSION_EVENT",
-                "agent_name": self.root_agent.name,
-                "session_id": session_id,
-                "data": {
-                    "event_type": event_type,
-                    "event_name": event_name,
-                    "event_detail": event_detail,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            }
-            asyncio.create_task(self.root_agent._broadcast_message_callback(message))
+            detail=detail or {},
+        ))
 
     def _get_log_context(self) -> dict:
         """提供日志上下文变量"""

@@ -132,7 +132,7 @@ class EmailSkillMixin:
 
         # 📝 写入 session event: email.sent
 
-        await self._log_event("email", "sent", {
+        self._emit_event("email", "sent", {
             "email_id": msg.id,
             "subject": subject,
             "body_preview": body,

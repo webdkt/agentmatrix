@@ -386,26 +386,6 @@ def format_messages_for_debug(messages: List[Dict]) -> str:
     return "\n".join(lines)
 
 
-def format_combined_results(results: list, compress: bool = False) -> str:
-    """将多个 action 的结果格式化为一个组合文本"""
-    lines = []
-    for r in results:
-        label = r.get("label", "")
-        display_name = f"{r['action_name']}: {label}" if label else r["action_name"]
-
-        if r["status"] == "ok":
-            result = r['result']
-            if compress and len(result) > 200:
-                result = f"(输出省略... 原长度{len(result)}字符)"
-            lines.append(f"[{display_name} Done]: {result}")
-
-        elif r["status"] == "canceled":
-            lines.append(f"[{display_name} Canceled]")
-        else:
-            lines.append(f"[{display_name} Failed]: {r.get('error', '')}")
-    return "\n\n".join(lines)
-
-
 def format_email_history(emails, agent_name: str) -> str:
     """
     格式化邮件历史为紧凑聊天风格
