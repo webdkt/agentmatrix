@@ -18,20 +18,17 @@ from typing import Dict, List, Optional, Callable, Any, Union
 import logging
 import time
 import json
-import re
-from .agent_shell import AgentShell
 
 
 @dataclass
 class Signal:
-    type: str  # "email", "action_completed", "action_failed", "actions_completed"
+    type: str  # "email", "action_completed", "no_action_reflect", "action_continue"
     payload: Any
 
 
 from .log_util import AutoLoggerMixin
 from .exceptions import LLMServiceUnavailableError
 from .action import register_action
-from .message import Email
 from .utils.token_utils import estimate_messages_tokens
 
 from .agent_shell import AgentShell
@@ -145,7 +142,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== 信号驱动架构 ==========
         self.signal_queue: asyncio.Queue = asyncio.Queue()
-        self._running_actions: Dict[str, dict] = {}  # {action_id: {"task": Task, "label": str}}
+        self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
         self._action_counter: int = 0
         self._pending_processed_ids: List[str] = []
         self._no_action_reflected: bool = False  # 是否已经 reflect 过"无 action"的情况
@@ -204,55 +201,68 @@ class MicroAgent(AutoLoggerMixin):
     _BASH_CANCEL_HINT = "\n\n注意：被取消的任务中可能包含 bash 命令，如果涉及网络请求/安装等长时间操作，命令可能仍在容器中运行，如需终止请使用 `ps` + `kill`。"
 
     @register_action(
-        short_desc="取消正在执行的操作",
-        description="取消当前正在运行的操作。如果有多个操作在同时运行，可以通过 action_id 指定取消哪个。",
-        param_infos={"action_id": "要取消的 action ID（可选，不填则取消所有正在运行的操作）"},
+        short_desc="[index]取消正在执行的操作, index 可选，1表示第一个，不提供则取消所有",
+        description="取消当前正在运行的操作。通过编号指定取消哪个，不填则取消所有。",
+        param_infos={"index": "要取消的操作编号（可选，如 1 表示取消第 1 个操作，不填则取消所有）"},
     )
-    async def cancel_action(self, action_id: str = None) -> str:
+    async def cancel_action(self, index=None) -> str:
         """取消正在运行的 action tasks"""
-        _SENTINEL = object()
+        # 统一转为 int
+        if index is not None:
+            try:
+                index = int(index)
+            except (ValueError, TypeError):
+                return f"无效的编号: {index}"
 
-        if action_id and action_id in self._running_actions:
-            info = self._running_actions.pop(action_id, _SENTINEL)
-            if info is _SENTINEL:
-                return f"未找到 {action_id}"
-            task = info["task"] if isinstance(info, dict) else info
-            label = info.get("label", "") if isinstance(info, dict) else ""
-            action_names = info.get("action_names", []) if isinstance(info, dict) else []
-            display_name = f"{action_id.rsplit('_', 1)[0]}: {label}" if label else action_id
+        if index is not None:
+            # 按编号取消单个
+            target_id = None
+            for aid, info in self._running_actions.items():
+                if info.get("index") == index:
+                    target_id = aid
+                    break
+            if target_id is None:
+                return f"未找到编号 {index} 的操作"
+            info = self._running_actions.pop(target_id)
+            task = info["task"]
+            label = info.get("label", "")
+            action_name = info.get("action_name", "")
+            display_name = f"#{index}-{action_name}-{label}" if label else f"#{index}-{action_name}"
             task.cancel()
             result = f"已取消 [{display_name}]"
-            if "bash" in action_names:
+            if action_name == "bash":
                 result += self._BASH_CANCEL_HINT
             return result
         elif self._running_actions:
-            # pop 所有 entries（除了自己），这样被取消 action 的 callback 触发时会跳过信号
-            # 保留自己的 entry，让 callback 能正确 put cancel 结果信号
+            # 取消所有（排除自己）
             current = asyncio.current_task()
             entries = {}
             to_keep = {}
             for aid, info in self._running_actions.items():
-                task = info["task"] if isinstance(info, dict) else info
-                if task is current:
+                if info.get("task") is current:
                     to_keep[aid] = info
                 else:
                     entries[aid] = info
             self._running_actions.clear()
             self._running_actions.update(to_keep)
+
+            # 去重 task（多个 entry 可能指向同一个 sequential task）
+            cancelled_tasks = set()
             cancelled = []
             has_bash = False
             for aid, info in entries.items():
-                task = info["task"] if isinstance(info, dict) else info
-                label = info.get("label", "") if isinstance(info, dict) else ""
-                action_names = info.get("action_names", []) if isinstance(info, dict) else []
-                if "bash" in action_names:
+                idx = info.get("index", "?")
+                action_name = info.get("action_name", "")
+                label = info.get("label", "")
+                display_name = f"#{idx}-{action_name}-{label}" if label else f"#{idx}-{action_name}"
+                if action_name == "bash":
                     has_bash = True
-                action_name = aid.rsplit("_", 1)[0]
-                display_name = f"{action_name}: {label}" if label else action_name
                 cancelled.append(display_name)
-                task.cancel()
-            names = ", ".join(cancelled)
-            result = f"已取消 {len(cancelled)} 个操作: [{names}]"
+                task = info.get("task")
+                if task and id(task) not in cancelled_tasks:
+                    cancelled_tasks.add(id(task))
+                    task.cancel()
+            result = f"已取消 {len(cancelled)} 个操作: [{', '.join(cancelled)}]"
             if has_bash:
                 result += self._BASH_CANCEL_HINT
             return result
@@ -311,8 +321,13 @@ class MicroAgent(AutoLoggerMixin):
         text = self._signals_text(signals)
 
         if self._running_actions:
-            running = ", ".join(aid.rsplit("_", 1)[0] for aid in self._running_actions)
-            text += f"\n\n**Action {running} Still Running**"
+            parts = []
+            for info in self._running_actions.values():
+                idx = info.get("index", "?")
+                name = info.get("action_name", "?")
+                label = info.get("label", "")
+                parts.append(f"#{idx}-{name}-{label}" if label else f"#{idx}-{name}")
+            text += f"\n\n**Still running: {', '.join(parts)}**"
 
         self._add_message("user", text)
 
@@ -321,22 +336,11 @@ class MicroAgent(AutoLoggerMixin):
                 self._pending_processed_ids.extend(sig.payload.get("email_ids", []))
 
 
-    def _on_batch_done(self, action_id, task):
-        """batch task 完成后的回调 - 发送原始 results 数组"""
-        info = self._running_actions.pop(action_id, None)
-        if info is None:
-            return
-        try:
-            results = task.result()  # 获取 results 数组
-            self.signal_queue.put_nowait(Signal(
-                type="actions_completed",
-                payload={"results": results}
-            ))
-        except Exception as e:
-            self.signal_queue.put_nowait(Signal(
-                type="actions_completed",
-                payload={"results": [{"action_name": "batch", "label": "", "error": str(e), "status": "error"}]}
-            ))
+    def _on_actions_done(self, action_ids, task):
+        """sequential task 完成后的兜底回调 — 清理残留 entry（异常/cancel 时触发）"""
+        for aid in action_ids:
+            self._running_actions.pop(aid, None)
+        # 正常路径下每个 action 已经自己 pop 并发 signal，这里不需要再发
 
     @register_action(
         short_desc="查看skill或action帮助[skill?, action?], ",
@@ -677,147 +681,11 @@ class MicroAgent(AutoLoggerMixin):
             return True
         return False
 
-    async def _compress_messages(self) -> str:
-        """
-        压缩 messages，保留 system_prompt，添加总结
-
-        新逻辑：
-        1. 永远保留第一个 system message（如果有的话）
-        2. Top-level MicroAgent: 使用邮件历史 + WORKING NOTES
-        3. 嵌套 MicroAgent: 保留原始 user message + WORKING NOTES
-        4. 结果：[system?, user(邮件历史/原始+working_notes)]
-
-        Returns:
-            str: 生成的 working_notes
-        """
-        # 压缩前：保存待总结 messages（仅 top-level）//这部分应该不要了
-        
-        #if self._is_top_level_microagent():
-        #    self._push_pending_summary()
-
-        working_notes = await self.root_agent.generate_working_notes(
-            self.messages,
-            scratchpad=self.scratchpad,
-            is_top_level=self._is_top_level_microagent(),
-        )
-
-        # 剥掉 working_notes 开头可能带的 [WORKING NOTES]（LLM 从 session history 复读出来的）
-        if working_notes and "[WORKING NOTES]" in working_notes:
-            working_notes = re.sub(
-                r'\[WORKING NOTES\]\s*\n*', '', working_notes, count=1
-            ).strip()
-
-        # 📝 写入 session event: session.message_auto_compress
-        await self._log_event("session", "message_auto_compress", {
-            "step_count": self.step_count,
-            "working_notes_preview": working_notes if working_notes else None,
-        })
-
-        # ========== 1. 处理 system message ==========
-        has_system = self.messages and self.messages[0].get("role") == "system"
-
-        # ========== 2. 判断是否是 top-level MicroAgent ==========
-        if self._is_top_level_microagent():
-            # === Top-level MicroAgent 特殊逻辑：使用邮件历史 ===
-            try:
-                # 获取 session 所有邮件
-                emails = await self.root_agent.post_office.get_emails_by_session(
-                    session_id=self.session["session_id"],
-                    agent_name=self.root_agent.name,
-                )
-                self.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
-
-                # 构建 Email History（聊天风格）
-                email_history = self._format_email_history(emails)
-
-                # 构建 user message: Email History + WORKING NOTES
-                new_user_content = (
-                    f"{email_history}\n\n[WORKING NOTES]\n{working_notes}"
-                )
-            except Exception as e:
-                # 如果获取邮件失败，降级到原有逻辑
-                self.logger.warning(f"⚠️ 获取邮件历史失败，降级到原有逻辑: {e}")
-                # 找到第一个 user message 作为原始内容
-                first_user_msg = None
-                for msg in self.messages:
-                    if msg.get("role") == "user":
-                        first_user_msg = msg
-                        break
-                if first_user_msg:
-                    original_content = first_user_msg.get("content", "")
-                    new_user_content = (
-                        f"{original_content}\n\n[WORKING NOTES]\n{working_notes}"
-                    )
-                else:
-                    new_user_content = (
-                        f"[WORKING NOTES]\n{working_notes}\n\n请继续执行下一步。"
-                    )
-        else:
-            # === 嵌套 MicroAgent：保持现有逻辑 ===
-            # 找到第一个 user message（原始用户请求）
-            first_user_msg = None
-            for msg in self.messages:
-                if msg.get("role") == "user":
-                    first_user_msg = msg
-                    break
-
-            if not first_user_msg:
-                # 异常情况：没有 user message，创建一个新的
-                new_user_content = (
-                    f"[WORKING NOTES]\n{working_notes}\n\n请继续执行下一步。"
-                )
-            else:
-                # 正常情况：处理第一个 user message
-                original_content = first_user_msg.get("content", "")
-
-                # 检查是否有旧 working notes
-                if "[WORKING NOTES]" in original_content:
-                    # 有旧 working notes：替换掉（保留 [WORKING NOTES] 之前的内容）
-                    notes_index = original_content.index("[WORKING NOTES]")
-                    original_without_old_notes = original_content[:notes_index].strip()
-                    new_user_content = f"{original_without_old_notes}\n\n[WORKING NOTES]\n{working_notes}"
-                else:
-                    # 没有旧 working notes：追加
-                    new_user_content = (
-                        f"{original_content}\n\n[WORKING NOTES]\n{working_notes}"
-                    )
-
-        # ========== 3. 重新构建 messages ==========
-        if has_system:
-            system_msg = self.messages[0]
-            self.messages = [system_msg, {"role": "user", "content": new_user_content}]
-        else:
-            self.messages = [{"role": "user", "content": new_user_content}]
-
-        # ========== 4. 保存到 session（确保压缩后的 messages 被持久化）==========
-        if self.session and self.session_manager:
-            self.session["history"] = self.messages  # 直接引用，不 copy
-            # 🔥 修复：使用 await 确保保存完成，避免异步任务未完成就退出导致 working notes 丢失
-            await self.session_manager.save_session(self.session)
-
-        # 重置计数器
-        # self.last_compression_step = self.current_step
-
-        # 清空 scratchpad（草稿纸用完即弃）
-        self.scratchpad.clear()
-
-        return working_notes
-
-    def _is_top_level_microagent(self) -> bool:
-        """
-        判断是否是 top-level MicroAgent
-
-        Returns:
-            bool: 是否是 top-level MicroAgent（parent 是 AgentShell）
-        """
+    @property
+    def is_top_level(self) -> bool:
+        """是否是 top-level MicroAgent（parent 是 AgentShell）。"""
         from .agent_shell import AgentShell
-
         return isinstance(self.parent, AgentShell)
-
-    
-
-    def _format_email_history(self, emails: List[Email]) -> str:
-        return _utils.format_email_history(emails, self.name)
 
     async def execute(
         self,
@@ -977,7 +845,7 @@ class MicroAgent(AutoLoggerMixin):
             self._log(logging.ERROR, f"Traceback:{traceback.format_exc()}")
 
             # 顶层 MicroAgent 向上传播异常，让 BaseAgent 的错误处理生效（如发邮件通知）
-            if self._is_top_level_microagent():
+            if self.is_top_level:
                 raise
 
             return {"error": str(e)}
@@ -1166,9 +1034,9 @@ class MicroAgent(AutoLoggerMixin):
             # 🔀 检查点1：每次循环开始时检查是否暂停
             await self.root_agent._checkpoint()
 
-            # 🆕 检查是否需要自动压缩（基于 32K tokens）
+            # 检查是否需要自动压缩
             if self._should_compress_messages():
-                await self._compress_messages()
+                await self.root_agent.compress_messages(self)
 
             
 
@@ -1283,22 +1151,35 @@ class MicroAgent(AutoLoggerMixin):
                         pass
                     should_break_loop = True
                 elif action_names:
-                    # 统一使用 batch 执行方式（即使是单个 action）
                     action_count = len(action_names)
                     action_desc = f"{action_count} action{'s' if action_count > 1 else ''}"
                     self.logger.info(f"Launching {action_desc}: {action_names}")
-                    self._action_counter += 1
-                    action_id = f"batch_{self._action_counter}"
-                    batch_task = asyncio.create_task(
-                        self._run_actions_batch(action_names, action_section_text)
+
+                    # 逐个注册到 _running_actions
+                    action_ids = []
+                    for idx, action_name in enumerate(action_names, start=1):
+                        self._action_counter += 1
+                        action_id = f"action_{self._action_counter}"
+                        action_ids.append(action_id)
+                        self._running_actions[action_id] = {
+                            "index": idx,
+                            "action_name": action_name,
+                            "label": "",
+                            "task": None,  # 占位，下面创建 task 后回填
+                        }
+
+                    # 创建顺序执行的 task
+                    sequential_task = asyncio.create_task(
+                        self._run_actions_sequential(action_ids, action_names, action_section_text)
                     )
-                    self._running_actions[action_id] = {
-                        "task": batch_task,
-                        "label": "",
-                        "action_names": action_names,
-                    }
-                    batch_task.add_done_callback(
-                        lambda t, aid=action_id: self._on_batch_done(aid, t)
+
+                    # 回填 task 引用
+                    for aid in action_ids:
+                        self._running_actions[aid]["task"] = sequential_task
+
+                    # 异常兜底：task 本身崩溃时清理所有 entry
+                    sequential_task.add_done_callback(
+                        lambda t, aids=action_ids: self._on_actions_done(aids, t)
                     )
 
                 # 5. 检查是否需要退出主循环
@@ -1322,7 +1203,7 @@ class MicroAgent(AutoLoggerMixin):
                             continue
 
                     # 🆕 仅对 top-level micro agent 进行智能验证
-                    if self._is_top_level_microagent():
+                    if self.is_top_level:
                         # 第一次检测到无 action：进行智能验证
                         self.logger.info("No actions detected - initiating simple verification for top-level micro agent")
 
@@ -1561,41 +1442,46 @@ write, send_mail, write
         self.logger.debug(f"[阶段2] 判断要执行的 actions: {actions_to_execute}")
         return actions_to_execute
 
-    async def _run_actions_batch(
-        self, action_names: List[str], thought: str
-    ) -> list:
+    async def _run_actions_sequential(
+        self, action_ids: List[str], action_names: List[str], thought: str
+    ) -> None:
         """
-        后台顺序执行一批 actions，返回原始 results 数组
+        顺序执行一组 actions，每个完成后立即发 signal 到 queue。
 
-        返回: results 数组（不格式化）
+        _running_actions 中的 entry 在每个 action 完成时逐个 pop。
         """
-        results = []
-        for idx, action_name in enumerate(action_names, start=1):
-            # 📝 写入 session event: action.started
+        for idx, (action_id, action_name) in enumerate(zip(action_ids, action_names)):
             await self._log_event("action", "started", {
                 "action_name": action_name,
                 "step_count": self.step_count,
             })
             try:
                 result = await self._execute_action(
-                    action_name, thought, idx, action_names
+                    action_name, thought, idx + 1, action_names, action_id
                 )
 
-                # 🆕 检查是否为 NOT_TO_RUN（Cerebellum 判断不执行此 action）
                 if result == "NOT_TO_RUN":
-                    # 只在日志中记录，不加入 results，也不显示在信号中
                     self.logger.info(f"Action '{action_name}' 判断为不执行，跳过")
-                    continue  # 跳过此 action，不加入 results
+                    self._running_actions.pop(action_id, None)
+                    continue
 
-                # 从 entry 读 label（_execute_action 内已回写）
-                action_label = ""
-                current_task = asyncio.current_task()
-                for _, info in self._running_actions.items():
-                    if isinstance(info, dict) and info.get("task") is current_task:
-                        action_label = info.get("label", "")
-                        break
-                results.append({"action_name": action_name, "label": action_label, "result": str(result), "status": "ok"})
-                # 📝 写入 session event: action.completed
+                # 读 label（_execute_action 内已回写到 entry）
+                info = self._running_actions.get(action_id, {})
+                action_label = info.get("label", "")
+
+                # 发单个 action 完成信号
+                self.signal_queue.put_nowait(Signal(
+                    type="action_completed",
+                    payload={"results": [{
+                        "action_name": action_name,
+                        "label": action_label,
+                        "result": str(result),
+                        "status": "ok",
+                    }]}
+                ))
+
+                self._running_actions.pop(action_id, None)
+
                 await self._log_event("action", "completed", {
                     "action_name": action_name,
                     "action_label": action_label,
@@ -1603,27 +1489,52 @@ write, send_mail, write
                     "status": "ok",
                 })
             except asyncio.CancelledError:
-                results.append({"action_name": action_name, "label": "", "result": "Canceled", "status": "canceled"})
+                self.signal_queue.put_nowait(Signal(
+                    type="action_completed",
+                    payload={"results": [{
+                        "action_name": action_name,
+                        "label": "",
+                        "result": "Canceled",
+                        "status": "canceled",
+                    }]}
+                ))
+                self._running_actions.pop(action_id, None)
                 await self._log_event("action", "completed", {
                     "action_name": action_name,
                     "status": "canceled",
                 })
                 # 标记后续所有 action 为 canceled
-                for remaining_name in action_names[idx:]:
-                    results.append({"action_name": remaining_name, "label": "", "result": "Canceled", "status": "canceled"})
+                for remaining_id, remaining_name in zip(action_ids[idx+1:], action_names[idx+1:]):
+                    self.signal_queue.put_nowait(Signal(
+                        type="action_completed",
+                        payload={"results": [{
+                            "action_name": remaining_name,
+                            "label": "",
+                            "result": "Canceled",
+                            "status": "canceled",
+                        }]}
+                    ))
+                    self._running_actions.pop(remaining_id, None)
                 break
             except Exception as e:
-                results.append({"action_name": action_name, "label": "", "error": str(e), "status": "error"})
-                # 📝 写入 session event: action.error
+                self.signal_queue.put_nowait(Signal(
+                    type="action_completed",
+                    payload={"results": [{
+                        "action_name": action_name,
+                        "label": "",
+                        "error": str(e),
+                        "status": "error",
+                    }]}
+                ))
+                self._running_actions.pop(action_id, None)
                 await self._log_event("action", "error", {
                     "action_name": action_name,
                     "error_message": str(e)[:500],
                 })
 
-        return results  # 直接返回数组，不格式化
-
     async def _execute_action(
-        self, action_name: str, thought: str, action_index: int, action_list: List[str]
+        self, action_name: str, thought: str, action_index: int, action_list: List[str],
+        action_id: str = "",
     ) -> Any:
         """
         执行 action（新架构：直接调用，无需动态绑定）
@@ -1698,12 +1609,9 @@ write, send_mail, write
             params = {}
             action_label = ""
 
-        # 将 action_label 存入 _running_actions（让 callback 能拿到）
-        current_task = asyncio.current_task()
-        for aid, info in self._running_actions.items():
-            if isinstance(info, dict) and info.get("task") is current_task:
-                info["label"] = action_label
-                break
+        # 将 action_label 存入 _running_actions
+        if action_id and action_id in self._running_actions:
+            self._running_actions[action_id]["label"] = action_label
 
         # 3. 执行方法（✅ 直接调用，无需动态绑定）
         self._log(
@@ -1725,7 +1633,7 @@ write, send_mail, write
                 # 调用 root_agent.ask_user（会挂起等待用户输入）
                 result = await self.root_agent.ask_user(question)
             else:
-                # 普通 action：正常调用（异常由 _on_batch_done callback 处理）
+                # 普通 action：正常调用
                 result = await method(**params)
         finally:
             # 记录最后执行的 action 名字

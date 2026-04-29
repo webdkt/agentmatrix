@@ -494,6 +494,93 @@ Start generating the Working Notes now.
 
         return working_notes
 
+    async def compress_messages(self, agent) -> None:
+        """压缩 agent 的 messages（AgentShell 接口实现）。
+
+        Desktop 实现：top-level 使用邮件历史 + working notes，nested 使用原始 user message + working notes。
+        """
+        is_top_level = agent.is_top_level
+
+        # 生成 working notes
+        working_notes = await self.generate_working_notes(
+            agent.messages,
+            scratchpad=agent.scratchpad,
+            is_top_level=is_top_level,
+        )
+
+        # 剥掉 working_notes 开头可能带的 [WORKING NOTES]
+        if working_notes and "[WORKING NOTES]" in working_notes:
+            import re
+            working_notes = re.sub(
+                r'\[WORKING NOTES\]\s*\n*', '', working_notes, count=1
+            ).strip()
+
+        # 写入 session event
+        await agent._log_event("session", "message_auto_compress", {
+            "step_count": agent.step_count,
+            "working_notes_preview": working_notes if working_notes else None,
+        })
+
+        # 保留 system message
+        has_system = agent.messages and agent.messages[0].get("role") == "system"
+
+        # 构建新的 user message content
+        if is_top_level:
+            # === Top-level: 使用邮件历史 ===
+            try:
+                emails = await self.post_office.get_emails_by_session(
+                    session_id=agent.session["session_id"],
+                    agent_name=self.name,
+                )
+                agent.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
+                email_history = self._format_email_history(emails)
+                new_user_content = f"{email_history}\n\n[WORKING NOTES]\n{working_notes}"
+            except Exception as e:
+                agent.logger.warning(f"⚠️ 获取邮件历史失败，降级到原有逻辑: {e}")
+                new_user_content = self._build_fallback_user_content(agent, working_notes)
+        else:
+            # === Nested: 原始 user message + working notes ===
+            new_user_content = self._build_fallback_user_content(agent, working_notes)
+
+        # 重建 messages
+        if has_system:
+            agent.messages = [agent.messages[0], {"role": "user", "content": new_user_content}]
+        else:
+            agent.messages = [{"role": "user", "content": new_user_content}]
+
+        # 保存到 session
+        if agent.session and agent.session_manager:
+            agent.session["history"] = agent.messages
+            await agent.session_manager.save_session(agent.session)
+
+        # 清空 scratchpad
+        agent.scratchpad.clear()
+
+    def _build_fallback_user_content(self, agent, working_notes: str) -> str:
+        """构建默认的 user message content（原始 user message + working notes）。"""
+        first_user_msg = None
+        for msg in agent.messages:
+            if msg.get("role") == "user":
+                first_user_msg = msg
+                break
+
+        if not first_user_msg:
+            return f"[WORKING NOTES]\n{working_notes}\n\n请继续执行下一步。"
+
+        original_content = first_user_msg.get("content", "")
+        if "[WORKING NOTES]" in original_content:
+            import re
+            notes_index = original_content.index("[WORKING NOTES]")
+            original_without_old_notes = original_content[:notes_index].strip()
+            return f"{original_without_old_notes}\n\n[WORKING NOTES]\n{working_notes}"
+        else:
+            return f"{original_content}\n\n[WORKING NOTES]\n{working_notes}"
+
+    def _format_email_history(self, emails) -> str:
+        """格式化邮件历史为聊天风格文本。"""
+        from ..core.micro_agent_utils import format_email_history
+        return format_email_history(emails, self.name)
+
     # ========== MD Skill 管理 ==========
 
     def _load_md_skills(self) -> dict:

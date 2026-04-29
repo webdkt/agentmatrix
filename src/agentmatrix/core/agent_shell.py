@@ -53,3 +53,18 @@ class AgentShell(Protocol):
             Markdown 格式的 Working Notes
         """
         ...
+
+    async def compress_messages(self, agent) -> None:
+        """压缩 agent 的 messages（保留 system + 用 working notes 重建 user message）。
+
+        Core 在 token 超阈值时调用此方法。默认实现：
+        - 调用 generate_working_notes() 生成工作笔记
+        - 保留 system message，用原始 user message + working notes 重建
+        - 清空 scratchpad
+
+        Shell 实现可覆盖此方法以自定义压缩策略（如保留邮件历史等）。
+
+        Args:
+            agent: MicroAgent 实例（可访问 messages, scratchpad, session 等）
+        """
+        ...
