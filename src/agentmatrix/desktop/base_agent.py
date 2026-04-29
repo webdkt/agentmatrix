@@ -1171,7 +1171,6 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
             result = await micro_agent.execute(
                 run_label="Process Email",
                 task="",  # 邮件通过 signal 进入，不再通过 task
-                yellow_pages=self.post_office.yellow_page_exclude_me(self.name),
                 session_manager=self.session_manager,
                 session=session,
             )

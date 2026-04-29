@@ -94,11 +94,6 @@ class MicroAgent(AutoLoggerMixin):
         self.brain = parent.brain
         self.cerebellum = parent.cerebellum
 
-        # ========== 继承 workspace_root（如果 parent 有）==========
-        # 这样 BrowserSkillMixin 等技能可以访问到配置文件路径
-        if hasattr(parent, "workspace_root") and parent.workspace_root:
-            self.workspace_root = parent.workspace_root
-
         # ========== 🆕 扫描所有 actions（新架构 - 嵌套结构）==========
         # action_registry 结构：
         #     _by_skill: {skill_name: {action_name: method}}
@@ -126,7 +121,6 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== 其他配置 ==========
         self.messages: List[Dict] = []  # 对话历史
-        self.yellow_pages = None  # 黄页信息（初始化为 None）
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
         
@@ -1029,7 +1023,6 @@ Start generating the Working Notes now.
         persona: str = None,
         initial_history: Optional[List[Dict]] = None,
         result_params: Optional[Dict[str, str]] = None,
-        yellow_pages: Optional[str] = None,
         session: Optional[Dict] = None,
         session_manager=None,
         simple_mode: bool = False,
@@ -1048,7 +1041,6 @@ Start generating the Working Notes now.
             task: 任务描述
             initial_history: 初始对话历史（用于恢复记忆，可选）
             result_params: 返回值参数描述（可选）
-            yellow_pages: 黄页信息（可选），包含其他agent的描述和如何调用它们
             session: session 对象（可选），用于持久化对话历史
             session_manager: session_manager 对象（可选），用于保存 session
             simple_mode: 是否使用简化模式（默认 True)
@@ -1079,8 +1071,6 @@ Start generating the Working Notes now.
         if persona:
             self.persona = persona
         self.task = task
-        if yellow_pages:
-            self.yellow_pages = yellow_pages
         if simple_mode:
             self.simple_mode = simple_mode
         

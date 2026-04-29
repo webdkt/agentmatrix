@@ -8,6 +8,8 @@ Agent = AgentShell + AgentCore（一对一）
 from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
+from .interfaces import BrainProtocol, CerebellumProtocol
+
 
 @runtime_checkable
 class AgentShell(Protocol):
@@ -16,6 +18,9 @@ class AgentShell(Protocol):
 
     不同应用形态实现这个接口，Core 通过它与外部世界交互。
     """
+
+    brain: BrainProtocol
+    cerebellum: CerebellumProtocol
 
     def get_prompt_template(self, name: str) -> str:
         """获取 prompt 模板。
