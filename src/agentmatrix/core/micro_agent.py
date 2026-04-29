@@ -53,12 +53,22 @@ class MicroAgent(AutoLoggerMixin):
     - 可以通过 parent 链追溯到根 Agent
     """
 
+    # persona 存储在 Shell (root_agent) 上，MicroAgent 通过 property 透明代理
+    @property
+    def persona(self) -> str:
+        return self.root_agent.persona
+
+    @persona.setter
+    def persona(self, value: str):
+        self.root_agent.persona = value
+
     def __init__(
         self,
         parent: Union["AgentShell", "MicroAgent"],
         name: Optional[str] = None,
-        # independent_session_context parameter removed
-        available_skills: Optional[List[str]] = None,  # 🆕 可用技能列表
+        available_skills: Optional[List[str]] = None,
+        system_prompt: str = "",
+        md_skills: Optional[Dict[str, str]] = None,
     ):
         """
         初始化 Micro Agent
@@ -66,14 +76,14 @@ class MicroAgent(AutoLoggerMixin):
         Args:
             parent: 父级 Agent（BaseAgent 或 MicroAgent）
                 - 自动继承 brain, cerebellum, action_registry, logger
-                - WorkingContext: 使用指定的上下文
             name: Agent 名称（可选，自动生成）
             available_skills: 可用技能列表（如 ["file", "browser"]）
+            system_prompt: system prompt 模板（Shell 或创建者预组装）
+            md_skills: 已加载的 md skill 字典 {name: description}
         """
         # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
         self.name = name or f"MicroAgent_{uuid.uuid4().hex[:8]}"
         self.parent = parent
-        self.persona = parent.persona
         
         # 🆕 动态组合 Skill Mixins（新架构核心）
         if available_skills:
@@ -127,8 +137,9 @@ class MicroAgent(AutoLoggerMixin):
         self.compression_token_threshold = 64000  # 64K tokens
         # self.last_compression_step = 0  # 上次压缩时的步数
 
-        # ========== 🆕 记录自己的 system prompt（构建后自动填充）==========
-        self.system_prompt = None
+        # ========== system prompt（Shell 或创建者预组装的模板）==========
+        self.system_prompt = system_prompt
+        self.md_skills = md_skills or {}
 
         # ========== Skill 上下文 ==========
         # 供 skill 存取自己的属性，避免 mixin __init__ 的 MRO 问题
@@ -1202,85 +1213,48 @@ Start generating the Working Notes now.
             self.messages.append({"role": "user", "content": task_message})
 
     def _build_system_prompt(self) -> str:
-        """构建 System Prompt"""
-        from string import Template
+        """每轮渲染 system prompt：注入 core_prompt 到模板"""
+        core = self.get_core_prompt()
+        if "$core_prompt" in self.system_prompt:
+            self.system_prompt = self.system_prompt.replace("$core_prompt", core)
+        else:
+            self.system_prompt += "\n\n" + core
+        return self.system_prompt
 
-        # 简化模式：使用 simple_mode.md 模板
-        if getattr(self, "simple_mode", False):
-            template_str = self.root_agent.runtime.prompt_registry.SIMPLE_MODE
-            actions_list = self._format_actions_list()
+    def get_core_prompt(self) -> str:
+        """Core 层 prompt：加载 core_prompt.md 模板，注入 actions list 和 md skills"""
+        template = self.root_agent.get_prompt_template("CORE_PROMPT")
 
-            md_skill_section = ""
-            if self._is_top_level_microagent():
-                md_skill_section = self._build_md_skill_section()
-
-            template = Template(template_str)
-            prompt = template.safe_substitute(
-                persona=self.persona,
-                actions_list=actions_list,
-                md_skill_section=md_skill_section,
-            )
-
-            self.system_prompt = prompt
-            if self._is_top_level_microagent():
-                self.root_agent.last_system_prompt = prompt
-            return prompt
-
-        # Collab 模式：使用 collab_mode.md 模板
-        if getattr(self.root_agent, "collab_mode", False):
-            template_str = self.root_agent.runtime.prompt_registry.COLLAB_MODE
-            actions_list = self._format_actions_list()
-
-            md_skill_section = ""
-            if self._is_top_level_microagent():
-                md_skill_section = self._build_md_skill_section()
-
-            template = Template(template_str)
-            prompt = template.safe_substitute(
-                persona=self.persona,
-                actions_list=actions_list,
-                md_skill_section=md_skill_section,
-            )
-
-            self.system_prompt = prompt
-            if self._is_top_level_microagent():
-                self.root_agent.last_system_prompt = prompt
-            return prompt
-
-        # 完整模式：从 PromptRegistry 加载模板
-        template_str = self.root_agent.runtime.prompt_registry.SYSTEM_PROMPT
-
-        # 计算动态变量
-        actions_list = self._format_actions_list()
-        user_name = self.root_agent.runtime.user_agent_name
+        actions_list = self._format_skills_overview()
 
         md_skill_section = ""
-        if self._is_top_level_microagent():
-            md_skill_section = self._build_md_skill_section()
+        if self.md_skills:
+            md_skill_section = self._build_md_skill_section_from_dict()
 
-        yellow_pages_section = ""
-        if self.yellow_pages:
-            yellow_pages_section = f"""#### C. 协作网络 (Collaborators)
-如果你无法独立完成任务，可以联系以下 Agent。
-
-{self.yellow_pages}
-"""
-
-        # 模板替换
-        template = Template(template_str)
-        prompt = template.safe_substitute(
-            persona=self.persona,
-            actions_list=actions_list,
-            md_skill_section=md_skill_section,
-            yellow_pages_section=yellow_pages_section,
-            user_name=user_name,
-            agent_name=self.root_agent.name,
+        return (
+            template
+            .replace("$actions_list", actions_list)
+            .replace("$md_skill_section", md_skill_section)
         )
 
-        self.system_prompt = prompt
-        if self._is_top_level_microagent():
-            self.root_agent.last_system_prompt = prompt
-        return prompt
+    def _build_md_skill_section_from_dict(self) -> str:
+        """从 self.md_skills dict 生成扩展技能库文本段"""
+        if not self.md_skills:
+            return ""
+
+        lines = [
+            "#### B. 扩展技能库 (Procedural Skills)",
+            f"你有{len(self.md_skills)}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。",
+            "如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）",
+            "如果名字看上去可能是你需要的，就继续读里面的 skill.md 的开头，判断是否真的是你需要的技能",
+            "如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行",
+            "",
+            "可用扩展技能：",
+        ]
+        for skill_name, description in self.md_skills.items():
+            lines.append(f"- **{skill_name}**: {description}")
+
+        return "\n".join(lines)
 
     def _format_actions_list(self) -> str:
         """格式化可用 actions 列表（新架构：按 skill 分组）"""
@@ -1322,71 +1296,6 @@ Start generating the Working Notes now.
             lines.append("")  # 空行分隔
 
         return "\n".join(lines)
-
-    def _build_md_skill_section(self) -> str:
-        """
-        扫描 root_agent 的 SKILLS 目录，构建 md skill 注入文本
-
-        约定：SKILLS 目录下每个子目录是一个 skill，目录名即 skill 名。
-        子目录内需包含 skill.md 文件（不区分大小写）。
-        从 skill.md 的 frontmatter 中提取 description 作为简介。
-
-        Returns:
-            str: 格式化后的文本段，无 skill 时返回空字符串
-        """
-        try:
-            skills_dir = self.root_agent.runtime.paths.get_agent_skills_dir(
-                self.root_agent.name
-            )
-
-            if not skills_dir.exists():
-                return ""
-
-            # 扫描直接子目录，收集 (skill_name, description) 列表
-            skills = []
-            for item in skills_dir.iterdir():
-                if not item.is_dir():
-                    continue
-
-                # 查找 skill.md（不区分大小写）
-                skill_md_path = None
-                for file in item.iterdir():
-                    if file.is_file() and file.name.upper() == "SKILL.MD":
-                        skill_md_path = file
-                        break
-
-                if skill_md_path is None:
-                    continue
-
-                # 读取 frontmatter 中的 description
-                description = self._read_skill_description(skill_md_path)
-                skills.append((item.name, description))
-
-            if not skills:
-                return ""
-
-            # 构建注入文本
-            lines = [
-                f"#### B. 扩展技能库 (Procedural Skills)",
-                f"你有{len(skills)}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。",
-                f"如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）",
-                f"如果名字看上去可能是你需要的，就继续读里面的 skill.md 的开头，判断是否真的是你需要的技能",
-                f"如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行",
-                "",
-                "可用扩展技能：",
-            ]
-            for skill_name, description in skills:
-                lines.append(f"- **{skill_name}**: {description}")
-
-            return "\n".join(lines)
-
-        except Exception as e:
-            self.logger.warning(f"Failed to build md skill section: {e}")
-            return ""
-
-    @staticmethod
-    def _read_skill_description(skill_md_path) -> str:
-        return _utils.read_skill_description(skill_md_path)
 
     def _get_skill_description(self, skill_name: str) -> str:
         """

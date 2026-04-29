@@ -380,6 +380,68 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
             if self.container_session is None:
                 self._init_container_session()
 
+    def get_prompt_template(self, name: str) -> str:
+        """获取 prompt 模板（AgentShell 接口实现）"""
+        return self.runtime.prompt_registry.get(name)
+
+    # ========== MD Skill 管理 ==========
+
+    def _load_md_skills(self) -> dict:
+        """扫描 Agent 的 SKILLS 目录，返回 {skill_name: description} 字典"""
+        try:
+            skills_dir = self.runtime.paths.get_agent_skills_dir(self.name)
+            if not skills_dir.exists():
+                return {}
+
+            skills = {}
+            for item in skills_dir.iterdir():
+                if not item.is_dir():
+                    continue
+
+                # 查找 skill.md（不区分大小写）
+                skill_md_path = None
+                for file in item.iterdir():
+                    if file.is_file() and file.name.upper() == "SKILL.MD":
+                        skill_md_path = file
+                        break
+
+                if skill_md_path is None:
+                    continue
+
+                description = self._read_skill_description(skill_md_path)
+                skills[item.name] = description
+
+            return skills
+
+        except Exception as e:
+            self.logger.warning(f"Failed to load md skills: {e}")
+            return {}
+
+    @staticmethod
+    def _read_skill_description(skill_md_path) -> str:
+        from ..core.utils import micro_agent_utils as _utils
+        return _utils.read_skill_description(skill_md_path)
+
+    @staticmethod
+    def _build_md_skill_section_from_dict(md_skills: dict) -> str:
+        """从 md_skills dict 生成扩展技能库文本段"""
+        if not md_skills:
+            return ""
+
+        lines = [
+            "#### B. 扩展技能库 (Procedural Skills)",
+            f"你有{len(md_skills)}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。",
+            "如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）",
+            "如果名字看上去可能是你需要的，就继续读里面的 skill.md 的开头，判断是否真的是你需要的技能",
+            "如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行",
+            "",
+            "可用扩展技能：",
+        ]
+        for skill_name, description in md_skills.items():
+            lines.append(f"- **{skill_name}**: {description}")
+
+        return "\n".join(lines)
+
     @property
     def status(self):
         """只读属性：必须通过 update_status() 方法来修改"""
@@ -1051,9 +1113,25 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
             if required not in available_skills:
                 available_skills = [required] + available_skills
 
+        # 预组装 system prompt 模板（Shell 选模板、填变量）
+        if getattr(self, "collab_mode", False):
+            template_str = self.get_prompt_template("COLLAB_MODE")
+        else:
+            template_str = self.get_prompt_template("SYSTEM_PROMPT")
+
+        template_str = template_str.replace("$persona", self.persona)
+        template_str = template_str.replace("$user_name", self.runtime.user_agent_name)
+        template_str = template_str.replace("$agent_name", self.name)
+        template_str = template_str.replace("$yellow_pages_section",
+            self.post_office.yellow_page_exclude_me(self.name) or "")
+
+        # 加载 md skills
+        md_skills = self._load_md_skills()
+
         # 创建 MicroAgent
         micro_agent = MicroAgent(
-            parent=self, name=self.name, available_skills=available_skills
+            parent=self, name=self.name, available_skills=available_skills,
+            system_prompt=template_str, md_skills=md_skills,
         )
         self.active_micro_agent = micro_agent
 
@@ -1308,35 +1386,40 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
 
         Example:
             >>> agent = get_agent("alice")
-            >>> # 预览默认配置的 prompt
             >>> prompt = agent.preview_system_prompt()
             >>> print(prompt)
-            >>> # 预览指定黄页的 prompt
-            >>> yellow_pages = "Bob - 邮件专家\\nCharlie - 数据分析师"
-            >>> prompt = agent.preview_system_prompt(yellow_pages=yellow_pages)
         """
         # 准备 available_skills
         if available_skills is None:
             available_skills = self.profile.get("skills", [])
 
-        # 自动注入基础 skills（与 process_email 逻辑一致）
         for required in ["base", "email"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 
+        # 预组装 system prompt 模板
+        if getattr(self, "collab_mode", False):
+            template_str = self.get_prompt_template("COLLAB_MODE")
+        else:
+            template_str = self.get_prompt_template("SYSTEM_PROMPT")
+
+        template_str = template_str.replace("$persona", self.persona)
+        template_str = template_str.replace("$user_name", self.runtime.user_agent_name)
+        template_str = template_str.replace("$agent_name", self.name)
+        template_str = template_str.replace("$yellow_pages_section", yellow_pages or "")
+
+        # 加载 md skills
+        md_skills = self._load_md_skills()
+
         # 创建临时 MicroAgent
         temp_micro = MicroAgent(
-            parent=self, name=self.name, available_skills=available_skills
+            parent=self, name=self.name, available_skills=available_skills,
+            system_prompt=template_str, md_skills=md_skills,
         )
 
-        # 设置 yellow_pages（如果提供）
-        if yellow_pages is not None:
-            temp_micro.yellow_pages = yellow_pages
-
-        # 构建 prompt（会自动同步到 temp_micro.system_prompt）
+        # 渲染 prompt（注入 core_prompt）
         temp_micro._build_system_prompt()
 
-        # 返回构建的 prompt
         return temp_micro.system_prompt
 
     # ==========================================
