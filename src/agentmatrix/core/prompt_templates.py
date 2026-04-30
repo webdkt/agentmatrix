@@ -1,3 +1,12 @@
+"""
+Core 内置的 prompt 模板。
+
+这些模板定义了 Core 与 LLM 的响应协议契约，
+与 _detect_actions()、parse_function_calls() 等检测逻辑紧密耦合，
+由 Core 自己管理，不交给 Shell。
+"""
+
+CORE_PROMPT = """\
 ### 可用工具箱 (Toolbox)
 
 #### A. 基本技能库 (Basic Skills)
@@ -9,8 +18,10 @@ $actions_list
 - 推荐：使用 `skill_name.action_name(param1=value1, param2=value2)` 格式（如 `file.read(path="/tmp/foo")`）
 - 简化：也可以直接使用 action 名称（如 `read(path="/tmp/foo")`）
 - 有歧义时用完全限定名称。通过 `help(skill_name.action_name)` 查看详细说明。
+
 ##### 基本技能执行语法 (Action Execution Script Syntax)
 如果需要执行动作，将 action 调用写在 `<action_script>` 块中。系统编译器会解析并执行它。
+
 **语法规范：**
 ```
 <action_script>
@@ -18,8 +29,9 @@ action_name(param1=value1, param2=value2)
 skill.action_name(param1=value1, param2=value2)
 </action_script>
 ```
+
 **规则：**
-- 每次最多输出一个<acrion_script>块
+- 每次最多输出一个 <action_script> 块
 - 每个 action 调用必须独占一行，写在 `<action_script>` 块内
 - 可以写多个 action 调用，按顺序依次执行
 - 系统会智能对齐参数名字。对于不熟悉的 action，先用 `help()` 查看说明
@@ -45,4 +57,5 @@ file.write(path="/app/config.json", content='{"updated": true}')
 目前没有需要执行的操作，等待下一步指令。
 ```
 
-$md_skill_section
+$md_skill_section\
+"""

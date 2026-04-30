@@ -820,8 +820,9 @@ class MicroAgent(AutoLoggerMixin):
         return self.system_prompt
 
     def get_core_prompt(self) -> str:
-        """Core 层 prompt：加载 core_prompt.md 模板，注入 actions list 和 md skills"""
-        template = self.root_agent.get_prompt_template("CORE_PROMPT")
+        """Core 层 prompt：从 Core 内置模板加载，注入 actions list 和 md skills"""
+        from .prompt_templates import CORE_PROMPT
+        template = CORE_PROMPT
 
         actions_list = self._format_skills_overview()
 
@@ -1081,9 +1082,11 @@ class MicroAgent(AutoLoggerMixin):
                         self._run_actions_sequential(action_ids, action_calls, action_section_text)
                     )
 
-                    # 回填 task 引用
+                    # 回填 task 引用（task 可能已经执行完毕并 pop 了 entry，用 get 保护）
                     for aid in action_ids:
-                        self._running_actions[aid]["task"] = sequential_task
+                        entry = self._running_actions.get(aid)
+                        if entry:
+                            entry["task"] = sequential_task
 
                     # 异常兜底：task 本身崩溃时清理所有 entry
                     sequential_task.add_done_callback(

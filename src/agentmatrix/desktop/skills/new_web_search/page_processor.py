@@ -186,7 +186,7 @@ def generate_preview(markdown: str, max_chars: int = 2000) -> str:
 
     # 如果还是太长，硬截断
     if len(preview) > max_chars + 500:
-        preview = preview[:max_chars] + "\n\n... (内容截断)"
+        preview = preview[:max_chars] + "\n\n... (内容省略)"
 
     return preview
 

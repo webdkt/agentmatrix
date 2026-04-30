@@ -31,7 +31,7 @@ class AgentShell(Protocol):
         不同 Shell 实现可以用不同方式加载模板（文件系统、数据库、内存等）。
 
         Args:
-            name: 模板名称（如 "SYSTEM_PROMPT", "CORE_PROMPT"）
+            name: 模板名称（如 "SYSTEM_PROMPT", "COLLAB_MODE"）
 
         Returns:
             模板文本

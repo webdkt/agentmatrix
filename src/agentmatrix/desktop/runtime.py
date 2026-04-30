@@ -425,11 +425,7 @@ class AgentMatrix(AutoLoggerMixin):
                 pass
             self.post_office_task = None
 
-        # 5. 关闭 PostOffice 数据库连接
-        if self.post_office:
-            await self.post_office.close()
-
-        # 6. 停止单容器管理器
+        # 5. 停止单容器管理器
         if hasattr(self, "container_manager") and self.container_manager:
             try:
                 self.container_manager.stop()
@@ -437,7 +433,7 @@ class AgentMatrix(AutoLoggerMixin):
             except Exception as e:
                 self.echo(f">>> 单容器管理器停止失败: {e}")
 
-        # 7. 清理资源
+        # 6. 清理资源
         self.running = False
 
         # 7. 取消未完成的任务（避免hang）
@@ -451,9 +447,23 @@ class AgentMatrix(AutoLoggerMixin):
                 if task is not current_task and not task.done():
                     task.cancel()
 
+            # 等待被取消的任务完成清理（包括 DB 写入）
+            if pending:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*[t for t in pending if t is not current_task], return_exceptions=True),
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    self.echo(">>> Some cleanup tasks timed out")
+
             self.echo(">>> Tasks cancelled")
         except Exception as e:
             self.echo(f">>> Cleanup error: {e}")
+
+        # 8. 最后关闭 PostOffice 数据库连接（所有 task 清理完成后）
+        if self.post_office:
+            await self.post_office.close()
 
     async def startup(self):
         """启动系统 - 注册Agent、启动服务、恢复未投递邮件"""

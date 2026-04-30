@@ -369,10 +369,10 @@ class New_web_searchSkillMixin:
             try:
                 # 构造 PDF 下载目录：基于 agent 的 work_files/task_id/downloads
                 pdf_save_dir = None
-                if is_pdf and self.current_task_id and hasattr(self, "runtime"):
+                if is_pdf:
                     pdf_save_dir = str(
-                        self.runtime.paths.get_agent_work_files_dir(
-                            self.name, self.current_task_id
+                        self.root_agent.runtime.paths.get_agent_work_files_dir(
+                            self.name, self.root_agent.current_task_id
                         )
                         / "downloads"
                     )

@@ -37,7 +37,7 @@ $persona
 - **无状态**：Actions 看不到你的对话历史或 Working Notes。
   - ❌ `search("extract the budget from above")` — 工具不知道 "above" 是什么
   - ✅ `search("Alpha Project budget 2024")` — 显式传递完整参数
-- **单次执行**：每次 `[ACTION]` 中**只执行一个 action**。复杂任务拆解为多步，逐个执行。
+- **单次执行**：每次只执行一个 action**。复杂任务拆解为多步，逐个执行。
 
 $core_prompt
 
