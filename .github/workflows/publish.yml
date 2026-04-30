@@ -24,7 +24,7 @@ jobs:
     # 如果你在 PyPI 设置里填写了 Environment name: pypi，这里要对应
     environment:
       name: pypi
-      url: https://pypi.org/p/matrix-for-agents  # (可选) 发布后在 GitHub Action 页面显示的链接
+      url: https://pypi.org/p/agentmatrix-core
 
     steps:
     # 1. 下载你的代码仓库

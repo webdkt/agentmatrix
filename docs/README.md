@@ -1,46 +1,72 @@
 # AgentMatrix Documentation
 
-AgentMatrix 是一个多 Agent 编排框架，用于管理 AI agents 的生命周期、通信和协调。
-
 ## 文档结构
 
-| 路径 | 目标读者 | 内容 |
-|------|----------|------|
-| [`core/`](./core/) | 所有开发者 | 核心库架构、组件参考、系统详解 |
-| [`desktop/`](./desktop/) | 前端开发者 | Desktop 应用文档、UI 组件、交互流程 |
-| [`concepts/`](./concepts/) | 所有读者 | 核心概念定义、术语对照 |
-| [`developer/`](./developer/) | 后端开发者 | 系统架构、开发指南、API 参考 |
-| [`user/`](./user/) | 终端用户 | 安装、配置、使用指南 |
+```
+docs/
+├── core/                    # Core 框架 (agentmatrix-core)
+│   ├── 01-大脑小脑与动作.md
+│   ├── 02-事件驱动的执行循环.md
+│   ├── 03-System-Prompt的构成.md
+│   ├── 04-会话自动压缩机制.md
+│   ├── 05-Python-Skill机制.md
+│   └── 06-无限嵌套的MicroAgent模式.md
+│
+├── desktop/                 # Desktop App (Tauri + Vue 3)
+│   ├── architecture/        # 架构文档
+│   │   ├── 01-整体架构概览.md
+│   │   ├── 02-运行时与邮局.md
+│   │   ├── 03-邮件作为信息模式.md
+│   │   ├── 04-会话管理与关系.md
+│   │   ├── 05-容器与文件系统.md
+│   │   ├── 06-内外邮件映射.md
+│   │   └── 07-Collab模式.md
+│   ├── services/            # 服务层
+│   │   ├── Config-Service与管理技能.md
+│   │   └── SystemAdmin用户.md
+│   ├── skills/              # 专属技能实现
+│   │   └── Memory-Skill的实现.md
+│   ├── cold-start-wizard/   # 冷启动向导
+│   ├── ui-*.md              # UI 设计文档
+│   └── archive/             # 历史归档
+│
+├── tutorial/ → ../tutorial/cli-agent/README.md  # CLI 教程
+├── concepts/                # 核心概念定义
+├── developer/               # 开发者指南
+├── user/                    # 用户指南
+├── compare/                 # 对比分析
+└── architecture/            # 通用架构文档
+```
 
-## 快速导航
+## 按角色导航
 
-**核心库**
-- [架构概览](./core/architecture.md) - 系统架构、设计原则、模块关系
-- [组件参考](./core/component-reference.md) - 核心组件、Agent 类型、技能系统
-- [Agent 系统](./core/agent-system.md) - Agent 类型、生命周期、状态管理
-- [消息系统](./core/message-system.md) - Email 模型、PostOffice、消息路由
-- [会话管理](./core/session-management.md) - SessionManager、状态持久化
-- [技能系统](./core/skill-system.md) - Skill 开发、Action 机制
+### 想理解 Core 框架（所有人）
 
-**Desktop 应用**
-- [UI 设计系统](./desktop/ui-design-system.md) - 设计规范、样式指南
-- [组件参考](./desktop/component-reference.md) - Vue 组件、Store、API
-- [交互设计](./desktop/ui-interaction-flows.md) - 交互流程、状态管理
-- [Settings View 实现](./SETTINGS_VIEW_IMPLEMENTATION.md) - Settings View 完整实现文档
-- [Settings View 架构](./SETTINGS_VIEW_ARCHITECTURE.md) - Settings View 架构详解
-- [Settings View 测试](./SETTINGS_VIEW_TESTING_GUIDE.md) - Settings View 测试指南
-- [Settings View 迁移](./SETTINGS_VIEW_MIGRATION.md) - Settings View 迁移指南
+[docs/core/](./core/) — 6 篇文档，由浅入深介绍 Core 引擎的工作原理。
 
-**核心概念**
-- [核心概念](./concepts/CONCEPTS.md) - Email、Session、Agent、Task 定义
+1. [大脑小脑与动作](./core/01-大脑小脑与动作.md) — Brain/Cerebellum 双脑架构、think_with_retry
+2. [事件驱动的执行循环](./core/02-事件驱动的执行循环.md) — Signal 系统、Think-Negotiate-Act 循环
+3. [System Prompt 的构成](./core/03-System-Prompt的构成.md) — 动态 Prompt 生成、技能注入
+4. [会话自动压缩机制](./core/04-会话自动压缩机制.md) — Working Notes、Scratchpad
+5. [Python Skill 机制](./core/05-Python-Skill机制.md) — 技能注册、Mixin、装饰器
+6. [无限嵌套的 MicroAgent 模式](./core/06-无限嵌套的MicroAgent模式.md) — 嵌套调用、动态技能组合
 
-**Developer**
-- [系统架构](./developer/guide/architecture.md)
-- [开发 Agent](./developer/guide/agent.md)
-- [开发 Skill](./developer/guide/skill.md)
-- [目录结构参考](./developer/reference/directory-structure.md)
+### 想理解 Desktop App
 
-**User**
-- [安装](./user/guide/installation.md)
-- [配置 Profile](./user/guide/profiles.md)
-- [使用 SystemAdmin](./user/how-to/use-system-admin.md)
+[docs/desktop/](./desktop/) — 架构、服务层、UI、专属技能。
+
+**架构**：[整体架构概览](./desktop/architecture/01-整体架构概览.md) → [运行时与邮局](./desktop/architecture/02-运行时与邮局.md) → [邮件信息模式](./desktop/architecture/03-邮件作为信息模式.md) → ...
+
+**服务层**：[Config Service](./desktop/services/Config-Service与管理技能.md) · [SystemAdmin](./desktop/services/SystemAdmin用户.md)
+
+**UI**：[设计系统](./desktop/ui-design-system.md) · [组件参考](./desktop/component-reference.md) · [交互流程](./desktop/ui-interaction-flows.md)
+
+### 想用 Core 构建自己的应用
+
+[tutorial/cli-agent/](../tutorial/cli-agent/README.md) — 最小可运行示例，~200 行代码。
+
+### 其他
+
+- [核心概念](./concepts/CONCEPTS.md) — 术语定义
+- [开发者指南](./developer/) — 开发 Agent/Skill 指南
+- [用户指南](./user/) — 安装、配置、使用

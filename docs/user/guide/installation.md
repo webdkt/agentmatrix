@@ -12,7 +12,7 @@
 ### 方式一：pip 安装
 
 ```bash
-pip install matrix-for-agents
+pip install agentmatrix-core
 ```
 
 ### 方式二：源码安装
