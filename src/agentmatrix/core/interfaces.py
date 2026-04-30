@@ -35,13 +35,12 @@ class CerebellumProtocol(Protocol):
         """委托给 backend 的 think。"""
         ...
 
-    async def parse_action_params(
+    async def convert_params(
         self,
-        intent: str,
         action_name: str,
+        user_params: dict,
         param_schema: dict,
-        brain_callback: Any,
-        task_context: str = "",
+        brain_callback: Any = None,
     ) -> dict:
-        """从意图中解析 action 参数。"""
+        """参数名对齐 + 补齐缺失的必要参数。"""
         ...

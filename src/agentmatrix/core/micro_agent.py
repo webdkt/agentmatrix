@@ -9,10 +9,11 @@ Micro Agent: 临时任务专用的轻量级 Agent
 - 通过 parent 参数自动继承父 Agent 的组件
 """
 
+import re
 import asyncio
 import uuid
 import types  # 用于动态绑定
-from typing import Dict, List, Optional, Callable, Any, Union
+from typing import Dict, List, Optional, Callable, Any, Union, Tuple
 from .session_store import SessionStore
 import logging
 import time
@@ -908,7 +909,6 @@ class MicroAgent(AutoLoggerMixin):
             return await self.brain.think_with_retry(
                 initial_messages=self.messages,
                 parser=self._parse_actions_from_thought,
-                action_registry=self.action_registry["_flat"],
                 max_retries=3,
             )
         except LLMServiceUnavailableError as e:
@@ -930,7 +930,6 @@ class MicroAgent(AutoLoggerMixin):
             return await self.brain.think_with_retry(
                 initial_messages=self.messages,
                 parser=self._parse_actions_from_thought,
-                action_registry=self.action_registry["_flat"],
                 max_retries=3,
             )
 
@@ -940,10 +939,6 @@ class MicroAgent(AutoLoggerMixin):
         if isinstance(exit_actions, str):
             exit_actions = [exit_actions]
         step_count = 0
-
-        # 将分钟转换为秒
-        
-
         while True:
             # 🔀 检查点1：每次循环开始时检查是否暂停
             await self.root_agent.checkpoint()
@@ -1003,8 +998,8 @@ class MicroAgent(AutoLoggerMixin):
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
                 self.logger.debug(f"Raw LLM reply:\n{raw_reply}")
-                # 📝 写入 session event: think.brain
-                think_event = raw_reply.replace(action_section_text,"").replace("[ACTION]","").replace("[THOUGHTS]","").strip() if raw_reply else None
+                # 📝 写入 session event: think.brain（去掉 <action_script> 块）
+                think_event = re.sub(r'<action_script>.*?</action_script>', '', raw_reply, flags=re.DOTALL).strip() if raw_reply else None
                 if think_event:
                     self._emit_event("think", "brain", {
                         "step_count": step_count,
@@ -1012,8 +1007,8 @@ class MicroAgent(AutoLoggerMixin):
                     })
                 
 
-                # 2. 检测 actions（多个，保持顺序）
-                action_names = await self._detect_actions(action_section_text)
+                # 2. 检测 actions（两步：扫描 name → 解析函数式调用）
+                action_names, action_calls = await self._detect_actions(raw_reply or "")
 
                 self.logger.info(f"Detected actions: {action_names}")
 
@@ -1047,10 +1042,17 @@ class MicroAgent(AutoLoggerMixin):
                     # exit_action 仍然同步执行，执行完直接退出循环
                     self.logger.info(f"Executing exit action: {exit_action_name}")
                     self.return_action_name = exit_action_name
+                    # 从 action_calls 中找到 exit_action 的 params_text
+                    exit_params_text = ""
+                    for name, ptext in action_calls:
+                        if name == exit_action_name:
+                            exit_params_text = ptext
+                            break
                     try:
                         result = await self._execute_action(
                             exit_action_name, action_section_text,
-                            action_names.index(exit_action_name) + 1, action_names
+                            action_names.index(exit_action_name) + 1, action_names,
+                            params_text=exit_params_text,
                         )
                         self.result = result
                     except Exception:
@@ -1076,7 +1078,7 @@ class MicroAgent(AutoLoggerMixin):
 
                     # 创建顺序执行的 task
                     sequential_task = asyncio.create_task(
-                        self._run_actions_sequential(action_ids, action_names, action_section_text)
+                        self._run_actions_sequential(action_ids, action_calls, action_section_text)
                     )
 
                     # 回填 task 引用
@@ -1097,7 +1099,7 @@ class MicroAgent(AutoLoggerMixin):
                 if not action_names and not self._running_actions:
                     # 🔍 优先检查是否有疑似幻觉的 action 名称（在通用验证之前）
                     if not self._no_action_reflected:
-                        reflect_msg = _utils.build_no_action_reflect_message(action_section_text, raw_reply or "", self.action_registry["_flat"])
+                        reflect_msg = _utils.build_no_action_reflect_message(raw_reply or "", raw_reply or "", self.action_registry["_flat"])
                         if reflect_msg:
                             # 有疑似幻觉 → 给 LLM 一次 reflect 机会（比通用验证更精准）
                             self.logger.info("No action detected but hallucination pattern found, sending reflect prompt")
@@ -1208,116 +1210,113 @@ class MicroAgent(AutoLoggerMixin):
             except Exception as e:
                 self.logger.warning(f"Skill cleanup failed in {cls.__name__}: {e}")
 
-    def _parse_actions_from_thought(
-        self, raw_reply: str, action_registry: dict
-    ) -> dict:
-        return _utils.parse_actions_from_thought(raw_reply, action_registry)
+    def _parse_actions_from_thought(self, raw_reply: str) -> dict:
+        return _utils.parse_actions_from_thought(raw_reply)
 
     def _parse_simple_yes_no(self, raw_reply: str) -> dict:
         return _utils.parse_simple_yes_no(raw_reply)
 
-    def _parse_and_validate_actions(self, raw_reply: str, mentioned_actions: List[str]) -> Dict[str, Any]:
-        return _utils.parse_and_validate_actions(raw_reply, mentioned_actions)
-
-    async def _detect_actions(self, thought: str) -> List[str]:
+    async def _detect_actions(self, full_text: str) -> Tuple[List[str], List[Tuple[str, str]]]:
         """
-        两阶段检测：判断用户真正要执行的 actions
+        从 <action_script> 块中检测要执行的 actions。
 
-        阶段 1：使用正则提取"提到的 actions"
-        阶段 2：问小脑哪些是"真正要执行的"
-
-        这样可以避免误匹配，例如：
-        - "我刚做完了 action_a，现在准备 action_b"
-        - 阶段1提取：[action_a, action_b]
-        - 阶段2判断：[action_b]（只选择要执行的）
+        流程：
+        1. 提取 <action_script>...</action_script> 块
+        2. 没有块 → 无 action
+        3. 块内解析函数式调用
+        4. 幻觉 → signal 警告
+        5. 特殊通道：块内只有 action name 但非函数式 → 小脑判断
 
         Args:
-            thought: Brain 的思考内容
+            full_text: LLM 的完整输出
 
         Returns:
-            List[str]: 真正要执行的 action 名称列表
+            (action_names, calls)
+            - action_names: 合法 action name 列表（用于 exit_action 检测）
+            - calls: [(action_name, params_text), ...] 用于执行
         """
-        # ========== 阶段 1：提取"提到的 actions" ==========
-        mentioned_actions = _utils.extract_mentioned_actions(thought, self.action_registry["_flat"])
+        # 提取 <action_script> 块
+        script_block = _utils.extract_action_script_block(full_text)
+        if not script_block:
+            return [], []
 
-        if not mentioned_actions:
-            # 没有提到任何 action
-            return []
-
-        # 如果只提到了一个 action，直接返回（避免不必要的 LLM 调用）
-        if len(mentioned_actions) == 1:
-            self.logger.debug(f"[阶段1] 只提到一个 action: {mentioned_actions[0]}")
-            return mentioned_actions
-
-        # ========== 阶段 2：问小脑哪些要执行 ==========
-        self.logger.debug(f"[阶段1] 提到的 actions: {mentioned_actions}")
-
-        # 构造 prompt
-        prompt = f"""用户刚才说了：
-
-{thought}
-
-从这段话中，依次提到了这些 actions：
-{", ".join(mentioned_actions)}
-
-请判断：这些 actions 中，哪些是**真正要执行**的？
-
-**注意：**
-- 用户提到，不代表要执行，对每一个action的名字，要根据用户的原话来判断，是要执行它，还是只是提到他。通常用户只会执行一个action
-- 如果要做多个action，必须按用户指定的顺序列出来, 
-- 在[ACTION]下列出所有**要执行**的 actions，用逗号分隔，保持顺序，不要因为名字相同就合并成一个。
-
-
-**输出格式：**
-```
-(可选的）whatever you thinks...
-[ACTION]
-action1, action2, action3
-```
-
-**示例：**
-输入：我刚做完了 web_search，现在准备 write plan.txt ,send_mail给老板，然后再write report.txt
-（注意，有多个 write，保持顺序）
-输出：
-```
-[ACTION]
-write, send_mail, write
-```
-"""
-
-        # 使用小脑的 think_with_retry
-        actions_to_execute = await self.cerebellum.backend.think_with_retry(
-            initial_messages=[{"role": "user", "content": prompt}],
-            parser=self._parse_and_validate_actions,
-            mentioned_actions=mentioned_actions,  # 直接传参给 parser
-            max_retries=3,
+        # 在块内解析函数式调用（含幻觉检测）
+        valid_calls, hallucinations = _utils.parse_function_calls(
+            script_block, self.action_registry["_flat"]
         )
 
-        self.logger.debug(f"[阶段2] 判断要执行的 actions: {actions_to_execute}")
-        return actions_to_execute
+        # 幻觉处理：生成 signal 提醒 LLM 纠偏
+        if hallucinations:
+            hallucination_names = ", ".join(hallucinations)
+            self.signal_queue.put_nowait(TextSignal(
+                text=f"[System] 以下 action 名称不存在，无法执行：{hallucination_names}。请使用正确的 action 名称。",
+                type_name="hallucination_warning",
+            ))
+
+        if valid_calls:
+            action_names = [name for name, _ in valid_calls]
+            self.logger.debug(f"[detect] 函数式调用: {action_names}")
+            return action_names, valid_calls
+
+        # 特殊通道：块内只有 action name 但不是函数式格式
+        # 简单扫描块内的 action name
+        mentioned = self._scan_action_names(script_block)
+        if len(mentioned) == 1 and not hallucinations:
+            return await self._cerebellum_judge_single_action(mentioned[0], full_text)
+
+        return [], []
+
+    def _scan_action_names(self, text: str) -> List[str]:
+        """扫描文本中的合法 action name（去重保序）。"""
+        pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\b'
+        seen = set()
+        result = []
+        for match in re.finditer(pattern, text):
+            name = match.group(1).lower()
+            if name in self.action_registry["_flat"] and name not in seen:
+                seen.add(name)
+                result.append(name)
+        return result
+
+    async def _cerebellum_judge_single_action(
+        self, action_name: str, thought: str
+    ) -> Tuple[List[str], List[Tuple[str, str]]]:
+        """
+        特殊通道：只有 1 个 action name 但不是函数式格式。
+        直接当作要执行，返回 action_name 让后续 _execute_action 处理参数。
+        """
+        # 从 thought 中提取可能的参数上下文
+        params_text = self._extract_params_context(action_name, thought)
+        return [action_name], [(action_name, params_text)]
+
+    def _extract_params_context(self, action_name: str, thought: str) -> str:
+        """从 thought 中提取 action_name 附近的参数上下文。"""
+        # 找到 action_name 在 thought 中的位置，取后面的内容作为 params 上下文
+        pattern = re.escape(action_name) + r'\s*\(?(.*?)\)?(?:\s|$)'
+        match = re.search(pattern, thought, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return thought
 
     async def _run_actions_sequential(
-        self, action_ids: List[str], action_names: List[str], thought: str
+        self, action_ids: List[str], action_calls: List[Tuple[str, str]], thought: str
     ) -> None:
         """
         顺序执行一组 actions，每个完成后立即发 signal 到 queue。
 
         _running_actions 中的 entry 在每个 action 完成时逐个 pop。
         """
-        for idx, (action_id, action_name) in enumerate(zip(action_ids, action_names)):
+        action_names = [name for name, _ in action_calls]
+        for idx, (action_id, (action_name, params_text)) in enumerate(zip(action_ids, action_calls)):
             self._emit_event("action", "started", {
                 "action_name": action_name,
                 "step_count": self.step_count,
             })
             try:
                 result = await self._execute_action(
-                    action_name, thought, idx + 1, action_names, action_id
+                    action_name, thought, idx + 1, action_names, action_id,
+                    params_text=params_text,
                 )
-
-                if result == "NOT_TO_RUN":
-                    self.logger.info(f"Action '{action_name}' 判断为不执行，跳过")
-                    self._running_actions.pop(action_id, None)
-                    continue
 
                 # 读 label（_execute_action 内已回写到 entry）
                 info = self._running_actions.get(action_id, {})
@@ -1369,82 +1368,78 @@ write, send_mail, write
                     "error_message": str(e)[:500],
                 })
 
+    async def _convert_params(
+        self, action_name: str, user_params: dict, param_schema: dict,
+    ) -> Tuple[dict, str]:
+        """通过 cerebellum 对齐参数名 + Brain 补齐缺失参数。"""
+
+        async def brain_callback(question: str) -> str:
+            temp_msgs = self.messages.copy()
+            temp_msgs.append({"role": "user", "content": question})
+            response = await self.brain.think(temp_msgs)
+            return response["reply"]
+
+        result = await self.cerebellum.convert_params(
+            action_name=action_name,
+            user_params=user_params,
+            param_schema=param_schema,
+            brain_callback=brain_callback,
+        )
+
+        return result.get("params", {}), result.get("action_label", "")
+
     async def _execute_action(
         self, action_name: str, thought: str, action_index: int, action_list: List[str],
         action_id: str = "",
+        params_text: str = "",
     ) -> Any:
         """
-        执行 action（新架构：直接调用，无需动态绑定）
+        执行 action。
 
         流程：
-        1. 从 action_registry 获取方法（已经在 self 上）
-        2. 通过 cerebellum 解析参数（带任务上下文）
-        3. 直接调用方法（self 已经正确指向最终的 MicroAgent 实例）
-
-        关键改进：不再需要 types.MethodType 动态绑定
+        1. 从 action_registry 获取方法
+        2. 如果有 params_text → regex 解析参数 → 校验 → 直接执行
+        3. 如果 regex 失败或无 params_text → fallback 到 cerebellum.convert_params
 
         Args:
             action_name: 要执行的 action 名称
             thought: Brain 的思考内容（用户意图）
             action_index: 当前是第几个 action（从 1 开始）
             action_list: 完整的 action 列表
+            action_id: running_actions 中的 ID
+            params_text: 函数式调用中的参数文本（括号内）
         """
-        # 1. 获取方法（使用新的解析逻辑，支持命名空间）
+        # 1. 获取方法
         try:
             method = self._resolve_action(action_name)
         except ValueError as e:
             raise ValueError(f"Action '{action_name}' not found: {e}")
 
-        # 2. 获取参数信息（从 method）
+        # 2. 获取参数信息
         param_schema = getattr(method, "_action_param_infos", {})
+        params = {}
+        action_label = ""
 
-        # 3. 如果有参数，通过 cerebellum 解析
-        if param_schema:
-            # 计算当前 action 的出现次数（第几个这个 action）
-            occurrence = action_list[:action_index].count(action_name)
-            total_same_actions = action_list.count(action_name)
+        if param_schema and params_text:
+            # 尝试 regex 解析参数
+            parsed_params = _utils.parse_params_from_call(params_text)
+            is_valid, error_msg = _utils.validate_params(parsed_params, param_schema)
 
-            # 智能构造任务上下文：只有当 action 重复出现时才添加详细信息
-            if total_same_actions > 1:
-                task_context = f"""
-(第 {occurrence} 个: {action_name} Action
-**注意：用户一共提到 {total_same_actions} 次 '{action_name}'，这是其中的第 {occurrence} 次{action_name} 。**
-
-"""
-                if action_index > 0:
-                    previous_actions = action_list[:action_index]
-                    task_context = task_context + f"它排在{previous_actions} 后面"
-                else:
-                    task_context = task_context + "它是第一个要执行的 action"
+            if is_valid:
+                # regex 解析成功，直接使用
+                params = parsed_params
+                self.logger.debug(f"[{action_name}] regex 解析参数成功: {params}")
             else:
-                # action 只出现一次，不需要额外的上下文信息（保持简洁）
-                task_context = f"Action: {action_name} "
-
-            # 通过 cerebellum 解析参数（带任务上下文）
-            async def brain_clarification(question: str) -> str:
-                temp_msgs = self.messages.copy()
-                temp_msgs.append({"role": "assistant", "content": thought})
-                temp_msgs.append(
-                    {"role": "user", "content": f"[❓NEED CLARIFICATION] {question}"}
+                # regex 解析失败，fallback 到 cerebellum 做参数名对齐
+                self.logger.debug(f"[{action_name}] regex 解析失败 ({error_msg})，使用 cerebellum 对齐")
+                params, action_label = await self._convert_params(
+                    action_name, parsed_params, param_schema
                 )
-                response = await self.brain.think(temp_msgs)
-                return response["reply"]
-
-            action_json = await self.cerebellum.parse_action_params(
-                intent=thought,
-                action_name=action_name,
-                param_schema=param_schema,
-                brain_callback=brain_clarification,
-                task_context=task_context,  # 新增：传递任务上下文
+        elif param_schema:
+            # 有参数 schema 但没有 params_text（特殊通道），用 cerebellum + Brain 补值
+            params, action_label = await self._convert_params(
+                action_name, {}, param_schema
             )
-
-            params = action_json.get("params", {})
-            action_label = action_json.get("action_label", "")
-            if params == "NOT_TO_RUN":
-                return params
-        else:
-            params = {}
-            action_label = ""
 
         # 将 action_label 存入 _running_actions
         if action_id and action_id in self._running_actions:

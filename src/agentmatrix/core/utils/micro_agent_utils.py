@@ -6,9 +6,8 @@ MicroAgent 的纯工具函数
 """
 
 import re
-import json
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
 
 # ==================== Parsers ====================
@@ -47,211 +46,241 @@ def parse_simple_yes_no(raw_reply: str) -> dict:
         }
 
 
-def parse_and_validate_actions(
-    raw_reply: str, mentioned_actions: List[str]
-) -> Dict[str, Any]:
+def parse_actions_from_thought(raw_reply: str) -> dict:
     """
-    Parser: 提取并验证要执行的 actions
-
-    流程：
-    1. 使用 multi_section_parser 提取 [ACTION]
-    2. 解析 action 列表（保留重复，支持多次执行同一个 action）
-    3. 验证：防止幻觉（必须在 mentioned_actions 中）
+    Parser for think_with_retry — 提取 <action_script> 块内容。
 
     Args:
         raw_reply: LLM 的原始输出
-        mentioned_actions: 阶段1提取到的"提到的actions"
 
     Returns:
-        dict: {"status": "success", "content": [action_names]}
-              或 {"status": "error", "feedback": str}
+        {"status": "success", "content": {"[ACTION]": str, "[RAW_REPLY]": str}}
+        [ACTION] 为 <action_script> 块内的文本（不含标签）
     """
-    from .skill_parser_utils import multi_section_parser
+    action_text = extract_action_script_block(raw_reply)
 
-    # 1. 提取 [ACTION] section
-    result = multi_section_parser(
-        raw_reply, section_headers=["[ACTION]"], match_mode="ALL"
-    )
-
-    if result["status"] == "error":
-        return result
-
-    # 2. 解析 actions 列表（保留重复，不去重）
-    actions_text = result["content"]["[ACTION]"]
-    # 先整体清理：去除换行符、回车符、代码块标记、各种引号括号
-    for char in ["\n", "\r", "```", '"', "'", "`", "(", ")", "[", "]", "{", "}"]:
-        actions_text = actions_text.replace(char, "")
-    actions_text = actions_text.strip()
-    # 再分割
-    actions_list = [a.strip() for a in actions_text.split(",")]
-
-    # 3. 验证：防止幻觉（必须在 mentioned_actions 中）
-    invalid_actions = [a for a in actions_list if a not in mentioned_actions]
-    if invalid_actions:
-        return {
-            "status": "error",
-            "feedback": (
-                f"你返回了未被提到的 actions: {invalid_actions}。\n"
-                f"只能从用户提到的 actions 中选择: {mentioned_actions}\n\n"
-                f"请重新判断，只选择用户**真正要执行**的 actions。"
-            ),
-        }
-
-    return {"status": "success", "content": actions_list}
-
-
-def parse_actions_from_thought(
-    raw_reply: str, action_registry: dict
-) -> dict:
-    """
-    Parser for think_with_retry - 验证 LLM 输出是否包含有效的 action 声明
-
-    规则：
-    1. 如果有 [ACTION] section → 检查下面是否有有效的 action name
-       - 有 → 返回 raw_reply（验证通过）
-       - 没有 → 返回 error（让 LLM 重试）
-    2. 如果没有 [ACTION] section → 检查全文是否有 action name
-       - 有 → 返回 raw_reply（验证通过，全文当作 [ACTION] 内容）
-       - 0 个 → 也 OK（合法的"无 action"回复）
-
-    Args:
-        raw_reply: LLM 的原始输出
-        action_registry: 可用的 actions 注册表
-
-    Returns:
-        {
-            "status": "success" | "error",
-            "content": raw_reply (success 时) | None (error 时),
-            "feedback": str (error 时)
-        }
-    """
-    # 规则1：检查是否有 [ACTION] section
-    if "[ACTION]" in raw_reply:
-        # ✅ 修复：清理 [ACTION] 之前的所有内容，避免干扰解析
-        actions_index = raw_reply.find("[ACTION]")
-        cleaned_reply = raw_reply[actions_index:].strip()
-
-        # 提取 [ACTION] 下的内容
-        from .skill_parser_utils import multi_section_parser
-
-        result = multi_section_parser(
-            cleaned_reply,
-            section_headers=["[ACTION]"],
-            match_mode="ANY",
-        )
-
-        if result["status"] == "success":
-            actions_text = result["content"]["[ACTION]"]
-        else:
-            actions_text = ""
-
-        # 检查是否包含有效的 action
-        action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
-        matches = re.finditer(action_pattern, actions_text)
-
-        detected_actions = set()
-        for match in matches:
-            action_name = match.group(1).lower()
-            if action_name in action_registry:
-                detected_actions.add(action_name)
-
-        # 有 action 或无 action 都 OK
-        content = {"[ACTION]": actions_text, "[RAW_REPLY]": raw_reply}
-        return {"status": "success", "content": content}
-
-    # 规则2：没有 [ACTION] section → 尝试从内容中提取 XML 或 JSON 块
-
-    def clean_code_blocks(text: str) -> str:
-        """去掉代码块包裹标记（如 ```json, ```xml, ```）"""
-        text = text.strip()
-        patterns = [
-            r'```json\s*\n(.*?)\n```',
-            r'```xml\s*\n(.*?)\n```',
-            r'```\s*\n(.*?)\n```',
-            r'```json\s+(.+?)\s*```',
-            r'```xml\s+(.+?)\s*```',
-            r'```\s+(.+?)\s*```',
-        ]
-        for pattern in patterns:
-            match = re.match(pattern, text, re.DOTALL)
-            if match:
-                return match.group(1).strip()
-        return text
-
-    # 清理代码块
-    cleaned = clean_code_blocks(raw_reply)
-
-    # 尝试提取 JSON 块
-    json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-    json_matches = re.findall(json_pattern, cleaned, re.DOTALL)
-    for match in json_matches:
-        try:
-            json.loads(match)
-            content = {"[ACTION]": match, "[RAW_REPLY]": raw_reply}
-            return {"status": "success", "content": content}
-        except (json.JSONDecodeError, ValueError):
-            continue
-
-    # 尝试提取 XML 块（<tag>...</tag> 或 <tag/>）
-    xml_pattern = r'<[^>]+>.*?</[^>]+>|<[^>]+/>'
-    xml_matches = re.findall(xml_pattern, cleaned, re.DOTALL)
-    if xml_matches:
-        extracted = "\n".join(xml_matches)
-        content = {"[ACTION]": extracted, "[RAW_REPLY]": raw_reply}
-        return {"status": "success", "content": content}
-
-    # 都没有，当作无 action 回复
-    content = {"[ACTION]": "", "[RAW_REPLY]": raw_reply}
+    content = {"[ACTION]": action_text, "[RAW_REPLY]": raw_reply}
     return {"status": "success", "content": content}
 
 
-def extract_mentioned_actions(thought: str, action_registry_flat: dict) -> List[str]:
+def extract_action_script_block(text: str) -> str:
     """
-    使用正则表达式提取用户**提到**的所有 action（完整单词匹配）
+    从 LLM 输出中提取 <action_script>...</action_script> 块的内容。
 
-    注意：
-    - 这个方法只是提取"提到的"actions，不是"要执行的"actions
-    - 最终要执行哪些actions需要由小脑进一步判断
-    - 保留重复出现的 action（支持多次执行同一个 action）
+    Returns:
+        块内的文本（不含标签），如果没有找到则返回空字符串
+    """
+    pattern = r'<action_script>(.*?)</action_script>'
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return ""
 
-    Example:
-        "我刚做完了web_search，现在准备file_operation" → ["web_search", "file_operation"]
-        "使用send_email发送" → ["send_email"]
-        "先搜索，然后完成" → ["web_search"]
-        "write A, write B, write C" → ["write", "write", "write"]
+
+def parse_function_calls(
+    text: str, action_registry_flat: dict
+) -> Tuple[List[Tuple[str, str]], List[str]]:
+    """
+    Step 2: 解析文本中的函数式调用 action_name(params)。
+
+    支持：
+    - action_name(params) — 短名
+    - skill.action_name(params) — 命名空间
+    - 多行 params（括号配对匹配）
+    - 嵌套括号
 
     Args:
-        thought: LLM 的思考内容
+        text: LLM 输出文本
         action_registry_flat: action_registry["_flat"] 字典
 
     Returns:
-        List[str]: 提到的 action 名称列表（保留重复和顺序）
+        (valid_calls, hallucination_names)
+        - valid_calls: [(action_name, params_text), ...] — 在 registry 中的
+        - hallucination_names: [name, ...] — 函数格式正确但 name 不存在
     """
-    # 正则：匹配连续的字母、下划线、数字（标识符格式）
-    action_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
+    valid_calls = []
+    hallucinations = []
 
-    # 提取所有匹配的字符串
-    matches = re.finditer(action_pattern, thought)
+    # 匹配行首的 func_name( 或 skill.func_name(
+    # 支持前导空白
+    func_pattern = re.compile(
+        r'^[ \t]*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\(',
+        re.MULTILINE,
+    )
 
-    # 按出现顺序记录 (position, action_name)
-    detected = []
+    for match in func_pattern.finditer(text):
+        func_name = match.group(1).lower()
+        start_paren = match.end() - 1  # '(' 的位置
 
-    for match in matches:
-        action_name = match.group(1)
-        position = match.start()
+        # 括号配对，支持多行和嵌套
+        depth = 1
+        pos = start_paren + 1
+        while pos < len(text) and depth > 0:
+            ch = text[pos]
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            pos += 1
 
-        # 转小写（action names 通常是 snake_case）
-        action_name_lower = action_name.lower()
+        if depth != 0:
+            # 括号未闭合，跳过
+            continue
 
-        # 只保留有效的 action names（在 action_registry_flat 中）
-        if action_name_lower in action_registry_flat:
-            detected.append((position, action_name_lower))
+        # params_text 是括号内的内容（不含外层括号）
+        params_text = text[start_paren + 1 : pos - 1].strip()
 
-    # 按出现位置排序
-    detected.sort(key=lambda x: x[0])
+        if func_name in action_registry_flat:
+            valid_calls.append((func_name, params_text))
+        else:
+            hallucinations.append(func_name)
 
-    # 返回 action 名称列表（保留重复和顺序）
-    return [action for _, action in detected]
+    return valid_calls, hallucinations
+
+
+def parse_params_from_call(params_text: str) -> Dict[str, Any]:
+    """
+    解析函数式调用中的参数文本为字典。
+
+    支持格式：key=value, key2=value2
+    值类型：带引号字符串、数字、布尔值、None、无引号字符串
+
+    Args:
+        params_text: 括号内的参数文本
+
+    Returns:
+        参数字典 {"key": value, ...}
+    """
+    if not params_text:
+        return {}
+
+    result = {}
+
+    # 按逗号分割，但要忽略引号内的逗号
+    parts = _split_params(params_text)
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        # 找第一个 = 分割 key=value
+        eq_pos = part.find('=')
+        if eq_pos < 0:
+            # 没有 =，可能是位置参数，跳过
+            continue
+
+        key = part[:eq_pos].strip()
+        value_str = part[eq_pos + 1:].strip()
+
+        if not key:
+            continue
+
+        result[key] = _parse_value(value_str)
+
+    return result
+
+
+def _split_params(text: str) -> List[str]:
+    """按逗号分割参数，忽略引号内的逗号和嵌套括号内的逗号。"""
+    parts = []
+    current = []
+    depth = 0
+    in_quote = None
+
+    for ch in text:
+        if in_quote:
+            current.append(ch)
+            if ch == in_quote:
+                in_quote = None
+        elif ch in ('"', "'"):
+            in_quote = ch
+            current.append(ch)
+        elif ch == '(':
+            depth += 1
+            current.append(ch)
+        elif ch == ')':
+            depth -= 1
+            current.append(ch)
+        elif ch == ',' and depth == 0:
+            parts.append(''.join(current))
+            current = []
+        else:
+            current.append(ch)
+
+    if current:
+        parts.append(''.join(current))
+
+    return parts
+
+
+def _parse_value(value_str: str) -> Any:
+    """解析单个参数值字符串为 Python 值。"""
+    # 去掉首尾空白
+    value_str = value_str.strip()
+
+    # 空字符串
+    if not value_str:
+        return ""
+
+    # 带引号字符串
+    if (value_str.startswith('"') and value_str.endswith('"')) or \
+       (value_str.startswith("'") and value_str.endswith("'")):
+        return value_str[1:-1]
+
+    # 布尔值
+    if value_str.lower() == 'true':
+        return True
+    if value_str.lower() == 'false':
+        return False
+
+    # None
+    if value_str.lower() == 'none' or value_str.lower() == 'null':
+        return None
+
+    # 数字
+    try:
+        if '.' in value_str:
+            return float(value_str)
+        return int(value_str)
+    except ValueError:
+        pass
+
+    # 无引号字符串（原样返回）
+    return value_str
+
+
+def validate_params(
+    params: dict, param_schema: dict
+) -> Tuple[bool, str]:
+    """
+    校验解析出的参数：参数名是否合法、必要参数是否齐全。
+
+    Args:
+        params: 解析出的参数字典
+        param_schema: action 的参数 schema（{name: {required: bool, ...}, ...}）
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not param_schema:
+        return True, ""
+
+    # 检查未知参数名
+    unknown = [k for k in params if k not in param_schema]
+    if unknown:
+        return False, f"未知参数: {unknown}，可用参数: {list(param_schema.keys())}"
+
+    # 检查必要参数
+    required = [
+        name for name, meta in param_schema.items()
+        if isinstance(meta, dict) and meta.get("required", False)
+    ]
+    missing = [name for name in required if name not in params]
+    if missing:
+        return False, f"缺少必要参数: {missing}"
+
+    return True, ""
 
 
 # ==================== Prompt Builders ====================
@@ -279,16 +308,16 @@ def build_no_action_reflect_message(
     action_registry_flat: dict,
 ) -> Optional[str]:
     """
-    检查 [ACTION] 文本中是否有疑似幻觉的函数调用 pattern，构造 reflect 消息。
+    检查是否有疑似幻觉的函数调用 pattern，构造 reflect 消息。
 
-    如果 [ACTION] 文本匹配 func_name(...) 或 func.name(...) 格式，
+    如果文本匹配 func_name(...) 或 func.name(...) 格式，
     但没有匹配到任何注册的 action，说明 LLM 幻觉了函数名。
 
-    同时检查 raw_reply：当 [ACTION] 为空但 raw_reply 中包含 JSON/XML action 格式
-    或函数调用 pattern 时，说明 LLM 试图输出 action 但格式不对（缺少 [ACTION] 标记）。
+    同时检查 raw_reply：当 <action_script> 块为空但 raw_reply 中包含 JSON/XML action 格式
+    或函数调用 pattern 时，说明 LLM 试图输出 action 但格式不对。
 
     Args:
-        action_section_text: [ACTION] 区块的文本
+        action_section_text: <action_script> 块内的文本
         raw_reply: LLM 的完整原始回复
         action_registry_flat: action_registry["_flat"] 字典
 
@@ -296,7 +325,7 @@ def build_no_action_reflect_message(
         reflect 消息字符串，如果没有疑似幻觉则返回 None
     """
     if not action_section_text or not action_section_text.strip():
-        # [ACTION] 区为空，但检查 raw_reply 中是否有疑似 action 的内容
+        # <action_script> 块为空，但检查 raw_reply 中是否有疑似 action 的内容
         if raw_reply:
             # 检查 JSON 格式的 action: "action": "xxx"
             json_action_pattern = r'"action"\s*:\s*"([a-zA-Z_.]*)"'
@@ -325,7 +354,7 @@ def build_no_action_reflect_message(
                     valid_actions.append(name)
 
             if valid_actions:
-                return "没有发现要执行的action。如果要执行action，需要使用 [ACTION] 块格式来声明。确认没什么要执行的可以回复'确定'。"
+                return "没有发现要执行的action。如果要执行action，需要使用 <action_script> 块格式来声明。确认没什么要执行的可以回复'确定'。"
 
         # 确实没有疑似 action 的内容
         return None
@@ -351,12 +380,8 @@ def build_no_action_reflect_message(
         # 所有提到的函数名都在 registry 中，不是幻觉问题
         return None
 
-    # 构建更具体的提示，包含无效名称和可用的 action 列表
     invalid_list = ", ".join(invalid_names)
-    hint = f"没有发现要执行的action。你在 [ACTION] 中使用了未注册的名称：{invalid_list}。"
-    if valid_names:
-        hint += f"其中 {', '.join(valid_names)} 是有效的。"
-    hint += "请检查action名称是否正确（可用的action名称请参考系统提示中的action列表）。确认没什么要执行的可以回复'确定'。"
+    hint = f"没有发现要执行的action。你使用了未注册的名称：{invalid_list}。请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
     return hint
 
 

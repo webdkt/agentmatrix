@@ -1,7 +1,9 @@
 # core/cerebellum.py
+import re
 import json
 import textwrap
 from ..core.log_util import AutoLoggerMixin
+from .utils import micro_agent_utils as _utils
 import logging
 from typing import Optional, TYPE_CHECKING
 
@@ -34,142 +36,149 @@ class Cerebellum(AutoLoggerMixin):
     async def think(self, messages):
         return await self.backend.think(messages)
 
-    async def parse_action_params(
+    async def convert_params(
         self,
-        intent: str,
         action_name: str,
+        user_params: dict,
         param_schema: dict,
-        brain_callback,
-        task_context: str = ""
+        brain_callback=None,
     ) -> dict:
         """
-        解析单个 action 的参数
+        参数名对齐 + 通过 Brain 补齐缺失的必要参数。
+
+        循环流程：
+        1. 小脑对齐参数名 + 识别缺失
+        2. 有缺失 → 问 Brain 输出完整 action 语句
+        3. 重新解析 Brain 的回答
+        4. 还有缺失 → 继续循环
+        5. 全齐 → 返回
 
         Args:
-            intent: Brain 的原始意图（thought）
-            action_name: 要执行的 action 名称（已知）
-            param_schema: 这个 action 的参数定义 {param_name: description}
-            brain_callback: 向 Brain 提问的回调函数
-            task_context: 任务上下文信息（第几个 action，共几个等）
+            action_name: action 名称
+            user_params: 用户写出的参数 dict（key 可能不准确，value 原样保留）
+            param_schema: 参数定义
+            brain_callback: 向 Brain 请求补齐缺失参数的回调
 
         Returns:
-            {"action": action_name, "params": {...}}
+            {"params": {...}, "action_label": "..."}
         """
         # 格式化参数定义
-        param_list = []
-        for param_name, param_desc in param_schema.items():
-            param_list.append(f"- {param_name}: {param_desc}")
-        param_def = "\n".join(param_list)
-        
-        system_prompt = textwrap.dedent(f"""
-            You are the Parameter Parser. Your job is to :
-            1. Determine if user really wants to execute action "{action_name}"
-            2. If yes, extract parameters for action "{action_name}" from the user's intent.
+        param_lines = []
+        for pname, pmeta in param_schema.items():
+            if isinstance(pmeta, dict):
+                required = "必填" if pmeta.get("required") else "可选"
+                desc = pmeta.get("description", "")
+                ptype = pmeta.get("type", "")
+                param_lines.append(f"  - {pname} ({ptype}, {required}): {desc}")
+            else:
+                param_lines.append(f"  - {pname}: {pmeta}")
+        param_def = "\n".join(param_lines)
 
-            [IMPORTANT] The user's intent may contain multiple actions. You should ONLY focus on:
-            {task_context}
-
-            [Required Parameters for {action_name}]:
-            {param_def}
-
-            [Instructions]:
-            0. Determine whether the intent is **calling** "{action_name}" or merely **mentioning** it by name.
-               - Calling = the intent intends to execute this action now. Extract parameters.
-               - Mentioning = the intent only references "{action_name}" in passing (e.g. recalling a past step, comparing with another action). Output NOT_TO_RUN.
-               - Default assumption: if "{action_name}" appears with parameters or as an action call, treat it as CALLING.
-            1. Look at the intent and find information related to "{action_name}"
-            2. IGNORE information for other actions
-            3. Extract ALL required parameters for "{action_name}".
-            4. DECISION:
-               - If NOT TO run (only mentioning, not calling): Output JSON {{"status": "NOT_TO_RUN", "reason": "reason_for_not_running"}}
-               - If READY: Output JSON {{"status": "READY", "action_label": "短描述", "params": {{"param1": "value1", "param2": "value2", ...}}}}
-               - If MISSING: Output JSON {{"status": "ASK", "question": "What is the value for [param_name] of {action_name}?"}}
-               - If AMBIGUOUS: Output JSON {{"status": "ASK", "question": "Clarification needed for [param_name] of {action_name}..."}}
-
-            5. When status is READY, you MUST also provide "action_label":
-               - A brief natural language description of THIS specific action call
-               - Examples: "搜索机器学习最新进展", "发送邮件给张三关于项目进度", "打开百度首页"
-               - This label helps distinguish multiple calls to the same action function
-
-            !Important!
-            Action function knows absolutely NOTHING about the context, it only can see what's provided in paramter you generate.
-            Must provide consicse and compelete information in parameter.
-
-            Output ONLY valid JSON.
-        """)
-
-        # bash 命令特殊处理：heredoc 内容需要真正的换行
-        if action_name == "bash":
-            system_prompt += textwrap.dedent("""
-                [Special Instructions for bash command]:
-                - If the command contains multi-line content (e.g. heredoc with << 'EOF'),
-                  the command parameter MUST contain real newlines, not escaped \\n.
-                - Correct JSON: {"command": "cat > file << 'EOF'\\nhello\\nworld\\nEOF"}
-                - Wrong JSON:   {"command": "cat > file << 'EOF'\\\\nhello\\\\nworld\\\\nEOF"}
-                - The heredoc delimiter (e.g. EOF, ENDOFFILE) MUST be on its own line.
-            """)
-
-        negotiation_history = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"[Intent]\n{intent}"}
-        ]
-
-        self.logger.debug(f"开始解析参数，action={action_name}")
-
+        current_params = dict(user_params)
+        action_label = ""
         max_turns = 5
 
-        for i in range(max_turns):
-            response = await self.backend.think(messages=negotiation_history)
-            reasoning_str = response['reasoning']
-            reply_str = response['reply']
+        for turn in range(max_turns):
+            # 格式化当前参数名（只给名字，不给值）
+            current_keys = ", ".join(current_params.keys()) if current_params else "(无)"
 
-            #self.logger.debug(f"小脑思考：{reasoning_str}")
-            #self.logger.debug(f"小脑回复：{reply_str}")
+            system_prompt = textwrap.dedent(f"""\
+                You are a parameter name aligner.
 
-            raw_content = response['reply'].replace("```json", "").replace("```", "").strip()
+                Function: {action_name}
+                Defined parameters:
+                {param_def}
+
+                The user wrote these parameter names: {current_keys}
+
+                Your job:
+                1. Map each user parameter name to the correct defined parameter name (case-insensitive, semantic matching)
+                2. Identify which required parameters are missing
+
+                Output ONLY a JSON object:
+                {{"mapping": {{"user_name1": "correct_name1", ...}}, "missing": ["param1", "param2"], "action_label": "brief description"}}
+            """)
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"User wrote these params: {', '.join(current_params.keys())}"},
+            ]
+
+            self.logger.debug(f"convert_params turn {turn+1}: {action_name}, params={list(current_params.keys())}")
+
+            response = await self.backend.think(messages=messages)
+            raw = response['reply'].replace("```json", "").replace("```", "").strip()
 
             try:
-                decision = json.loads(raw_content)
-                status = decision.get("status")
-
-                if status == "READY":
-                    params = decision.get("params", {})
-                    action_label = decision.get("action_label", "")
-                    #self.logger.debug(f"参数解析成功：{params}")
-                    return {
-                        "action": action_name,
-                        "action_label": action_label,
-                        "params": params
-                    }
-                elif status == "NOT_TO_RUN":
-                    reason = decision.get("reason", "Action not to be executed")
-                    self.logger.debug(f"Action 不执行：{reason}")
-                    return {
-                        "action": action_name,
-                        "action_label": "",
-                        "params": "NOT_TO_RUN",
-                        "reason": reason
-                    }
-
-                elif status == "ASK":
-                    # 反问 Brain
-                    question = decision.get("question")
-                    self.logger.debug(f"需要澄清：{question}")
-
-                    answer = await brain_callback(question)
-
-                    self.logger.debug(f"[Brain Reply]: {answer}")
-                    negotiation_history.append({"role": "assistant", "content": question})
-                    negotiation_history.append({"role": "user", "content": answer})
-
-                    # 继续下一轮循环
-                    continue
-
+                alignment = json.loads(raw)
             except json.JSONDecodeError:
-                self.logger.warning(f"JSON 解析失败，尝试恢复")
-                if len(negotiation_history) > 2:
-                    negotiation_history.pop()
+                self.logger.warning(f"convert_params JSON 解析失败: {raw[:200]}")
+                break
 
-        return {"action": action_name, "action_label": "", "params": {}}
+            mapping = alignment.get("mapping", {})
+            missing = alignment.get("missing", [])
+            action_label = alignment.get("action_label", "")
 
-    
+            # 用 mapping 对齐参数名，value 原样保留
+            aligned = {}
+            for user_key, user_val in current_params.items():
+                correct_key = mapping.get(user_key, user_key)
+                aligned[correct_key] = user_val
+            current_params = aligned
+
+            # 全齐 → 返回
+            if not missing:
+                return {"params": current_params, "action_label": action_label}
+
+            # 有缺失但没有 brain_callback → 无法补齐，退出
+            if not brain_callback:
+                break
+
+            # 问 Brain 补值
+            param_names = ", ".join(current_params.keys()) if current_params else "(无)"
+            missing_names = ", ".join(missing)
+            question = (
+                f"你要执行的：{action_name}({param_names})，"
+                f"缺少 {missing_names} 参数，请重新输出完整 action 语句"
+            )
+            answer = await brain_callback(question)
+            self.logger.debug(f"[Brain 回复]: {answer}")
+
+            # 从 Brain 回答中提取目标 action 的函数调用
+            extracted = self._extract_action_call(answer, action_name)
+            if extracted:
+                re_parsed = _utils.parse_params_from_call(extracted)
+                if re_parsed:
+                    current_params.update(re_parsed)
+
+        return {"params": current_params, "action_label": action_label}
+
+    def _extract_action_call(self, text: str, action_name: str) -> str:
+        """
+        从 Brain 回答中提取目标 action 的函数调用。
+
+        Brain 可能输出额外文字、<action_script> 块等，
+        只提取以 action_name 开头的那行完整函数调用。
+
+        Returns:
+            函数调用的参数文本（括号内），找不到返回空字符串
+        """
+        for line in text.splitlines():
+            stripped = line.strip()
+            # 匹配 action_name( 或 skill.action_name(
+            if stripped.startswith(f"{action_name}(") or \
+               re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\.' + re.escape(action_name) + r'\(', stripped):
+                # 括号配对提取 params
+                start = stripped.index('(')
+                depth = 1
+                pos = start + 1
+                while pos < len(stripped) and depth > 0:
+                    if stripped[pos] == '(':
+                        depth += 1
+                    elif stripped[pos] == ')':
+                        depth -= 1
+                    pos += 1
+                if depth == 0:
+                    return stripped[start + 1:pos - 1].strip()
+        return ""
+
