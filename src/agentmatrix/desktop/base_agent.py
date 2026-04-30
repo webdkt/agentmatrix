@@ -619,6 +619,24 @@ Start generating the Working Notes now.
         from ..core.micro_agent_utils import format_email_history
         return format_email_history(emails, self.name)
 
+    def is_llm_available(self) -> bool:
+        """检查 LLM 服务是否可用。"""
+        if not hasattr(self, "runtime") or self.runtime is None:
+            return True
+        monitor = self.runtime.llm_monitor
+        if monitor is None:
+            return True
+        return monitor.llm_available.is_set()
+
+    async def wait_for_llm_recovery(self) -> None:
+        """等待 LLM 服务恢复。"""
+        monitor = self.runtime.llm_monitor if self.runtime else None
+        if monitor is None:
+            return
+        self.logger.info("⏳ Waiting for LLM service recovery...")
+        await monitor.llm_available.wait()
+        self.logger.info("✅ LLM service recovered!")
+
     # ========== MD Skill 管理 ==========
 
     def _load_md_skills(self) -> dict:

@@ -68,3 +68,11 @@ class AgentShell(Protocol):
             agent: MicroAgent 实例（可访问 messages, scratchpad, session 等）
         """
         ...
+
+    def is_llm_available(self) -> bool:
+        """检查 LLM 服务是否可用。"""
+        ...
+
+    async def wait_for_llm_recovery(self) -> None:
+        """等待 LLM 服务恢复。"""
+        ...

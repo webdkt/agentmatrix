@@ -263,12 +263,6 @@ class MicroAgent(AutoLoggerMixin):
         else:
             return "当前没有正在运行的操作"
 
-    def _build_no_action_reflect_message(self, action_section_text: str, raw_reply: str = "") -> Optional[str]:
-        return _utils.build_no_action_reflect_message(action_section_text, raw_reply, self.action_registry["_flat"])
-
-    def _build_exit_verification_prompt(self, raw_reply: str) -> str:
-        return _utils.build_exit_verification_prompt(raw_reply)
-
     async def inject_signals(self, signals):
         """Pre-think: 生成完整文本并注入 messages"""
         if not signals:
@@ -471,7 +465,7 @@ class MicroAgent(AutoLoggerMixin):
                 skill_name = "base"
             else:
                 # 🔥 推断 skill 名称
-                skill_name = self._infer_skill_name(cls.__name__)
+                skill_name = _utils.infer_skill_name(cls.__name__)
 
             registered_skills.add(skill_name)
 
@@ -552,9 +546,6 @@ class MicroAgent(AutoLoggerMixin):
             f"✅ 扫描完成: {len(registered_skills)} 个 skills, "
             f"{total_actions} 个 actions"
         )
-
-    def _infer_skill_name(self, class_name: str) -> str:
-        return _utils.infer_skill_name(class_name)
 
     def _resolve_action(self, action_call: str):
         """
@@ -773,7 +764,7 @@ class MicroAgent(AutoLoggerMixin):
         )
         self._log(
             logging.DEBUG,
-            f"Messages:\n{self._format_messages_for_debug(self.messages)}",
+            f"Messages:\n{_utils.format_messages_for_debug(self.messages)}",
         )
 
         try:
@@ -926,7 +917,7 @@ class MicroAgent(AutoLoggerMixin):
         for cls in self.__class__.__mro__:
             if hasattr(cls, "_skill_description") and cls.__name__.endswith("Mixin"):
                 # 检查是否是匹配的 skill
-                cls_skill_name = self._infer_skill_name(cls.__name__)
+                cls_skill_name = _utils.infer_skill_name(cls.__name__)
                 if cls_skill_name == skill_name:
                     return cls._skill_description
 
@@ -939,9 +930,6 @@ class MicroAgent(AutoLoggerMixin):
 
         # return msg
         return self.task
-
-    def _format_messages_for_debug(self, messages: List[Dict]) -> str:
-        return _utils.format_messages_for_debug(messages)
 
     async def _think_with_system_failure_recovery(self):
         """
@@ -965,9 +953,9 @@ class MicroAgent(AutoLoggerMixin):
             await asyncio.sleep(5)
 
             # 2. 等待 LLM service 恢复
-            if not self._is_llm_available():
+            if not self.root_agent.is_llm_available():
                 self.logger.warning("🔄 Service still unavailable, waiting for recovery...")
-                await self._wait_for_llm_recovery()
+                await self.root_agent.wait_for_llm_recovery()
 
             # 3. 重试一次
             self.logger.info("🔄 Retrying after service recovery...")
@@ -1141,7 +1129,7 @@ class MicroAgent(AutoLoggerMixin):
                 if not action_names and not self._running_actions:
                     # 🔍 优先检查是否有疑似幻觉的 action 名称（在通用验证之前）
                     if not self._no_action_reflected:
-                        reflect_msg = self._build_no_action_reflect_message(action_section_text, raw_reply or "")
+                        reflect_msg = _utils.build_no_action_reflect_message(action_section_text, raw_reply or "", self.action_registry["_flat"])
                         if reflect_msg:
                             # 有疑似幻觉 → 给 LLM 一次 reflect 机会（比通用验证更精准）
                             self.logger.info("No action detected but hallucination pattern found, sending reflect prompt")
@@ -1158,7 +1146,7 @@ class MicroAgent(AutoLoggerMixin):
                         self.logger.info("No actions detected - initiating simple verification for top-level micro agent")
 
                         # 构建简化的验证提示
-                        verification_prompt = self._build_exit_verification_prompt(raw_reply or "")
+                        verification_prompt = _utils.build_exit_verification_prompt(raw_reply or "")
 
                         # 独立的 LLM 调用，只传入验证提示（不携带 run_loop 上下文）
                         try:
@@ -1212,7 +1200,7 @@ class MicroAgent(AutoLoggerMixin):
                 await asyncio.sleep(3)
 
                 # 检查服务状态
-                if self._is_llm_available():
+                if self.root_agent.is_llm_available():
                     # 服务已恢复，重试当前步骤
                     self.logger.info("✅ Service recovered, retrying current step")
                     step_count -= 1  # 抵消上面的 +=1，重新执行这一步
@@ -1222,7 +1210,7 @@ class MicroAgent(AutoLoggerMixin):
                 self.logger.warning(
                     "🔄 Service still unavailable, entering wait mode..."
                 )
-                await self._wait_for_llm_recovery()
+                await self.root_agent.wait_for_llm_recovery()
 
                 # 恢复后重试当前步骤
                 self.logger.info(
@@ -1230,34 +1218,6 @@ class MicroAgent(AutoLoggerMixin):
                 )
                 step_count -= 1  # 抵消上面的 +=1，重新执行这一步
                 continue
-
-    def _is_llm_available(self) -> bool:
-        """
-        检查 LLM 服务是否可用
-
-        Returns:
-            bool: 服务是否可用
-        """
-        # 向后兼容：如果没有 runtime，假设服务可用
-        if not hasattr(self.root_agent, "runtime") or self.root_agent.runtime is None:
-            return True
-
-        # 通过 runtime 访问 monitor
-        monitor = self.root_agent.runtime.llm_monitor
-        if monitor is None:
-            return True
-
-        return monitor.llm_available.is_set()
-
-    async def _wait_for_llm_recovery(self):
-        """等待 LLM 服务恢复（等待Event）"""
-        monitor = self.root_agent.runtime.llm_monitor
-        if monitor is None:
-            return
-
-        self.logger.info("⏳ Waiting for LLM service recovery...")
-        await monitor.llm_available.wait()
-        self.logger.info("✅ LLM service recovered!")
 
     async def _cleanup_skills(self):
         """
@@ -1288,9 +1248,6 @@ class MicroAgent(AutoLoggerMixin):
     def _parse_simple_yes_no(self, raw_reply: str) -> dict:
         return _utils.parse_simple_yes_no(raw_reply)
 
-    def _extract_mentioned_actions(self, thought: str) -> List[str]:
-        return _utils.extract_mentioned_actions(thought, self.action_registry["_flat"])
-
     def _parse_and_validate_actions(self, raw_reply: str, mentioned_actions: List[str]) -> Dict[str, Any]:
         return _utils.parse_and_validate_actions(raw_reply, mentioned_actions)
 
@@ -1313,7 +1270,7 @@ class MicroAgent(AutoLoggerMixin):
             List[str]: 真正要执行的 action 名称列表
         """
         # ========== 阶段 1：提取"提到的 actions" ==========
-        mentioned_actions = self._extract_mentioned_actions(thought)
+        mentioned_actions = _utils.extract_mentioned_actions(thought, self.action_registry["_flat"])
 
         if not mentioned_actions:
             # 没有提到任何 action
