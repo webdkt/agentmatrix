@@ -4,13 +4,14 @@ from dataclasses import dataclass, asdict, field
 from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
-from .session_manager import SessionManager
+from .session_manager import SessionManager, AgentSessionStore
 import traceback
 import inspect
 import json
 import textwrap
 from ..core.log_util import AutoLoggerMixin
 from ..core.agent_shell import AgentShell
+from ..core.state_manager import StateManagerMixin
 import logging
 from pathlib import Path
 from ..core.micro_agent import MicroAgent
@@ -98,7 +99,7 @@ class AskUserQuestion:
         )
 
 
-class BaseAgent(AutoLoggerMixin, AgentShell):
+class BaseAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
     _log_from_attr = "name"  # 日志名字来自 self.name 属性
 
     _custom_log_level = logging.DEBUG
@@ -166,15 +167,8 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
 
-        # 🔀 暂停/恢复机制
-        self._paused = False
-        self._pause_event = asyncio.Event()
-        self._pause_event.set()  # 初始状态为已设置（不阻塞）
-
-        # 🛑 停止机制
-        self._stopped = False
-        self._stop_event = asyncio.Event()
-        self._stop_event.set()  # 初始状态为已设置（不阻塞）
+        # 🔀 状态管理（pause/resume/stop/checkpoint）
+        self._init_state_manager()
 
         # 💬 ask_user 机制（等待用户输入）
         self._pending_user_question = None  # 当前等待用户回答的问题
@@ -187,7 +181,6 @@ class BaseAgent(AutoLoggerMixin, AgentShell):
 
         # 🆕 Stop 机制
         self._execute_task = None  # 当前正在运行的 execute task
-        self._is_stopping = False  # 是否正在停止
 
         # 🆕 信号驱动架构 — session 管理
         self.active_session_id: Optional[str] = None
@@ -639,122 +632,74 @@ Start generating the Working Notes now.
 
     # ========== MD Skill 管理 ==========
 
-    def _load_md_skills(self) -> dict:
-        """扫描 Agent 的 SKILLS 目录，返回 {skill_name: description} 字典"""
+    def _load_md_skill_names(self) -> List[str]:
+        """扫描 Agent 的 SKILLS 目录，返回 skill 名字列表。"""
         try:
             skills_dir = self.runtime.paths.get_agent_skills_dir(self.name)
             if not skills_dir.exists():
-                return {}
+                return []
 
-            skills = {}
+            names = []
             for item in skills_dir.iterdir():
                 if not item.is_dir():
                     continue
-
                 # 查找 skill.md（不区分大小写）
-                skill_md_path = None
                 for file in item.iterdir():
                     if file.is_file() and file.name.upper() == "SKILL.MD":
-                        skill_md_path = file
+                        names.append(item.name)
                         break
-
-                if skill_md_path is None:
-                    continue
-
-                description = self._read_skill_description(skill_md_path)
-                skills[item.name] = description
-
-            return skills
+            return names
 
         except Exception as e:
-            self.logger.warning(f"Failed to load md skills: {e}")
-            return {}
+            self.logger.warning(f"Failed to load md skill names: {e}")
+            return []
 
-    @staticmethod
-    def _read_skill_description(skill_md_path) -> str:
-        from ..core.utils import micro_agent_utils as _utils
-        return _utils.read_skill_description(skill_md_path)
+    def get_md_skill_prompt(self, skill_names: List[str]) -> str:
+        """获取 MD Skill 的 prompt 文本。
 
-    @staticmethod
-    def _build_md_skill_section_from_dict(md_skills: dict) -> str:
-        """从 md_skills dict 生成扩展技能库文本段"""
-        if not md_skills:
+        Shell 实现：读取 SKILL.md、提取描述、组装 prompt。
+        """
+        if not skill_names:
             return ""
+
+        skills_dir = self.runtime.paths.get_agent_skills_dir(self.name)
 
         lines = [
             "#### B. 扩展技能库 (Procedural Skills)",
-            f"你有{len(md_skills)}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。",
+            f"你有{len(skill_names)}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。",
             "如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）",
             "如果名字看上去可能是你需要的，就继续读里面的 skill.md 的开头，判断是否真的是你需要的技能",
             "如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行",
             "",
             "可用扩展技能：",
         ]
-        for skill_name, description in md_skills.items():
-            lines.append(f"- **{skill_name}**: {description}")
+
+        for name in skill_names:
+            description = self._read_skill_description_from_dir(skills_dir / name)
+            lines.append(f"- **{name}**: {description}")
 
         return "\n".join(lines)
+
+    def _read_skill_description_from_dir(self, skill_dir: Path) -> str:
+        """从 skill 目录中读取 SKILL.md 的 description。"""
+        try:
+            for file in skill_dir.iterdir():
+                if file.is_file() and file.name.upper() == "SKILL.MD":
+                    from ..core.utils import micro_agent_utils as _utils
+                    return _utils.read_skill_description(file)
+        except Exception:
+            pass
+        return "（请打开 skill 文件查看详细介绍）"
 
     @property
     def status(self):
         """只读属性：必须通过 update_status() 方法来修改"""
         return self._status
 
-    # ========== 暂停/恢复机制 ==========
+    # ========== StateManagerMixin hook ==========
 
-    async def pause(self):
-        """暂停 Agent 执行"""
-        if self._paused:
-            self.logger.warning(f"Agent {self.name} 已经是暂停状态")
-            return
-
-        self._paused = True
-        self._pause_event.clear()  # 清除事件，导致 await 会阻塞
-        self.logger.info(f"⏸️ Agent {self.name} 已暂停")
-
-        # 🔧 更新状态并推送
-        self.update_status(new_status=AgentStatus.PAUSED)
-
-    async def resume(self):
-        """恢复 Agent 执行（用于 pause 恢复）"""
-        if self._paused:
-            self._paused = False
-            self._pause_event.set()
-            self.logger.info(f"▶️ Agent {self.name} 从暂停状态恢复")
-            self.update_status(new_status=AgentStatus.IDLE)
-        else:
-            self.logger.warning(f"Agent {self.name} 未暂停")
-
-    async def _checkpoint(self):
-        """
-        检查点：在 MicroAgent 的关键位置调用
-
-        如果 Agent 处于停止或暂停状态，会挂起当前协程，直到恢复。
-        """
-        if self._stopped:
-            self.logger.debug(f"🛑 Agent {self.name} 检查到停止，等待恢复...")
-            await self._stop_event.wait()
-            self.logger.debug(f"✅ Agent {self.name} 从停止状态恢复")
-        if self._paused:
-            self.logger.debug(f"🛑 Agent {self.name} 检查到暂停，等待恢复...")
-            await self._pause_event.wait()
-            self.logger.debug(f"✅ Agent {self.name} 已恢复执行")
-
-    @property
-    def is_paused(self) -> bool:
-        """返回 Agent 是否暂停"""
-        return self._paused
-
-    # ========== Stop 机制 ==========
-
-    def stop(self):
-        """
-        停止 Agent：取消当前 active session。
-
-        Agent 继续运行 main loop，新邮件到达时会自动触发新的 session 处理。
-        """
-        self._is_stopping = True
-
+    def _on_stop(self):
+        """停止时取消当前 session 和 running actions。"""
         # 取消所有 running action tasks
         if self.active_micro_agent:
             entries = dict(self.active_micro_agent._running_actions)
@@ -766,9 +711,7 @@ Start generating the Working Notes now.
         # 取消 session task
         if self._session_task and not self._session_task.done():
             self._session_task.cancel()
-            self.logger.info(f"🛑 Agent {self.name} 已停止当前 session")
-
-        self.update_status(new_status=AgentStatus.STOPPED)
+            self.logger.info(f"Agent {self.name} 已停止当前 session")
 
     # ========== ask_user 机制 ==========
 
@@ -901,14 +844,14 @@ Start generating the Working Notes now.
 
         try:
             # 发起提问前，先确保当前没有被暂停
-            await self._checkpoint()
+            await self.checkpoint()
 
             # 🔧 修复：直接 await Future，不使用 wait_for（避免 Future 被取消）
             # 无限期挂起，直到前端调用 submit_user_input(answer) 触发 set_result(answer)
             answer = await self._user_input_future
 
             # 拿到答案后，再次检查是否在等待期间系统被暂停了
-            await self._checkpoint()
+            await self.checkpoint()
 
             answer_preview = answer[:50] if len(answer) > 50 else answer
             self.logger.info(f"✅ 收到用户回答: {answer_preview}")
@@ -1232,11 +1175,8 @@ Start generating the Working Notes now.
 
         try:
             while True:
-                # 暂停状态：阻塞等待 resume
-                if self._paused:
-                    self.logger.info("⏸️ Main loop 已暂停，等待恢复...")
-                    await self._pause_event.wait()
-                    self.logger.info("▶️ Main loop 已恢复")
+                # 检查点：暂停/停止时阻塞等待
+                await self.checkpoint()
 
                 # 阻塞等待邮件
                 email = await self.inbox.get()
@@ -1375,13 +1315,13 @@ Start generating the Working Notes now.
             yellow_pages_section=self.post_office.yellow_page_exclude_me(self.name) or "",
         )
 
-        # 加载 md skills
-        md_skills = self._load_md_skills()
+        # 加载 md skill 名字列表
+        md_skill_names = self._load_md_skill_names()
 
         # 创建 MicroAgent
         micro_agent = MicroAgent(
             parent=self, name=self.name, available_skills=available_skills,
-            system_prompt=template_str, md_skills=md_skills,
+            system_prompt=template_str, md_skill_names=md_skill_names,
         )
         self.active_micro_agent = micro_agent
 
@@ -1455,8 +1395,7 @@ Start generating the Working Notes now.
             result = await micro_agent.execute(
                 run_label="Process Email",
                 task="",  # 邮件通过 signal 进入，不再通过 task
-                session_manager=self.session_manager,
-                session=session,
+                session_store=AgentSessionStore(session, self.session_manager),
             )
         except asyncio.CancelledError:
             if self._is_stopping:
@@ -1693,13 +1632,13 @@ Start generating the Working Notes now.
             yellow_pages_section=yellow_pages or "",
         )
 
-        # 加载 md skills
-        md_skills = self._load_md_skills()
+        # 加载 md skill 名字列表
+        md_skill_names = self._load_md_skill_names()
 
         # 创建临时 MicroAgent
         temp_micro = MicroAgent(
             parent=self, name=self.name, available_skills=available_skills,
-            system_prompt=template_str, md_skills=md_skills,
+            system_prompt=template_str, md_skill_names=md_skill_names,
         )
 
         # 渲染 prompt（注入 core_prompt）

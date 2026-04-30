@@ -13,6 +13,7 @@ import asyncio
 import uuid
 import types  # 用于动态绑定
 from typing import Dict, List, Optional, Callable, Any, Union
+from .session_store import SessionStore
 import logging
 import time
 
@@ -57,7 +58,7 @@ class MicroAgent(AutoLoggerMixin):
         name: Optional[str] = None,
         available_skills: Optional[List[str]] = None,
         system_prompt: str = "",
-        md_skills: Optional[Dict[str, str]] = None,
+        md_skill_names: Optional[List[str]] = None,
         compression_token_threshold: int = 64000,
     ):
         """
@@ -69,7 +70,7 @@ class MicroAgent(AutoLoggerMixin):
             name: Agent 名称（可选，自动生成）
             available_skills: 可用技能列表（如 ["file", "browser"]）
             system_prompt: system prompt 模板（Shell 或创建者预组装）
-            md_skills: 已加载的 md skill 字典 {name: description}
+            md_skill_names: MD skill 名字列表（如 ["git-workflow", "memory"]）
             compression_token_threshold: 触发消息压缩的 token 阈值（默认 64000）
         """
         # 基本信息（必须在动态组合之前设置，因为 _create_dynamic_class 需要 self.name）
@@ -124,7 +125,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== system prompt（Shell 或创建者预组装的模板）==========
         self.system_prompt = system_prompt
-        self.md_skills = md_skills or {}
+        self.md_skill_names = md_skill_names or []
 
         # ========== Skill 上下文 ==========
         # 供 skill 存取自己的属性，避免 mixin __init__ 的 MRO 问题
@@ -643,8 +644,7 @@ class MicroAgent(AutoLoggerMixin):
         persona: str = None,
         initial_history: Optional[List[Dict]] = None,
         result_params: Optional[Dict[str, str]] = None,
-        session: Optional[Dict] = None,
-        session_manager=None,
+        session_store: Optional[SessionStore] = None,
         simple_mode: bool = False,
         exit_actions=[],  # 如果运行哪些动作就退出主循环
     ) -> Any:
@@ -661,8 +661,7 @@ class MicroAgent(AutoLoggerMixin):
             task: 任务描述
             initial_history: 初始对话历史（用于恢复记忆，可选）
             result_params: 返回值参数描述（可选）
-            session: session 对象（可选），用于持久化对话历史
-            session_manager: session_manager 对象（可选），用于保存 session
+            session_store: 消息持久化接口（可选），Shell 提供的 SessionStore 实现
             simple_mode: 是否使用简化模式（默认 True)
                           - False: 完整的 system prompt（包含操作环境说明）
                           - True:  简化的 system prompt（只保留 persona + 可用工具）
@@ -694,16 +693,8 @@ class MicroAgent(AutoLoggerMixin):
         if simple_mode:
             self.simple_mode = simple_mode
         
-        # 保存 session 和 session_manager 引用
-        self.session = session
-        self.session_manager = session_manager
-
-        # 🆕 Session 兼容性设置：为了与 BaseAgent 和 Skills 兼容
-        # 当 session 参数被提供时，设置与 BaseAgent 相同的属性
-        if session:
-            self.current_session = session
-            
-            
+        # 保存 session store 引用
+        self._session_store = session_store
 
         # 不设置步数限制，只受时间限制（如果设置了）
 
@@ -712,10 +703,9 @@ class MicroAgent(AutoLoggerMixin):
         self.result = None
 
         # 恢复或初始化对话历史
-        # 优先从 session 获取，否则使用 initial_history
-        if session:
-            # 从 session 获取 history
-            self.messages = session.get("history", []).copy()
+        # 优先从 session_store 获取，否则使用 initial_history
+        if session_store:
+            self.messages = session_store.load_messages()
             self._log(
                 logging.INFO, f"Loaded {len(self.messages)} messages from session"
             )
@@ -802,12 +792,9 @@ class MicroAgent(AutoLoggerMixin):
         finally:
             await self._cleanup_skills()
 
-            # 🔥 确保 session 最终状态被持久化（等待所有后台保存任务完成）
-            if self.session and self.session_manager:
-                # 保存最新的 session 状态
-                self.session["history"] = self.messages
-                await self.session_manager.save_session(self.session)
-
+            # 🔥 确保最终状态被持久化（等待所有后台保存任务完成）
+            if self._session_store:
+                await self._session_store.save_messages(self.messages)
                 # 等待一小段时间，让其他可能的异步保存任务完成
                 await asyncio.sleep(0.1)
 
@@ -838,33 +825,14 @@ class MicroAgent(AutoLoggerMixin):
         actions_list = self._format_skills_overview()
 
         md_skill_section = ""
-        if self.md_skills:
-            md_skill_section = self._build_md_skill_section_from_dict()
+        if self.md_skill_names:
+            md_skill_section = self.root_agent.get_md_skill_prompt(self.md_skill_names)
 
         return (
             template
             .replace("$actions_list", actions_list)
             .replace("$md_skill_section", md_skill_section)
         )
-
-    def _build_md_skill_section_from_dict(self) -> str:
-        """从 self.md_skills dict 生成扩展技能库文本段"""
-        if not self.md_skills:
-            return ""
-
-        lines = [
-            "#### B. 扩展技能库 (Procedural Skills)",
-            f"你有{len(self.md_skills)}个额外扩展技能存放在 `~/SKILLS/` 目录。每个子目录对应一个技能，目录内包含 skill.md 描述文件。",
-            "如果需要使用扩展技能，先列目录，看有什么技能（目录名代表了技能的名字）",
-            "如果名字看上去可能是你需要的，就继续读里面的 skill.md 的开头，判断是否真的是你需要的技能",
-            "如果是需要的技能，就继续阅读，理解如何使用。扩展技能的命令通常要通过 bash 执行",
-            "",
-            "可用扩展技能：",
-        ]
-        for skill_name, description in self.md_skills.items():
-            lines.append(f"- **{skill_name}**: {description}")
-
-        return "\n".join(lines)
 
     def _format_actions_list(self) -> str:
         """格式化可用 actions 列表（新架构：按 skill 分组）"""
@@ -978,7 +946,7 @@ class MicroAgent(AutoLoggerMixin):
 
         while True:
             # 🔀 检查点1：每次循环开始时检查是否暂停
-            await self.root_agent._checkpoint()
+            await self.root_agent.checkpoint()
 
             # 检查是否需要自动压缩
             if self._should_compress_messages():
@@ -997,7 +965,7 @@ class MicroAgent(AutoLoggerMixin):
             self.logger.debug(step_info)
             self._no_action_reflected = False  # 重置本轮是否有 action 被反映的标记
             # 🔀 检查点2：think 之前检查是否暂停
-            await self.root_agent._checkpoint()
+            await self.root_agent.checkpoint()
 
             # ===== 批量取信号 =====
             # 如果 signal_queue 非空 → drain 所有 signals
@@ -1545,11 +1513,9 @@ write, send_mail, write
                 # 异常情况，直接替换
                 self.messages[-1]["content"] = content
 
-        # 如果有 session，自动保存
-        if self.session and self.session_manager:
-            self.session["history"] = self.messages.copy()
-            # 创建异步任务来保存（不阻塞主流程）
-            asyncio.create_task(self.session_manager.save_session(self.session))
+        # 如果有 session store，自动保存
+        if self._session_store:
+            asyncio.create_task(self._session_store.save_messages(self.messages))
 
 
     def deprecated_get_history(self) -> List[Dict]:

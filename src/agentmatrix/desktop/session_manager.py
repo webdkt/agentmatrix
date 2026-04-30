@@ -360,4 +360,23 @@ class SessionManager(AutoLoggerMixin):
 
         self.logger.debug(f"💾 Saved session history {session['session_id'][:8]} (atomic)")
 
+
+class AgentSessionStore:
+    """
+    SessionStore 的 Desktop 实现 — 包装 session dict + SessionManager。
+
+    Core 通过 SessionStore 协议读写消息，不接触 session 结构和磁盘 I/O。
+    """
+
+    def __init__(self, session: dict, session_manager: SessionManager):
+        self._session = session
+        self._manager = session_manager
+
+    def load_messages(self) -> list:
+        return self._session.get("history", []).copy()
+
+    async def save_messages(self, messages: list) -> None:
+        self._session["history"] = messages
+        await self._manager.save_session(self._session)
+
     

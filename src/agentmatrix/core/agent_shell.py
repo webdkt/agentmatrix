@@ -69,6 +69,27 @@ class AgentShell(Protocol):
         """
         ...
 
+    async def checkpoint(self) -> None:
+        """协作式检查点：Core 在关键位置调用，Shell 决定是否暂停/停止。
+
+        典型实现：检查 paused/stopped 标志，必要时 await 等待恢复。
+        """
+        ...
+
+    def get_md_skill_prompt(self, skill_names: List[str]) -> str:
+        """获取 MD Skill 的 prompt 文本。
+
+        Shell 决定如何读取 SKILL.md、如何组装 prompt。
+        Core 只提供 skill 名字列表。
+
+        Args:
+            skill_names: skill 名字列表（如 ["git-workflow", "memory"]）
+
+        Returns:
+            完整的 MD Skill prompt 文本，用于注入 system prompt
+        """
+        ...
+
     def is_llm_available(self) -> bool:
         """检查 LLM 服务是否可用。"""
         ...
