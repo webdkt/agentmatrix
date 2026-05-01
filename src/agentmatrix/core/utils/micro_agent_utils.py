@@ -250,6 +250,25 @@ def _parse_value(value_str: str) -> Any:
     return value_str
 
 
+def parse_positional_args(params_text: str) -> List[Any]:
+    """
+    解析纯位置参数列表（无 key= 前缀的值）。
+
+    与 parse_params_from_call 互补：那个只处理 key=value，这个处理纯值。
+    复用 _split_params（逗号分割，尊重引号和括号）和 _parse_value。
+
+    Args:
+        params_text: 括号内的参数文本
+
+    Returns:
+        解析后的值列表，如 ["May 1 news", 10]
+    """
+    if not params_text:
+        return []
+    parts = _split_params(params_text)
+    return [_parse_value(part.strip()) for part in parts if part.strip()]
+
+
 def validate_params(
     params: dict, param_schema: dict
 ) -> Tuple[bool, str]:

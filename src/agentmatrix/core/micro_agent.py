@@ -1008,8 +1008,8 @@ class MicroAgent(AutoLoggerMixin):
                     })
                 
 
-                # 2. 检测 actions（两步：扫描 name → 解析函数式调用）
-                action_names, action_calls = await self._detect_actions(raw_reply or "")
+                # 2. 检测 actions（参数对齐已在内完成）
+                action_names, action_results = await self._detect_actions(raw_reply or "")
 
                 self.logger.info(f"Detected actions: {action_names}")
 
@@ -1043,21 +1043,23 @@ class MicroAgent(AutoLoggerMixin):
                     # exit_action 仍然同步执行，执行完直接退出循环
                     self.logger.info(f"Executing exit action: {exit_action_name}")
                     self.return_action_name = exit_action_name
-                    # 从 action_calls 中找到 exit_action 的 params_text
-                    exit_params_text = ""
-                    for name, ptext in action_calls:
-                        if name == exit_action_name:
-                            exit_params_text = ptext
+                    # 从 action_results 中找到 exit_action 的完整结果
+                    exit_result = None
+                    for r in action_results:
+                        if r[0] == exit_action_name:
+                            exit_result = r
                             break
-                    try:
-                        result = await self._execute_action(
-                            exit_action_name, action_section_text,
-                            action_names.index(exit_action_name) + 1, action_names,
-                            params_text=exit_params_text,
-                        )
-                        self.result = result
-                    except Exception:
-                        pass
+                    if exit_result:
+                        _, exit_params, exit_method, exit_label = exit_result
+                        try:
+                            result = await self._execute_action(
+                                exit_action_name, exit_params, exit_method,
+                                action_names.index(exit_action_name) + 1, action_names,
+                                action_label=exit_label,
+                            )
+                            self.result = result
+                        except Exception:
+                            pass
                     should_break_loop = True
                 elif action_names:
                     action_count = len(action_names)
@@ -1079,7 +1081,7 @@ class MicroAgent(AutoLoggerMixin):
 
                     # 创建顺序执行的 task
                     sequential_task = asyncio.create_task(
-                        self._run_actions_sequential(action_ids, action_calls, action_section_text)
+                        self._run_actions_sequential(action_ids, action_results)
                     )
 
                     # 回填 task 引用（task 可能已经执行完毕并 pop 了 entry，用 get 保护）
@@ -1219,24 +1221,26 @@ class MicroAgent(AutoLoggerMixin):
     def _parse_simple_yes_no(self, raw_reply: str) -> dict:
         return _utils.parse_simple_yes_no(raw_reply)
 
-    async def _detect_actions(self, full_text: str) -> Tuple[List[str], List[Tuple[str, str]]]:
+    async def _detect_actions(self, full_text: str) -> Tuple[List[str], List[Tuple[str, dict, Any, str]]]:
         """
-        从 <action_script> 块中检测要执行的 actions。
+        从 <action_script> 块中检测 actions 并完成参数对齐。
 
         流程：
         1. 提取 <action_script>...</action_script> 块
         2. 没有块 → 无 action
         3. 块内解析函数式调用
         4. 幻觉 → signal 警告
-        5. 特殊通道：块内只有 action name 但非函数式 → 小脑判断
+        5. 对每个合法调用：解析参数 → 校验 → 必要时 cerebellum 对齐
+        6. 特殊通道：块内只有 action name 但非函数式 → cerebellum 补值
 
         Args:
             full_text: LLM 的完整输出
 
         Returns:
-            (action_names, calls)
+            (action_names, action_results)
             - action_names: 合法 action name 列表（用于 exit_action 检测）
-            - calls: [(action_name, params_text), ...] 用于执行
+            - action_results: [(action_name, params_dict, method, action_label), ...]
+              参数已对齐，可直接执行
         """
         # 提取 <action_script> 块
         script_block = _utils.extract_action_script_block(full_text)
@@ -1256,18 +1260,158 @@ class MicroAgent(AutoLoggerMixin):
                 type_name="hallucination_warning",
             ))
 
+        action_results = []
+
         if valid_calls:
-            action_names = [name for name, _ in valid_calls]
+            # 正常路径：逐个解析参数
+            for action_name, params_text in valid_calls:
+                result = await self._align_action_params(action_name, params_text)
+                if result:
+                    action_results.append(result)
+        else:
+            # 特殊通道：块内只有 action name 但不是函数式格式
+            mentioned = self._scan_action_names(script_block)
+            if len(mentioned) == 1 and not hallucinations:
+                result = await self._align_action_params_via_cerebellum(mentioned[0])
+                if result:
+                    action_results.append(result)
+
+        action_names = [r[0] for r in action_results]
+        if action_names:
             self.logger.debug(f"[detect] 函数式调用: {action_names}")
-            return action_names, valid_calls
+        return action_names, action_results
 
-        # 特殊通道：块内只有 action name 但不是函数式格式
-        # 简单扫描块内的 action name
-        mentioned = self._scan_action_names(script_block)
-        if len(mentioned) == 1 and not hallucinations:
-            return await self._cerebellum_judge_single_action(mentioned[0], full_text)
+    async def _align_action_params(
+        self, action_name: str, params_text: str
+    ) -> Optional[Tuple[str, dict, Any, str]]:
+        """
+        解析并对齐单个 action 的参数。
 
-        return [], []
+        流程：
+        1. 获取 method + 参数签名
+        2. 解析 params_text（key=value 或位置参数）
+        3. 校验必须参数是否齐全
+        4. 不齐 → cerebellum fallback
+        5. 仍不齐 → 安全网 signal，返回 None
+
+        Returns:
+            (action_name, params_dict, method, action_label) 或 None
+        """
+        import inspect
+
+        # 1. 获取 method
+        try:
+            method = self._resolve_action(action_name)
+        except ValueError as e:
+            self.logger.warning(f"[align] Action '{action_name}' resolve failed: {e}")
+            return None
+
+        # 2. 获取参数签名
+        param_schema = getattr(method, "_action_param_infos", {})
+        sig = inspect.signature(method)
+        required_params = []
+        all_params = []
+        for pname, param in sig.parameters.items():
+            if pname == 'self':
+                continue
+            all_params.append(pname)
+            if param.default is inspect.Parameter.empty:
+                required_params.append(pname)
+
+        # 3. 解析参数
+        params = {}
+        action_label = ""
+
+        # 3a. 尝试 key=value 解析
+        parsed = _utils.parse_params_from_call(params_text)
+
+        if parsed:
+            # key=value 解析成功
+            params = parsed
+            self.logger.debug(f"[{action_name}] key=value 参数: {params}")
+        elif params_text.strip():
+            # 3b. 尝试位置参数映射
+            positional_values = _utils.parse_positional_args(params_text)
+
+            if len(positional_values) == 1 and all_params:
+                # 单位置参数 → 映射到第一个参数
+                params = {all_params[0]: positional_values[0]}
+                self.logger.debug(f"[{action_name}] 位置参数映射到 '{all_params[0]}': {params}")
+            elif len(positional_values) > 1:
+                # 多个位置参数 → cerebellum fallback
+                self.logger.debug(f"[{action_name}] 多个位置参数无法自动映射，使用 cerebellum")
+                if param_schema:
+                    params, action_label = await self._convert_params(
+                        action_name, {}, param_schema
+                    )
+            # else: positional_values 为空，params 保持 {}
+        # else: params_text 为空，params 保持 {}
+
+        # 4. 校验必须参数
+        missing = [p for p in required_params if p not in params]
+        if missing:
+            self.logger.debug(f"[{action_name}] 缺少参数 {missing}，使用 cerebellum 对齐")
+            if param_schema:
+                params, action_label = await self._convert_params(
+                    action_name, parsed if parsed else {}, param_schema
+                )
+
+            # cerebellum 后再检查
+            still_missing = [p for p in required_params if p not in params]
+            if still_missing:
+                param_hints = ", ".join(f"{p}=<value>" for p in still_missing)
+                self.signal_queue.put_nowait(TextSignal(
+                    text=f"[{action_name} Failed]: 缺少必要参数 {still_missing}。请使用 {action_name}({param_hints}) 格式提供参数。",
+                    type_name="param_error",
+                ))
+                return None
+
+        return (action_name, params, method, action_label)
+
+    async def _align_action_params_via_cerebellum(
+        self, action_name: str
+    ) -> Optional[Tuple[str, dict, Any, str]]:
+        """
+        特殊通道：action name 没有函数式格式（无括号），通过 cerebellum 补全参数。
+
+        Returns:
+            (action_name, params_dict, method, action_label) 或 None
+        """
+        import inspect
+
+        try:
+            method = self._resolve_action(action_name)
+        except ValueError:
+            return None
+
+        param_schema = getattr(method, "_action_param_infos", {})
+
+        # 用 cerebellum 补全所有参数
+        params = {}
+        action_label = ""
+        if param_schema:
+            params, action_label = await self._convert_params(
+                action_name, {}, param_schema
+            )
+
+        # 安全检查
+        sig = inspect.signature(method)
+        missing = []
+        for pname, param in sig.parameters.items():
+            if pname == 'self':
+                continue
+            if param.default is inspect.Parameter.empty and pname not in params:
+                missing.append(pname)
+
+        if missing:
+            param_hints = ", ".join(f"{p}=<value>" for p in missing)
+            self.signal_queue.put_nowait(TextSignal(
+                text=f"[{action_name} Failed]: 缺少必要参数 {missing}。请使用 {action_name}({param_hints}) 格式提供参数。",
+                type_name="param_error",
+            ))
+            return None
+
+        return (action_name, params, method, action_label)
 
     def _scan_action_names(self, text: str) -> List[str]:
         """扫描文本中的合法 action name（去重保序）。"""
@@ -1281,44 +1425,27 @@ class MicroAgent(AutoLoggerMixin):
                 result.append(name)
         return result
 
-    async def _cerebellum_judge_single_action(
-        self, action_name: str, thought: str
-    ) -> Tuple[List[str], List[Tuple[str, str]]]:
-        """
-        特殊通道：只有 1 个 action name 但不是函数式格式。
-        直接当作要执行，返回 action_name 让后续 _execute_action 处理参数。
-        """
-        # 从 thought 中提取可能的参数上下文
-        params_text = self._extract_params_context(action_name, thought)
-        return [action_name], [(action_name, params_text)]
-
-    def _extract_params_context(self, action_name: str, thought: str) -> str:
-        """从 thought 中提取 action_name 附近的参数上下文。"""
-        # 找到 action_name 在 thought 中的位置，取后面的内容作为 params 上下文
-        pattern = re.escape(action_name) + r'\s*\(?(.*?)\)?(?:\s|$)'
-        match = re.search(pattern, thought, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return thought
-
     async def _run_actions_sequential(
-        self, action_ids: List[str], action_calls: List[Tuple[str, str]], thought: str
+        self, action_ids: List[str], action_results: List[Tuple[str, dict, Any, str]]
     ) -> None:
         """
         顺序执行一组 actions，每个完成后立即发 signal 到 queue。
 
         _running_actions 中的 entry 在每个 action 完成时逐个 pop。
         """
-        action_names = [name for name, _ in action_calls]
-        for idx, (action_id, (action_name, params_text)) in enumerate(zip(action_ids, action_calls)):
+        action_names = [r[0] for r in action_results]
+        for idx, (action_id, (action_name, params, method, label)) in enumerate(
+            zip(action_ids, action_results)
+        ):
             self._emit_event("action", "started", {
                 "action_name": action_name,
                 "step_count": self.step_count,
             })
             try:
                 result = await self._execute_action(
-                    action_name, thought, idx + 1, action_names, action_id,
-                    params_text=params_text,
+                    action_name, params, method,
+                    idx + 1, action_names, action_id,
+                    action_label=label,
                 )
 
                 # 读 label（_execute_action 内已回写到 entry）
@@ -1392,63 +1519,45 @@ class MicroAgent(AutoLoggerMixin):
         return result.get("params", {}), result.get("action_label", "")
 
     async def _execute_action(
-        self, action_name: str, thought: str, action_index: int, action_list: List[str],
+        self, action_name: str, params: dict, method,
+        action_index: int, action_list: List[str],
         action_id: str = "",
-        params_text: str = "",
+        action_label: str = "",
     ) -> Any:
         """
-        执行 action。
-
-        流程：
-        1. 从 action_registry 获取方法
-        2. 如果有 params_text → regex 解析参数 → 校验 → 直接执行
-        3. 如果 regex 失败或无 params_text → fallback 到 cerebellum.convert_params
+        执行 action（参数已由 _detect_actions 对齐完毕）。
 
         Args:
-            action_name: 要执行的 action 名称
-            thought: Brain 的思考内容（用户意图）
+            action_name: action 名称
+            params: 已对齐的参数字典
+            method: 已 resolve 的绑定方法
             action_index: 当前是第几个 action（从 1 开始）
             action_list: 完整的 action 列表
             action_id: running_actions 中的 ID
-            params_text: 函数式调用中的参数文本（括号内）
+            action_label: action 标签（cerebellum 生成，用于显示）
         """
-        # 1. 获取方法
-        try:
-            method = self._resolve_action(action_name)
-        except ValueError as e:
-            raise ValueError(f"Action '{action_name}' not found: {e}")
-
-        # 2. 获取参数信息
-        param_schema = getattr(method, "_action_param_infos", {})
-        params = {}
-        action_label = ""
-
-        if param_schema and params_text:
-            # 尝试 regex 解析参数
-            parsed_params = _utils.parse_params_from_call(params_text)
-            is_valid, error_msg = _utils.validate_params(parsed_params, param_schema)
-
-            if is_valid:
-                # regex 解析成功，直接使用
-                params = parsed_params
-                self.logger.debug(f"[{action_name}] regex 解析参数成功: {params}")
-            else:
-                # regex 解析失败，fallback 到 cerebellum 做参数名对齐
-                self.logger.debug(f"[{action_name}] regex 解析失败 ({error_msg})，使用 cerebellum 对齐")
-                params, action_label = await self._convert_params(
-                    action_name, parsed_params, param_schema
-                )
-        elif param_schema:
-            # 有参数 schema 但没有 params_text（特殊通道），用 cerebellum + Brain 补值
-            params, action_label = await self._convert_params(
-                action_name, {}, param_schema
-            )
+        import inspect
 
         # 将 action_label 存入 _running_actions
         if action_id and action_id in self._running_actions:
             self._running_actions[action_id]["label"] = action_label
 
-        # 3. 执行方法（✅ 直接调用，无需动态绑定）
+        # 安全网：最终检查必须参数（防止 Python TypeError）
+        sig = inspect.signature(method)
+        missing = []
+        for pname, param in sig.parameters.items():
+            if pname == 'self':
+                continue
+            if param.default is inspect.Parameter.empty and pname not in params:
+                missing.append(pname)
+        if missing:
+            param_hints = ", ".join(f"{p}=<value>" for p in missing)
+            return (
+                f"[{action_name} Failed]: 缺少必要参数 {missing}。"
+                f"请使用 {action_name}({param_hints}) 格式提供参数。"
+            )
+
+        # 执行方法
         self._log(
             logging.INFO,
             f"[{self.run_label}] Executing {action_name} (task {action_index}/{len(action_list)})",
