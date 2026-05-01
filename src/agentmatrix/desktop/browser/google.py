@@ -166,43 +166,39 @@ async def search_google(adapter, tab, query, max_pages=1):
     print("   Pausing briefly (simulating human behavior)...")
     await asyncio.sleep(random.uniform(0.8, 1.5))
 
-    # Step 4: Submit search — 优先用 Enter（更可靠）
+    # Step 4: Submit search 
     print("\n4. Submitting search...")
-    from ..browser.browser_adapter import KeyAction
-
-    submit_report = await adapter.press_key(tab, KeyAction.ENTER)
-    print(f"   Pressed Enter. URL changed: {submit_report.is_url_changed}")
-
+    
     # 如果 Enter 没有触发页面跳转，点空白处关下拉框，再尝试按钮
-    if not submit_report.is_url_changed:
-        print("   Enter did not navigate, clicking blank area to dismiss dropdown...")
+    
+    print("clicking blank area to dismiss dropdown...")
+    try:
+        body = await asyncio.to_thread(tab.ele, "css:body", timeout=2)
+        if body:
+            await asyncio.to_thread(body.click)
+            await asyncio.sleep(random.uniform(0.3, 0.5))
+    except Exception:
+        pass
+
+    print("   Trying search button click...")
+    search_button_selectors = [
+        'css:input[type="submit"][aria-label="Google 搜索"]',
+        'css:input[type="submit"][aria-label="Google Search"]',
+    ]
+
+    for selector in search_button_selectors:
         try:
-            body = await asyncio.to_thread(tab.ele, "css:body", timeout=2)
-            if body:
-                await asyncio.to_thread(body.click)
-                await asyncio.sleep(random.uniform(0.3, 0.5))
-        except Exception:
-            pass
+            print(f"   Trying to click search button: {selector}")
+            success = await adapter.click_first_visible_by_selector(tab, selector)
 
-        print("   Trying search button click...")
-        search_button_selectors = [
-            'css:input[type="submit"][aria-label="Google 搜索"]',
-            'css:input[type="submit"][aria-label="Google Search"]',
-        ]
-
-        for selector in search_button_selectors:
-            try:
-                print(f"   Trying to click search button: {selector}")
-                success = await adapter.click_first_visible_by_selector(tab, selector)
-
-                if not success.error:
-                    print(f"   ✓ Search button clicked successfully")
-                    break
-                else:
-                    print(f"   ✗ Failed to click button: {success.error}")
-            except Exception as e:
-                print(f"   ✗ Button click failed: {e}")
-                continue
+            if not success.error:
+                print(f"   ✓ Search button clicked successfully")
+                break
+            else:
+                print(f"   ✗ Failed to click button: {success.error}")
+        except Exception as e:
+            print(f"   ✗ Button click failed: {e}")
+            continue
 
     # Wait for search results page to load
     print("   Waiting for search results page to load...")

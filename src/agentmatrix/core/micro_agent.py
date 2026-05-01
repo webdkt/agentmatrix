@@ -1137,7 +1137,7 @@ class MicroAgent(AutoLoggerMixin):
                                 # LLM 判断应该继续 → 注入继续信号
                                 self.logger.info("LLM determined task should continue")
                                 # 构建继续提示消息
-                                continue_message = """没有发现要执行的动作，如果要执行动作，按格式要求在[ACTIOIN]块下输出动作指令。如果没有，可直接确认所有动作已完成"""
+                                continue_message = """没有发现要执行的动作，如果要执行动作，按格式要求在<action_script>内输出。如果没有，可直接确认所有动作已完成"""
 
                                 # 注入继续信号
                                 self.signal_queue.put_nowait(TextSignal(
