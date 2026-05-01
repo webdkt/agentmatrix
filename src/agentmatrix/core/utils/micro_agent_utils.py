@@ -216,6 +216,8 @@ def _split_params(text: str) -> List[str]:
 
 def _parse_value(value_str: str) -> Any:
     """解析单个参数值字符串为 Python 值。"""
+    import ast
+
     # 去掉首尾空白
     value_str = value_str.strip()
 
@@ -223,10 +225,13 @@ def _parse_value(value_str: str) -> Any:
     if not value_str:
         return ""
 
-    # 带引号字符串
+    # 带引号字符串：用 ast.literal_eval 解释转义序列（\n → 换行等）
     if (value_str.startswith('"') and value_str.endswith('"')) or \
        (value_str.startswith("'") and value_str.endswith("'")):
-        return value_str[1:-1]
+        try:
+            return ast.literal_eval(value_str)
+        except (ValueError, SyntaxError):
+            return value_str[1:-1]
 
     # 布尔值
     if value_str.lower() == 'true':
