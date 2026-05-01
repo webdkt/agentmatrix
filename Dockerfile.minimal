@@ -3,7 +3,7 @@
 # 此镜像只包含基础运行时，重型依赖通过 install_packages.sh 在首次运行时安装
 # 镜像源配置在运行时根据网络环境自动选择（国内外自适应）
 
-FROM docker.1ms.run/library/python:3.12-trixie
+FROM python:3.12-trixie
 
 # 安装基础系统工具（最小化）
 # 使用官方源构建，运行时自动选择最佳镜像源
