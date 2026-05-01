@@ -60,7 +60,7 @@ class MyShell(AgentShell):
 agent = MicroAgent(
     name="my-agent",
     shell=my_shell,
-    skills=[FileSkill(), ShellSkill()],
+    skills=["file","web-search"],
 )
 
 # Start the reasoning loop
@@ -76,7 +76,7 @@ git clone https://github.com/webdkt/agentmatrix.git
 cd tutorial/cli-agent
 
 export OPENAI_API_KEY=sk-xxx
-python main.py -m openai:gpt-4o
+python main.py -m https://endpoint-url:deepseek-v4-pro
 ```
 
 ## Key Modules
