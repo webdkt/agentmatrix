@@ -1,0 +1,5 @@
+{
+    "name": "browser_learning",
+    "description": "浏览器自动化学习工具栏：提供指示器和范围选择器，帮助用户标注页面元素",
+    "requires": []
+}

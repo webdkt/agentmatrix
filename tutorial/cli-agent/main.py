@@ -15,6 +15,7 @@ import asyncio
 import sys
 import os
 import argparse
+import importlib
 import logging
 from pathlib import Path
 
@@ -25,7 +26,7 @@ _project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_project_root / "src"))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from cli_config import CLIConfig
+from cli_config import CLIConfig, load_config_file, apply_config_file, load_config
 from cli_shell import CLIShell
 from cli_session import InMemorySessionStore
 from skills.base_skill import BaseSkillMixin
@@ -42,6 +43,97 @@ from agentmatrix.core.signals import TextSignal
 SKILL_REGISTRY.register_python_mixin("base", BaseSkillMixin)
 SKILL_REGISTRY.register_python_mixin("file", FileSkillMixin)
 SKILL_REGISTRY.register_python_mixin("shell", ShellSkillMixin)
+
+
+# ── 外部 Python Skill 发现 ──────────────────────────────────
+
+def _resolve_module_path(fs_path: Path) -> str | None:
+    """
+    尝试将文件系统路径转换为 Python 模块路径（dotted name）。
+
+    遍历 sys.path，检查 fs_path 是否在某个已注册的包路径下。
+    如果是，返回对应的 dotted module path（如 "agentmatrix.desktop.skills"）。
+    这对于含相对导入的 skill（如 cdp_browser 的 from ...core.action）至关重要。
+    """
+    resolved = fs_path.resolve()
+    for sp in sys.path:
+        try:
+            sp_resolved = Path(sp).resolve()
+        except Exception:
+            continue
+        try:
+            rel = resolved.relative_to(sp_resolved)
+        except ValueError:
+            continue
+        # 去掉 .py 后缀的部分，将路径分隔符转为点
+        parts = [p for p in rel.parts if not p.endswith('.py')]
+        module_path = ".".join(parts)
+        # 验证模块是否可导入
+        try:
+            importlib.import_module(module_path)
+            return module_path
+        except ImportError:
+            continue
+    return None
+
+
+def discover_python_skills(skill_dir: str) -> list[str]:
+    """
+    扫描目录发现可用的 Python Skill。
+
+    支持两种结构：
+    - 目录结构: {skill_dir}/{name}/skill.py（推荐）
+    - 扁平文件: {skill_dir}/{name}_skill.py
+
+    Returns:
+        发现的 skill 名称列表
+    """
+    found = []
+    p = Path(skill_dir).resolve()
+    if not p.is_dir():
+        logging.warning(f"Skill 目录不存在: {p}")
+        return found
+
+    # 方式1: 目录结构 — {name}/skill.py
+    for child in sorted(p.iterdir()):
+        if child.is_dir() and (child / "skill.py").exists():
+            found.append(child.name)
+
+    # 方式2: 扁平文件 — {name}_skill.py
+    for f in sorted(p.glob("*_skill.py")):
+        name = f.stem.removesuffix("_skill")
+        if name not in found:
+            found.append(name)
+
+    return found
+
+
+def register_skill_dirs(dirs: list[str]) -> list[str]:
+    """
+    注册外部 Python skill 目录并返回发现的 skill 名称。
+
+    自动检测文件系统路径是否对应 Python 包（如 agentmatrix.desktop.skills），
+    如果是则用模块路径注册，确保相对导入能正确解析。
+
+    Args:
+        dirs: skill 目录路径列表
+
+    Returns:
+        所有发现的 skill 名称列表
+    """
+    all_skills = []
+    for d in dirs:
+        d = os.path.expanduser(d)
+        skills = discover_python_skills(d)
+        if skills:
+            # 尝试转为 Python 模块路径（支持相对导入）
+            search_path = _resolve_module_path(Path(d)) or d
+            SKILL_REGISTRY.add_search_path(search_path)
+            all_skills.extend(skills)
+            logging.info(f"从 {d} 发现 skills: {skills} (search_path={search_path})")
+        else:
+            logging.warning(f"在 {d} 中未发现 Python Skill")
+    return all_skills
 
 
 # ── System Prompt ────────────────────────────────────────────
@@ -128,6 +220,14 @@ class AgentChat:
         self._event_consumer = None
         self._busy = False  # agent 正在执行
 
+        # 从配置文件的 skill_dirs 发现外部 skills
+        if config.skill_dirs:
+            register_skill_dirs(config.skill_dirs)
+
+        # 如果配置了 skills 列表，用它替换默认值
+        if config.skills:
+            self.available_skills = config.skills
+
     def _create_micro_agent(self) -> MicroAgent:
         """创建新的 MicroAgent 实例。"""
         return MicroAgent(
@@ -203,12 +303,15 @@ async def handle_command(cmd_text: str, chat: AgentChat, output_cb) -> str:
     if cmd == "/help":
         lines = [
             "命令:",
+            "  /new                       新会话（重新加载配置和 skills）",
+            "  /reload-agent              重新加载 skills（不清空配置）",
+            "  /restart-with-skill <s1> <s2> ...  重启并切换 skills",
             "  /set-llm <provider:model>  设置 LLM（如 openai:gpt-4o）",
             "  /set-llm <url:model>       设置自定义 endpoint + model",
             "  /url <endpoint>            设置 API endpoint URL",
             "  /api-key <key>             设置 API Key",
             "  /system-prompt <file>      加载 system prompt 文件",
-            "  /skills <dir>              指定 MD skill 目录",
+            "  /skill-dir <dir>           添加 Python skill 目录",
             "  /status                    显示当前配置",
             "  /prompt                    显示完整 system prompt",
             "  /clear                     清空对话历史",
@@ -257,12 +360,72 @@ async def handle_command(cmd_text: str, chat: AgentChat, output_cb) -> str:
         chat.config.skill_dir = arg or None
         await output_cb(f"✅ Skill 目录: {arg or '(已清除)'}", "green")
 
+    elif cmd == "/skill-dir":
+        if not arg:
+            await output_cb("用法: /skill-dir <dir>", "yellow")
+        else:
+            extra = register_skill_dirs([arg])
+            if extra:
+                chat.available_skills.extend(extra)
+                await output_cb(f"✅ 加载 skills: {', '.join(extra)}", "green")
+            else:
+                await output_cb(f"❌ 在 {arg} 中未发现 Python Skill", "red")
+
+    elif cmd == "/restart-with-skill":
+        skills = arg.split()
+        if not skills:
+            await output_cb("用法: /restart-with-skill skill1 skill2 ...", "yellow")
+        else:
+            # 卸载这些 skill 的缓存，强制下次从磁盘重新加载
+            for s in skills:
+                SKILL_REGISTRY.unload_skill(s)
+            chat.available_skills = skills
+            chat.clear()
+            await output_cb(f"✅ Agent 已重启，skills: {', '.join(skills)}", "green")
+
+    elif cmd == "/reload-agent":
+        # 重新加载配置文件 + 卸载所有 skill 缓存 + 清空会话
+        data = load_config_file()
+        if data:
+            apply_config_file(chat.config, data)
+            chat.shell.rebuild_brain(chat.config)
+        # 卸载所有当前 skills，强制重新从磁盘加载
+        for s in chat.available_skills:
+            SKILL_REGISTRY.unload_skill(s)
+        # 重新注册 skill_dirs（路径不变，但发现可能有新 skill）
+        if chat.config.skill_dirs:
+            register_skill_dirs(chat.config.skill_dirs)
+        chat.clear()
+        await output_cb(f"✅ Agent 已重新加载", "green")
+        await output_cb(f"   Skills: {', '.join(chat.available_skills)}", "dim")
+
+    elif cmd == "/new":
+        # 重新加载配置 + 卸载缓存 + 新会话
+        data = load_config_file()
+        if data:
+            apply_config_file(chat.config, data)
+            chat.shell.rebuild_brain(chat.config)
+        # 卸载所有 skill 缓存
+        for s in chat.available_skills:
+            SKILL_REGISTRY.unload_skill(s)
+        # 重新注册 skill_dirs
+        if chat.config.skill_dirs:
+            register_skill_dirs(chat.config.skill_dirs)
+        # 恢复 skills 列表（从配置文件读取）
+        if chat.config.skills:
+            chat.available_skills = list(chat.config.skills)
+        chat.clear()
+        await output_cb("✅ 新会话已启动（配置和 skills 已重新加载）", "bold green")
+        await output_cb(f"   模型: {chat.config.llm_model}", "dim")
+        await output_cb(f"   Skills: {', '.join(chat.available_skills)}", "dim")
+
     elif cmd == "/status":
         c = chat.config
         await output_cb(f"LLM: {c.llm_model}", "dim")
         await output_cb(f"Endpoint: {c.llm_url}", "dim")
         await output_cb(f"API Key: {'已设置 (' + c.llm_api_key[:8] + '...)' if c.llm_api_key else '未设置'}", "dim")
         await output_cb(f"Prompt: {c.system_prompt_file or '(内置)'}", "dim")
+        await output_cb(f"Skills: {', '.join(chat.available_skills)}", "dim")
 
     elif cmd == "/prompt":
         # 创建临时 MicroAgent 获取完整 prompt
@@ -397,10 +560,12 @@ def main():
     parser.add_argument("--api-key", help="API key")
     parser.add_argument("--system-prompt", help="System prompt file")
     parser.add_argument("--skills", help="MD skill directory")
+    parser.add_argument("--skill-dir", action="append", default=[],
+                        help="Python skill 目录（可多次指定）")
     parser.add_argument("--simple", action="store_true", help="Simple mode (no TUI)")
     args = parser.parse_args()
 
-    config = CLIConfig()
+    config = load_config()
 
     # 环境变量
     if os.environ.get("OPENAI_API_KEY"):
@@ -420,6 +585,8 @@ def main():
             config.system_prompt_file = str(p)
     if args.skills:
         config.skill_dir = args.skills
+    if args.skill_dir:
+        config.skill_dirs = args.skill_dir
 
     # 选择模式
     if not args.simple:

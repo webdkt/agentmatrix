@@ -70,6 +70,38 @@ class SkillRegistry:
         self._python_mixins[name] = mixin_class
         logger.debug(f"  ✅ 注册 Python Mixin: {name} -> {mixin_class.__name__}")
 
+    def unload_skill(self, name: str):
+        """
+        卸载已加载的 Skill，清除缓存和 sys.modules，
+        使得下次 get_skills() 时重新从磁盘加载。
+
+        Args:
+            name: Skill 名称（如 "cdp_browser", "new_web_search.deep_reader"）
+        """
+        import sys as _sys
+
+        # 1. 清除 mixin 缓存
+        self._python_mixins.pop(name, None)
+
+        # 2. 清除 sys.modules 中相关的模块
+        #    可能的 key 模式：
+        #    - "{name}_skill"（扁平文件 / 文件系统目录加载）
+        #    - "{base_module}.{name}" （目录加载的虚拟包）
+        #    - "{base_module}.{name}.skill"（目录加载的 skill 模块）
+        #    - "{base_module}.{dotted_name}.*"（嵌套 skill）
+        keys_to_remove = [
+            k for k in _sys.modules
+            if k == f"{name}_skill"
+            or k.endswith(f".{name}")
+            or k.endswith(f".{name}.skill")
+            or (("." in name) and k.endswith(f".{name}.skill"))
+        ]
+        for k in keys_to_remove:
+            _sys.modules.pop(k, None)
+
+        if keys_to_remove:
+            logger.info(f"  🔄 已卸载 Skill: {name} (清除 {len(keys_to_remove)} 个模块)")
+
     def get_skills(self, skill_names: List[str]) -> SkillLoadResult:
         """
         根据技能名称列表获取技能（Lazy Load + 统一接口 + 自动依赖解析）

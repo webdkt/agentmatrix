@@ -231,7 +231,13 @@ def _parse_value(value_str: str) -> Any:
         try:
             return ast.literal_eval(value_str)
         except (ValueError, SyntaxError):
-            return value_str[1:-1]
+            # LLM 长文本可能在引号内换行（ast.literal_eval 不允许裸换行）
+            # 将实际换行替换为 \n 转义序列后重试
+            try:
+                sanitized = value_str.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
+                return ast.literal_eval(sanitized)
+            except (ValueError, SyntaxError):
+                return value_str[1:-1]
 
     # 布尔值
     if value_str.lower() == 'true':
