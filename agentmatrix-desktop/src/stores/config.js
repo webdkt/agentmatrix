@@ -22,13 +22,13 @@ export const useConfigStore = defineStore('config', {
       user_name: '',
       matrix_world_path: '',
       default_llm: {
-        provider: 'anthropic',
+        provider: 'openai',
         url: '',
         api_key: '',
         model_name: '',
       },
       default_slm: {
-        provider: 'anthropic',
+        provider: 'openai',
         url: '',
         api_key: '',
         model_name: '',

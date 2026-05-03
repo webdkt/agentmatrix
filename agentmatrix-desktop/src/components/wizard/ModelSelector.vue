@@ -138,8 +138,8 @@ watch(() => props.modelValue, (v) => {
       <span v-else-if="exactMatch" class="ms-provider">{{ exactMatch.label }}</span>
     </div>
 
-    <!-- Dropdown -->
-    <div v-if="focused && filtered.length > 0" class="ms-dropdown">
+    <!-- Dropdown — only show after user types at least 1 char -->
+    <div v-if="focused && query.trim().length > 0 && filtered.length > 0" class="ms-dropdown">
       <div
         v-for="(item, idx) in filtered"
         :key="item.model"
@@ -154,7 +154,7 @@ watch(() => props.modelValue, (v) => {
     </div>
 
     <!-- No match hint -->
-    <div v-if="focused && filtered.length === 0 && query.trim()" class="ms-dropdown ms-dropdown--empty">
+    <div v-if="focused && query.trim().length > 0 && filtered.length === 0 && query.trim()" class="ms-dropdown ms-dropdown--empty">
       <div class="ms-empty-text">
         <template v-if="currentState.provider !== 'custom'">
           new model · {{ currentState.provider }}

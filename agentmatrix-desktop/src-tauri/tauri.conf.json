@@ -22,11 +22,13 @@
       },
       {
         "label": "wizard",
-        "title": "AgentMatrix",
+        "title": "AgentMatrix — Setup",
         "url": "index.html",
-        "width": 900,
-        "height": 700,
-        "resizable": false,
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 650,
+        "resizable": true,
         "visible": false
       },
       {
