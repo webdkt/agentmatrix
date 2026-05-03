@@ -28,7 +28,7 @@
     "api_key_env": "ZHIPU_API_KEY"
   },
   "kimi": {
-    "label": "Kimi (Moonshot)",
+    "label": "Kimi",
     "url": "https://api.moonshot.cn/v1/chat/completions",
     "models": ["kimi-k2.5"],
     "patterns": ["moonshot", "kimi"],

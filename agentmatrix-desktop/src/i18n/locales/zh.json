@@ -3,6 +3,38 @@
     "name": "AgentMatrix",
     "tagline": "桌面应用"
   },
+  "wizard": {
+    "title": "AgentMatrix 初始化配置",
+    "subtitle": "填写以下信息，然后启动应用。",
+    "profile": {
+      "title": "基础设置",
+      "desc": "你的名字用于 Agent 如何称呼你。工作目录是 Matrix 存储所有配置和数据的位置。",
+      "name": "你的名字",
+      "namePlaceholder": "例如: 小明",
+      "directory": "工作目录",
+      "directoryPlaceholder": "点击选择目录...",
+      "browse": "浏览"
+    },
+    "brain": {
+      "title": "大脑模型",
+      "desc": "Brain 是主推理模型，负责复杂任务。选择供应商可自动填充 URL 和默认模型名。",
+      "provider": "供应商",
+      "model": "模型",
+      "modelPlaceholder": "输入模型名称或选择...",
+      "apiKey": "API 密钥",
+      "apiKeyPlaceholder": "sk-...",
+      "endpointUrl": "接口地址"
+    },
+    "cerebellum": {
+      "title": "小脑模型",
+      "desc": "Cerebellum 处理内部轻量操作，可以用更便宜的模型。默认与大脑相同。",
+      "sameAsBrain": "与大脑相同",
+      "usingModel": "将使用大脑模型: {model}"
+    },
+    "submit": "启动 AgentMatrix",
+    "submitting": "初始化中...",
+    "initializing": "正在初始化矩阵..."
+  },
   "views": {
     "collab": {
       "title": "协作",

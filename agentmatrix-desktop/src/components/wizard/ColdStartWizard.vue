@@ -1,8 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useConfigStore } from '@/stores/config'
 import ModelSelector from '@/components/wizard/ModelSelector.vue'
 import MIcon from '@/components/icons/MIcon.vue'
+
+const { t } = useI18n()
 
 const emit = defineEmits(['complete'])
 const configStore = useConfigStore()
@@ -10,7 +13,9 @@ const configStore = useConfigStore()
 const slmSameAsBrain = ref(true)
 
 const providers = computed(() => {
-  return Object.entries(configStore.llmPresets).map(([key, preset]) => ({ key, label: preset.label }))
+  return Object.entries(configStore.llmPresets)
+    .map(([key, preset]) => ({ key, label: preset.label }))
+    .sort((a, b) => a.label.localeCompare(b.label))
 })
 
 const isFormValid = computed(() => {
@@ -76,8 +81,8 @@ onMounted(async () => {
       <div class="wiz-header-left">
         <div class="wiz-logo"><MIcon name="sparkles" :size="20" /></div>
         <div>
-          <h1 class="wiz-title">AgentMatrix Setup</h1>
-          <p class="wiz-sub">Complete all fields below, then launch.</p>
+          <h1 class="wiz-title">{{ t('wizard.title') }}</h1>
+          <p class="wiz-sub">{{ t('wizard.subtitle') }}</p>
         </div>
       </div>
     </header>
@@ -90,23 +95,23 @@ onMounted(async () => {
         <div class="sec-side">
           <div class="sec-icon"><MIcon name="user" :size="16" /></div>
           <div class="sec-text">
-            <div class="sec-title">基础设置</div>
-            <div class="sec-desc">你的名字用于 Agent 如何称呼你。工作目录是 Matrix 存储所有配置和数据的位置。</div>
+            <div class="sec-title">{{ t('wizard.profile.title') }}</div>
+            <div class="sec-desc">{{ t('wizard.profile.desc') }}</div>
           </div>
         </div>
         <div class="sec-main">
           <div class="sec-row">
             <div class="fi">
-              <label class="fi-lbl">Your Name</label>
-              <input v-model="configStore.wizardData.user_name" class="fi-inp" type="text" placeholder="e.g. Alice" autofocus autocomplete="off" spellcheck="false" />
+              <label class="fi-lbl">{{ t('wizard.profile.name') }}</label>
+              <input v-model="configStore.wizardData.user_name" class="fi-inp" type="text" :placeholder="t('wizard.profile.namePlaceholder')" autofocus autocomplete="off" spellcheck="false" />
             </div>
             <div class="fi fi--grow">
-              <label class="fi-lbl">Workspace Directory</label>
+              <label class="fi-lbl">{{ t('wizard.profile.directory') }}</label>
               <div class="dir-row" @click="configStore.selectDirectory()">
                 <span class="dir-path" :class="{ has: configStore.wizardData.matrix_world_path }">
-                  {{ configStore.wizardData.matrix_world_path || 'Click to choose directory...' }}
+                  {{ configStore.wizardData.matrix_world_path || t('wizard.profile.directoryPlaceholder') }}
                 </span>
-                <span class="dir-btn">Browse</span>
+                <span class="dir-btn">{{ t('wizard.profile.browse') }}</span>
               </div>
             </div>
           </div>
@@ -118,14 +123,14 @@ onMounted(async () => {
         <div class="sec-side">
           <div class="sec-icon"><MIcon name="brain" :size="16" /></div>
           <div class="sec-text">
-            <div class="sec-title">大脑模型</div>
-            <div class="sec-desc">Brain 是主推理模型，负责复杂任务。选择供应商可自动填充 URL 和默认模型名。</div>
+            <div class="sec-title">{{ t('wizard.brain.title') }}</div>
+            <div class="sec-desc">{{ t('wizard.brain.desc') }}</div>
           </div>
         </div>
         <div class="sec-main">
           <div class="sec-row">
             <div class="fi fi--full">
-              <label class="fi-lbl">Provider</label>
+              <label class="fi-lbl">{{ t('wizard.brain.provider') }}</label>
               <div class="pills">
                 <button v-for="p in providers" :key="p.key" class="pill" :class="{ active: configStore.wizardData.default_llm.provider === p.key }" @click="selectProvider('default_llm', p.key)" type="button">{{ p.label }}</button>
               </div>
@@ -133,20 +138,20 @@ onMounted(async () => {
           </div>
           <div class="sec-row sec-row--model">
             <div class="fi fi--model zen-field">
-              <label class="fi-lbl">Model</label>
+              <label class="fi-lbl">{{ t('wizard.brain.model') }}</label>
               <ModelSelector :presets="configStore.llmPresets" :model-value="configStore.wizardData.default_llm.model_name" :provider="configStore.wizardData.default_llm.provider" @update:model-value="onBrainModelChange" @update:provider="onBrainProviderChange" @update:url="onBrainUrlChange" />
             </div>
             <div class="fi">
-              <label class="fi-lbl">API Key</label>
+              <label class="fi-lbl">{{ t('wizard.brain.apiKey') }}</label>
               <div class="pw-wrap">
-                <input v-model="configStore.wizardData.default_llm.api_key" :type="showBrainKey ? 'text' : 'password'" class="fi-inp mono" placeholder="sk-..." spellcheck="false" />
+                <input v-model="configStore.wizardData.default_llm.api_key" :type="showBrainKey ? 'text' : 'password'" class="fi-inp mono" :placeholder="t('wizard.brain.apiKeyPlaceholder')" spellcheck="false" />
                 <button class="eye-btn" @click="showBrainKey = !showBrainKey" type="button">
                   <MIcon :name="showBrainKey ? 'eye-off' : 'eye'" :size="14" />
                 </button>
               </div>
             </div>
             <div class="fi">
-              <label class="fi-lbl">Endpoint URL</label>
+              <label class="fi-lbl">{{ t('wizard.brain.endpointUrl') }}</label>
               <input v-model="configStore.wizardData.default_llm.url" class="fi-inp mono" type="text" placeholder="https://api.example.com/v1" spellcheck="false" />
             </div>
           </div>
@@ -158,8 +163,8 @@ onMounted(async () => {
         <div class="sec-side">
           <div class="sec-icon"><MIcon name="bolt" :size="16" /></div>
           <div class="sec-text">
-            <div class="sec-title">小脑模型</div>
-            <div class="sec-desc">Cerebellum 处理内部轻量操作，可以用更便宜的模型。默认与大脑相同。</div>
+            <div class="sec-title">{{ t('wizard.cerebellum.title') }}</div>
+            <div class="sec-desc">{{ t('wizard.cerebellum.desc') }}</div>
           </div>
         </div>
         <div class="sec-main">
@@ -169,10 +174,10 @@ onMounted(async () => {
               <span class="toggle-box" :class="{ on: slmSameAsBrain }">
                 <MIcon v-if="slmSameAsBrain" name="check" :size="10" />
               </span>
-              <span class="toggle-text">Same as Brain</span>
+              <span class="toggle-text">{{ t('wizard.cerebellum.sameAsBrain') }}</span>
             </label>
             <span v-if="slmSameAsBrain" class="slm-using">
-              将使用大脑模型: <span class="slm-model">{{ configStore.wizardData.default_llm.model_name || '—' }}</span>
+              {{ t('wizard.cerebellum.usingModel', { model: configStore.wizardData.default_llm.model_name || '—' }) }}
             </span>
           </div>
 
@@ -180,7 +185,7 @@ onMounted(async () => {
           <template v-if="!slmSameAsBrain">
             <div class="sec-row">
               <div class="fi fi--full">
-                <label class="fi-lbl">Provider</label>
+                <label class="fi-lbl">{{ t('wizard.brain.provider') }}</label>
                 <div class="pills">
                   <button v-for="p in providers" :key="p.key" class="pill" :class="{ active: configStore.wizardData.default_slm.provider === p.key }" @click="selectProvider('default_slm', p.key)" type="button">{{ p.label }}</button>
                 </div>
@@ -188,20 +193,20 @@ onMounted(async () => {
             </div>
             <div class="sec-row">
               <div class="fi zen-field">
-                <label class="fi-lbl">Model</label>
+                <label class="fi-lbl">{{ t('wizard.brain.model') }}</label>
                 <ModelSelector :presets="configStore.llmPresets" :model-value="configStore.wizardData.default_slm.model_name" :provider="configStore.wizardData.default_slm.provider" @update:model-value="onSlmModelChange" @update:provider="onSlmProviderChange" @update:url="onSlmUrlChange" />
               </div>
               <div class="fi">
-                <label class="fi-lbl">API Key</label>
+                <label class="fi-lbl">{{ t('wizard.brain.apiKey') }}</label>
                 <div class="pw-wrap">
-                  <input v-model="configStore.wizardData.default_slm.api_key" :type="showSlmKey ? 'text' : 'password'" class="fi-inp mono" placeholder="sk-..." spellcheck="false" />
+                  <input v-model="configStore.wizardData.default_slm.api_key" :type="showSlmKey ? 'text' : 'password'" class="fi-inp mono" :placeholder="t('wizard.brain.apiKeyPlaceholder')" spellcheck="false" />
                   <button class="eye-btn" @click="showSlmKey = !showSlmKey" type="button">
                     <MIcon :name="showSlmKey ? 'eye-off' : 'eye'" :size="14" />
                   </button>
                 </div>
               </div>
               <div class="fi">
-                <label class="fi-lbl">Endpoint URL</label>
+                <label class="fi-lbl">{{ t('wizard.brain.endpointUrl') }}</label>
                 <input v-model="configStore.wizardData.default_slm.url" class="fi-inp mono" type="text" placeholder="https://api.example.com/v1" spellcheck="false" />
               </div>
             </div>
@@ -219,14 +224,14 @@ onMounted(async () => {
       <button class="submit" :disabled="!isFormValid || configStore.isSubmitting" @click="handleSubmit">
         <span v-if="configStore.isSubmitting" class="submit-spin"></span>
         <MIcon v-else name="rocket" :size="16" />
-        {{ configStore.isSubmitting ? 'Initializing...' : 'Launch AgentMatrix' }}
+        {{ configStore.isSubmitting ? t('wizard.submitting') : t('wizard.submit') }}
       </button>
     </div>
 
     <!-- Loading overlay -->
     <div class="overlay" :class="{ active: configStore.isSubmitting }">
       <div class="overlay-spin"></div>
-      <div class="overlay-text">Initializing matrix...</div>
+      <div class="overlay-text">{{ t('wizard.initializing') }}</div>
     </div>
   </div>
 </template>

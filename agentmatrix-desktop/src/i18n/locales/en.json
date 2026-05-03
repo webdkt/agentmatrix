@@ -3,6 +3,38 @@
     "name": "AgentMatrix",
     "tagline": "Desktop Application"
   },
+  "wizard": {
+    "title": "AgentMatrix Setup",
+    "subtitle": "Complete all fields below, then launch.",
+    "profile": {
+      "title": "Profile",
+      "desc": "Your name is how agents address you. The workspace directory stores all configs and data.",
+      "name": "Your Name",
+      "namePlaceholder": "e.g. Alice",
+      "directory": "Workspace Directory",
+      "directoryPlaceholder": "Click to choose directory...",
+      "browse": "Browse"
+    },
+    "brain": {
+      "title": "Brain",
+      "desc": "Brain is the primary reasoning model for complex tasks. Selecting a provider auto-fills URL and default model.",
+      "provider": "Provider",
+      "model": "Model",
+      "modelPlaceholder": "Type model name or select...",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "sk-...",
+      "endpointUrl": "Endpoint URL"
+    },
+    "cerebellum": {
+      "title": "Cerebellum",
+      "desc": "Cerebellum handles internal lightweight operations. Can use a cheaper model. Defaults to same as Brain.",
+      "sameAsBrain": "Same as Brain",
+      "usingModel": "Using Brain model: {model}"
+    },
+    "submit": "Launch AgentMatrix",
+    "submitting": "Initializing...",
+    "initializing": "Initializing matrix..."
+  },
   "views": {
     "collab": {
       "title": "Collab",
