@@ -43,6 +43,9 @@ const showSlmKey = ref(false)
 watch(slmSameAsBrain, (val) => {
   if (val) {
     configStore.wizardData.default_slm = { ...configStore.wizardData.default_llm }
+  } else {
+    // Uncheck: pre-fill slm with current brain values as starting point
+    configStore.wizardData.default_slm = { ...configStore.wizardData.default_llm }
   }
 })
 
@@ -300,7 +303,7 @@ onMounted(async () => {
 }
 
 .sec:nth-child(2) {
-  background: var(--surface-secondary);
+  background: #F2F4F7;
 }
 
 .sec:last-of-type {
