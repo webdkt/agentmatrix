@@ -303,17 +303,41 @@ class BrowserEventListener:
             pass
 
     async def _on_page_loaded_async(self, session_id: str):
-        """页面加载完成的异步处理：注入 bridge + 重新设置 agent meta。"""
+        """页面加载完成的异步处理：注入 bridge + 重新设置 agent meta + 通知 agent。"""
         await self.ensure_bridge(session_id)
         tab = self.tab_mgr.get_tab_by_session_sync(session_id)
         if tab and tab.agent_name:
             await self.set_agent_meta(session_id, tab.agent_name, tab.agent_session_id)
+            # 获取页面最新 URL 和 title
+            url, title = await self._get_page_info(session_id)
+            if url:
+                tab.url = url
+                tab.title = title
+            self._emit_to_agent(tab.agent_name, BrowserSignal(
+                agent_name=tab.agent_name,
+                agent_session_id=tab.agent_session_id,
+                event_type="page_navigated",
+                url=url or tab.url,
+                title=title or tab.title,
+                data={"target_id": tab.target_id},
+                cdp_session_id=session_id,
+            ))
 
     def _on_target_destroyed(self, params):
-        """Tab 关闭 → 清理。"""
+        """Tab 关闭 → 通知 agent + 清理。"""
         target_id = params.get("targetId", "")
-        if target_id:
-            logger.debug(f"Tab closed: {target_id}")
+        if not target_id:
+            return
+        tab = self.tab_mgr._tabs.get(target_id)
+        if tab and tab.agent_name:
+            self._emit_to_agent(tab.agent_name, BrowserSignal(
+                agent_name=tab.agent_name,
+                agent_session_id=tab.agent_session_id,
+                event_type="tab_closed",
+                url=tab.url,
+                data={"target_id": target_id},
+            ))
+        logger.debug(f"Tab closed: {target_id}")
 
     # ==========================================
     # 新 Tab 自动继承
@@ -366,7 +390,7 @@ class BrowserEventListener:
     async def _adopt_new_tab(
         self, target_id: str, agent_name: str, agent_session_id: str, url: str
     ):
-        """异步收养新 tab：attach → 注册 → 注入 bridge + meta。"""
+        """异步收养新 tab：attach → 注册 → 注入 bridge + meta + 通知 agent。"""
         try:
             tab = await self.tab_mgr.adopt_tab(
                 target_id, agent_name, agent_session_id, url
@@ -375,11 +399,56 @@ class BrowserEventListener:
             await self.set_agent_meta(
                 tab.session_id, agent_name, agent_session_id
             )
+            # 获取新 tab 的实际 URL
+            actual_url, title = await self._get_page_info(tab.session_id)
+            if actual_url:
+                tab.url = actual_url
+                tab.title = title
+            self._emit_to_agent(agent_name, BrowserSignal(
+                agent_name=agent_name,
+                agent_session_id=agent_session_id,
+                event_type="tab_opened",
+                url=actual_url or url,
+                title=title or "",
+                data={"target_id": target_id},
+                cdp_session_id=tab.session_id,
+            ))
             logger.info(
                 f"New tab adopted: {target_id} → agent '{agent_name}'"
             )
         except Exception as e:
             logger.warning(f"Failed to adopt new tab {target_id}: {e}")
+
+    # ==========================================
+    # 辅助方法
+    # ==========================================
+
+    async def _get_page_info(self, session_id: str) -> tuple:
+        """获取页面的 URL 和 title。返回 (url, title)。"""
+        try:
+            result = await self.cdp.send(
+                "Runtime.evaluate",
+                {
+                    "expression": "JSON.stringify({url: location.href, title: document.title})",
+                    "returnByValue": True,
+                },
+                session_id=session_id,
+                timeout=5,
+            )
+            import json as _json
+            info = _json.loads(result.get("result", {}).get("value", "{}"))
+            return info.get("url", ""), info.get("title", "")
+        except Exception:
+            return "", ""
+
+    def _emit_to_agent(self, agent_name: str, signal):
+        """向指定 agent 的 input_queue 发送信号。"""
+        queue = self._find_agent_queue(agent_name)
+        if queue:
+            try:
+                queue.put_nowait(signal)
+            except Exception as e:
+                logger.warning(f"Signal delivery failed: {e}")
 
     async def start_target_discovery(self):
         """启用浏览器级 tab 发现，使 Target.targetCreated 事件开始触发。"""
