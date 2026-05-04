@@ -56,15 +56,30 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
         if _cdp_client and _cdp_client._connected:
             return _cdp_client, _tab_manager, _event_listener
 
+        # 重连：保留现有 TabManager/EventListener，只重连 CDPClient
+        if _cdp_client is not None:
+            try:
+                await _cdp_client.connect()
+                if _event_listener:
+                    await _event_listener.resubscribe_all()
+                return _cdp_client, _tab_manager, _event_listener
+            except Exception as e:
+                logger.warning(f"CDP reconnect failed, reinitializing: {e}")
+
+        # 首次初始化
         _chrome_manager = ChromeManager(profile_dir=profile_dir, port=port)
         ws_url = await _chrome_manager.ensure_started()
 
         _cdp_client = CDPClient(ws_url)
+        # 设置 WS URL 解析器（Chrome 重启后 URL 可能变化）
+        _cdp_client.set_ws_url_resolver(_chrome_manager.ensure_started)
         await _cdp_client.connect()
 
         _tab_manager = TabManager(_cdp_client)
 
         _event_listener = BrowserEventListener(_cdp_client, _tab_manager)
+        # 注册连接状态回调 → 推送到前端
+        _cdp_client.on_status_change(_event_listener.notify_connection_status)
         await _event_listener.start_target_discovery()
 
         return _cdp_client, _tab_manager, _event_listener
@@ -114,6 +129,15 @@ class Cdp_browserSkillMixin:
 
     async def _ensure_browser(self):
         """确保浏览器已启动，注册当前 agent 的 input_queue。"""
+        # 正在重连 → 等待完成
+        if _cdp_client and _cdp_client._reconnecting:
+            for _ in range(60):  # 最多等 30 秒
+                await asyncio.sleep(0.5)
+                if _cdp_client._connected:
+                    break
+            else:
+                logger.warning("Timed out waiting for CDP reconnect")
+
         if _cdp_client and _cdp_client._connected:
             # 已连接 → 只需注册 agent input_queue
             if _event_listener and self.root_agent:
@@ -473,11 +497,11 @@ class Cdp_browserSkillMixin:
             return json.dumps({"status": "error", "error": f"Tab {tab_id} 不存在"})
 
         prompt = (
-            "你是一个 DOM 元素定位专家。\n\n"
+            "你是一个 DOM 元素定位专家。\n"
             f"背景：用户在页面上用指示器指向了一个位置，坐标 x={x}, y={y}。\n"
             "我们用 elementFromPoint 获取了该位置的元素并标记为 __bh_marked__，\n"
-            "但 elementFromPoint 返回的是视觉最顶层元素，可能是一个大容器 div 而非用户想指的交互元素。\n\n"
-            "你的任务：找到用户真正想指的那个交互元素的稳定、唯一的定位表达式（CSS selector 或 XPath）。\n\n"
+            "但 elementFromPoint 返回的是视觉最顶层元素，可能是一个大容器 div 而非用户想指的交互元素。\n"
+            "你的任务：找到用户真正想指的那个交互元素的稳定、唯一的定位表达式（CSS selector 或 XPath）。\n"
             "可用工具函数（通过 eval_js 调用，必须传 tab_id）：\n"
             "- __bh_elements_at(x, y) — 获取坐标处从顶到底的所有元素列表（已自动隐藏 UI 层）\n"
             "- __bh_el_info(el) — 获取元素详情，返回 {tag, id, cls, text, rect, attrs}\n"
@@ -489,11 +513,12 @@ class Cdp_browserSkillMixin:
             f"1. 用 __bh_elements_at({x}, {y}) 查看坐标处的元素栈\n"
             "2. 结合用户描述（additional_info），从栈中确定目标元素（通常是 button/a/input 等交互元素）\n"
             "3. 如果目标在 __bh_marked__ 容器内部，用 querySelectorAll 查找交互子元素\n"
-            "4. 为目标元素生成定位表达式：\n"
-            "   - 优先尝试 CSS selector（id > data-testid > name > aria-label > tag+属性 > tag+text）\n"
+            "4. 为目标元素生成稳定的定位表达式：\n"
+            "   - 稳定是指依赖固定、语义的属性和稳定的、固定的结构关系，不依赖动态属性、看上去像变量、哈希值、自增值、随机值的属性值\n"
             "   - 如果 CSS selector 难以表达（如按文本内容），用 XPath\n"
+            "   - 好的selector 往往也是短的、含义清晰的selector"
             "5. 用 __bh_test 或 __bh_test_xpath 验证唯一性（count 必须为 1）\n"
-            "6. 不唯一则调整，直到唯一且稳定（不依赖动态属性、数量关系）\n"
+            "6. 不唯一则调整，直到唯一且稳定（不依赖动态、随机的属性、数量关系）\n"
             "7. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
         )
 

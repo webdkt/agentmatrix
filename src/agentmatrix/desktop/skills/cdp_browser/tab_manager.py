@@ -153,6 +153,12 @@ class TabManager:
                 return tab
         return None
 
+    def update_session_id(self, target_id: str, new_session_id: str):
+        """Update a tab's CDP session_id (used after reconnection)."""
+        tab = self._tabs.get(target_id)
+        if tab:
+            tab.session_id = new_session_id
+
     async def get_agent_tabs(self, agent_name: str) -> List[TabInfo]:
         """Get all tabs owned by an agent."""
         return self.get_agent_tabs_sync(agent_name)

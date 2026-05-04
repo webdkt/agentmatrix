@@ -267,10 +267,24 @@
     // ==========================================
     // 聊天面板（始终可用，可拖动/最小化）
     // ==========================================
-    (function() {
+    // addScriptToEvaluateOnNewDocument 可能在 <body> 存在前执行，需要延迟
+    function __bh_init_chat_panel() {
+        if (!document.body) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', __bh_init_chat_panel);
+            } else {
+                setTimeout(__bh_init_chat_panel, 50);
+            }
+            return;
+        }
         // 清理旧 panel（防御重复注入）
         var oldPanel = document.getElementById('__bh_chat_panel__');
         if (oldPanel) oldPanel.remove();
+
+        // 连接状态脉冲动画
+        var pulseStyle = document.createElement('style');
+        pulseStyle.textContent = '@keyframes __bh_pulse__ { 0%,100%{opacity:1} 50%{opacity:0.3} }';
+        document.head.appendChild(pulseStyle);
 
         var panel = document.createElement('div');
         panel.id = '__bh_chat_panel__';
@@ -400,7 +414,40 @@
                 setStatus('THINKING');
             } else if (type === 'agent_done') {
                 setStatus('IDLE');
+            } else if (type === 'connection_status') {
+                var dot = document.getElementById('__bh_status_dot__');
+                var txt = document.getElementById('__bh_status_text__');
+                if (!dot || !txt) return;
+                if (data.connected) {
+                    dot.style.background = '#4caf50';
+                    dot.style.animation = '';
+                    txt.textContent = 'connected';
+                    // 移除断连横幅
+                    var banner = document.getElementById('__bh_disconnect_banner__');
+                    if (banner) banner.remove();
+                    // 2 秒后恢复正常状态
+                    setTimeout(function() {
+                        if (txt.textContent === 'connected') {
+                            var s = statusText || 'IDLE';
+                            setStatus(s);
+                        }
+                    }, 2000);
+                } else {
+                    dot.style.background = '#f44336';
+                    dot.style.animation = '__bh_pulse__ 1.5s ease-in-out infinite';
+                    txt.textContent = 'disconnected';
+                    addMessage('Connection lost, reconnecting...', 'think');
+                    // 页面顶部断连横幅
+                    if (!document.getElementById('__bh_disconnect_banner__')) {
+                        var banner = document.createElement('div');
+                        banner.id = '__bh_disconnect_banner__';
+                        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#f44336;color:#fff;text-align:center;padding:8px;font-size:13px;font-family:-apple-system,sans-serif;pointer-events:auto;';
+                        banner.textContent = 'Backend disconnected \u2014 reconnecting...';
+                        document.body.appendChild(banner);
+                    }
+                }
             }
         });
-    })();
+    }
+    __bh_init_chat_panel();
 })();

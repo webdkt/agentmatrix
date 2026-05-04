@@ -77,6 +77,8 @@ class BrowserEventListener:
 
         # 按 agent_name 索引的 agent input_queue
         self._agent_queues: dict[str, asyncio.Queue] = {}
+        # 已注册自动注入 bridge 的 session 集合
+        self._auto_inject_sessions: set = set()
 
     # ==========================================
     # 多 Agent queue 管理
@@ -139,10 +141,27 @@ class BrowserEventListener:
     async def ensure_bridge(self, session_id: str):
         """确保指定 session 已注入 bridge.js。
 
-        每次调用都执行注入，bridge.js 自身通过 window.__bh_bridge_loaded__
-        做幂等检查，不会重复执行。
+        双重注入策略：
+        1. Page.addScriptToEvaluateOnNewDocument — 注册自动注入，每次新文档加载时 Chrome 自动执行
+        2. Runtime.evaluate — 立即注入当前页面（fallback）
+
+        bridge.js 自身通过 window.__bh_bridge_loaded__ 做幂等检查，不会重复执行。
         """
         bridge_js = _get_bridge_js()
+
+        # 注册自动注入（每个 session 只注册一次）
+        if session_id not in self._auto_inject_sessions:
+            try:
+                await self.cdp.send(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    {"source": bridge_js},
+                    session_id=session_id,
+                )
+                self._auto_inject_sessions.add(session_id)
+            except Exception as e:
+                logger.debug(f"addScriptToEvaluateOnNewDocument failed: {e}")
+
+        # 立即注入当前页面（fallback，处理页面已加载的情况）
         try:
             await self.cdp.send(
                 "Runtime.evaluate",
@@ -369,3 +388,56 @@ class BrowserEventListener:
             logger.info("Target discovery enabled")
         except Exception as e:
             logger.warning(f"Failed to enable target discovery: {e}")
+
+    # ==========================================
+    # 重连后恢复
+    # ==========================================
+
+    async def resubscribe_all(self):
+        """重连后对所有已知 tab 重新 attach、启用 domain、注入 bridge。"""
+        logger.info("Resubscribing all tabs after reconnection...")
+        self._auto_inject_sessions.clear()  # 重连后 session_id 全部失效
+        await self.start_target_discovery()
+
+        dead_tabs = []
+        for target_id, tab in list(self.tab_mgr._tabs.items()):
+            try:
+                # 重新 attach 获取新 session_id
+                new_session_id = await self.cdp.attach_to_target(target_id)
+                self.tab_mgr.update_session_id(target_id, new_session_id)
+                await self.cdp.enable_domains(new_session_id)
+                await self.ensure_bridge(new_session_id)
+                if tab.agent_name:
+                    await self.set_agent_meta(
+                        new_session_id, tab.agent_name, tab.agent_session_id
+                    )
+                logger.debug(f"Resubscribed tab {target_id}")
+            except Exception as e:
+                logger.warning(f"Failed to resubscribe tab {target_id}: {e}")
+                dead_tabs.append(target_id)
+
+        # 清理失效的 tab
+        for target_id in dead_tabs:
+            tab = self.tab_mgr._tabs.pop(target_id, None)
+            if tab:
+                agent_tabs = self.tab_mgr._agent_tabs.get(tab.agent_name)
+                if agent_tabs:
+                    agent_tabs.discard(target_id)
+
+        if dead_tabs:
+            logger.info(f"Removed {len(dead_tabs)} dead tabs after reconnect")
+        logger.info(f"Resubscribed {len(self.tab_mgr._tabs)} tabs")
+
+    async def notify_connection_status(self, connected: bool):
+        """向所有 tab 前端推送连接状态。"""
+        status = "connected" if connected else "disconnected"
+        for tab in list(self.tab_mgr._tabs.values()):
+            if tab.session_id:
+                try:
+                    await self.emit_to_browser(
+                        tab.session_id,
+                        "connection_status",
+                        {"connected": connected},
+                    )
+                except Exception:
+                    pass  # 发送失败不影响重连流程
