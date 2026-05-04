@@ -14,42 +14,7 @@ from pathlib import Path
 from ..core.basic_agent import BasicAgent
 from ..core.micro_agent import MicroAgent
 from ..core.signals import CoreEvent
-
-
-@dataclass
-class EmailSignal:
-    """邮件信号 — Desktop 层实现，遵循 Signal 协议。"""
-    sender: str
-    recipient: str
-    subject: str
-    body: str
-    attachments: list = field(default_factory=list)
-    email_ids: list = field(default_factory=list)
-
-    @property
-    def signal_type(self) -> str:
-        return "email"
-
-    @property
-    def signal_id(self) -> Optional[str]:
-        # 邮件信号用 email_ids 作为可靠投递标识
-        return ",".join(self.email_ids) if self.email_ids else None
-
-    def to_text(self) -> str:
-        text = f"[新邮件] 来自 {self.sender}: {self.subject}\n{self.body}"
-        if self.attachments:
-            text += "\n" + "\n".join(
-                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
-                for att in self.attachments
-            )
-        return text
-
-    def log_detail(self) -> Dict[str, Any]:
-        return {
-            "signal_type": "email",
-            "email_ids": self.email_ids,
-            "sender": self.sender,
-        }
+from .signals import BrowserSignal
 
 
 # Agent 状态常量
@@ -1131,38 +1096,26 @@ Start generating the Working Notes now.
 
     async def _main_loop(self):
         """
-        Desktop: inbox 收 Email → 包装成 EmailSignal → 路由。
+        Desktop: input_queue 消费 → _route_signal。
 
-        BasicAgent._main_loop 消费 input_queue。
-        Desktop override: 从 input_queue 读取 Email 对象，
-        包装为 EmailSignal 后调用 _route_signal。
+        input_queue 中的 item 都是 Signal（Email、BrowserSignal 等）。
         """
         self.logger.info("Desktop main loop 已启动")
 
         try:
             while True:
                 await self.checkpoint()
-                email = await self.input_queue.get()
+                signal = await self.input_queue.get()
 
                 try:
-                    self.last_received_email = email
-
-                    # Email → EmailSignal
-                    signal = EmailSignal(
-                        sender=email.sender,
-                        recipient=email.recipient,
-                        subject=email.subject,
-                        body=email.body,
-                        attachments=email.attachments or [],
-                        email_ids=[email.id],
-                    )
-                    signal._original_email = email
+                    if isinstance(signal, Email):
+                        self.last_received_email = signal
 
                     await self._route_signal(signal)
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
-                    self.logger.exception(f"Error routing email in {self.name}")
+                    self.logger.exception(f"Error routing signal in {self.name}")
                 finally:
                     self.input_queue.task_done()
 
@@ -1186,15 +1139,20 @@ Start generating the Working Notes now.
     # ==========================================
 
     async def _resolve_session(self, signal) -> dict:
-        """Desktop: 从 Email 信号解析 session，记录事件。"""
+        """Desktop: 根据 signal 类型解析 session，记录事件。"""
         # 如果已经被解析过（从 waiting_signals 取出），直接返回
         if getattr(signal, '_desktop_resolved', False):
             return signal._resolved_session
 
-        email = getattr(signal, '_original_email', None)
-        if not email:
+        if isinstance(signal, Email):
+            return await self._resolve_email_session(signal)
+        elif isinstance(signal, BrowserSignal):
+            return await self._resolve_browser_session(signal)
+        else:
             return await super()._resolve_session(signal)
 
+    async def _resolve_email_session(self, email: Email) -> dict:
+        """Email signal → 从邮件元数据解析 session。"""
         session = await self.session_manager.get_session(email)
         session_id = session["session_id"]
 
@@ -1225,6 +1183,18 @@ Start generating the Working Notes now.
         )
 
         # 标记已解析（避免 waiting_signals 重路由时重复处理）
+        email._desktop_resolved = True
+        email._resolved_session = session
+
+        return session
+
+    async def _resolve_browser_session(self, signal: BrowserSignal) -> dict:
+        """BrowserSignal → 从前端元数据解析 session。"""
+        session = await self.session_manager.get_session_by_id(
+            signal.agent_session_id
+        )
+
+        # 标记已解析
         signal._desktop_resolved = True
         signal._resolved_session = session
 
@@ -1241,9 +1211,8 @@ Start generating the Working Notes now.
 
         # 设置 current_user_session_id（从首条信号提取）
         if first_signal:
-            email = getattr(first_signal, '_original_email', None)
-            if email and self.runtime and email.sender == self.runtime.get_user_agent_name():
-                self.current_user_session_id = email.sender_session_id
+            if isinstance(first_signal, Email) and self.runtime and first_signal.sender == self.runtime.get_user_agent_name():
+                self.current_user_session_id = first_signal.sender_session_id
             else:
                 self.current_user_session_id = None
 
@@ -1405,6 +1374,11 @@ Start generating the Working Notes now.
             )
         except Exception as e2:
             self.logger.error(f"发送错误通知邮件失败: {e2}")
+
+    async def _on_execute_done(self, session: dict):
+        """Desktop: execute 结束后更新状态为 IDLE。"""
+        if not self._is_stopping:
+            self.update_status(new_status=AgentStatus.IDLE)
 
     # _run_session, _deactivate_session — 由 BasicAgent 提供
 

@@ -211,12 +211,18 @@
             var cr = crosshair.getBoundingClientRect();
             var x = Math.round(cr.left + cr.width/2);
             var y = Math.round(cr.top + cr.height/2);
-            // 获取坐标处的元素信息
-            var elInfo = window.__bh_get_element_info__ ? window.__bh_get_element_info__(x, y) : null;
+            // 清除旧标记，给新元素打标记
+            var old = document.querySelector('[__bh_marked__]');
+            if (old) old.removeAttribute('__bh_marked__');
+            var host = document.getElementById('__bh_host__');
+            if (host) host.style.display = 'none';
+            var el = document.elementFromPoint(x, y);
+            if (host) host.style.display = '';
+            if (el) el.setAttribute('__bh_marked__', '1');
             window.__bh_emit__('indicator_result', {
-                x: x, y: y,
-                text: inp.value,
-                element: elInfo
+                x: x,
+                y: y,
+                text: inp.value
             });
         }
         okBtn.addEventListener('click', submit);
@@ -340,7 +346,7 @@
     }
 
     // ---- 后端事件处理 ----
-    window.__bh_on_event__ = function(eventType, data) {
+    window.__bh_event_listeners__.push(function(eventType, data) {
         if (eventType === 'agent_thinking') {
             var status = toolbar.querySelector('#thinking-status');
             if (status) status.classList.add('active');
@@ -361,7 +367,7 @@
                 }
             } catch(e) {}
         }
-    };
+    });
 
     // 通知后端 interface 已加载
     window.__bh_emit__('interface_loaded', { name: 'browser_learning', url: location.href });

@@ -23,6 +23,7 @@ class AgentShell(Protocol):
     brain: BrainProtocol
     cerebellum: CerebellumProtocol
     logger: logging.Logger
+    event_queue: "asyncio.Queue"  # Core → Shell 事件输出，所有 MicroAgent 共享
 
     def get_prompt_template(self, name: str) -> str:
         """获取 prompt 模板。

@@ -40,6 +40,34 @@ class Email:
         """获取附件列表"""
         return self.metadata.get('attachments', [])
 
+    # ==========================================
+    # Signal 协议
+    # ==========================================
+
+    @property
+    def signal_type(self) -> str:
+        return "email"
+
+    @property
+    def signal_id(self) -> Optional[str]:
+        return self.id
+
+    def to_text(self) -> str:
+        text = f"[新邮件] 来自 {self.sender}: {self.subject}\n{self.body}"
+        if self.attachments:
+            text += "\n" + "\n".join(
+                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
+                for att in self.attachments
+            )
+        return text
+
+    def log_detail(self) -> Dict[str, Any]:
+        return {
+            "signal_type": "email",
+            "email_id": self.id,
+            "sender": self.sender,
+        }
+
     def __str__(self):
         attachment_list = ""
         attachment_notice = ""

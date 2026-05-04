@@ -135,10 +135,8 @@ class MicroAgent(AutoLoggerMixin):
 
         # ========== 信号驱动架构 ==========
         self.signal_queue: asyncio.Queue = asyncio.Queue()  # Shell → Core，每层独立
-        # Core → Shell，嵌套时复用 parent 的 queue（所有 event 汇聚到顶层）
-        self.event_queue: asyncio.Queue = (
-            parent.event_queue if isinstance(parent, MicroAgent) else asyncio.Queue()
-        )
+        # Core → Shell，所有 MicroAgent（含嵌套）共享 root_agent 的 event_queue
+        self.event_queue: asyncio.Queue = self.root_agent.event_queue
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
         self._action_counter: int = 0
         self._no_action_reflected: bool = False  # 是否已经 reflect 过"无 action"的情况
@@ -1033,9 +1031,22 @@ class MicroAgent(AutoLoggerMixin):
                 should_break_loop = False
 
                 # 分离 exit_actions 和普通 actions
+                # 双向短名匹配：exit_actions 和 action_name 都可能是全名或短名
+                exit_action_set = set(exit_actions)
+                # 预处理 exit_actions 的短名集合
+                exit_short_names = set()
+                for ea in exit_actions:
+                    exit_short_names.add(ea.rsplit('.', 1)[-1] if '.' in ea else ea)
+
                 exit_action_name = None
                 for action_name in action_names:
-                    if action_name in exit_actions:
+                    # 全名匹配
+                    if action_name in exit_action_set:
+                        exit_action_name = action_name
+                        break
+                    # 短名双向匹配
+                    short = action_name.rsplit('.', 1)[-1] if '.' in action_name else action_name
+                    if short in exit_short_names:
                         exit_action_name = action_name
                         break
 
@@ -1347,16 +1358,27 @@ class MicroAgent(AutoLoggerMixin):
             # else: positional_values 为空，params 保持 {}
         # else: params_text 为空，params 保持 {}
 
-        # 4. 校验必须参数
+        # 4. 校验参数：未知参数名 或 缺少必须参数 → cerebellum 对齐
+        unknown = [p for p in params if p not in all_params]
         missing = [p for p in required_params if p not in params]
-        if missing:
-            self.logger.debug(f"[{action_name}] 缺少参数 {missing}，使用 cerebellum 对齐")
+        need_align = unknown or missing
+
+        if need_align:
+            reason = []
+            if unknown:
+                reason.append(f"未知参数 {unknown}")
+            if missing:
+                reason.append(f"缺少参数 {missing}")
+            self.logger.debug(f"[{action_name}] {', '.join(reason)}，使用 cerebellum 对齐")
+
             if param_schema:
                 params, action_label = await self._convert_params(
-                    action_name, parsed if parsed else {}, param_schema
+                    action_name, params, param_schema
                 )
+                # 对齐后只保留合法参数名
+                params = {k: v for k, v in params.items() if k in all_params}
 
-            # cerebellum 后再检查
+            # cerebellum 后再检查必须参数
             still_missing = [p for p in required_params if p not in params]
             if still_missing:
                 param_hints = ", ".join(f"{p}=<value>" for p in still_missing)

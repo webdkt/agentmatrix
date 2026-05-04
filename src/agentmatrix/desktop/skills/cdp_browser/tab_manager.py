@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class TabInfo:
     """Information about a browser tab."""
 
-    __slots__ = ("target_id", "session_id", "url", "title", "agent_name")
+    __slots__ = ("target_id", "session_id", "url", "title", "agent_name", "agent_session_id")
 
     def __init__(
         self,
@@ -25,12 +25,14 @@ class TabInfo:
         url: str = "",
         title: str = "",
         agent_name: str = "",
+        agent_session_id: str = "",
     ):
         self.target_id = target_id
         self.session_id = session_id
         self.url = url
         self.title = title
         self.agent_name = agent_name
+        self.agent_session_id = agent_session_id
 
     def to_dict(self) -> dict:
         return {
@@ -39,6 +41,7 @@ class TabInfo:
             "url": self.url,
             "title": self.title,
             "agent_name": self.agent_name,
+            "agent_session_id": self.agent_session_id,
         }
 
 
@@ -106,6 +109,49 @@ class TabManager:
                 del self._agent_tabs[tab.agent_name]
 
         logger.info(f"Closed tab {target_id} (agent='{tab.agent_name}')")
+
+    async def adopt_tab(
+        self,
+        target_id: str,
+        agent_name: str,
+        agent_session_id: str = "",
+        url: str = "",
+    ) -> TabInfo:
+        """
+        Adopt an existing browser tab into tracking.
+
+        Unlike create_tab(), this does NOT create a new tab — the tab already
+        exists (e.g. opened by a link click). It attaches a CDP session,
+        enables domains, and registers ownership.
+
+        Returns:
+            TabInfo with inherited agent_name and agent_session_id.
+        """
+        session_id = await self.cdp.attach_to_target(target_id)
+        await self.cdp.enable_domains(session_id)
+
+        tab = TabInfo(
+            target_id=target_id,
+            session_id=session_id,
+            url=url,
+            agent_name=agent_name,
+            agent_session_id=agent_session_id,
+        )
+
+        self._tabs[target_id] = tab
+        self._agent_tabs.setdefault(agent_name, set()).add(target_id)
+
+        logger.info(
+            f"Adopted tab {target_id} for agent '{agent_name}' (url={url})"
+        )
+        return tab
+
+    def get_tab_by_session_sync(self, session_id: str) -> Optional[TabInfo]:
+        """Find a tab by its CDP session_id."""
+        for tab in self._tabs.values():
+            if tab.session_id == session_id:
+                return tab
+        return None
 
     async def get_agent_tabs(self, agent_name: str) -> List[TabInfo]:
         """Get all tabs owned by an agent."""

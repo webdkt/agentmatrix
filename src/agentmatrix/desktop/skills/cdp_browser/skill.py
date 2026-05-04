@@ -13,7 +13,8 @@ Agent Actions:
 - Chrome/CDP/TabManager/EventListener 是进程级单例（一个 Chrome 进程）
 - Tab 按 agent_name 隔离（多 Agent 各自管理自己的 tabs）
 - _agent_current_tab 按 agent_name 索引，跨 MicroAgent 实例保持
-- BrowserEventListener 按 agent_name 路由事件到正确的 signal_queue
+- BrowserEventListener 按 agent_name 路由 BrowserSignal 到 agent 的 input_queue
+- 每个 tab 关联 agent_name + agent_session_id，前端事件自动附带这些元数据
 """
 
 import asyncio
@@ -64,6 +65,7 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
         _tab_manager = TabManager(_cdp_client)
 
         _event_listener = BrowserEventListener(_cdp_client, _tab_manager)
+        await _event_listener.start_target_discovery()
 
         return _cdp_client, _tab_manager, _event_listener
 
@@ -85,6 +87,19 @@ class Cdp_browserSkillMixin:
     def _agent_name(self) -> str:
         return getattr(self.root_agent, "name", "default")
 
+    def _agent_session_id(self) -> str:
+        """获取当前 agent 的 active session_id。"""
+        return getattr(self.root_agent, "active_session_id", "") or ""
+
+    async def _set_tab_agent_meta(self, tab: TabInfo):
+        """设置 tab 的 agent 元数据（agent_session_id + 前端 __bh_agent_meta__）。"""
+        agent_session_id = self._agent_session_id()
+        tab.agent_session_id = agent_session_id
+        if _event_listener and tab.session_id:
+            await _event_listener.set_agent_meta(
+                tab.session_id, self._agent_name(), agent_session_id
+            )
+
     def _get_current_tab(self) -> Optional[TabInfo]:
         """获取当前 agent 的活动 tab（跨 MicroAgent 保持）。"""
         return _agent_current_tab.get(self._agent_name())
@@ -98,11 +113,13 @@ class Cdp_browserSkillMixin:
             _agent_current_tab.pop(name, None)
 
     async def _ensure_browser(self):
-        """确保浏览器已启动，注册当前 MicroAgent 的 signal_queue。"""
+        """确保浏览器已启动，注册当前 agent 的 input_queue。"""
         if _cdp_client and _cdp_client._connected:
-            # 已连接 → 只需注册 signal_queue
-            if _event_listener and self.signal_queue:
-                _event_listener.register_queue(self._agent_name(), self.signal_queue)
+            # 已连接 → 只需注册 agent input_queue
+            if _event_listener and self.root_agent:
+                _event_listener.register_agent_queue(
+                    self._agent_name(), self.root_agent.input_queue
+                )
                 _event_listener.start()
             return
 
@@ -117,9 +134,11 @@ class Cdp_browserSkillMixin:
 
         cdp, tab_mgr, listener = await _get_shared_infra(profile_dir, port)
 
-        # 注册 signal_queue
-        if listener and self.signal_queue:
-            listener.register_queue(self._agent_name(), self.signal_queue)
+        # 注册 agent input_queue
+        if listener and self.root_agent:
+            listener.register_agent_queue(
+                self._agent_name(), self.root_agent.input_queue
+            )
             listener.start()
 
     # ==========================================
@@ -143,6 +162,7 @@ class Cdp_browserSkillMixin:
             self._set_current_tab(tab)
             if _event_listener:
                 await _event_listener.ensure_bridge(tab.session_id)
+                await self._set_tab_agent_meta(tab)
         else:
             # 恢复之前的 current_tab，或用第一个
             if not self._get_current_tab():
@@ -187,6 +207,7 @@ class Cdp_browserSkillMixin:
 
             if _event_listener:
                 await _event_listener.ensure_bridge(tab.session_id)
+                await self._set_tab_agent_meta(tab)
 
             tab = await _tab_manager.refresh_tab_info(tab.target_id)
             if tab:
@@ -426,15 +447,134 @@ class Cdp_browserSkillMixin:
         }, ensure_ascii=False)
 
     # ==========================================
+    # DOM 探索 (indicator → selector)
+    # ==========================================
+
+    @register_action(
+        short_desc="find_element_selector(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
+        description="用户通过指示器指向了一个页面元素，本 action 启动一个临时 MicroAgent "
+                    "在浏览器中自由探索 DOM，找到该元素的稳定、唯一 CSS selector。"
+                    "页面上该元素已被标记为 __bh_marked__ 属性，additional_info 和 tab_id 来自 indicator_result 信号。",
+        param_infos={
+            "additional_info": "用户对该元素的描述文字（从 indicator_result 信号获取）",
+            "tab_id": "目标 tab 的 target_id（从 indicator_result 信号的 tab 字段获取）",
+            "x": "指示器中心的 x 坐标（从 indicator_result 信号获取）",
+            "y": "指示器中心的 y 坐标（从 indicator_result 信号获取）",
+        },
+    )
+    async def find_element_selector(self, additional_info: str, tab_id: str, x: int = 0, y: int = 0) -> str:
+        from agentmatrix.core.micro_agent import MicroAgent
+
+        if not _cdp_client or not _cdp_client._connected:
+            return json.dumps({"status": "error", "error": "浏览器未连接"})
+
+        tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+        if not tab:
+            return json.dumps({"status": "error", "error": f"Tab {tab_id} 不存在"})
+
+        prompt = (
+            "你是一个 DOM 元素定位专家。\n\n"
+            f"背景：用户在页面上用指示器指向了一个位置，坐标 x={x}, y={y}。\n"
+            "我们用 elementFromPoint 获取了该位置的元素并标记为 __bh_marked__，\n"
+            "但 elementFromPoint 返回的是视觉最顶层元素，可能是一个大容器 div 而非用户想指的交互元素。\n\n"
+            "你的任务：找到用户真正想指的那个交互元素的稳定、唯一的定位表达式（CSS selector 或 XPath）。\n\n"
+            "可用工具函数（通过 eval_js 调用，必须传 tab_id）：\n"
+            "- __bh_elements_at(x, y) — 获取坐标处从顶到底的所有元素列表（已自动隐藏 UI 层）\n"
+            "- __bh_el_info(el) — 获取元素详情，返回 {tag, id, cls, text, rect, attrs}\n"
+            "- __bh_tag_path(el) — 获取 CSS 路径\n"
+            "- __bh_xpath(el) — 获取 XPath\n"
+            "- __bh_test(selector) — 测试 CSS selector 命中数\n"
+            "- __bh_test_xpath(xpath) — 测试 XPath 命中数\n\n"
+            "工作流程：\n"
+            f"1. 用 __bh_elements_at({x}, {y}) 查看坐标处的元素栈\n"
+            "2. 结合用户描述（additional_info），从栈中确定目标元素（通常是 button/a/input 等交互元素）\n"
+            "3. 如果目标在 __bh_marked__ 容器内部，用 querySelectorAll 查找交互子元素\n"
+            "4. 为目标元素生成定位表达式：\n"
+            "   - 优先尝试 CSS selector（id > data-testid > name > aria-label > tag+属性 > tag+text）\n"
+            "   - 如果 CSS selector 难以表达（如按文本内容），用 XPath\n"
+            "5. 用 __bh_test 或 __bh_test_xpath 验证唯一性（count 必须为 1）\n"
+            "6. 不唯一则调整，直到唯一且稳定（不依赖动态属性、数量关系）\n"
+            "7. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
+        )
+
+        micro = MicroAgent(
+            parent=self.root_agent,
+            name=f"{self.root_agent.name}_dom_explorer",
+            available_skills=["cdp_browser.dom_explorer"],
+            system_prompt=prompt,
+        )
+
+        try:
+            result = await micro.execute(
+                run_label="Find Element Selector",
+                task=(
+                    f"用户在页面上指向了一个位置，描述: {additional_info}\n"
+                    f"坐标: x={x}, y={y}\n"
+                    f"当前页面: {tab.url}\n"
+                    f"tab_id: {tab_id}\n\n"
+                    "请找到用户想指的交互元素的稳定唯一定位表达式。"
+                ),
+                exit_actions=["return_selector"],
+            )
+            return json.dumps({
+                "status": "ok",
+                "selector": result if isinstance(result, str) else str(result),
+                "description": additional_info,
+                "tab_id": tab_id,
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "error": str(e),
+            }, ensure_ascii=False)
+
+    @register_action(
+        short_desc="confirm_element(selector, tab_id)",
+        description="在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。"
+                    "立即返回，用户确认结果通过 element_confirmed 信号异步返回。",
+        param_infos={
+            "selector": "要确认的 CSS selector",
+            "tab_id": "目标 tab 的 target_id（从信号中获取）",
+        },
+    )
+    async def confirm_element(self, selector: str, tab_id: str) -> str:
+        if not _cdp_client or not _cdp_client._connected:
+            return json.dumps({"status": "error", "error": "浏览器未连接"})
+
+        tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+        if not tab:
+            return json.dumps({"status": "error", "error": f"Tab {tab_id} 不存在"})
+
+        js = f"window.__bh_confirm__ ? window.__bh_confirm__({json.dumps(selector)}) : window.__bh_confirm({json.dumps(selector)})"
+
+        try:
+            await _cdp_client.send(
+                "Runtime.evaluate",
+                {"expression": js},
+                session_id=tab.session_id,
+                timeout=5,
+            )
+            return json.dumps({
+                "status": "ok",
+                "message": "已在页面上高亮元素，等待用户确认",
+                "selector": selector,
+                "tab_id": tab_id,
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "error": str(e),
+            }, ensure_ascii=False)
+
+    # ==========================================
     # Cleanup
     # ==========================================
 
     async def skill_cleanup(self):
         """MicroAgent 执行结束时清理。
 
-        MicroAgent 持久化模式下，不注销 signal_queue。
+        MicroAgent 持久化模式下，不注销 agent input_queue。
         不关闭 tab，不关闭浏览器——这些是跨 MicroAgent 会话保持的。
         """
-        # 不注销 signal_queue — MicroAgent 持久化，跨 execute 复用
-        # signal_queue 在 MicroAgent 创建时注册，跟随 MicroAgent 生命周期
-        logger.info("CDP Browser skill cleanup done (tabs preserved, signal_queue kept)")
+        # 不注销 agent input_queue — agent 生命周期跨 execute 复用
+        logger.info("CDP Browser skill cleanup done (tabs preserved, agent queue kept)")

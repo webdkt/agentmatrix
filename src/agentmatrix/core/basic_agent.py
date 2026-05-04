@@ -54,6 +54,7 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
 
         # ── 信号路由 ──
         self.input_queue: asyncio.Queue = asyncio.Queue()
+        self.event_queue: asyncio.Queue = asyncio.Queue()  # Core → Shell 事件输出
         self.active_session_id: Optional[str] = None
         self.active_micro_agent: Optional[MicroAgent] = None
         self._session_task: Optional[asyncio.Task] = None
@@ -241,6 +242,7 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
                 task="",
                 session_store=self._create_session_store(session),
             )
+            await self._on_execute_done(session)
         except asyncio.CancelledError:
             self._handle_session_cancelled(session)
         except Exception as e:
@@ -258,20 +260,13 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
         """确保 event_consumer task 在运行。"""
         if self._event_task and not self._event_task.done():
             return
-
-        if self.active_micro_agent is None:
-            return
-
         self._event_task = asyncio.create_task(self._consume_events())
 
     async def _consume_events(self):
-        """持续消费 MicroAgent 的 event_queue。"""
-        if self.active_micro_agent is None:
-            return
-
+        """持续消费 agent 的 event_queue（所有 MicroAgent 共享）。"""
         while True:
             try:
-                event = await self.active_micro_agent.event_queue.get()
+                event = await self.event_queue.get()
             except asyncio.CancelledError:
                 break
 
@@ -346,6 +341,10 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
         self, micro_agent: MicroAgent, session: dict, error: Exception
     ):
         """Session 出错时的处理。子类可 override。"""
+        pass
+
+    async def _on_execute_done(self, session: dict):
+        """execute() 正常结束后的 hook。子类 override（状态更新等）。"""
         pass
 
     # ==========================================
