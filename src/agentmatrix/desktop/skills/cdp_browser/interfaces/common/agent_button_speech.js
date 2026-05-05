@@ -30,6 +30,8 @@
         _speechEl = el;
         _applySpeechClamp(el, txt);
         _positionSpeech();
+        // 新建的元素需要继承当前 dim 状态
+        _syncSpeechDim();
     }
 
     function _applySpeechClamp(el, txt) {
@@ -58,8 +60,8 @@
 
     function _positionSpeech() {
         if (!_speechEl) return;
-        var bw = btn.offsetWidth, bh = btn.offsetHeight;
-        var bx = btn.offsetLeft, by = btn.offsetTop;
+        var br = btn.getBoundingClientRect();
+        var bx = br.left, by = br.top, bw = br.width, bh = br.height;
         var sw = _speechEl.offsetWidth || 320, sh = _speechEl.offsetHeight || 60;
         var vw = window.innerWidth, vh = window.innerHeight;
         var gap = 12;

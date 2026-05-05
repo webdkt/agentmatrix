@@ -37,7 +37,7 @@
     // ==========================================
     var host = document.createElement('div');
     host.id = '__bh_agent_btn_host__';
-    host.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:2147483647;';
+    host.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2147483647;overflow:hidden;';
     var shadow = host.attachShadow({mode: 'open'});
 
     // ==========================================
@@ -52,62 +52,163 @@
     // ==========================================
     var _status = 'IDLE';      // IDLE | THINKING | WORKING | WAITING_FOR_USER | DISCONNECTED
     var _agentName = (window.__bh_agent_meta__ && window.__bh_agent_meta__.agent_name) || 'Agent';
-    var _panelOpen = false;
-    var _activeTool = null;    // 'indicator' | 'range' | null
     var _splashActive = false;
-    var _indicatorEl = null, _indicatorBubble = null;
-    var _rangeEl = null, _rangeBubble = null;
-    var _askHost = null;
     var _speechEl = null;
 
+    // Overlay 统一管理：indicator / range / instruct / dialog 的 DOM 元素
+    var _currentOverlay = null;
+    var _indicatorEl = null, _indicatorBubble = null;
+    var _rangeEl = null, _rangeBubble = null;
+    var _instructBubble = null;
+    var _askHost = null;
+    var _overlayCleanups = [];
+
     // DOM 元素（在 __bh_init_agent_button 中赋值）
-    var ab, btn, panel, panelInput, panelSend;
+    var ab, btn, menu;
 
     // ==========================================
-    // 共享 Helpers（IIFE 闭包作用域，供所有模块调用）
+    // Overlay 统一管理（互斥 + dim）
     // ==========================================
-    function _escHtml(s) {
-        var d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
+
+    /**
+     * 打开一个 overlay。自动关闭上一个，自动 dim speech。
+     * @param {'indicator'|'range'|'instruct'|'dialog'} name
+     */
+    function _showOverlay(name) {
+        _clearOverlay();
+        _currentOverlay = name;
+        if (ab) ab.classList.remove('expanded');
+        _syncSpeechDim();
     }
 
-    function _setStatus(s) {
-        _status = s;
-        var dot = btn.querySelector('.ab-btn-dot');
-        var label = btn.querySelector('.ab-btn-label');
-        var map = {
-            'IDLE':            { cls: 'idle',        text: 'IDLE' },
-            'THINKING':        { cls: 'thinking',    text: 'THINKING' },
-            'WORKING':         { cls: 'working',     text: 'WORKING' },
-            'WAITING_FOR_USER':{ cls: 'waiting',     text: 'WAITING' },
-            'DISCONNECTED':    { cls: 'disconnected',text: 'DISCONNECTED' },
-        };
-        var m = map[s] || { cls: 'idle', text: s || 'UNKNOWN' };
-        dot.className = 'ab-btn-dot ' + m.cls;
-        label.textContent = m.text;
-
-        if (s === 'IDLE') {
-            btn.className = 'ab-btn idle';
-        } else if (s === 'DISCONNECTED') {
-            btn.className = 'ab-btn disconnected';
-        } else {
-            btn.className = 'ab-btn busy';
-        }
-    }
-
-    function _closePanel() {
-        _panelOpen = false;
-        panel.classList.remove('show');
-        if (_speechEl) _speechEl.classList.remove('dimmed');
-    }
-
-    function _clearTool() {
+    /**
+     * 关闭当前 overlay，清理 DOM，恢复 speech。
+     */
+    function _clearOverlay() {
+        _overlayCleanups.forEach(function(fn) { try { fn(); } catch(e) {} });
+        _overlayCleanups = [];
         if (_indicatorEl) { _indicatorEl.remove(); _indicatorEl = null; }
         if (_indicatorBubble) { _indicatorBubble.remove(); _indicatorBubble = null; }
         if (_rangeEl) { _rangeEl.remove(); _rangeEl = null; }
         if (_rangeBubble) { _rangeBubble.remove(); _rangeBubble = null; }
-        _activeTool = null;
+        if (_instructBubble) { _instructBubble.remove(); _instructBubble = null; }
+        if (_askHost) { _askHost.remove(); _askHost = null; }
+        _currentOverlay = null;
+        _syncSpeechDim();
+    }
+
+    /**
+     * 同步 speech bubble 的 dim 状态。
+     * 规则：有 overlay 或菜单展开时 dim，否则 undim。
+     */
+    function _syncSpeechDim() {
+        if (!_speechEl) return;
+        var hasOverlay = !!(_currentOverlay || (ab && ab.classList.contains('expanded')));
+        _speechEl.classList.toggle('dimmed', hasOverlay);
+    }
+
+    // ==========================================
+    // Helpers
+    // ==========================================
+
+    /** HTML 转义 */
+    function _escHtml(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /** 设置 agent 按钮状态 */
+    function _setStatus(status) {
+        _status = status;
+        if (!btn) return;
+        var cls = status.toLowerCase().replace(/_/g, '-');
+        btn.className = 'ab-btn ' + cls;
+        var dot = btn.querySelector('.ab-btn-dot');
+        if (dot) dot.className = 'ab-btn-dot ' + cls;
+        var label = btn.querySelector('.ab-btn-label');
+        if (label) label.textContent = status.replace(/_/g, ' ');
+    }
+
+    /** 创建 bubble（close + textarea + send），返回 {el, inp, sendBtn} */
+    function _createBubble(placeholder, posFn) {
+        var bubble = document.createElement('div');
+        bubble.className = 'ab-bubble';
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'ab-bubble-close';
+        closeBtn.textContent = '\u2715';
+        closeBtn.addEventListener('click', function(e) { e.stopPropagation(); _clearOverlay(); });
+        var row = document.createElement('div');
+        row.className = 'ab-bubble-row';
+        var inp = document.createElement('textarea');
+        inp.className = 'ab-bubble-input';
+        inp.placeholder = placeholder;
+        inp.rows = 3;
+        inp.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+            if (posFn) posFn();
+        });
+        var sendBtn = document.createElement('button');
+        sendBtn.className = 'ab-bubble-send';
+        sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+        row.appendChild(inp);
+        row.appendChild(sendBtn);
+        bubble.appendChild(closeBtn);
+        bubble.appendChild(row);
+        return {el: bubble, inp: inp, sendBtn: sendBtn};
+    }
+
+    /** 绑定 submit：click + Enter + focus */
+    function _bindSubmit(sendBtn, inp, submitFn) {
+        sendBtn.addEventListener('click', submitFn);
+        inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitFn(); }
+        });
+        inp.focus();
+    }
+
+    /** bubble 定位于参考点右侧，自动翻转 + viewport clamp，返回 pos 函数 */
+    function _posBubbleRightOf(bubble, getRef) {
+        function pos() {
+            var ref = getRef();
+            var bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+            var vw = window.innerWidth, vh = window.innerHeight;
+            var bx = ref.rightX + ref.gap, by = ref.centerY - bh / 2;
+            if (bx + bw > vw - 12) bx = ref.leftX - ref.gap - bw;
+            if (by < 12) by = 12;
+            if (by + bh > vh - 12) by = vh - 12 - bh;
+            bx = Math.max(12, bx);
+            by = Math.max(12, by);
+            bubble.style.left = bx + 'px';
+            bubble.style.top = by + 'px';
+        }
+        return pos;
+    }
+
+    /** 可拖拽，返回 {destroy} 用于移除 document 监听器 */
+    function _makeDraggable(el, handleEl, onMove) {
+        var dragging = false, oX = 0, oY = 0;
+        handleEl.addEventListener('mousedown', function(e) {
+            dragging = true;
+            var r = el.getBoundingClientRect();
+            oX = e.clientX - (r.left + r.width / 2);
+            oY = e.clientY - (r.top + r.height / 2);
+            e.preventDefault();
+        });
+        function onMouseMove(e) {
+            if (!dragging) return;
+            el.style.left = (e.clientX - oX) + 'px';
+            el.style.top = (e.clientY - oY) + 'px';
+            if (onMove) onMove();
+        }
+        function onMouseUp() { dragging = false; }
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        return {
+            destroy: function() {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+        };
     }
 
     // ==========================================

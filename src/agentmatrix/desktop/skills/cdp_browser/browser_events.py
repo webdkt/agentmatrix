@@ -35,6 +35,7 @@ _AGENT_BUTTON_JS_FILES = [
     _JS_COMMON_DIR / "agent_button_splash.js",     # 发送过渡动画
     _JS_COMMON_DIR / "agent_button_speech.js",     # Agent 说话气泡
     _JS_COMMON_DIR / "agent_button_indicator.js",  # 指示器（十字准心）
+    _JS_COMMON_DIR / "agent_button_instruct.js",   # 给AI指示（居中输入框）
     _JS_COMMON_DIR / "agent_button_range.js",      # 范围选择器
     _JS_COMMON_DIR / "agent_button_dialog.js",     # 提问对话框
     _JS_COMMON_DIR / "agent_button_init.js",       # DOM 构建 + 事件绑定 + IIFE 结尾

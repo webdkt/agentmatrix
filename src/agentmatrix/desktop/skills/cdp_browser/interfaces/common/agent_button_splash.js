@@ -1,7 +1,6 @@
     // ==========================================
     // Splash Transition（发送后过渡动画）
     // ==========================================
-    var _splashActive = false;
 
     function _showSplash() {
         if (_splashActive) return;
@@ -47,12 +46,8 @@
     }
 
     function _setToolButtonsEnabled(enabled) {
-        var btns = shadow.querySelectorAll('.ab-bubble-send');
+        var btns = shadow.querySelectorAll('.ab-bubble-send, .ab-instruct-send');
         for (var i = 0; i < btns.length; i++) {
             btns[i].disabled = !enabled;
         }
-        var sendBtn = shadow.querySelector('.ab-panel-send');
-        if (sendBtn) sendBtn.disabled = !enabled;
-        var panelInp = shadow.querySelector('.ab-panel-input');
-        if (panelInp) panelInp.disabled = !enabled;
     }

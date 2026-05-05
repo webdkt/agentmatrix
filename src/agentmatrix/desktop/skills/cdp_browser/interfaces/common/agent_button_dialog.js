@@ -2,8 +2,7 @@
     // Ask Dialog
     // ==========================================
     window.__bh_ask_user__ = function(config) {
-        // Remove existing
-        if (_askHost) { _askHost.remove(); _askHost = null; }
+        _showOverlay('dialog');
 
         var question = config.question || '请输入';
         var choices = config.choices || [];
@@ -89,7 +88,7 @@
 
         // Close
         function close() {
-            if (_askHost) { _askHost.remove(); _askHost = null; }
+            _clearOverlay();
             window.__bh_emit__('user_answer', {choices: [], text: '', cancelled: true});
         }
         closeBtn.addEventListener('click', close);
@@ -112,7 +111,7 @@
                 return;
             }
             window.__bh_emit__('user_answer', {choices: selected, text: text, cancelled: false});
-            if (_askHost) { _askHost.remove(); _askHost = null; }
+            _clearOverlay();
         }
         submitBtn.addEventListener('click', submit);
         textInput.addEventListener('keydown', function(e) {
