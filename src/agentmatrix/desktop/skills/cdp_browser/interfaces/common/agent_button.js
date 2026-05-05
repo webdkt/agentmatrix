@@ -66,8 +66,8 @@
 
         /* IDLE 可交互 */
         '.ab-btn.idle { cursor:pointer; opacity:1; }',
-        /* 工作状态不可交互 */
-        '.ab-btn.busy { cursor:default; opacity:0.6; pointer-events:none; }',
+        /* 工作状态 — 视觉变化但仍可交互 */
+        '.ab-btn.busy { cursor:pointer; }',
         /* 断连 */
         '.ab-btn.disconnected { opacity:0.4; }',
 
@@ -147,22 +147,44 @@
 
         /* ---- Tool Bubble ---- */
         '.ab-bubble { position:fixed; z-index:2147483646; background:rgba(255,255,255,0.95); backdrop-filter:var(--blur);',
-        '  -webkit-backdrop-filter:var(--blur); border-radius:var(--radius); border:1.5px solid rgba(0,0,0,0.12);',
-        '  box-shadow:0 8px 32px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08); padding:16px 18px; min-width:220px; max-width:340px;',
+        '  -webkit-backdrop-filter:var(--blur); border-radius:18px; border:1.5px solid rgba(0,0,0,0.12);',
+        '  box-shadow:0 8px 32px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08); padding:20px 22px; min-width:260px; max-width:380px;',
         '  font-size:14px; color:var(--text); line-height:1.5; pointer-events:auto; }',
-        '.ab-bubble-text { margin-bottom:10px; white-space:pre-wrap; word-break:break-word; font-weight:500; font-size:13px; color:var(--text-dim); }',
-        '.ab-bubble-input { width:100%; box-sizing:border-box; padding:8px 10px;',
-        '  background:rgba(0,0,0,0.03); border:1px solid var(--border); border-radius:var(--radius-sm);',
-        '  font-size:14px; font-family:inherit; outline:none; margin-bottom:10px; color:var(--text); }',
+        '.ab-bubble-title { font-size:16px; font-weight:700; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px; }',
+        '.ab-bubble-icon { width:22px; height:22px; display:flex; align-items:center; justify-content:center;',
+        '  background:var(--accent); color:#fff; border-radius:6px; font-size:13px; font-weight:700; flex-shrink:0; }',
+        '.ab-bubble-hint { font-size:14px; color:var(--text); margin-bottom:14px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }',
+        '.ab-bubble-input { width:100%; box-sizing:border-box; padding:10px 14px;',
+        '  background:rgba(0,0,0,0.03); border:1px solid var(--border); border-radius:12px;',
+        '  font-size:14px; font-family:inherit; outline:none; margin-bottom:14px; color:var(--text); }',
         '.ab-bubble-input:focus { border-color:var(--accent); }',
         '.ab-bubble-input::placeholder { color:var(--text-dim); }',
-        '.ab-bubble-ok { display:block; width:100%; padding:8px 0; color:#fff; border:none;',
-        '  border-radius:var(--radius-sm); font-size:14px; font-weight:600; font-family:inherit; cursor:pointer;',
-        '  transition: background 0.15s; }',
+        '.ab-bubble-ok { display:block; width:100%; padding:10px 0; color:#fff; border:none;',
+        '  border-radius:12px; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer;',
+        '  transition: background 0.15s, opacity 0.15s; }',
         '.ab-bubble-ok.indicator { background:var(--accent); }',
         '.ab-bubble-ok.indicator:hover { background:#5558e6; }',
         '.ab-bubble-ok.range { background:var(--accent); }',
         '.ab-bubble-ok.range:hover { background:#5558e6; }',
+        '.ab-bubble-ok:disabled { opacity:0.5; cursor:default; }',
+
+        /* ---- Splash Transition ---- */
+        '.ab-splash-overlay { position:fixed; top:0; left:0; right:0; bottom:0; z-index:2147483647;',
+        '  display:flex; align-items:center; justify-content:center; pointer-events:auto; }',
+        '.ab-splash { background:rgba(255,255,255,0.95); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur);',
+        '  border:1.5px solid rgba(0,0,0,0.12); border-radius:18px; padding:28px 36px; min-width:240px;',
+        '  box-shadow:0 12px 40px rgba(0,0,0,0.14), 0 1px 3px rgba(0,0,0,0.08);',
+        '  display:flex; flex-direction:column; align-items:center; gap:12px;',
+        '  animation:ab-splash-in 0.25s ease-out; }',
+        '.ab-splash-spinner { width:28px; height:28px; border:3px solid rgba(99,102,241,0.2);',
+        '  border-top-color:var(--accent); border-radius:50%; animation:ab-spin 0.8s linear infinite; }',
+        '.ab-splash-text { font-size:15px; font-weight:600; color:var(--text); letter-spacing:0.2px; }',
+        '.ab-splash-check { width:28px; height:28px; background:var(--success); border-radius:50%;',
+        '  display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; font-weight:700;',
+        '  animation:ab-splash-pop 0.3s ease-out; }',
+        '@keyframes ab-spin { to { transform:rotate(360deg); } }',
+        '@keyframes ab-splash-in { from { opacity:0; transform:scale(0.9); } to { opacity:1; transform:scale(1); } }',
+        '@keyframes ab-splash-pop { 0% { transform:scale(0); } 60% { transform:scale(1.2); } 100% { transform:scale(1); } }',
 
         /* ---- Ask Dialog ---- */
         '.ab-dialog-overlay { position:fixed; top:0; left:0; right:0; bottom:0;',
@@ -324,10 +346,69 @@
     }
 
     // ==========================================
+    // Splash Transition（发送后过渡动画）
+    // ==========================================
+    var _splashActive = false;
+
+    function _showSplash() {
+        if (_splashActive) return;
+        _splashActive = true;
+
+        // Disable OK/send buttons
+        _setToolButtonsEnabled(false);
+
+        var overlay = document.createElement('div');
+        overlay.className = 'ab-splash-overlay';
+
+        var splash = document.createElement('div');
+        splash.className = 'ab-splash';
+
+        var spinner = document.createElement('div');
+        spinner.className = 'ab-splash-spinner';
+
+        var text = document.createElement('div');
+        text.className = 'ab-splash-text';
+        text.textContent = '发送指令给Agent...';
+
+        splash.appendChild(spinner);
+        splash.appendChild(text);
+        overlay.appendChild(splash);
+        shadow.appendChild(overlay);
+
+        // Random duration 1-3.5s
+        var duration = 1000 + Math.random() * 2500;
+
+        setTimeout(function() {
+            // Phase 2: checkmark + "已发送"
+            spinner.className = 'ab-splash-check';
+            spinner.textContent = '\u2713';
+            text.textContent = '已发送';
+
+            setTimeout(function() {
+                // Close splash
+                overlay.remove();
+                _splashActive = false;
+                _setToolButtonsEnabled(true);
+            }, 800);
+        }, duration);
+    }
+
+    function _setToolButtonsEnabled(enabled) {
+        var btns = shadow.querySelectorAll('.ab-bubble-ok');
+        for (var i = 0; i < btns.length; i++) {
+            btns[i].disabled = !enabled;
+        }
+        var sendBtn = shadow.querySelector('.ab-panel-send');
+        if (sendBtn) sendBtn.disabled = !enabled;
+        var panelInp = shadow.querySelector('.ab-panel-input');
+        if (panelInp) panelInp.disabled = !enabled;
+    }
+
+    // ==========================================
     // Agent Button click
     // ==========================================
     btn.addEventListener('click', function() {
-        if (_status !== 'IDLE' || _dragMoved) return;
+        if (_dragMoved) return;
         _panelOpen = !_panelOpen;
         if (_panelOpen) {
             panel.classList.add('show');
@@ -367,13 +448,14 @@
     var panelInput = panel.querySelector('.ab-panel-input');
     var panelSend = panel.querySelector('.ab-panel-send');
     function _sendText() {
+        if (_splashActive) return;
         var text = panelInput.value.trim();
         if (!text) return;
         panelInput.value = '';
         window.__bh_emit__('chat_message', {text: text});
         _bufPush({type: 'chat_message', text: text, ts: Date.now(), from: 'user'});
         _closePanel();
-        _setStatus('THINKING');
+        _showSplash();
     }
     panelSend.addEventListener('click', _sendText);
     panelInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') _sendText(); });
@@ -423,17 +505,27 @@
         // Bubble
         var bubble = document.createElement('div');
         bubble.className = 'ab-bubble';
-        var textEl = document.createElement('div');
-        textEl.className = 'ab-bubble-text';
-        textEl.textContent = infoText;
+        var titleRow = document.createElement('div');
+        titleRow.className = 'ab-bubble-title';
+        var icon = document.createElement('span');
+        icon.className = 'ab-bubble-icon';
+        icon.textContent = '+';
+        var titleText = document.createElement('span');
+        titleText.textContent = '指给 AI 看';
+        titleRow.appendChild(icon);
+        titleRow.appendChild(titleText);
+        var hintEl = document.createElement('div');
+        hintEl.className = 'ab-bubble-hint';
+        hintEl.textContent = infoText;
         var inp = document.createElement('input');
         inp.className = 'ab-bubble-input';
         inp.type = 'text';
         inp.placeholder = '输入描述...';
         var okBtn = document.createElement('button');
         okBtn.className = 'ab-bubble-ok indicator';
-        okBtn.textContent = 'OK';
-        bubble.appendChild(textEl);
+        okBtn.textContent = '确认发送';
+        bubble.appendChild(titleRow);
+        bubble.appendChild(hintEl);
         bubble.appendChild(inp);
         bubble.appendChild(okBtn);
         _indicatorBubble = bubble;
@@ -474,6 +566,7 @@
 
         // Submit
         function submit() {
+            if (_splashActive) return;
             var cr = crosshair.getBoundingClientRect();
             var x = Math.round(cr.left + cr.width / 2);
             var y = Math.round(cr.top + cr.height / 2);
@@ -486,10 +579,9 @@
             if (h) h.style.display = '';
             if (el) el.setAttribute('__bh_marked__', '1');
 
-            _clearTool();
-            _setStatus('THINKING');
-
             window.__bh_emit__('indicator_result', {x: x, y: y, text: inp.value});
+            inp.value = '';
+            _showSplash();
         }
         okBtn.addEventListener('click', submit);
         inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
@@ -527,17 +619,27 @@
         // Bubble
         var bubble = document.createElement('div');
         bubble.className = 'ab-bubble';
-        var textEl = document.createElement('div');
-        textEl.className = 'ab-bubble-text';
-        textEl.textContent = '拖动边角调整大小，拖动边框移动位置';
+        var titleRow = document.createElement('div');
+        titleRow.className = 'ab-bubble-title';
+        var icon = document.createElement('span');
+        icon.className = 'ab-bubble-icon';
+        icon.textContent = '[]';
+        var titleText = document.createElement('span');
+        titleText.textContent = '选择范围';
+        titleRow.appendChild(icon);
+        titleRow.appendChild(titleText);
+        var hintEl = document.createElement('div');
+        hintEl.className = 'ab-bubble-hint';
+        hintEl.textContent = '拖动边角调整大小\n拖动边框移动位置';
         var inp = document.createElement('input');
         inp.className = 'ab-bubble-input';
         inp.type = 'text';
         inp.placeholder = '描述这个区域...';
         var okBtn = document.createElement('button');
         okBtn.className = 'ab-bubble-ok range';
-        okBtn.textContent = 'OK';
-        bubble.appendChild(textEl);
+        okBtn.textContent = '确认发送';
+        bubble.appendChild(titleRow);
+        bubble.appendChild(hintEl);
         bubble.appendChild(inp);
         bubble.appendChild(okBtn);
         _rangeBubble = bubble;
@@ -602,9 +704,7 @@
 
         // Submit
         function submit() {
-            _clearTool();
-            _setStatus('THINKING');
-
+            if (_splashActive) return;
             window.__bh_emit__('range_result', {
                 x: Math.round(parseFloat(rect.style.left)),
                 y: Math.round(parseFloat(rect.style.top)),
@@ -612,6 +712,8 @@
                 height: Math.round(parseFloat(rect.style.height)),
                 text: inp.value
             });
+            inp.value = '';
+            _showSplash();
         }
         okBtn.addEventListener('click', submit);
         inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
