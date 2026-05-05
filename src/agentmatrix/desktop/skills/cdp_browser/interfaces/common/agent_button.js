@@ -45,14 +45,13 @@
     // ==========================================
     var style = document.createElement('style');
     style.textContent = [
-        ':host { all: initial; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }',
-
-        /* ---- CSS Variables ---- */
-        '.ab { --bg: rgba(255,255,255,0.92); --glass: rgba(0,0,0,0.04); --border: rgba(0,0,0,0.12);',
+        ':host { all: initial; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
+        '  --bg: rgba(255,255,255,0.92); --glass: rgba(0,0,0,0.04); --border: rgba(0,0,0,0.12);',
         '  --text: #1a1a2e; --text-dim: rgba(0,0,0,0.45); --accent: #6366f1; --accent-glow: rgba(99,102,241,0.3);',
         '  --success: #16a34a; --warning: #d97706; --danger: #dc2626;',
-        '  --radius: 16px; --radius-sm: 10px; --blur: blur(20px) saturate(180%);',
-        '  color: var(--text); font-size: 13px; line-height: 1.5; }',
+        '  --radius: 16px; --radius-sm: 10px; --blur: blur(20px) saturate(180%); }',
+
+        '.ab { color: var(--text); font-size: 13px; line-height: 1.5; }',
 
         /* ---- Agent Button (default) ---- */
         '.ab-btn { position:fixed; top:16px; right:16px; pointer-events:auto; cursor:pointer;',
@@ -115,58 +114,58 @@
 
         /* ---- Indicator ---- */
         '.ab-crosshair { position:fixed; width:200px; height:200px; transform:translate(-50%,-50%); pointer-events:none; z-index:2147483646; }',
-        '.ab-ring { position:absolute; left:50%; top:50%; width:48px; height:48px; transform:translate(-50%,-50%);',
-        '  border:3px solid #6366f1; border-radius:50%; box-shadow:0 0 20px rgba(99,102,241,0.5), 0 0 60px rgba(99,102,241,0.2); }',
-        '.ab-seg { position:absolute; background:#6366f1; box-shadow:0 0 6px rgba(99,102,241,0.4); }',
-        '.ab-seg.h { height:3px; width:32px; top:50%; transform:translateY(-50%); }',
-        '.ab-seg.v { width:3px; height:32px; left:50%; transform:translateX(-50%); }',
-        '.ab-seg.h.l { right:calc(50% + 28px); }',
-        '.ab-seg.h.r { left:calc(50% + 28px); }',
-        '.ab-seg.v.t { bottom:calc(50% + 28px); }',
-        '.ab-seg.v.b { top:calc(50% + 28px); }',
+        '.ab-ring { position:absolute; left:50%; top:50%; width:52px; height:52px; transform:translate(-50%,-50%);',
+        '  border:4px solid #6366f1; border-radius:50%;',
+        '  box-shadow:0 0 0 3px rgba(255,255,255,0.9), 0 0 0 6px rgba(99,102,241,0.4),',
+        '    0 0 24px rgba(99,102,241,0.6), 0 0 60px rgba(99,102,241,0.25), inset 0 0 12px rgba(99,102,241,0.15); }',
+        '.ab-seg { position:absolute; background:#6366f1;',
+        '  box-shadow:0 0 0 2px rgba(255,255,255,0.9), 0 0 8px rgba(99,102,241,0.5); }',
+        '.ab-seg.h { height:4px; width:36px; top:50%; transform:translateY(-50%); border-radius:2px; }',
+        '.ab-seg.v { width:4px; height:36px; left:50%; transform:translateX(-50%); border-radius:2px; }',
+        '.ab-seg.h.l { right:calc(50% + 30px); }',
+        '.ab-seg.h.r { left:calc(50% + 30px); }',
+        '.ab-seg.v.t { bottom:calc(50% + 30px); }',
+        '.ab-seg.v.b { top:calc(50% + 30px); }',
         '.ab-crosshair-handle { position:absolute; left:50%; top:50%; width:60px; height:60px;',
         '  transform:translate(-50%,-50%); border-radius:50%; cursor:grab; pointer-events:auto; background:transparent; }',
         '.ab-crosshair-handle:active { cursor:grabbing; }',
 
         /* ---- Range Selector ---- */
-        '.ab-range { position:fixed; border:3px solid #6366f1; border-radius:6px;',
-        '  background:rgba(99,102,241,0.06); z-index:2147483645; cursor:move; box-sizing:border-box;',
+        '.ab-range { position:fixed; border:4px solid #6366f1; border-radius:8px;',
+        '  background:rgba(99,102,241,0.08); z-index:2147483645; cursor:move; box-sizing:border-box;',
         '  user-select:none; pointer-events:auto;',
-        '  box-shadow:0 0 0 1px #fff, 0 0 0 3px rgba(0,0,0,0.4); }',
-        '.ab-range-handle { position:absolute; width:14px; height:14px; background:#fff;',
-        '  border:2.5px solid #6366f1; border-radius:3px; z-index:2147483647; box-sizing:border-box; pointer-events:auto;',
-        '  box-shadow:0 0 0 1px #fff, 0 0 0 2px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2); }',
-        '.ab-range-handle.tl { top:-7px; left:-7px; cursor:nw-resize; }',
-        '.ab-range-handle.tc { top:-7px; left:50%; margin-left:-7px; cursor:n-resize; }',
-        '.ab-range-handle.tr { top:-7px; right:-7px; cursor:ne-resize; }',
-        '.ab-range-handle.ml { top:50%; left:-7px; margin-top:-7px; cursor:w-resize; }',
-        '.ab-range-handle.mr { top:50%; right:-7px; margin-top:-7px; cursor:e-resize; }',
-        '.ab-range-handle.bl { bottom:-7px; left:-7px; cursor:sw-resize; }',
-        '.ab-range-handle.bc { bottom:-7px; left:50%; margin-left:-7px; cursor:s-resize; }',
-        '.ab-range-handle.br { bottom:-7px; right:-7px; cursor:se-resize; }',
+        '  box-shadow:0 0 0 2px rgba(255,255,255,0.8), 0 0 0 5px rgba(99,102,241,0.35), 0 0 20px rgba(99,102,241,0.15); }',
+        '.ab-range-handle { position:absolute; width:16px; height:16px; background:#fff;',
+        '  border:3px solid #6366f1; border-radius:4px; z-index:2147483647; box-sizing:border-box; pointer-events:auto;',
+        '  box-shadow:0 0 0 2px rgba(255,255,255,0.8), 0 0 0 4px rgba(99,102,241,0.3), 0 2px 8px rgba(0,0,0,0.2); }',
+        '.ab-range-handle.tl { top:-8px; left:-8px; cursor:nw-resize; }',
+        '.ab-range-handle.tc { top:-8px; left:50%; margin-left:-8px; cursor:n-resize; }',
+        '.ab-range-handle.tr { top:-8px; right:-8px; cursor:ne-resize; }',
+        '.ab-range-handle.ml { top:50%; left:-8px; margin-top:-8px; cursor:w-resize; }',
+        '.ab-range-handle.mr { top:50%; right:-8px; margin-top:-8px; cursor:e-resize; }',
+        '.ab-range-handle.bl { bottom:-8px; left:-8px; cursor:sw-resize; }',
+        '.ab-range-handle.bc { bottom:-8px; left:50%; margin-left:-8px; cursor:s-resize; }',
+        '.ab-range-handle.br { bottom:-8px; right:-8px; cursor:se-resize; }',
 
         /* ---- Tool Bubble ---- */
         '.ab-bubble { position:fixed; z-index:2147483646; background:rgba(255,255,255,0.95); backdrop-filter:var(--blur);',
         '  -webkit-backdrop-filter:var(--blur); border-radius:18px; border:1.5px solid rgba(0,0,0,0.12);',
-        '  box-shadow:0 8px 32px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08); padding:20px 22px; min-width:260px; max-width:380px;',
+        '  box-shadow:0 8px 32px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08); padding:16px; min-width:280px; max-width:400px;',
         '  font-size:14px; color:var(--text); line-height:1.5; pointer-events:auto; }',
-        '.ab-bubble-title { font-size:16px; font-weight:700; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px; }',
-        '.ab-bubble-icon { width:22px; height:22px; display:flex; align-items:center; justify-content:center;',
-        '  background:var(--accent); color:#fff; border-radius:6px; font-size:13px; font-weight:700; flex-shrink:0; }',
-        '.ab-bubble-hint { font-size:14px; color:var(--text); margin-bottom:14px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }',
-        '.ab-bubble-input { width:100%; box-sizing:border-box; padding:10px 14px;',
-        '  background:rgba(0,0,0,0.03); border:1px solid var(--border); border-radius:12px;',
-        '  font-size:14px; font-family:inherit; outline:none; margin-bottom:14px; color:var(--text); }',
-        '.ab-bubble-input:focus { border-color:var(--accent); }',
-        '.ab-bubble-input::placeholder { color:var(--text-dim); }',
-        '.ab-bubble-ok { display:block; width:100%; padding:10px 0; color:#fff; border:none;',
-        '  border-radius:12px; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer;',
-        '  transition: background 0.15s, opacity 0.15s; }',
-        '.ab-bubble-ok.indicator { background:var(--accent); }',
-        '.ab-bubble-ok.indicator:hover { background:#5558e6; }',
-        '.ab-bubble-ok.range { background:var(--accent); }',
-        '.ab-bubble-ok.range:hover { background:#5558e6; }',
-        '.ab-bubble-ok:disabled { opacity:0.5; cursor:default; }',
+        '.ab-bubble-row { display:flex; gap:10px; align-items:flex-end; }',
+        '.ab-bubble-input { flex:1; box-sizing:border-box; padding:14px 16px;',
+        '  background:rgba(0,0,0,0.04); border:1.5px solid rgba(0,0,0,0.15); border-radius:14px;',
+        '  font-size:15px; font-family:inherit; outline:none; color:var(--text); resize:none;',
+        '  min-height:72px; max-height:160px; line-height:1.5; transition:border-color 0.2s; }',
+        '.ab-bubble-input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(99,102,241,0.12); }',
+        '.ab-bubble-input::placeholder { color:rgba(0,0,0,0.35); }',
+        '.ab-bubble-send { width:44px; height:44px; border-radius:12px; background:var(--accent); color:#fff;',
+        '  border:2px solid rgba(255,255,255,0.3); cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;',
+        '  box-shadow:0 2px 8px rgba(99,102,241,0.35); transition:background 0.15s, transform 0.1s, box-shadow 0.15s; }',
+        '.ab-bubble-send:hover { background:#5558e6; }',
+        '.ab-bubble-send:active { transform:scale(0.92); }',
+        '.ab-bubble-send:disabled { opacity:0.4; cursor:default; transform:none; }',
+        '.ab-bubble-send svg { width:20px; height:20px; }',
 
         /* ---- Splash Transition ---- */
         '.ab-splash-overlay { position:fixed; top:0; left:0; right:0; bottom:0; z-index:2147483647;',
@@ -229,6 +228,54 @@
         '.ab-disconnect-banner { position:fixed; top:0; left:0; right:0; z-index:2147483647;',
         '  background:rgba(220,38,38,0.92); backdrop-filter:var(--blur); color:#fff; text-align:center;',
         '  padding:6px; font-size:12px; pointer-events:auto; letter-spacing:0.3px; }',
+
+        /* ---- Speech Bubble ---- */
+        '.ab-speech { position:fixed; z-index:2147483645; width:320px; max-height:400px;',
+        '  background:rgba(255,255,255,0.95); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur);',
+        '  border:1.5px solid rgba(0,0,0,0.15); border-radius:14px;',
+        '  padding:12px 16px; padding-right:32px; font-size:14px; line-height:1.6;',
+        '  color:var(--text); pointer-events:auto; overflow-y:auto;',
+        '  box-shadow:0 4px 16px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.06);',
+        '  animation:ab-speech-in 0.2s ease-out; transition:opacity 0.2s; }',
+        '.ab-speech.dimmed { opacity:0.15; pointer-events:none; z-index:2147483644; }',
+        '@keyframes ab-speech-in { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }',
+        /* Tail uses two pseudo-elements: ::before for border, ::after for fill */
+        '.ab-speech-tail { position:absolute; width:0; height:0; }',
+        '.ab-speech-tail::before, .ab-speech-tail::after { content:""; position:absolute; width:0; height:0; }',
+        /* tail-left: bubble is left of button, tail points right */
+        '.ab-speech.tail-left .ab-speech-tail { right:-18px; top:14px; }',
+        '.ab-speech.tail-left .ab-speech-tail::before { left:-1px; top:-11px;',
+        '  border-left:20px solid rgba(0,0,0,0.15); border-top:11px solid transparent; border-bottom:11px solid transparent; }',
+        '.ab-speech.tail-left .ab-speech-tail::after { left:1px; top:-9px;',
+        '  border-left:17px solid rgba(255,255,255,0.95); border-top:9px solid transparent; border-bottom:9px solid transparent; }',
+        /* tail-right: bubble is right of button, tail points left */
+        '.ab-speech.tail-right .ab-speech-tail { left:-18px; top:14px; }',
+        '.ab-speech.tail-right .ab-speech-tail::before { right:-1px; top:-11px;',
+        '  border-right:20px solid rgba(0,0,0,0.15); border-top:11px solid transparent; border-bottom:11px solid transparent; }',
+        '.ab-speech.tail-right .ab-speech-tail::after { right:1px; top:-9px;',
+        '  border-right:17px solid rgba(255,255,255,0.95); border-top:9px solid transparent; border-bottom:9px solid transparent; }',
+        /* tail-top: bubble is above button, tail points down */
+        '.ab-speech.tail-top .ab-speech-tail { bottom:-18px; left:24px; }',
+        '.ab-speech.tail-top .ab-speech-tail::before { left:-11px; top:-1px;',
+        '  border-bottom:20px solid rgba(0,0,0,0.15); border-left:11px solid transparent; border-right:11px solid transparent; }',
+        '.ab-speech.tail-top .ab-speech-tail::after { left:-9px; top:1px;',
+        '  border-bottom:17px solid rgba(255,255,255,0.95); border-left:9px solid transparent; border-right:9px solid transparent; }',
+        /* tail-bottom: bubble is below button, tail points up */
+        '.ab-speech.tail-bottom .ab-speech-tail { top:-18px; left:24px; }',
+        '.ab-speech.tail-bottom .ab-speech-tail::before { left:-11px; bottom:-1px;',
+        '  border-top:20px solid rgba(0,0,0,0.15); border-left:11px solid transparent; border-right:11px solid transparent; }',
+        '.ab-speech.tail-bottom .ab-speech-tail::after { left:-9px; bottom:1px;',
+        '  border-top:17px solid rgba(255,255,255,0.95); border-left:9px solid transparent; border-right:9px solid transparent; }',
+        '.ab-speech-close { position:absolute; top:6px; right:8px; background:none; border:none;',
+        '  cursor:pointer; color:rgba(0,0,0,0.3); font-size:16px; line-height:1; padding:4px;',
+        '  border-radius:4px; transition:color 0.15s; z-index:1; }',
+        '.ab-speech-close:hover { color:var(--danger); }',
+        '.ab-speech-text { word-break:break-word; }',
+        '.ab-speech-text.clamped { display:-webkit-box; -webkit-line-clamp:5;',
+        '  -webkit-box-orient:vertical; overflow:hidden; }',
+        '.ab-speech-more { color:var(--accent); cursor:pointer; font-size:13px; margin-top:4px;',
+        '  display:inline-block; }',
+        '.ab-speech-more:hover { text-decoration:underline; }',
     ].join('\n');
     shadow.appendChild(style);
 
@@ -242,6 +289,7 @@
     var _indicatorEl = null, _indicatorBubble = null;
     var _rangeEl = null, _rangeBubble = null;
     var _askHost = null;
+    var _speechEl = null;
 
     // ==========================================
     // Agent Button (default)
@@ -296,6 +344,7 @@
         panel.style.left = btn.style.left;
         panel.style.top = (btn.offsetTop + btn.offsetHeight + 8) + 'px';
         panel.style.right = 'auto';
+        _positionSpeech();
     });
     document.addEventListener('mouseup', function() { _dragging = false; });
 
@@ -335,6 +384,7 @@
     function _closePanel() {
         _panelOpen = false;
         panel.classList.remove('show');
+        if (_speechEl) _speechEl.classList.remove('dimmed');
     }
 
     function _clearTool() {
@@ -394,7 +444,7 @@
     }
 
     function _setToolButtonsEnabled(enabled) {
-        var btns = shadow.querySelectorAll('.ab-bubble-ok');
+        var btns = shadow.querySelectorAll('.ab-bubble-send');
         for (var i = 0; i < btns.length; i++) {
             btns[i].disabled = !enabled;
         }
@@ -405,6 +455,98 @@
     }
 
     // ==========================================
+    // Speech Bubble（Agent 说话气泡）
+    // ==========================================
+    function _showSpeech(text) {
+        if (_speechEl) {
+            // Update existing
+            var txt = _speechEl.querySelector('.ab-speech-text');
+            if (txt) { txt.textContent = text; txt.className = 'ab-speech-text'; }
+            var more = _speechEl.querySelector('.ab-speech-more');
+            if (more) more.remove();
+            _applySpeechClamp(_speechEl, txt);
+            return;
+        }
+
+        var el = document.createElement('div');
+        el.className = 'ab-speech';
+        var tail = document.createElement('div');
+        tail.className = 'ab-speech-tail';
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'ab-speech-close';
+        closeBtn.textContent = '\u2715';
+        closeBtn.addEventListener('click', function(e) { e.stopPropagation(); _hideSpeech(); });
+        var txt = document.createElement('div');
+        txt.className = 'ab-speech-text';
+        txt.textContent = text;
+        el.appendChild(tail);
+        el.appendChild(closeBtn);
+        el.appendChild(txt);
+        shadow.appendChild(el);
+        _speechEl = el;
+        _applySpeechClamp(el, txt);
+        _positionSpeech();
+    }
+
+    function _applySpeechClamp(el, txt) {
+        // Check if text overflows 5 lines
+        setTimeout(function() {
+            var lineHeight = parseFloat(getComputedStyle(txt).lineHeight) || 22.4;
+            var maxHeight = lineHeight * 5;
+            if (txt.scrollHeight > maxHeight + 2) {
+                txt.classList.add('clamped');
+                var more = document.createElement('span');
+                more.className = 'ab-speech-more';
+                more.textContent = '(more)';
+                more.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    txt.classList.remove('clamped');
+                    more.remove();
+                });
+                el.appendChild(more);
+            }
+        }, 30);
+    }
+
+    function _hideSpeech() {
+        if (_speechEl) { _speechEl.remove(); _speechEl = null; }
+    }
+
+    function _positionSpeech() {
+        if (!_speechEl) return;
+        var bw = btn.offsetWidth, bh = btn.offsetHeight;
+        var bx = btn.offsetLeft, by = btn.offsetTop;
+        var sw = _speechEl.offsetWidth || 320, sh = _speechEl.offsetHeight || 60;
+        var vw = window.innerWidth, vh = window.innerHeight;
+        var gap = 12;
+
+        // Try right side
+        var rightSpace = vw - (bx + bw) - gap;
+        var leftSpace = bx - gap;
+        var topSpace = by - gap;
+        var bottomSpace = vh - (by + bh) - gap;
+
+        _speechEl.className = 'ab-speech';
+        if (rightSpace >= sw + 10) {
+            _speechEl.classList.add('tail-left');
+            _speechEl.style.left = (bx + bw + gap) + 'px';
+            _speechEl.style.top = Math.max(12, Math.min(by, vh - sh - 12)) + 'px';
+        } else if (leftSpace >= sw + 10) {
+            _speechEl.classList.add('tail-right');
+            _speechEl.style.left = (bx - sw - gap) + 'px';
+            _speechEl.style.top = Math.max(12, Math.min(by, vh - sh - 12)) + 'px';
+        } else if (topSpace >= sh + 10) {
+            _speechEl.classList.add('tail-bottom');
+            _speechEl.style.left = Math.max(12, Math.min(bx, vw - sw - 12)) + 'px';
+            _speechEl.style.top = (by - sh - gap) + 'px';
+        } else {
+            _speechEl.classList.add('tail-top');
+            _speechEl.style.left = Math.max(12, Math.min(bx, vw - sw - 12)) + 'px';
+            _speechEl.style.top = (by + bh + gap) + 'px';
+        }
+    }
+
+    // ==========================================
     // Agent Button click
     // ==========================================
     btn.addEventListener('click', function() {
@@ -412,6 +554,7 @@
         _panelOpen = !_panelOpen;
         if (_panelOpen) {
             panel.classList.add('show');
+            if (_speechEl) _speechEl.classList.add('dimmed');
         } else {
             _closePanel();
         }
@@ -505,29 +648,19 @@
         // Bubble
         var bubble = document.createElement('div');
         bubble.className = 'ab-bubble';
-        var titleRow = document.createElement('div');
-        titleRow.className = 'ab-bubble-title';
-        var icon = document.createElement('span');
-        icon.className = 'ab-bubble-icon';
-        icon.textContent = '+';
-        var titleText = document.createElement('span');
-        titleText.textContent = '指给 AI 看';
-        titleRow.appendChild(icon);
-        titleRow.appendChild(titleText);
-        var hintEl = document.createElement('div');
-        hintEl.className = 'ab-bubble-hint';
-        hintEl.textContent = infoText;
-        var inp = document.createElement('input');
+        var row = document.createElement('div');
+        row.className = 'ab-bubble-row';
+        var inp = document.createElement('textarea');
         inp.className = 'ab-bubble-input';
-        inp.type = 'text';
-        inp.placeholder = '输入描述...';
-        var okBtn = document.createElement('button');
-        okBtn.className = 'ab-bubble-ok indicator';
-        okBtn.textContent = '确认发送';
-        bubble.appendChild(titleRow);
-        bubble.appendChild(hintEl);
-        bubble.appendChild(inp);
-        bubble.appendChild(okBtn);
+        inp.placeholder = '拖动准星到目标位置，然后告诉Agent这是什么要做什么';
+        inp.rows = 3;
+        inp.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 160) + 'px'; posBubble(); });
+        var sendBtn = document.createElement('button');
+        sendBtn.className = 'ab-bubble-send';
+        sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+        row.appendChild(inp);
+        row.appendChild(sendBtn);
+        bubble.appendChild(row);
         _indicatorBubble = bubble;
         shadow.appendChild(bubble);
 
@@ -583,8 +716,8 @@
             inp.value = '';
             _showSplash();
         }
-        okBtn.addEventListener('click', submit);
-        inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
+        sendBtn.addEventListener('click', submit);
+        inp.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
         inp.focus();
     }
 
@@ -619,29 +752,19 @@
         // Bubble
         var bubble = document.createElement('div');
         bubble.className = 'ab-bubble';
-        var titleRow = document.createElement('div');
-        titleRow.className = 'ab-bubble-title';
-        var icon = document.createElement('span');
-        icon.className = 'ab-bubble-icon';
-        icon.textContent = '[]';
-        var titleText = document.createElement('span');
-        titleText.textContent = '选择范围';
-        titleRow.appendChild(icon);
-        titleRow.appendChild(titleText);
-        var hintEl = document.createElement('div');
-        hintEl.className = 'ab-bubble-hint';
-        hintEl.textContent = '拖动边角调整大小\n拖动边框移动位置';
-        var inp = document.createElement('input');
+        var row = document.createElement('div');
+        row.className = 'ab-bubble-row';
+        var inp = document.createElement('textarea');
         inp.className = 'ab-bubble-input';
-        inp.type = 'text';
-        inp.placeholder = '描述这个区域...';
-        var okBtn = document.createElement('button');
-        okBtn.className = 'ab-bubble-ok range';
-        okBtn.textContent = '确认发送';
-        bubble.appendChild(titleRow);
-        bubble.appendChild(hintEl);
-        bubble.appendChild(inp);
-        bubble.appendChild(okBtn);
+        inp.placeholder = '拖动边角调整大小，拖动边框移动位置，然后告诉Agent这个区域是什么';
+        inp.rows = 3;
+        inp.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 160) + 'px'; posBubble(); });
+        var sendBtn = document.createElement('button');
+        sendBtn.className = 'ab-bubble-send';
+        sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+        row.appendChild(inp);
+        row.appendChild(sendBtn);
+        bubble.appendChild(row);
         _rangeBubble = bubble;
         shadow.appendChild(bubble);
 
@@ -715,8 +838,8 @@
             inp.value = '';
             _showSplash();
         }
-        okBtn.addEventListener('click', submit);
-        inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
+        sendBtn.addEventListener('click', submit);
+        inp.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
         inp.focus();
     }
 
@@ -859,6 +982,11 @@
             _setStatus('IDLE');
         } else if (type === 'agent_output') {
             _bufPush({type: 'agent_output', data: data, ts: Date.now()});
+            if (data.type === 'think' && data.text) {
+                _showSpeech(data.text);
+            } else {
+                _hideSpeech();
+            }
         } else if (type === 'connection_status') {
             if (data.connected) {
                 _setStatus('IDLE');
