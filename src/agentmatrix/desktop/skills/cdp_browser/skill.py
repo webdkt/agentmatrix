@@ -148,11 +148,9 @@ class Cdp_browserSkillMixin:
             return
 
         agent_name = self._agent_name()
-        try:
-            workspace = self.root_agent.runtime.paths.get_workspace(agent_name)
-            profile_dir = str(Path(workspace) / ".cdp_browser_profile")
-        except Exception:
-            profile_dir = "/tmp/cdp_browser_profile"
+
+        # 固定 profile 路径，始终同一个，保留登录状态、书签、扩展等
+        profile_dir = str(Path.home() / ".agentmatrix" / "cdp_browser_profile")
 
         port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
 
@@ -513,11 +511,12 @@ class Cdp_browserSkillMixin:
             "工作流程：\n"
             f"1. 用 __bh_elements_at({x}, {y}) 查看坐标处的元素栈\n"
             "2. 结合用户描述（additional_info），从栈中确定目标元素（通常是 button/a/input 等交互元素）\n"
-            "3. 如果目标在 __bh_marked__ 容器内部，用 querySelectorAll 查找交互子元素\n"
-            "4. 为目标元素生成稳定的定位表达式：\n"
+            "3. 为目标元素生成稳定的定位表达式：\n"
             "   - 稳定是指依赖固定、语义的属性和稳定的、固定的结构关系，不依赖动态属性、看上去像变量、哈希值、自增值、随机值的属性值\n"
             "   - 如果 CSS selector 难以表达（如按文本内容），用 XPath\n"
-            "   - 好的selector 往往也是短的、含义清晰的selector"
+            "   - 好的selector 往往也是短的、含义清晰的selector，并且条件数量少的selector（例如单一属性优于多个属性组合，标签+属性优于纯属性）。"
+            "   - 优先考虑元素自身的语义化的属性（如 tag name, id、aria-label、name、data-*）"
+            "   - **重要技巧**：交互元素本身往往会缺乏直接的、稳定的、可唯一定位的属性。更聪明的办法是先寻找页面中稳定的结构（例如父元素中具有简单、稳定定位的元素，以其为锚点），在一个稳定的小范围内进行进一步的定位。例如button tag可能是不唯一的，但是在特定id的div中是唯一的。\n"
             "5. 用 __bh_test 或 __bh_test_xpath 验证唯一性（count 必须为 1）\n"
             "6. 不唯一则调整，直到唯一且稳定（不依赖动态、随机的属性、数量关系）\n"
             "7. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"

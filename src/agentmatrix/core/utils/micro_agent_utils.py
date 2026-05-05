@@ -32,12 +32,12 @@ def parse_simple_yes_no(raw_reply: str) -> dict:
     if "YES" in cleaned and "NO" not in cleaned:
         return {
             "status": "success",
-            "content": {"should_exit": True}
+            "content": {"should_exit": False}
         }
     elif "NO" in cleaned and "YES" not in cleaned:
         return {
             "status": "success",
-            "content": {"should_exit": False}
+            "content": {"should_exit": True}
         }
     else:
         return {
@@ -318,7 +318,7 @@ def validate_params(
 
 def build_exit_verification_prompt(raw_reply: str) -> str:
     """构建退出验证 prompt"""
-    return f"""判断以下文本的意思是否表明说话的人认为"目前没什么可做或者暂时不需要做什么，或者应该等待"。
+    return f"""以下是大模型Agent对用户的回答，判断它的意思是（1）决定了做什么新动作（接下来要做）。（2）没有决定做什么
 
 文本：
 ```
@@ -326,10 +326,11 @@ def build_exit_verification_prompt(raw_reply: str) -> str:
 ```
 
 你需要作出的回答：
-- YES: 表示"目前没什么可做的"、"暂时不需要做什么"、"已完成"、"需要等待"这样的意思
-- NO: 表示不是上述意思
+- YES: 表示"已经决定了做什么，接下来要做“
+- NO: 表示没有决定做什么
 
-只回答 YES 或 NO。"""
+只回答 YES 或 NO。
+注意，如果是询问用户是否要做什么，或者表达了"我可以做什么"、"我能帮你做什么"、"你需要我做什么"这样的意思，请回答 NO，因为这说明它在在询问用户建议用户，并非他的决定"""
 
 
 def build_no_action_reflect_message(
