@@ -229,17 +229,17 @@
                 return;
             }
             // 高亮
-            el.style.outline = '3px solid #e53935';
+            el.style.outline = '3px solid #6366f1';
             el.style.outlineOffset = '2px';
             el.scrollIntoView({behavior: 'smooth', block: 'center'});
 
             // 确认气泡（挂到 body，避开 shadow DOM）
             var bubble = document.createElement('div');
             bubble.id = '__bh_confirm_bubble__';
-            bubble.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(255,255,255,0.95);backdrop-filter:blur(12px);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.15);padding:14px 20px;font-family:-apple-system,sans-serif;font-size:14px;color:#222;display:flex;align-items:center;gap:12px;pointer-events:auto;';
-            bubble.innerHTML = '<span>是这个元素吗？</span>' +
-                '<button id="__bh_confirm_yes__" style="background:#4caf50;color:#fff;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:14px;">是</button>' +
-                '<button id="__bh_confirm_no__" style="background:#e53935;color:#fff;border:none;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:14px;">不是</button>';
+            bubble.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(255,255,255,0.95);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1.5px solid rgba(0,0,0,0.12);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.12),0 1px 3px rgba(0,0,0,0.08);padding:14px 20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;color:#1a1a2e;display:flex;align-items:center;gap:12px;pointer-events:auto;';
+            bubble.innerHTML = '<span style="font-size:13px;color:rgba(0,0,0,0.45);">是这个元素吗？</span>' +
+                '<button id="__bh_confirm_yes__" style="background:#6366f1;color:#fff;border:none;border-radius:10px;padding:8px 18px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;transition:background 0.15s;">是</button>' +
+                '<button id="__bh_confirm_no__" style="background:rgba(0,0,0,0.04);color:#1a1a2e;border:1px solid rgba(0,0,0,0.12);border-radius:10px;padding:8px 18px;cursor:pointer;font-size:13px;font-family:inherit;transition:background 0.15s;">不是</button>';
             // 清除旧气泡
             var old = document.getElementById('__bh_confirm_bubble__');
             if (old) old.remove();
@@ -263,191 +263,4 @@
             window.__bh_emit__('element_confirmed', {selector: selector, confirmed: false, error: e.message});
         }
     };
-
-    // ==========================================
-    // 聊天面板（始终可用，可拖动/最小化）
-    // ==========================================
-    // addScriptToEvaluateOnNewDocument 可能在 <body> 存在前执行，需要延迟
-    function __bh_init_chat_panel() {
-        if (!document.body) {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', __bh_init_chat_panel);
-            } else {
-                setTimeout(__bh_init_chat_panel, 50);
-            }
-            return;
-        }
-        // 清理旧 panel（防御重复注入）
-        var oldPanel = document.getElementById('__bh_chat_panel__');
-        if (oldPanel) oldPanel.remove();
-
-        // 连接状态脉冲动画
-        var pulseStyle = document.createElement('style');
-        pulseStyle.textContent = '@keyframes __bh_pulse__ { 0%,100%{opacity:1} 50%{opacity:0.3} }';
-        document.head.appendChild(pulseStyle);
-
-        var panel = document.createElement('div');
-        panel.id = '__bh_chat_panel__';
-        panel.style.cssText = 'position:fixed;bottom:20px;right:20px;width:320px;z-index:2147483646;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;pointer-events:auto;box-shadow:0 4px 24px rgba(0,0,0,0.18);border-radius:12px;overflow:visible;background:#fff;';
-
-        var agentName = (window.__bh_agent_meta__ && window.__bh_agent_meta__.agent_name) || 'Agent';
-        var statusText = 'idle';
-        var collapsed = false;
-
-        // Header
-        var header = document.createElement('div');
-        header.style.cssText = 'height:36px;background:#1a1a2e;color:#fff;display:flex;align-items:center;padding:0 12px;cursor:move;user-select:none;gap:8px;';
-        header.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#4caf50;display:inline-block;" id="__bh_status_dot__"></span>' +
-            '<span style="flex:1;font-weight:600;" id="__bh_agent_label__">' + agentName + '</span>' +
-            '<span style="opacity:0.6;font-size:11px;" id="__bh_status_text__">idle</span>' +
-            '<span id="__bh_chat_toggle__" style="cursor:pointer;opacity:0.7;font-size:16px;line-height:1;">&#x2212;</span>';
-        panel.appendChild(header);
-
-        // Messages
-        var messages = document.createElement('div');
-        messages.id = '__bh_chat_messages__';
-        messages.style.cssText = 'height:240px;overflow-y:auto;padding:10px;background:#f8f9fa;';
-        panel.appendChild(messages);
-
-        // Input area
-        var inputArea = document.createElement('div');
-        inputArea.style.cssText = 'display:flex;gap:6px;padding:8px;background:#fff;border-top:1px solid #eee;';
-        var input = document.createElement('input');
-        input.type = 'text';
-        input.placeholder = '输入消息...';
-        input.style.cssText = 'flex:1;border:1px solid #ddd;border-radius:6px;padding:6px 10px;font-size:13px;font-family:inherit;outline:none;';
-        inputArea.appendChild(input);
-        var sendBtn = document.createElement('button');
-        sendBtn.textContent = '发送';
-        sendBtn.style.cssText = 'background:#1a1a2e;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px;font-family:inherit;';
-        inputArea.appendChild(sendBtn);
-        panel.appendChild(inputArea);
-
-        document.body.appendChild(panel);
-
-        // Helpers
-        function addMessage(text, cls) {
-            var div = document.createElement('div');
-            div.style.cssText = 'margin:4px 0;padding:6px 10px;border-radius:8px;word-break:break-word;white-space:pre-wrap;';
-            if (cls === 'user') {
-                div.style.background = '#e3f2fd';
-                div.style.marginLeft = '20px';
-                div.textContent = text;
-            } else if (cls === 'think') {
-                div.style.background = '#fff3e0';
-                div.style.fontStyle = 'italic';
-                div.textContent = text;
-            } else if (cls === 'action') {
-                div.style.background = '#f3e5f5';
-                div.style.fontFamily = 'monospace';
-                div.style.fontSize = '12px';
-                div.textContent = text;
-            } else {
-                div.style.background = '#e8f5e9';
-                div.textContent = text;
-            }
-            messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
-        }
-
-        function setStatus(status) {
-            statusText = status;
-            var dot = document.getElementById('__bh_status_dot__');
-            var txt = document.getElementById('__bh_status_text__');
-            if (!dot || !txt) return;
-            var s = (status || '').toUpperCase();
-            if (s === 'IDLE') { dot.style.background = '#4caf50'; txt.textContent = 'idle'; }
-            else if (s === 'THINKING') { dot.style.background = '#ff9800'; txt.textContent = 'thinking...'; }
-            else if (s === 'WORKING') { dot.style.background = '#2196f3'; txt.textContent = 'working...'; }
-            else if (s === 'WAITING_FOR_USER') { dot.style.background = '#e91e63'; txt.textContent = 'waiting'; }
-            else { dot.style.background = '#9e9e9e'; txt.textContent = status || 'unknown'; }
-        }
-
-        // Send message
-        function sendMessage() {
-            var text = input.value.trim();
-            if (!text) return;
-            input.value = '';
-            addMessage(text, 'user');
-            window.__bh_emit__('chat_message', {text: text});
-        }
-        sendBtn.addEventListener('click', sendMessage);
-        input.addEventListener('keydown', function(e) { if (e.key === 'Enter') sendMessage(); });
-
-        // Drag
-        var dragging = false, dragOX = 0, dragOY = 0;
-        header.addEventListener('mousedown', function(e) {
-            if (e.target.id === '__bh_chat_toggle__') return;
-            dragging = true;
-            dragOX = e.clientX - panel.offsetLeft;
-            dragOY = e.clientY - panel.offsetTop;
-            e.preventDefault();
-        });
-        document.addEventListener('mousemove', function(e) {
-            if (!dragging) return;
-            panel.style.left = (e.clientX - dragOX) + 'px';
-            panel.style.top = (e.clientY - dragOY) + 'px';
-            panel.style.right = 'auto';
-            panel.style.bottom = 'auto';
-        });
-        document.addEventListener('mouseup', function() { dragging = false; }, true);
-
-        // Minimize
-        document.getElementById('__bh_chat_toggle__').addEventListener('click', function() {
-            collapsed = !collapsed;
-            messages.style.display = collapsed ? 'none' : '';
-            inputArea.style.display = collapsed ? 'none' : '';
-            panel.style.width = collapsed ? '200px' : '320px';
-            this.textContent = collapsed ? '+' : '\u2212';
-        });
-
-        // Listen for backend events
-        window.__bh_event_listeners__.push(function(type, data) {
-            if (type === 'agent_status') {
-                setStatus(data.status);
-            } else if (type === 'agent_output') {
-                var txt = data.text || '';
-                if (data.type === 'think') addMessage(txt, 'think');
-                else if (data.type === 'action_started' || data.type === 'action_completed' || data.type === 'action_detected') addMessage(txt, 'action');
-                else addMessage(txt, '');
-            } else if (type === 'agent_thinking') {
-                setStatus('THINKING');
-            } else if (type === 'agent_done') {
-                setStatus('IDLE');
-            } else if (type === 'connection_status') {
-                var dot = document.getElementById('__bh_status_dot__');
-                var txt = document.getElementById('__bh_status_text__');
-                if (!dot || !txt) return;
-                if (data.connected) {
-                    dot.style.background = '#4caf50';
-                    dot.style.animation = '';
-                    txt.textContent = 'connected';
-                    // 移除断连横幅
-                    var banner = document.getElementById('__bh_disconnect_banner__');
-                    if (banner) banner.remove();
-                    // 2 秒后恢复正常状态
-                    setTimeout(function() {
-                        if (txt.textContent === 'connected') {
-                            var s = statusText || 'IDLE';
-                            setStatus(s);
-                        }
-                    }, 2000);
-                } else {
-                    dot.style.background = '#f44336';
-                    dot.style.animation = '__bh_pulse__ 1.5s ease-in-out infinite';
-                    txt.textContent = 'disconnected';
-                    addMessage('Connection lost, reconnecting...', 'think');
-                    // 页面顶部断连横幅
-                    if (!document.getElementById('__bh_disconnect_banner__')) {
-                        var banner = document.createElement('div');
-                        banner.id = '__bh_disconnect_banner__';
-                        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#f44336;color:#fff;text-align:center;padding:8px;font-size:13px;font-family:-apple-system,sans-serif;pointer-events:auto;';
-                        banner.textContent = 'Backend disconnected \u2014 reconnecting...';
-                        document.body.appendChild(banner);
-                    }
-                }
-            }
-        });
-    }
-    __bh_init_chat_panel();
 })();

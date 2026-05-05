@@ -10,7 +10,7 @@ BrowserEventListener — 双向事件引擎（多 Agent 支持）。
     调用 window.__bh_on_event__(type, data)。
 
 自动行为：
-    页面加载完成时自动注入 bridge.js（通信协议）。
+    页面加载完成时自动注入 bridge.js（通信协议）+ agent_button.js（前端 UI）。
 """
 
 import asyncio
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Bridge JS 的文件路径
 _BRIDGE_JS_PATH = Path(__file__).parent / "interfaces" / "common" / "bridge.js"
+_AGENT_BUTTON_JS_PATH = Path(__file__).parent / "interfaces" / "common" / "agent_button.js"
 
 
 def _load_bridge_js() -> str:
@@ -49,7 +50,15 @@ def _load_bridge_js() -> str:
 """
 
 
+def _load_agent_button_js() -> str:
+    """加载 agent_button.js 内容。"""
+    if _AGENT_BUTTON_JS_PATH.exists():
+        return _AGENT_BUTTON_JS_PATH.read_text(encoding="utf-8")
+    return ""
+
+
 _bridge_js_cache: Optional[str] = None
+_agent_button_js_cache: Optional[str] = None
 
 
 def _get_bridge_js() -> str:
@@ -57,6 +66,13 @@ def _get_bridge_js() -> str:
     if _bridge_js_cache is None:
         _bridge_js_cache = _load_bridge_js()
     return _bridge_js_cache
+
+
+def _get_agent_button_js() -> str:
+    global _agent_button_js_cache
+    if _agent_button_js_cache is None:
+        _agent_button_js_cache = _load_agent_button_js()
+    return _agent_button_js_cache
 
 
 class BrowserEventListener:
@@ -139,22 +155,25 @@ class BrowserEventListener:
     # ==========================================
 
     async def ensure_bridge(self, session_id: str):
-        """确保指定 session 已注入 bridge.js。
+        """确保指定 session 已注入 bridge.js + agent_button.js。
 
         双重注入策略：
         1. Page.addScriptToEvaluateOnNewDocument — 注册自动注入，每次新文档加载时 Chrome 自动执行
         2. Runtime.evaluate — 立即注入当前页面（fallback）
 
-        bridge.js 自身通过 window.__bh_bridge_loaded__ 做幂等检查，不会重复执行。
+        bridge.js 和 agent_button.js 自身都有幂等检查，不会重复执行。
         """
         bridge_js = _get_bridge_js()
+        agent_btn_js = _get_agent_button_js()
 
         # 注册自动注入（每个 session 只注册一次）
         if session_id not in self._auto_inject_sessions:
             try:
+                # bridge.js + agent_button.js 合并为一个脚本注册
+                combined = bridge_js + "\n" + agent_btn_js if agent_btn_js else bridge_js
                 await self.cdp.send(
                     "Page.addScriptToEvaluateOnNewDocument",
-                    {"source": bridge_js},
+                    {"source": combined},
                     session_id=session_id,
                 )
                 self._auto_inject_sessions.add(session_id)
@@ -170,6 +189,17 @@ class BrowserEventListener:
             )
         except Exception as e:
             logger.debug(f"Bridge JS inject failed: {e}")
+
+        # 注入 agent_button.js
+        if agent_btn_js:
+            try:
+                await self.cdp.send(
+                    "Runtime.evaluate",
+                    {"expression": agent_btn_js},
+                    session_id=session_id,
+                )
+            except Exception as e:
+                logger.debug(f"Agent button JS inject failed: {e}")
 
     async def inject_js(self, session_id: str, js: str):
         """注入 JS 到指定 tab。"""

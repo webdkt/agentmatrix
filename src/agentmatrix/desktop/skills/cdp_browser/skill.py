@@ -207,11 +207,17 @@ class Cdp_browserSkillMixin:
         param_infos={"url": "要打开的 URL（如 https://github.com）"},
     )
     async def open_url(self, url: str) -> str:
-        """打开 URL。"""
+        """打开 URL。复用当前 tab（如有），否则新建。"""
         await self._ensure_browser()
         agent_name = self._agent_name()
 
-        tab = await _tab_manager.create_tab(agent_name, url)
+        # 复用当前 tab，而不是每次都新建
+        tab = self._get_current_tab()
+        if not tab:
+            tabs = await _tab_manager.get_agent_tabs(agent_name)
+            tab = tabs[0] if tabs else None
+        if not tab:
+            tab = await _tab_manager.create_tab(agent_name)
         self._set_current_tab(tab)
 
         try:
@@ -439,25 +445,20 @@ class Cdp_browserSkillMixin:
                     "error": f"options JSON 解析失败: {options}",
                 }, ensure_ascii=False)
 
-        # 读取 ask_dialog.js
-        dialog_js_path = Path(__file__).parent / "interfaces" / "common" / "ask_dialog.js"
-        dialog_js = dialog_js_path.read_text(encoding="utf-8")
-
-        # 构造调用
+        # 构造调用（__bh_ask_user__ 已由 agent_button.js 自动注入）
         call_js = f"window.__bh_ask_user__({json.dumps({
             'question': question,
             'choices': choices,
             'multi': multi,
         })})"
 
-        # 注入组件 + 调用
+        # 调用
         if _event_listener:
-            await _event_listener.inject_js(tab.session_id, dialog_js)
             await _event_listener.inject_js(tab.session_id, call_js)
         else:
             await _cdp_client.send(
                 "Runtime.evaluate",
-                {"expression": dialog_js + "\n" + call_js},
+                {"expression": call_js},
                 session_id=tab.session_id,
             )
 
