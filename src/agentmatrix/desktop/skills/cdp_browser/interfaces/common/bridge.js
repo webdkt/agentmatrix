@@ -70,6 +70,7 @@
         if (host) host.style.display = '';
 
         if (!el) return null;
+        window.__bh_flash(el);
         return {
             tagName: el.tagName.toLowerCase(),
             id: el.id || '',
@@ -91,6 +92,28 @@
     };
 
     // ==========================================
+    // 元素闪烁高亮（检查/验证时自动触发）
+    // ==========================================
+    (function() {
+        var s = document.createElement('style');
+        s.textContent = '@keyframes __bh_flash_pulse{0%,100%{outline:3px solid rgba(99,102,241,0.9);box-shadow:0 0 12px 4px rgba(99,102,241,0.5)}50%{outline:3px solid rgba(255,100,50,0.9);box-shadow:0 0 12px 4px rgba(255,100,50,0.5)}}';
+        (document.head || document.documentElement).appendChild(s);
+    })();
+
+    window.__bh_flash = function(el) {
+        if (!el || !el.style) return;
+        var prev = {outline: el.style.outline, outlineOffset: el.style.outlineOffset, animation: el.style.animation};
+        el.style.outline = '3px solid rgba(99,102,241,0.9)';
+        el.style.outlineOffset = '2px';
+        el.style.animation = '__bh_flash_pulse 0.6s ease-in-out 3';
+        setTimeout(function() {
+            el.style.outline = prev.outline;
+            el.style.outlineOffset = prev.outlineOffset;
+            el.style.animation = prev.animation;
+        }, 2000);
+    };
+
+    // ==========================================
     // DOM 探索工具函数（供 Agent eval_js 使用）
     // ==========================================
 
@@ -101,6 +124,7 @@
      */
     window.__bh_el_info = function(el) {
         if (!el) return null;
+        window.__bh_flash(el);
         var r = el.getBoundingClientRect ? el.getBoundingClientRect() : {};
         return {
             tag: el.tagName ? el.tagName.toLowerCase() : '',
@@ -213,7 +237,21 @@
         // elementsFromPoint 返回从最顶层到最底层的所有元素
         var els = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [document.elementFromPoint(x, y)];
         if (host) host.style.display = '';
-        return els.map(function(el) { return window.__bh_el_info(el); });
+        if (els.length > 0) window.__bh_flash(els[0]);
+        return els.map(function(el) {
+            var r = el.getBoundingClientRect ? el.getBoundingClientRect() : {};
+            return {
+                tag: el.tagName ? el.tagName.toLowerCase() : '',
+                id: el.id || '',
+                cls: (el.className || '').toString().substring(0, 80),
+                text: (el.textContent || '').substring(0, 120).trim(),
+                rect: {x: Math.round(r.left || 0), y: Math.round(r.top || 0), w: Math.round(r.width || 0), h: Math.round(r.height || 0)},
+                attrs: Array.from(el.attributes || []).reduce(function(acc, a) {
+                    if (['class', 'id', 'style'].indexOf(a.name) === -1) acc[a.name] = a.value;
+                    return acc;
+                }, {})
+            };
+        });
     };
 
     /**
