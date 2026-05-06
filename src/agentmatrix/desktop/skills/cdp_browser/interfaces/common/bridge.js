@@ -254,14 +254,30 @@
         });
     };
 
+    // ==========================================
+    // Tab 可见性追踪 — 页面变为可见时通知后端
+    // ==========================================
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            window.__bh_emit__('tab_activated', {});
+        }
+    });
+
     /**
      * 高亮元素并弹出确认对话框。
      * 用户点击后触发 __bh_emit__('element_confirmed', {selector, confirmed}).
-     * @param {string} selector - CSS 选择器
+     * @param {string} selector - CSS 选择器 或 XPath（以 'xpath:' 前缀）
      */
     window.__bh_confirm = function(selector) {
         try {
-            var el = document.querySelector(selector);
+            var el;
+            if (selector.indexOf('xpath:') === 0) {
+                var xpath = selector.substring(6);
+                var result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                el = result.singleNodeValue;
+            } else {
+                el = document.querySelector(selector);
+            }
             if (!el) {
                 window.__bh_emit__('element_confirmed', {selector: selector, confirmed: false, error: 'not_found'});
                 return;

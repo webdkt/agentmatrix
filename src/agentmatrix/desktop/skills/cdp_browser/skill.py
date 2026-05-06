@@ -46,6 +46,16 @@ _init_lock = asyncio.Lock()
 
 # 每个 agent 的当前 tab
 _agent_current_tab: dict[str, TabInfo] = {}
+_agent_last_session: dict[str, str] = {}  # agent_name → last known session_id
+
+
+def _update_current_tab(agent_name: str, target_id: str):
+    """更新 agent 的当前活动 tab（由 BrowserEventListener 调用）。"""
+    if not _tab_manager or not target_id or not agent_name:
+        return
+    tab = _tab_manager._tabs.get(target_id)
+    if tab:
+        _agent_current_tab[agent_name] = tab
 
 
 def _short_url(url: str) -> str:
@@ -107,7 +117,7 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
 
         _tab_manager = TabManager(_cdp_client)
 
-        _event_listener = BrowserEventListener(_cdp_client, _tab_manager)
+        _event_listener = BrowserEventListener(_cdp_client, _tab_manager, on_current_tab_change=_update_current_tab)
         # 注册连接状态回调 → 推送到前端
         _cdp_client.on_status_change(_event_listener.notify_connection_status)
         await _event_listener.start_target_discovery()
@@ -175,23 +185,65 @@ class Cdp_browserSkillMixin:
                     self._agent_name(), self.root_agent.input_queue
                 )
                 _event_listener.start()
+        else:
+            agent_name = self._agent_name()
+
+            # 固定 profile 路径，始终同一个，保留登录状态、书签、扩展等
+            profile_dir = str(Path.home() / ".agentmatrix" / "cdp_browser_profile")
+
+            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
+
+            cdp, tab_mgr, listener = await _get_shared_infra(profile_dir, port)
+
+            # 注册 agent input_queue
+            if listener and self.root_agent:
+                listener.register_agent_queue(
+                    self._agent_name(), self.root_agent.input_queue
+                )
+                listener.start()
+
+        # Session 切换检测：关闭旧 session 的 tab
+        agent_name = self._agent_name()
+        current_sid = self._agent_session_id()
+        last_sid = _agent_last_session.get(agent_name, "")
+
+        if current_sid and current_sid != last_sid:
+            await self._cleanup_old_session_tabs(agent_name, current_sid)
+            _agent_last_session[agent_name] = current_sid
+
+    async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
+        """关闭属于该 agent 但来自旧 session 的 tab。"""
+        if not _tab_manager:
             return
 
-        agent_name = self._agent_name()
+        tabs = _tab_manager.get_agent_tabs_sync(agent_name)
+        to_close = [
+            t for t in tabs
+            if t.agent_session_id
+            and t.agent_session_id != current_session_id
+        ]
 
-        # 固定 profile 路径，始终同一个，保留登录状态、书签、扩展等
-        profile_dir = str(Path.home() / ".agentmatrix" / "cdp_browser_profile")
+        if not to_close:
+            return
 
-        port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
-
-        cdp, tab_mgr, listener = await _get_shared_infra(profile_dir, port)
-
-        # 注册 agent input_queue
-        if listener and self.root_agent:
-            listener.register_agent_queue(
-                self._agent_name(), self.root_agent.input_queue
+        closed_ids = set()
+        for tab in to_close:
+            logger.info(
+                f"Cleaning old session tab: {tab.target_id} "
+                f"(old_session={tab.agent_session_id[:8]}...)"
             )
-            listener.start()
+            await _tab_manager.close_tab(tab.target_id)
+            closed_ids.add(tab.target_id)
+
+        # 如果 current_tab 被关了，更新到剩余 tab
+        current = _agent_current_tab.get(agent_name)
+        if current and current.target_id in closed_ids:
+            remaining = _tab_manager.get_agent_tabs_sync(agent_name)
+            _agent_current_tab[agent_name] = remaining[0] if remaining else None
+
+        logger.info(
+            f"Session cleanup: closed {len(to_close)} old tabs for '{agent_name}'"
+        )
 
     # ==========================================
     # Actions
@@ -644,11 +696,11 @@ class Cdp_browserSkillMixin:
             }, ensure_ascii=False)
 
     @register_action(
-        short_desc="confirm_element(selector, tab_id)",
+        short_desc="confirm_element(selector, tab_id)在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",
         description="在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。"
                     "立即返回，用户确认结果通过 element_confirmed 信号异步返回。",
         param_infos={
-            "selector": "要确认的 CSS selector",
+            "selector": "要确认的 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）",
             "tab_id": "目标 tab 的 target_id（从信号中获取）",
         },
     )

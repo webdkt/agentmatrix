@@ -119,16 +119,22 @@ class BrowserEventListener:
     - 提供后端→前端事件推送
     """
 
-    def __init__(self, cdp: CDPClient, tab_mgr: TabManager):
+    def __init__(self, cdp: CDPClient, tab_mgr: TabManager,
+                 on_current_tab_change=None):
         self.cdp = cdp
         self.tab_mgr = tab_mgr
         self.active = False
         self._handlers_registered = False
+        self._on_current_tab_change = on_current_tab_change
 
         # 按 agent_name 索引的 agent input_queue
         self._agent_queues: dict[str, asyncio.Queue] = {}
         # 已注册自动注入 bridge 的 session 集合
         self._auto_inject_sessions: set = set()
+        # 无主 tab（无 openerId 的新 tab，等待分配）
+        self._orphan_tabs: set = set()  # target_id 集合
+        # orphan tab 的 session_id → target_id 映射（用于回传选择结果）
+        self._orphan_sessions: dict[str, str] = {}
 
     # ==========================================
     # 多 Agent queue 管理
@@ -277,6 +283,7 @@ class BrowserEventListener:
         self.cdp.on_event("Page.loadEventFired", self._on_page_loaded)
         self.cdp.on_event("Target.targetDestroyed", self._on_target_destroyed)
         self.cdp.on_event("Target.targetCreated", self._on_target_created)
+        self.cdp.on_event("Target.targetInfoChanged", self._on_target_info_changed)
         self._handlers_registered = True
 
     def _on_console(self, params):
@@ -314,6 +321,34 @@ class BrowserEventListener:
             cdp_session_id = params.get("_sessionId", "")
             agent_name = self._find_agent_for_tab(cdp_session_id)
 
+        # 从 session_id 反查 target_id
+        cdp_session = params.get("_sessionId", "")
+        target_id = ""
+        if cdp_session:
+            tab = self.tab_mgr.get_tab_by_session_sync(cdp_session)
+            if tab:
+                target_id = tab.target_id
+
+        # ── tab_activated: 只更新 current_tab，不进 queue ──
+        if event_type == "tab_activated":
+            if agent_name and target_id and self._on_current_tab_change:
+                self._on_current_tab_change(agent_name, target_id)
+                logger.debug(f"tab_activated → {agent_name}: {target_id}")
+            return
+
+        # ── tab_assign_choice: orphan tab 分配选择 ──
+        if event_type == "tab_assign_choice":
+            chosen_agent = business_data.get("agent_name", "")
+            # orphan tab 不在 tab_mgr 中，需要从 _orphan_sessions 查找
+            if not target_id:
+                target_id = self._orphan_sessions.pop(cdp_session, "")
+            self._handle_orphan_choice(target_id, chosen_agent)
+            return
+
+        # ── 所有其他事件: 更新 current_tab + 进 queue ──
+        if agent_name and target_id and self._on_current_tab_change:
+            self._on_current_tab_change(agent_name, target_id)
+
         queue = self._find_agent_queue(agent_name)
         if not queue:
             logger.debug(f"No queue for browser event {event_type} (agent={agent_name})")
@@ -326,14 +361,9 @@ class BrowserEventListener:
             url=url,
             title=title,
             data=business_data,
-            cdp_session_id=params.get("_sessionId", ""),
+            cdp_session_id=cdp_session,
+            target_id=target_id,
         )
-        # 从 session_id 反查 target_id
-        cdp_session = params.get("_sessionId", "")
-        if cdp_session:
-            tab = self.tab_mgr.get_tab_by_session_sync(cdp_session)
-            if tab:
-                signal.target_id = tab.target_id
         try:
             queue.put_nowait(signal)
             logger.info(f"Browser event → {agent_name}: {event_type}")
@@ -392,15 +422,26 @@ class BrowserEventListener:
         target_id = params.get("targetId", "")
         if not target_id:
             return
+
+        # 清理 orphan tab 记录
+        self._orphan_tabs.discard(target_id)
+
         tab = self.tab_mgr._tabs.get(target_id)
         if tab and tab.agent_name:
-            self._emit_to_agent(tab.agent_name, BrowserSignal(
-                agent_name=tab.agent_name,
+            agent_name = tab.agent_name
+            self._emit_to_agent(agent_name, BrowserSignal(
+                agent_name=agent_name,
                 agent_session_id=tab.agent_session_id,
                 event_type="tab_closed",
                 url=tab.url,
                 data={"target_id": target_id},
             ))
+            # 如果关的是 current_tab，切换到下一个
+            if self._on_current_tab_change:
+                remaining = self.tab_mgr.get_agent_tabs_sync(agent_name)
+                other = [t for t in remaining if t.target_id != target_id]
+                if other:
+                    self._on_current_tab_change(agent_name, other[0].target_id)
         logger.debug(f"Tab closed: {target_id}")
 
     # ==========================================
@@ -408,10 +449,11 @@ class BrowserEventListener:
     # ==========================================
 
     def _on_target_created(self, params):
-        """处理浏览器创建的新 tab（如用户点击 target=_blank 链接）。
+        """处理浏览器创建的新 tab。
 
-        通过 openerId 找到父 tab，自动继承其 agent_name 和 agent_session_id，
-        然后注入 bridge.js + 设置 agent meta。
+        两种情况：
+        1. 有 openerId → 自动继承父 tab 的 agent（原有逻辑）
+        2. 无 openerId → 记录为 orphan tab，等待分配
         """
         if not self.active:
             return
@@ -422,34 +464,36 @@ class BrowserEventListener:
         opener_id = info.get("openerId", "")
         url = info.get("url", "")
 
-        # 只处理 page 类型且有 opener 的 tab
-        if target_type != "page" or not opener_id:
+        # 只处理 page 类型
+        if target_type != "page":
             return
 
         # 跳过已追踪的 tab
         if target_id in self.tab_mgr._tabs:
             return
 
-        # 查找父 tab
-        parent_tab = self.tab_mgr._tabs.get(opener_id)
-        if not parent_tab or not parent_tab.agent_name:
-            return
+        # ── 情况 1：有 openerId → 继承父 tab ──
+        if opener_id:
+            parent_tab = self.tab_mgr._tabs.get(opener_id)
+            if parent_tab and parent_tab.agent_name:
+                agent_name = parent_tab.agent_name
+                agent_session_id = parent_tab.agent_session_id
+                logger.info(
+                    f"Auto-adopting new tab {target_id} from opener {opener_id} "
+                    f"(agent={agent_name}, url={url})"
+                )
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(
+                        self._adopt_new_tab(target_id, agent_name, agent_session_id, url)
+                    )
+                except RuntimeError:
+                    pass
+                return
 
-        agent_name = parent_tab.agent_name
-        agent_session_id = parent_tab.agent_session_id
-
-        logger.info(
-            f"Auto-adopting new tab {target_id} from opener {opener_id} "
-            f"(agent={agent_name}, url={url})"
-        )
-
-        try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(
-                self._adopt_new_tab(target_id, agent_name, agent_session_id, url)
-            )
-        except RuntimeError:
-            pass
+        # ── 情况 2：无 openerId → orphan tab，记录等待分配 ──
+        logger.info(f"Orphan tab detected: {target_id} (url={url}), waiting for navigation")
+        self._orphan_tabs.add(target_id)
 
     async def _adopt_new_tab(
         self, target_id: str, agent_name: str, agent_session_id: str, url: str
@@ -482,6 +526,206 @@ class BrowserEventListener:
             )
         except Exception as e:
             logger.warning(f"Failed to adopt new tab {target_id}: {e}")
+
+    # ==========================================
+    # Orphan tab 分配
+    # ==========================================
+
+    def _on_target_info_changed(self, params):
+        """Tab URL 变化 → 检测 orphan tab 是否导航到真实页面。"""
+        if not self.active:
+            return
+
+        info = params.get("targetInfo", {})
+        target_id = info.get("targetId", "")
+        url = info.get("url", "")
+
+        if target_id not in self._orphan_tabs:
+            return
+
+        # 只处理 http/https URL（跳过 about:blank, chrome:// 等）
+        if not url.startswith(("http://", "https://")):
+            return
+
+        logger.info(f"Orphan tab {target_id} navigated to {url}, triggering assignment")
+
+        # 从 orphan 集合移除（避免重复触发）
+        self._orphan_tabs.discard(target_id)
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._assign_orphan_tab(target_id, url))
+        except RuntimeError:
+            pass
+
+    async def _assign_orphan_tab(self, target_id: str, url: str):
+        """分配 orphan tab：单 agent 自动分配，多 agent 弹出选择对话框。"""
+        # 获取活跃 agent 列表
+        active_agents = list(self._agent_queues.keys())
+        if not active_agents:
+            logger.debug(f"No active agents, orphan tab {target_id} unassigned")
+            return
+
+        try:
+            if len(active_agents) == 1:
+                # 单 agent → 自动分配
+                agent_name = active_agents[0]
+                await self._finalize_orphan_assignment(target_id, agent_name, url)
+            else:
+                # 多 agent → 注入选择对话框
+                await self._show_orphan_assign_dialog(target_id, url, active_agents)
+        except Exception as e:
+            logger.warning(f"Failed to assign orphan tab {target_id}: {e}")
+
+    async def _show_orphan_assign_dialog(self, target_id: str, url: str, agents: list):
+        """在 orphan tab 中注入选择对话框，让用户选择分配给哪个 agent。"""
+        # 1. attach 到 tab
+        session_id = await self.cdp.attach_to_target(target_id)
+        await self.cdp.enable_domains(session_id)
+        self._orphan_sessions[session_id] = target_id
+
+        # 2. 构造 agent 列表 JS 变量 + 最小 bridge + 对话框
+        agents_json = json.dumps([{"name": name} for name in agents])
+
+        # 最小 bridge（只有 emit 能力）
+        minimal_bridge = (
+            "if(!window.__bh_emit__){"
+            "window.__bh_emit__=function(t,d){"
+            "var p={type:t,ts:Date.now()};"
+            "if(d)for(var k in d)p[k]=d[k];"
+            "console.log('__BH_EVENT__ '+JSON.stringify(p));"
+            "};}"
+        )
+
+        # 选择对话框 JS
+        dialog_js = (
+            "(function(){"
+            "if(window.__bh_assign_dialog_loaded__)return;"
+            "window.__bh_assign_dialog_loaded__=true;"
+            "var agents=" + agents_json + ";"
+            "var o=document.createElement('div');"
+            "o.id='__bh_assign_dialog__';"
+            "o.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;"
+            "z-index:2147483646;background:rgba(0,0,0,0.3);display:flex;"
+            "align-items:center;justify-content:center;"
+            "font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;';"
+            "var c=document.createElement('div');"
+            "c.style.cssText='background:white;border-radius:16px;padding:24px;"
+            "box-shadow:0 8px 32px rgba(0,0,0,0.2);max-width:400px;width:90%;';"
+            "c.innerHTML='<h3 style=\"margin:0 0 8px;font-size:16px;color:#1a1a2e;\">"
+            "分配此页面</h3>"
+            "<p style=\"margin:0 0 16px;font-size:13px;color:#666;\">"
+            "选择要分配的 Agent：</p>';"
+            "agents.forEach(function(a){"
+            "var b=document.createElement('button');"
+            "b.textContent=a.name;"
+            "b.style.cssText='display:block;width:100%;padding:12px;margin-bottom:8px;"
+            "border:1px solid rgba(0,0,0,0.12);border-radius:10px;background:white;"
+            "cursor:pointer;font-size:14px;text-align:left;font-family:inherit;';"
+            "b.onmouseover=function(){b.style.background='#f0f0ff';};"
+            "b.onmouseout=function(){b.style.background='white';};"
+            "b.onclick=function(){"
+            "window.__bh_emit__('tab_assign_choice',{agent_name:a.name});"
+            "o.remove();};"
+            "c.appendChild(b);});"
+            "var x=document.createElement('button');"
+            "x.textContent='不分配';"
+            "x.style.cssText='display:block;width:100%;padding:12px;border:none;"
+            "border-radius:10px;background:#f5f5f5;cursor:pointer;font-size:13px;"
+            "color:#666;font-family:inherit;';"
+            "x.onclick=function(){"
+            "window.__bh_emit__('tab_assign_choice',{agent_name:''});"
+            "o.remove();};"
+            "c.appendChild(x);"
+            "o.appendChild(c);"
+            "document.body.appendChild(o);"
+            "})();"
+        )
+
+        full_js = minimal_bridge + dialog_js
+
+        # 3. 等页面 ready 再注入（最多等 3 秒）
+        for _ in range(6):
+            await asyncio.sleep(0.5)
+            try:
+                result = await self.cdp.send(
+                    "Runtime.evaluate",
+                    {
+                        "expression": "document.readyState",
+                        "returnByValue": True,
+                    },
+                    session_id=session_id,
+                    timeout=2,
+                )
+                ready = result.get("result", {}).get("value", "")
+                if ready in ("interactive", "complete"):
+                    break
+            except Exception:
+                pass
+
+        await self.cdp.send(
+            "Runtime.evaluate",
+            {"expression": full_js},
+            session_id=session_id,
+        )
+        logger.info(f"Orphan assign dialog injected for {target_id}")
+
+    def _handle_orphan_choice(self, target_id: str, chosen_agent: str):
+        """处理用户对 orphan tab 的分配选择（由 _on_console 调用）。"""
+        if not chosen_agent:
+            logger.info(f"User cancelled orphan tab assignment for {target_id}")
+            # 清理 orphan_sessions 中对应的条目
+            self._orphan_tabs.discard(target_id)
+            return
+
+        logger.info(f"User assigned orphan tab {target_id} to agent '{chosen_agent}'")
+        try:
+            loop = asyncio.get_event_loop()
+            # 需要获取 URL，但 orphan tab 不在 tab_mgr 中
+            # 从 CDP target info 获取
+            loop.create_task(self._finalize_orphan_assignment(target_id, chosen_agent, ""))
+        except RuntimeError:
+            pass
+
+    async def _finalize_orphan_assignment(self, target_id: str, agent_name: str, url: str):
+        """完成 orphan tab 的分配：adopt + 注入 bridge + 设置 meta + 通知 agent。"""
+        # 获取该 agent 的最新 session_id（用于继承）
+        agent_session_id = ""
+        agent_tabs = self.tab_mgr.get_agent_tabs_sync(agent_name)
+        if agent_tabs:
+            agent_session_id = agent_tabs[0].agent_session_id
+
+        # adopt tab
+        tab = await self.tab_mgr.adopt_tab(
+            target_id, agent_name, agent_session_id, url
+        )
+
+        # 获取实际 URL
+        actual_url, title = await self._get_page_info(tab.session_id)
+        if actual_url:
+            tab.url = actual_url
+            tab.title = title
+
+        # 注入 bridge + agent_button + 设置 meta
+        await self.ensure_bridge(tab.session_id)
+        await self.set_agent_meta(tab.session_id, agent_name, agent_session_id)
+
+        # 更新 current_tab
+        if self._on_current_tab_change:
+            self._on_current_tab_change(agent_name, target_id)
+
+        # 通知 agent
+        self._emit_to_agent(agent_name, BrowserSignal(
+            agent_name=agent_name,
+            agent_session_id=agent_session_id,
+            event_type="tab_opened",
+            url=actual_url or url,
+            title=title or "",
+            data={"target_id": target_id},
+            cdp_session_id=tab.session_id,
+        ))
+
+        logger.info(f"Orphan tab {target_id} assigned to agent '{agent_name}'")
 
     # ==========================================
     # 辅助方法
@@ -530,6 +774,8 @@ class BrowserEventListener:
         """重连后对所有已知 tab 重新 attach、启用 domain、注入 bridge。"""
         logger.info("Resubscribing all tabs after reconnection...")
         self._auto_inject_sessions.clear()  # 重连后 session_id 全部失效
+        self._orphan_tabs.clear()
+        self._orphan_sessions.clear()
         await self.start_target_discovery()
 
         dead_tabs = []

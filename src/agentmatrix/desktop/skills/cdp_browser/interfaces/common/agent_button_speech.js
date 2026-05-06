@@ -14,8 +14,6 @@
 
         var el = document.createElement('div');
         el.className = 'ab-speech';
-        var tail = document.createElement('div');
-        tail.className = 'ab-speech-tail';
         var closeBtn = document.createElement('button');
         closeBtn.className = 'ab-speech-close';
         closeBtn.textContent = '\u2715';
@@ -23,7 +21,6 @@
         var txt = document.createElement('div');
         txt.className = 'ab-speech-text';
         txt.textContent = text;
-        el.appendChild(tail);
         el.appendChild(closeBtn);
         el.appendChild(txt);
         shadow.appendChild(el);

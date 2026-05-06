@@ -290,46 +290,47 @@
 .ab-speech {
     position:fixed; z-index:2147483645; width:320px; max-height:400px;
     background:rgba(255,255,255,0.97); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur);
-    border:2px solid rgba(0,0,0,0.3); border-radius:14px;
+    border-radius:18px;
     padding:12px 16px; padding-right:32px; font-size:14px; line-height:1.6;
     color:var(--text); pointer-events:auto;
-    box-shadow:0 4px 20px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.1);
+    box-shadow:0 2px 16px rgba(0,0,0,0.12);
     animation:ab-speech-in 0.2s ease-out; transition:opacity 0.2s;
 }
 .ab-speech.dimmed { opacity:0.15; pointer-events:none; z-index:2147483644; }
 @keyframes ab-speech-in { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
 
-/* Tail: ::before = border, ::after = fill */
-.ab-speech-tail { position:absolute; width:0; height:0; }
-.ab-speech-tail::before, .ab-speech-tail::after { content:""; position:absolute; width:0; height:0; }
+/* Tail: rotated rounded square — curves naturally out of the bubble */
+.ab-speech::after {
+    content:""; position:absolute;
+    width:16px; height:16px;
+    background:rgba(255,255,255,0.97);
+    transform:rotate(45deg);
+    display:none;
+}
 
-/* tail-left: bubble left of button, tail points right */
-.ab-speech.tail-left .ab-speech-tail { right:-20px; top:14px; }
-.ab-speech.tail-left .ab-speech-tail::before { left:-2px; top:-12px;
-    border-left:22px solid rgba(0,0,0,0.3); border-top:12px solid transparent; border-bottom:12px solid transparent; }
-.ab-speech.tail-left .ab-speech-tail::after { left:0px; top:-10px;
-    border-left:20px solid rgba(255,255,255,0.97); border-top:10px solid transparent; border-bottom:10px solid transparent; }
+/* tail-left: bubble RIGHT of button, tail on LEFT pointing left */
+.ab-speech.tail-left::after {
+    display:block; left:-6px; top:14px;
+    border-radius:0 0 0 5px;
+}
 
-/* tail-right: bubble right of button, tail points left */
-.ab-speech.tail-right .ab-speech-tail { left:-20px; top:14px; }
-.ab-speech.tail-right .ab-speech-tail::before { right:-2px; top:-12px;
-    border-right:22px solid rgba(0,0,0,0.3); border-top:12px solid transparent; border-bottom:12px solid transparent; }
-.ab-speech.tail-right .ab-speech-tail::after { right:0px; top:-10px;
-    border-right:20px solid rgba(255,255,255,0.97); border-top:10px solid transparent; border-bottom:10px solid transparent; }
+/* tail-right: bubble LEFT of button, tail on RIGHT pointing right */
+.ab-speech.tail-right::after {
+    display:block; right:-6px; top:14px;
+    border-radius:0 5px 0 0;
+}
 
-/* tail-top: bubble above button, tail points down */
-.ab-speech.tail-top .ab-speech-tail { bottom:-20px; left:24px; }
-.ab-speech.tail-top .ab-speech-tail::before { left:-12px; top:-2px;
-    border-bottom:22px solid rgba(0,0,0,0.3); border-left:12px solid transparent; border-right:12px solid transparent; }
-.ab-speech.tail-top .ab-speech-tail::after { left:-10px; top:0px;
-    border-bottom:20px solid rgba(255,255,255,0.97); border-left:10px solid transparent; border-right:10px solid transparent; }
+/* tail-top: bubble BELOW button, tail on TOP pointing up */
+.ab-speech.tail-top::after {
+    display:block; top:-6px; left:24px;
+    border-radius:5px 0 0 0;
+}
 
-/* tail-bottom: bubble below button, tail points up */
-.ab-speech.tail-bottom .ab-speech-tail { top:-20px; left:24px; }
-.ab-speech.tail-bottom .ab-speech-tail::before { left:-12px; bottom:-2px;
-    border-top:22px solid rgba(0,0,0,0.3); border-left:12px solid transparent; border-right:12px solid transparent; }
-.ab-speech.tail-bottom .ab-speech-tail::after { left:-10px; bottom:0px;
-    border-top:20px solid rgba(255,255,255,0.97); border-left:10px solid transparent; border-right:10px solid transparent; }
+/* tail-bottom: bubble ABOVE button, tail on BOTTOM pointing down */
+.ab-speech.tail-bottom::after {
+    display:block; bottom:-6px; left:24px;
+    border-radius:0 0 5px 0;
+}
 
 .ab-speech-text { word-break:break-word; }
 .ab-speech-text.clamped { display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
