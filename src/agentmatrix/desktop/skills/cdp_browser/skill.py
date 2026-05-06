@@ -48,6 +48,36 @@ _init_lock = asyncio.Lock()
 _agent_current_tab: dict[str, TabInfo] = {}
 
 
+def _short_url(url: str) -> str:
+    """截取 URL 的 scheme://host/首段路径，超出部分用 /... 表示。"""
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        segments = (parsed.path or "/").strip("/").split("/")
+        if segments and segments[0]:
+            base += "/" + segments[0]
+        if len(url) > len(base):
+            base += "/..."
+        return base
+    except Exception:
+        return url[:50] + "..." if len(url) > 50 else url
+
+
+def _tab_not_found_msg(invalid_id: str) -> str:
+    """当 tab_id 不正确时，生成包含所有可用 tab 列表的错误消息。"""
+    lines = []
+    if _tab_manager:
+        for tab in _tab_manager._tabs.values():
+            lines.append(f"  - tab_id: {tab.target_id}, url: {_short_url(tab.url)}, title: {tab.title}")
+    tab_list = "\n".join(lines) if lines else "  (无可用 tab)"
+    return (f"tab_id '{invalid_id}' 不正确。当前可用的 tab：\n"
+            f"{tab_list}\n"
+            f"(url 仅显示域名和首段路径，完整信息请调用 list_tabs())")
+
+
 async def _get_shared_infra(profile_dir: str, port: int = 9222):
     """获取或创建共享的 Chrome + CDP + TabManager 基础设施。"""
     global _chrome_manager, _cdp_client, _tab_manager, _event_listener
@@ -294,7 +324,7 @@ class Cdp_browserSkillMixin:
         if not tab:
             return json.dumps({
                 "status": "error",
-                "error": f"Tab {target_id} 不存在",
+                "error": _tab_not_found_msg(target_id),
             }, ensure_ascii=False)
 
         if tab.agent_name != agent_name:
@@ -327,7 +357,7 @@ class Cdp_browserSkillMixin:
         if not tab:
             return json.dumps({
                 "status": "error",
-                "error": f"Tab {target_id} 不存在。使用 list_tabs() 查看可用 tab。",
+                "error": _tab_not_found_msg(target_id),
             }, ensure_ascii=False)
 
         if tab.agent_name != agent_name:
@@ -474,18 +504,14 @@ class Cdp_browserSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="find_element_selector(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
-        description="用户通过指示器指向了一个页面元素，本 action 启动一个临时 MicroAgent "
-                    "在浏览器中自由探索 DOM，找到该元素的稳定、唯一 CSS selector。"
-                    "页面上该元素已被标记为 __bh_marked__ 属性，additional_info 和 tab_id 来自 indicator_result 信号。",
+        short_desc="find_selector(instruction_text, tab_id) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
+        description="ind_selector(instruction_text, tab_id) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
         param_infos={
             "additional_info": "用户对该元素的描述文字（从 indicator_result 信号获取）",
-            "tab_id": "目标 tab 的 target_id（从 indicator_result 信号的 tab 字段获取）",
-            "x": "指示器中心的 x 坐标（从 indicator_result 信号获取）",
-            "y": "指示器中心的 y 坐标（从 indicator_result 信号获取）",
+            "tab_id": "目标 tab 的 tab_id",
         },
     )
-    async def find_element_selector(self, additional_info: str, tab_id: str, x: int = 0, y: int = 0) -> str:
+    async def find_selector(self, instruction_text: str, tab_id: str) -> str:
         from agentmatrix.core.micro_agent import MicroAgent
 
         if not _cdp_client or not _cdp_client._connected:
@@ -493,7 +519,71 @@ class Cdp_browserSkillMixin:
 
         tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
         if not tab:
-            return json.dumps({"status": "error", "error": f"Tab {tab_id} 不存在"})
+            return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
+
+        prompt = (
+            "你是一个 DOM 元素定位专家。\n"
+            f"你的任务：找到用户需要的元素的稳定定位表达式（CSS selector 或 XPath）。\n"
+            "可用工具函数（通过 eval_js 调用，必须传 tab_id）：\n"
+            "- __bh_el_info(el) — 获取元素详情，返回 {tag, id, cls, text, rect, attrs}\n"
+            "- __bh_tag_path(el) — 获取 CSS 路径\n"
+            "- __bh_xpath(el) — 获取 XPath\n"
+            "- __bh_test(selector) — 测试 CSS selector 命中数\n"
+            "- __bh_test_xpath(xpath) — 测试 XPath 命中数\n\n"
+            "要求：为目标元素生成稳定的定位表达式：\n"
+            "   - 稳定是指依赖固定、语义的属性和稳定的、固定的结构关系，不依赖动态属性、看上去像变量、哈希值、自增值、随机值的属性值\n"
+            "   - 如果 CSS selector 难以表达（如按文本内容），用 XPath\n"
+            "   - 好的selector 往往也是短的、含义清晰的selector，并且条件数量少的selector（例如单一属性优于多个属性组合，标签+属性优于纯属性）。"
+            "   - 优先考虑元素自身的语义化的属性（如 tag name, id、aria-label、name、data-*）"
+            "   - **重要技巧**：元素本身可能会缺乏直接的、稳定的的属性。更聪明的办法是先寻找页面中稳定的结构（例如父元素中具有简单、稳定定位的元素，以其为锚点），在一个稳定的小范围内进行进一步的定位。例如table可能是不唯一的，但是在特定id的div中是唯一的。\n"
+            "5. 可以用 __bh_test 或 __bh_test_xpath 验证selector匹配元素的数量"
+            "6. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
+        )
+
+        micro = MicroAgent(
+            parent=self.root_agent,
+            name=f"{self.root_agent.name}_dom_explorer",
+            available_skills=["cdp_browser.dom_explorer"],
+            system_prompt=prompt,
+        )
+
+        try:
+            result = await micro.execute(
+                run_label="Find Element Selector",
+                task= f"用户对于要找的元素的描述: {instruction_text}",
+                exit_actions=["return_selector"],
+            )
+            return json.dumps({
+                "status": "ok",
+                "selector": result['selector'],
+                "description": result['additional_info'],
+                "tab_id": tab_id,
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "error": str(e),
+            }, ensure_ascii=False)
+
+    @register_action(
+        short_desc="find_unique_selector_by_xy(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
+        description="find_unique_selector_by_xy(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
+        param_infos={
+            "additional_info": "用户对该元素的描述文字,以及任何有助于定位元素的额外信息",
+            "tab_id": "目标 tab 的 tab_id",
+            "x": "用户指向的 x 坐标",
+            "y": "用户指向的 y 坐标",
+        },
+    )
+    async def find_unique_selector_by_xy(self, additional_info: str, tab_id: str, x: int = 0, y: int = 0) -> str:
+        from agentmatrix.core.micro_agent import MicroAgent
+
+        if not _cdp_client or not _cdp_client._connected:
+            return json.dumps({"status": "error", "error": "浏览器未连接"})
+
+        tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+        if not tab:
+            return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
 
         prompt = (
             "你是一个 DOM 元素定位专家。\n"
@@ -543,8 +633,8 @@ class Cdp_browserSkillMixin:
             )
             return json.dumps({
                 "status": "ok",
-                "selector": result if isinstance(result, str) else str(result),
-                "description": additional_info,
+                "selector": result['selector'],
+                "description": result['additional_info'],
                 "tab_id": tab_id,
             }, ensure_ascii=False)
         except Exception as e:
@@ -568,7 +658,7 @@ class Cdp_browserSkillMixin:
 
         tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
         if not tab:
-            return json.dumps({"status": "error", "error": f"Tab {tab_id} 不存在"})
+            return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
 
         js = f"window.__bh_confirm__ ? window.__bh_confirm__({json.dumps(selector)}) : window.__bh_confirm({json.dumps(selector)})"
 

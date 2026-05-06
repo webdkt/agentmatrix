@@ -33,14 +33,14 @@ class Dom_explorerSkillMixin:
         },
     )
     async def eval_js(self, code: str, tab_id: str) -> str:
-        from ..skill import _cdp_client, _tab_manager
+        from ..skill import _cdp_client, _tab_manager, _tab_not_found_msg
 
         if not _cdp_client or not _cdp_client._connected:
             return json.dumps({"error": "CDP client not connected"})
 
         tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
         if not tab:
-            return json.dumps({"error": f"Tab {tab_id} not found"})
+            return json.dumps({"error": _tab_not_found_msg(tab_id)})
 
         try:
             result = await _cdp_client.send(
@@ -76,10 +76,13 @@ class Dom_explorerSkillMixin:
             return json.dumps({"error": str(e)})
 
     @register_action(
-        short_desc="return_selector(selector)",
+        short_desc="return_selector(selector, addtional_info) 找到稳定的定位表达式后返回结果, addtional_info是你决定有必要的提供的关于该元素或者该selector的额外信息",
         description="找到稳定的定位表达式后调用此函数返回结果。调用后探索结束。"
                     "CSS selector 直接返回，XPath 以 'xpath:' 前缀返回。",
-        param_infos={"selector": "找到的唯一稳定 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）"},
+        param_infos={
+            "selector": "找到的唯一稳定 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）",
+            "addtional_info": "关于元素的额外描述信息"
+        },
     )
-    async def return_selector(self, selector: str) -> str:
-        return selector
+    async def return_selector(self, selector: str, addtional_info: str = "") -> str:
+        return {"selector": selector, "additional_info": addtional_info}
