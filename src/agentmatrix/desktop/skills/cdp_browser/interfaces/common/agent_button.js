@@ -67,22 +67,22 @@
     var ab, btn, menu;
 
     // ==========================================
-    // Overlay 统一管理（互斥 + dim）
+    // Overlay 统一管理（互斥 + 隐藏 Agent UI）
     // ==========================================
 
     /**
-     * 打开一个 overlay。自动关闭上一个，自动 dim speech。
+     * 打开一个 overlay。自动关闭上一个，自动隐藏 Agent Button 和 speech。
      * @param {'indicator'|'range'|'instruct'|'dialog'} name
      */
     function _showOverlay(name) {
         _clearOverlay();
         _currentOverlay = name;
         if (ab) ab.classList.remove('expanded');
-        _syncSpeechDim();
+        _syncOverlayUI();
     }
 
     /**
-     * 关闭当前 overlay，清理 DOM，恢复 speech。
+     * 关闭当前 overlay，清理 DOM，恢复 Agent Button 和 speech。
      */
     function _clearOverlay() {
         _overlayCleanups.forEach(function(fn) { try { fn(); } catch(e) {} });
@@ -93,19 +93,47 @@
         if (_rangeBubble) { _rangeBubble.remove(); _rangeBubble = null; }
         if (_instructBubble) { _instructBubble.remove(); _instructBubble = null; }
         if (_askHost) { _askHost.remove(); _askHost = null; }
+        // confirm overlay（bridge.js 创建，这里做安全清理）
+        var confirmOverlay = document.getElementById('__bh_confirm_overlay__');
+        if (confirmOverlay) confirmOverlay.remove();
+        var confirmBubble = document.getElementById('__bh_confirm_bubble__');
+        if (confirmBubble) confirmBubble.remove();
+        var hlList = document.querySelectorAll('.__bh-confirm-highlight');
+        for (var i = 0; i < hlList.length; i++) hlList[i].remove();
         _currentOverlay = null;
-        _syncSpeechDim();
+        _syncOverlayUI();
     }
 
     /**
-     * 同步 speech bubble 的 dim 状态。
-     * 规则：有 overlay 或菜单展开时 dim，否则 undim。
+     * 同步 overlay 活跃时的 UI 可见性。
+     * - _currentOverlay（真正的 overlay）：隐藏 Agent Button + speech
+     * - expanded（菜单展开）：只隐藏 speech（菜单是 Agent Button 的一部分，不触发按钮隐藏）
      */
-    function _syncSpeechDim() {
-        if (!_speechEl) return;
-        var hasOverlay = !!(_currentOverlay || (ab && ab.classList.contains('expanded')));
-        _speechEl.classList.toggle('dimmed', hasOverlay);
+    function _syncOverlayUI() {
+        var hasOverlay = !!_currentOverlay;
+        var isExpanded = !hasOverlay && ab && ab.classList.contains('expanded');
+        if (_speechEl) {
+            _speechEl.style.display = (hasOverlay || isExpanded) ? 'none' : '';
+        }
+        if (ab) {
+            ab.style.visibility = hasOverlay ? 'hidden' : '';
+        }
     }
+
+    // ==========================================
+    // Confirm overlay API（供 bridge.js 的 __bh_confirm 调用）
+    // ==========================================
+    window.__bh_confirm_overlay__ = {
+        show: function() {
+            _clearOverlay();
+            _currentOverlay = 'confirm';
+            _syncOverlayUI();
+        },
+        hide: function() {
+            _currentOverlay = null;
+            _syncOverlayUI();
+        }
+    };
 
     // ==========================================
     // Helpers

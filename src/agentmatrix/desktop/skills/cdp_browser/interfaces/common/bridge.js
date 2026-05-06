@@ -96,21 +96,70 @@
     // ==========================================
     (function() {
         var s = document.createElement('style');
-        s.textContent = '@keyframes __bh_flash_pulse{0%,100%{outline:3px solid rgba(99,102,241,0.9);box-shadow:0 0 12px 4px rgba(99,102,241,0.5)}50%{outline:3px solid rgba(255,100,50,0.9);box-shadow:0 0 12px 4px rgba(255,100,50,0.5)}}';
+        s.textContent = [
+            '@keyframes __bh_flash_pulse{0%,100%{outline:3px solid rgba(99,102,241,0.9);box-shadow:0 0 12px 4px rgba(99,102,241,0.5)}50%{outline:3px solid rgba(255,100,50,0.9);box-shadow:0 0 12px 4px rgba(255,100,50,0.5)}}',
+            // 统一元素高亮（探索 + confirm 共用）
+            '.__bh-highlight{outline:3px solid rgba(99,102,241,0.9) !important;outline-offset:2px !important;animation:__bh_flash_pulse 0.6s ease-in-out 3 !important;}',
+            // Confirm overlay
+            '.__bh-confirm-overlay{position:absolute;left:0;top:0;z-index:2147483645;background:rgba(0,0,0,0.45);pointer-events:auto;}',
+            '.__bh-confirm-highlight{position:absolute;z-index:2147483646;pointer-events:none;border-radius:6px;box-shadow:0 0 0 3px #6366f1,0 0 16px 4px rgba(99,102,241,0.4);animation:__bh_flash_pulse 0.6s ease-in-out 3;}',
+            '.__bh-confirm-bubble{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;' +
+                'background:rgba(255,255,255,0.95);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);' +
+                'border:1.5px solid rgba(0,0,0,0.12);border-radius:16px;' +
+                'box-shadow:0 8px 32px rgba(0,0,0,0.12),0 1px 3px rgba(0,0,0,0.08);' +
+                'padding:16px 24px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+                'font-size:14px;color:#1a1a2e;display:flex;align-items:center;gap:14px;pointer-events:auto;' +
+                'cursor:move;user-select:none;}',
+            '.__bh-confirm-bubble button{border:none;border-radius:10px;padding:10px 22px;cursor:pointer;font-size:14px;font-family:inherit;}',
+            '.__bh-confirm-yes{background:#6366f1;color:#fff;font-weight:600;}',
+            '.__bh-confirm-no{background:rgba(0,0,0,0.04);color:#1a1a2e;border:1px solid rgba(0,0,0,0.12) !important;}',
+            '.__bh-confirm-info{font-size:13px;color:rgba(0,0,0,0.45);}'
+        ].join('\n');
         (document.head || document.documentElement).appendChild(s);
     })();
 
+    // ==========================================
+    // 统一元素高亮（CSS class，非 inline style）
+    // ==========================================
+    var _highlightedEls = [];
+
+    /**
+     * 高亮一个或多个元素。
+     * @param {Element|Element[]} els
+     * @param {object} [opts]
+     * @param {number} [opts.duration] - 自动清除时间（ms），0=不自动清除。默认 2000
+     */
+    window.__bh_highlight = function(els, opts) {
+        if (!els) return;
+        if (!Array.isArray(els)) els = [els];
+        var duration = opts && opts.duration !== undefined ? opts.duration : 2000;
+        els.forEach(function(el) {
+            if (!el || !el.classList) return;
+            el.classList.add('__bh-highlight');
+            _highlightedEls.push(el);
+        });
+        if (duration > 0) {
+            setTimeout(function() { __bh_clear_highlights(els); }, duration);
+        }
+    };
+
+    /**
+     * 清除指定元素的高亮。不传参则清除全部。
+     * @param {Element[]} [els]
+     */
+    window.__bh_clear_highlights = function(els) {
+        if (!els) els = _highlightedEls.slice();
+        els.forEach(function(el) {
+            if (el && el.classList) el.classList.remove('__bh-highlight');
+        });
+        _highlightedEls = _highlightedEls.filter(function(el) {
+            return els.indexOf(el) === -1;
+        });
+    };
+
+    /** 兼容旧调用：__bh_flash(el) → __bh_highlight(el) */
     window.__bh_flash = function(el) {
-        if (!el || !el.style) return;
-        var prev = {outline: el.style.outline, outlineOffset: el.style.outlineOffset, animation: el.style.animation};
-        el.style.outline = '3px solid rgba(99,102,241,0.9)';
-        el.style.outlineOffset = '2px';
-        el.style.animation = '__bh_flash_pulse 0.6s ease-in-out 3';
-        setTimeout(function() {
-            el.style.outline = prev.outline;
-            el.style.outlineOffset = prev.outlineOffset;
-            el.style.animation = prev.animation;
-        }, 2000);
+        __bh_highlight(el, {duration: 2000});
     };
 
     // ==========================================
@@ -264,55 +313,112 @@
     });
 
     /**
-     * 高亮元素并弹出确认对话框。
-     * 用户点击后触发 __bh_emit__('element_confirmed', {selector, confirmed}).
+     * 遮罩 + 高亮确认对话框。
+     * 匹配多个元素时全部高亮，遮罩盖住页面但不遮匹配元素。
+     * 页面可自由滚动，确认气泡始终可见且可拖动。
      * @param {string} selector - CSS 选择器 或 XPath（以 'xpath:' 前缀）
      */
     window.__bh_confirm = function(selector) {
         try {
-            var el;
+            // 1. 多元素匹配
+            var elements;
             if (selector.indexOf('xpath:') === 0) {
                 var xpath = selector.substring(6);
-                var result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-                el = result.singleNodeValue;
+                var result = document.evaluate(xpath, document, null,
+                    XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                elements = [];
+                for (var i = 0; i < result.snapshotLength; i++) {
+                    elements.push(result.snapshotItem(i));
+                }
             } else {
-                el = document.querySelector(selector);
+                elements = Array.from(document.querySelectorAll(selector));
             }
-            if (!el) {
+
+            if (elements.length === 0) {
                 window.__bh_emit__('element_confirmed', {selector: selector, confirmed: false, error: 'not_found'});
                 return;
             }
-            // 高亮
-            el.style.outline = '3px solid #6366f1';
-            el.style.outlineOffset = '2px';
-            el.scrollIntoView({behavior: 'smooth', block: 'center'});
 
-            // 确认气泡（挂到 body，避开 shadow DOM）
+            // 2. 通知 agent_button 隐藏 UI
+            if (window.__bh_confirm_overlay__) {
+                window.__bh_confirm_overlay__.show();
+            } else {
+                var fallbackHost = document.getElementById('__bh_agent_btn_host__');
+                if (fallbackHost) fallbackHost.style.display = 'none';
+            }
+
+            // 3. 滚动到第一个（最上面的）匹配元素
+            elements[0].scrollIntoView({behavior: 'smooth', block: 'start'});
+
+            // 4. 高亮匹配元素（统一机制，duration=0 不自动消失）
+            __bh_highlight(elements, {duration: 0});
+
+            // 5. 遮罩（position:absolute 覆盖整个文档，随页面滚动）
+            var docH = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, window.innerHeight);
+            var docW = Math.max(document.body.scrollWidth, document.documentElement.scrollWidth, window.innerWidth);
+            var overlay = document.createElement('div');
+            overlay.id = '__bh_confirm_overlay__';
+            overlay.className = '__bh-confirm-overlay';
+            overlay.style.width = docW + 'px';
+            overlay.style.height = docH + 'px';
+            document.body.appendChild(overlay);
+
+            // 6. 确认气泡
             var bubble = document.createElement('div');
             bubble.id = '__bh_confirm_bubble__';
-            bubble.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(255,255,255,0.95);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1.5px solid rgba(0,0,0,0.12);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.12),0 1px 3px rgba(0,0,0,0.08);padding:14px 20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;color:#1a1a2e;display:flex;align-items:center;gap:12px;pointer-events:auto;';
-            bubble.innerHTML = '<span style="font-size:13px;color:rgba(0,0,0,0.45);">是这个元素吗？</span>' +
-                '<button id="__bh_confirm_yes__" style="background:#6366f1;color:#fff;border:none;border-radius:10px;padding:8px 18px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;transition:background 0.15s;">是</button>' +
-                '<button id="__bh_confirm_no__" style="background:rgba(0,0,0,0.04);color:#1a1a2e;border:1px solid rgba(0,0,0,0.12);border-radius:10px;padding:8px 18px;cursor:pointer;font-size:13px;font-family:inherit;transition:background 0.15s;">不是</button>';
-            // 清除旧气泡
-            var old = document.getElementById('__bh_confirm_bubble__');
-            if (old) old.remove();
+            bubble.className = '__bh-confirm-bubble';
+            bubble.innerHTML =
+                '<span class="__bh-confirm-info">找到 <b>' + elements.length + '</b> 个匹配元素</span>' +
+                '<button class="__bh-confirm-yes">确认</button>' +
+                '<button class="__bh-confirm-no">取消</button>';
             document.body.appendChild(bubble);
 
-            var cleanup = function() {
-                el.style.outline = '';
-                el.style.outlineOffset = '';
-                bubble.remove();
-            };
+            // 7. 气泡拖动
+            (function() {
+                var dragging = false, ox = 0, oy = 0;
+                bubble.addEventListener('mousedown', function(e) {
+                    if (e.target.tagName === 'BUTTON') return;
+                    dragging = true;
+                    var br = bubble.getBoundingClientRect();
+                    ox = e.clientX - br.left;
+                    oy = e.clientY - br.top;
+                    bubble.style.transform = 'none';
+                    bubble.style.left = br.left + 'px';
+                    bubble.style.top = br.top + 'px';
+                    e.preventDefault();
+                });
+                document.addEventListener('mousemove', function(e) {
+                    if (!dragging) return;
+                    bubble.style.left = (e.clientX - ox) + 'px';
+                    bubble.style.top = (e.clientY - oy) + 'px';
+                });
+                document.addEventListener('mouseup', function() { dragging = false; });
+            })();
 
-            document.getElementById('__bh_confirm_yes__').onclick = function() {
-                cleanup();
-                window.__bh_emit__('element_confirmed', {selector: selector, confirmed: true});
-            };
-            document.getElementById('__bh_confirm_no__').onclick = function() {
-                cleanup();
-                window.__bh_emit__('element_confirmed', {selector: selector, confirmed: false});
-            };
+            // 8. 清理 + 发送结果（done flag 防重入）
+            var done = false;
+            function emit(confirmed) {
+                if (done) return;
+                done = true;
+                if (overlay.parentNode) overlay.remove();
+                if (bubble.parentNode) bubble.remove();
+                __bh_clear_highlights(elements);
+                if (window.__bh_confirm_overlay__) {
+                    window.__bh_confirm_overlay__.hide();
+                } else {
+                    var fh = document.getElementById('__bh_agent_btn_host__');
+                    if (fh) fh.style.display = '';
+                }
+                window.__bh_emit__('element_confirmed', {selector: selector, confirmed: confirmed, count: elements.length});
+            }
+
+            // 9. 事件
+            bubble.querySelector('.__bh-confirm-yes').onclick = function() { emit(true); };
+            bubble.querySelector('.__bh-confirm-no').onclick = function() { emit(false); };
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) emit(false);
+            });
+
         } catch (e) {
             window.__bh_emit__('element_confirmed', {selector: selector, confirmed: false, error: e.message});
         }

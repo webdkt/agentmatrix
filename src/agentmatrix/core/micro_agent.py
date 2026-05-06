@@ -1111,8 +1111,8 @@ class MicroAgent(AutoLoggerMixin):
                     self.logger.info(f"Loop exit: exit action '{exit_action_name}' completed")
                     break
 
-                # 声明式退出：没有新 action 要执行，且没有 running action 在跑
-                if not action_names and not self._running_actions:
+                # 声明式退出：没有新 action 要执行，没有 running action 在跑，且 signal_queue 为空
+                if not action_names and not self._running_actions and self.signal_queue.empty():
                     # 🔍 优先检查是否有疑似幻觉的 action 名称（在通用验证之前）
                     if not self._no_action_reflected:
                         reflect_msg = _utils.build_no_action_reflect_message(raw_reply or "", raw_reply or "", self.action_registry["_flat"])

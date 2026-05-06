@@ -180,6 +180,13 @@ class CDPClient:
         """Close a target (tab)."""
         await self.send("Target.closeTarget", {"targetId": target_id})
 
+    async def detach_from_target(self, session_id: str):
+        """Detach a CDP session from its target."""
+        try:
+            await self.send("Target.detachFromTarget", {"sessionId": session_id}, timeout=5)
+        except Exception as e:
+            logger.debug(f"detach_from_target failed: {e}")
+
     async def enable_domains(self, session_id: str,
                              domains: List[str] = None):
         """Enable CDP domains for a session."""

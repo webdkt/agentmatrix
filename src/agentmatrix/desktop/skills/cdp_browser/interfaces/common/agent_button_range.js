@@ -101,7 +101,7 @@
                 text: inp.value
             });
             inp.value = '';
-            _showSplash();
+            _showSplash({atSpeech: true});
         }
         _bindSubmit(sendBtn, inp, submit);
     }

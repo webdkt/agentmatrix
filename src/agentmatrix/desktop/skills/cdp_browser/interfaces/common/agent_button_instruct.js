@@ -51,8 +51,7 @@
             if (!text) return;
             window.__bh_emit__('chat_message', {text: text});
             _bufPush({type: 'chat_message', text: text, ts: Date.now(), from: 'user'});
-            _clearOverlay();
-            _showSplash();
+            _showSplash({atSpeech: true});
         }
         _bindSubmit(sendBtn, inp, submit);
     }

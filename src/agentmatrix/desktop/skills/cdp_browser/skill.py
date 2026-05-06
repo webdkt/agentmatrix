@@ -212,38 +212,94 @@ class Cdp_browserSkillMixin:
             _agent_last_session[agent_name] = current_sid
 
     async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
-        """关闭属于该 agent 但来自旧 session 的 tab。"""
-        if not _tab_manager:
+        """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab。
+
+        对每个 page：
+        1. 临时 attach → Runtime.evaluate 读 window.__bh_agent_meta__
+        2. agent_name 匹配 且 agent_session_id ≠ 当前 session → 关闭
+        3. 否则 detach，保留
+        """
+        if not _cdp_client:
             return
 
-        tabs = _tab_manager.get_agent_tabs_sync(agent_name)
-        to_close = [
-            t for t in tabs
-            if t.agent_session_id
-            and t.agent_session_id != current_session_id
-        ]
-
-        if not to_close:
+        try:
+            pages = await _cdp_client.get_pages(include_internal=False)
+        except Exception as e:
+            logger.warning(f"Failed to get Chrome pages for cleanup: {e}")
             return
 
-        closed_ids = set()
-        for tab in to_close:
+        if not pages:
+            return
+
+        closed = 0
+        for page in pages:
+            tid = page.get("targetId", "")
+            url = page.get("url", "")
+            if not tid:
+                continue
+
+            # 临时 attach 读取 __bh_agent_meta__
+            temp_sid = None
+            try:
+                temp_sid = await _cdp_client.attach_to_target(tid)
+                result = await _cdp_client.send(
+                    "Runtime.evaluate",
+                    {"expression": "window.__bh_agent_meta__ || null",
+                     "returnByValue": True},
+                    session_id=temp_sid,
+                    timeout=5,
+                )
+                meta = result.get("result", {}).get("value")
+            except Exception:
+                meta = None
+
+            # 读完立即 detach
+            if temp_sid:
+                try:
+                    await _cdp_client.send(
+                        "Target.detachFromTarget",
+                        {"sessionId": temp_sid},
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+
+            # 判断是否属于当前 agent 的旧 session
+            if not meta:
+                continue  # 无 meta（未注入 bridge），跳过
+            if meta.get("agent_name") != agent_name:
+                continue  # 属于其他 agent，跳过
+            tab_sid = meta.get("agent_session_id", "")
+            if not tab_sid or tab_sid == current_session_id:
+                continue  # 无 session 标记 或 当前 session，保留
+
+            # 关闭旧 session 的 tab
             logger.info(
-                f"Cleaning old session tab: {tab.target_id} "
-                f"(old_session={tab.agent_session_id[:8]}...)"
+                f"Cleaning old session tab: {tid[:12]} "
+                f"(old_session={tab_sid[:12]}, url={url[:60]})"
             )
-            await _tab_manager.close_tab(tab.target_id)
-            closed_ids.add(tab.target_id)
+            try:
+                await _cdp_client.close_target(tid)
+                # 同步清理 _tab_manager
+                _tab_manager._tabs.pop(tid, None)
+                for ats in _tab_manager._agent_tabs.values():
+                    ats.discard(tid)
+                closed += 1
+            except Exception as e:
+                logger.warning(f"Failed to close tab {tid[:12]}: {e}")
 
         # 如果 current_tab 被关了，更新到剩余 tab
         current = _agent_current_tab.get(agent_name)
-        if current and current.target_id in closed_ids:
+        if current:
             remaining = _tab_manager.get_agent_tabs_sync(agent_name)
-            _agent_current_tab[agent_name] = remaining[0] if remaining else None
+            still_exists = any(t.target_id == current.target_id for t in remaining)
+            if not still_exists:
+                _agent_current_tab[agent_name] = remaining[0] if remaining else None
 
-        logger.info(
-            f"Session cleanup: closed {len(to_close)} old tabs for '{agent_name}'"
-        )
+        if closed:
+            logger.info(
+                f"Session cleanup: closed {closed} old tabs for '{agent_name}'"
+            )
 
     # ==========================================
     # Actions
@@ -490,7 +546,7 @@ class Cdp_browserSkillMixin:
         }, ensure_ascii=False)
 
     @register_action(
-        short_desc="ask_user_and_wait(question, options)",
+        short_desc="""ask_user_and_wait(question, options?)。options可选，JSON 字符串。如 '{"choices":["A","B","C"]}' 为单选，'{"choices":["A","B","C"],"multi":true}' 为多选。不传则为纯文本输入。""",
         description="在浏览器前端弹出对话框向用户提问。"
                     "支持三种模式：纯文本回答、单选、多选。"
                     "用户回答通过事件异步返回，无需轮询。",

@@ -28,7 +28,7 @@
         _applySpeechClamp(el, txt);
         _positionSpeech();
         // 新建的元素需要继承当前 dim 状态
-        _syncSpeechDim();
+        _syncOverlayUI();
     }
 
     function _applySpeechClamp(el, txt) {

@@ -58,7 +58,7 @@
             if (el) el.setAttribute('__bh_marked__', '1');
             window.__bh_emit__('indicator_result', {x: x, y: y, text: inp.value});
             inp.value = '';
-            _showSplash();
+            _showSplash({atSpeech: true});
         }
         _bindSubmit(sendBtn, inp, submit);
     }

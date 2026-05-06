@@ -46,12 +46,12 @@
     ab.addEventListener('mouseenter', function() {
         clearTimeout(_hoverTimeout);
         ab.classList.add('expanded');
-        _syncSpeechDim();
+        _syncOverlayUI();
     });
     ab.addEventListener('mouseleave', function() {
         _hoverTimeout = setTimeout(function() {
             ab.classList.remove('expanded');
-            _syncSpeechDim();
+            _syncOverlayUI();
         }, 200);
     });
 
@@ -107,7 +107,7 @@
                 _clearOverlay();
             } else if (ab.classList.contains('expanded')) {
                 ab.classList.remove('expanded');
-                _syncSpeechDim();
+                _syncOverlayUI();
             }
         }
     });

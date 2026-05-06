@@ -16,6 +16,8 @@ BrowserEventListener — 双向事件引擎（多 Agent 支持）。
 import asyncio
 import json
 import logging
+import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -135,6 +137,9 @@ class BrowserEventListener:
         self._orphan_tabs: set = set()  # target_id 集合
         # orphan tab 的 session_id → target_id 映射（用于回传选择结果）
         self._orphan_sessions: dict[str, str] = {}
+        # 事件去重：同一 tab 的同一事件只处理一次（防多 session 重复）
+        self._recent_events: OrderedDict = OrderedDict()
+        self._DEDUP_TTL = 2.0  # 秒
 
     # ==========================================
     # 多 Agent queue 管理
@@ -316,11 +321,6 @@ class BrowserEventListener:
         meta_keys = {"type", "url", "title", "ts", "agent_name", "agent_session_id"}
         business_data = {k: v for k, v in payload.items() if k not in meta_keys}
 
-        # 根据前端元数据或 tab 归属找 agent
-        if not agent_name:
-            cdp_session_id = params.get("_sessionId", "")
-            agent_name = self._find_agent_for_tab(cdp_session_id)
-
         # 从 session_id 反查 target_id
         cdp_session = params.get("_sessionId", "")
         target_id = ""
@@ -328,6 +328,28 @@ class BrowserEventListener:
             tab = self.tab_mgr.get_tab_by_session_sync(cdp_session)
             if tab:
                 target_id = tab.target_id
+
+        # 去重：同一 event_type + ts 只处理一次
+        # ts 来自前端 Date.now()，同一用户的同一次操作 ts 相同
+        # Chrome 同一 tab 多个 session 会重复投递 console 事件
+        if ts:
+            dedup_key = (event_type, ts)
+            now = time.monotonic()
+            if dedup_key in self._recent_events:
+                return
+            self._recent_events[dedup_key] = now
+            # 清理过期条目
+            cutoff = now - self._DEDUP_TTL
+            while self._recent_events:
+                k, t = next(iter(self._recent_events.items()))
+                if t < cutoff:
+                    self._recent_events.popitem(last=False)
+                else:
+                    break
+
+        # 根据前端元数据或 tab 归属找 agent
+        if not agent_name:
+            agent_name = self._find_agent_for_tab(cdp_session)
 
         # ── tab_activated: 只更新 current_tab，不进 queue ──
         if event_type == "tab_activated":
@@ -689,13 +711,23 @@ class BrowserEventListener:
 
     async def _finalize_orphan_assignment(self, target_id: str, agent_name: str, url: str):
         """完成 orphan tab 的分配：adopt + 注入 bridge + 设置 meta + 通知 agent。"""
+        # 清理 orphan dialog session（如果有的话），避免同一 tab 多个 session 导致事件重复
+        orphan_session = None
+        for sid, tid in list(self._orphan_sessions.items()):
+            if tid == target_id:
+                orphan_session = sid
+                self._orphan_sessions.pop(sid, None)
+                break
+        if orphan_session:
+            await self.cdp.detach_from_target(orphan_session)
+
         # 获取该 agent 的最新 session_id（用于继承）
         agent_session_id = ""
         agent_tabs = self.tab_mgr.get_agent_tabs_sync(agent_name)
         if agent_tabs:
             agent_session_id = agent_tabs[0].agent_session_id
 
-        # adopt tab
+        # adopt tab（创建新 session，旧的 orphan session 已 detach）
         tab = await self.tab_mgr.adopt_tab(
             target_id, agent_name, agent_session_id, url
         )
