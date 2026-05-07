@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentmatrix-core"
-version = "0.7.0.2"
+version = "0.7.0.3"
 description = "Core execution engine for building AI agent applications — MicroAgent, AgentShell protocol, Cerebellum, and skill system"
 readme = "README_PyPI.md"
 requires-python = ">=3.12"
