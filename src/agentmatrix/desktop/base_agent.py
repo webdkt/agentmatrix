@@ -14,7 +14,6 @@ from pathlib import Path
 from ..core.basic_agent import BasicAgent
 from ..core.micro_agent import MicroAgent
 from ..core.signals import CoreEvent
-from .signals import BrowserSignal
 
 
 # Agent 状态常量
@@ -1146,8 +1145,6 @@ Start generating the Working Notes now.
 
         if isinstance(signal, Email):
             return await self._resolve_email_session(signal)
-        elif isinstance(signal, BrowserSignal):
-            return await self._resolve_browser_session(signal)
         else:
             return await super()._resolve_session(signal)
 
@@ -1185,18 +1182,6 @@ Start generating the Working Notes now.
         # 标记已解析（避免 waiting_signals 重路由时重复处理）
         email._desktop_resolved = True
         email._resolved_session = session
-
-        return session
-
-    async def _resolve_browser_session(self, signal: BrowserSignal) -> dict:
-        """BrowserSignal → 从前端元数据解析 session。"""
-        session = await self.session_manager.get_session_by_id(
-            signal.agent_session_id
-        )
-
-        # 标记已解析
-        signal._desktop_resolved = True
-        signal._resolved_session = session
 
         return session
 

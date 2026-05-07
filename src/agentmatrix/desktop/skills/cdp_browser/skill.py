@@ -7,6 +7,7 @@ Agent Actions:
 - list_tabs()                 → 列出当前 agent 的 tabs
 - close_tab(target_id)        → 关闭 tab
 - switch_to_tab(target_id)    → 切换 tab
+- cdp_command(method, params?) → 发送原始 CDP 协议指令
 
 
 设计要点：
@@ -17,6 +18,7 @@ Agent Actions:
 - 每个 tab 关联 agent_name + agent_session_id，前端事件自动附带这些元数据
 """
 
+import ast
 import asyncio
 import json
 import logging
@@ -801,7 +803,7 @@ class Cdp_browserSkillMixin:
             }, ensure_ascii=False)
         
     @register_action(
-        short_desc="eval_js(code, tab_id?) 在浏览器页面中执行 JavaScript 代码并返回结果。",
+        short_desc="eval_js(code, tab_id?) 在浏览器页面中执行 JavaScript 代码并返回结果。可以写任意多行 JS（用 IIFE 包裹）。可用的工具函数：__bh_el_info(el), __bh_tag_path(el), __bh_test(selector), __bh_test_xpath(selector)。",
         description="在浏览器页面中执行 JavaScript 代码并返回结果。"
                     "可以写任意多行 JS（用 IIFE 包裹）。"
                     "可用的工具函数：__bh_el_info(el), __bh_tag_path(el), __bh_test(selector), __bh_test_xpath(selector)。"
@@ -857,6 +859,61 @@ class Cdp_browserSkillMixin:
             return str(value)
         except Exception as e:
             logger.warning(f"[eval_js] CDP error: {e}")
+            return json.dumps({"error": str(e)})
+
+    @register_action(
+        short_desc="cdp_command(method, params?, tab_id?) 直接发送 CDP 协议指令.params 必须是 dict 对象",
+        description="向浏览器 tab 发送原始 CDP (Chrome DevTools Protocol) 指令并返回结果。"
+                    "可用于执行 Input.dispatchMouseEvent（鼠标事件）、Input.dispatchKeyEvent（键盘事件）、"
+                    "Page.captureScreenshot（截图）等任意 CDP 方法。\n\n"
+                    "params 必须是 dict 对象，示例：\n"
+                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mousePressed", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
+                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
+                    '  cdp_command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter", "text": "\\r"})\n\n'
+                    "完整文档参考 https://chromedevtools.github.io/devtools-protocol/",
+        param_infos={
+            "method": "CDP 方法名，如 Input.dispatchMouseEvent",
+            "params": "可选，CDP 参数 dict，如 {\"type\":\"mousePressed\",\"x\":100,\"y\":200}",
+            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
+        },
+    )
+    async def cdp_command(self, method: str, params=None, tab_id: str = None) -> str:
+        if not _cdp_client or not _cdp_client._connected:
+            return json.dumps({"error": "CDP client not connected"})
+
+        # 兜底：params 可能被框架传成字符串
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except (ValueError, SyntaxError):
+                try:
+                    params = ast.literal_eval(params)
+                except (ValueError, SyntaxError):
+                    return json.dumps({"error": f"params 无法解析为 dict: {params[:200]}"})
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return json.dumps({"error": f"params 必须是 dict，实际类型: {type(params).__name__}"})
+
+        if tab_id:
+            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            if not tab:
+                return json.dumps({"error": _tab_not_found_msg(tab_id)})
+        else:
+            tab = self._get_current_tab()
+            if not tab:
+                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
+
+        try:
+            result = await _cdp_client.send(
+                method,
+                params or {},
+                session_id=tab.session_id,
+                timeout=30,
+            )
+            return json.dumps(result, ensure_ascii=False, default=str)
+        except Exception as e:
+            logger.warning(f"[cdp_command] {method} error: {e}")
             return json.dumps({"error": str(e)})
 
     # ==========================================

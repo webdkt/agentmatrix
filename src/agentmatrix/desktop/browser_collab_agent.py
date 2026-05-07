@@ -18,6 +18,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from .base_agent import BaseAgent
+from .signals import BrowserSignal
 from ..core.signals import CoreEvent
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,36 @@ class BrowserCollabAgent(BaseAgent):
     # ==========================================
     # BaseAgent overrides
     # ==========================================
+
+    async def _resolve_session(self, signal) -> dict:
+        """BrowserSignal 由本类处理，其余委托 BaseAgent。"""
+        if isinstance(signal, BrowserSignal):
+            return await self._resolve_browser_session(signal)
+        return await super()._resolve_session(signal)
+
+    async def _resolve_browser_session(self, signal: BrowserSignal) -> dict:
+        """BrowserSignal → 从前端元数据解析 session。"""
+        session_id = signal.agent_session_id
+        if not session_id:
+            # Tab 还没有 agent 元数据（如刚打开的 orphan tab），
+            # 回退到当前 session
+            if self.current_session:
+                signal.agent_session_id = self.current_session["session_id"]
+                signal._desktop_resolved = True
+                signal._resolved_session = self.current_session
+                return self.current_session
+            raise ValueError(
+                f"BrowserSignal ({signal.event_type}) has no agent_session_id "
+                f"and no current session"
+            )
+
+        session = await self.session_manager.get_session_by_id(session_id)
+
+        # 标记已解析（避免 waiting_signals 重路由时重复处理）
+        signal._desktop_resolved = True
+        signal._resolved_session = session
+
+        return session
 
     def _create_micro_agent(self):
         """注入 site knowledge 后创建 MicroAgent。"""

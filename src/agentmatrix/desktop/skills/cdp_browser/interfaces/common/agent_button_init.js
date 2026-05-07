@@ -56,20 +56,38 @@
     }, 2000);
 
     // ==========================================
-    // Hover expand/collapse
+    // Menu expand/collapse（IDLE 自动展开，非 IDLE hover 展开）
     // ==========================================
+    var _hoverExpanded = false;
     var _hoverTimeout = null;
+
+    /** 同步菜单展开状态：IDLE 时自动展开，否则由 hover 控制 */
+    function _syncExpanded() {
+        var shouldExpand = (_status === 'IDLE') || _hoverExpanded;
+        if (shouldExpand) {
+            ab.classList.add('expanded');
+        } else {
+            ab.classList.remove('expanded');
+        }
+        _syncOverlayUI();
+        // 菜单展开/收起改变 ab 尺寸，需重新定位 speech
+        _positionSpeech();
+    }
+
     ab.addEventListener('mouseenter', function() {
         clearTimeout(_hoverTimeout);
-        ab.classList.add('expanded');
-        _syncOverlayUI();
+        _hoverExpanded = true;
+        _syncExpanded();
     });
     ab.addEventListener('mouseleave', function() {
         _hoverTimeout = setTimeout(function() {
-            ab.classList.remove('expanded');
-            _syncOverlayUI();
+            _hoverExpanded = false;
+            _syncExpanded();
         }, 200);
     });
+
+    // 初始状态：IDLE 自动展开
+    _syncExpanded();
 
     // ==========================================
     // Drag（基于 getBoundingClientRect，兼容 right 定位）

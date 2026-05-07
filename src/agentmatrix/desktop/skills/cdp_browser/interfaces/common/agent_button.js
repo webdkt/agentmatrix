@@ -112,9 +112,8 @@
      */
     function _syncOverlayUI() {
         var hasOverlay = !!_currentOverlay;
-        var isExpanded = !hasOverlay && ab && ab.classList.contains('expanded');
         if (_speechEl) {
-            _speechEl.style.display = (hasOverlay || isExpanded) ? 'none' : '';
+            _speechEl.style.display = hasOverlay ? 'none' : '';
         }
         if (ab) {
             ab.style.visibility = hasOverlay ? 'hidden' : '';
@@ -154,7 +153,17 @@
         var dot = btn.querySelector('.ab-btn-dot');
         if (dot) dot.className = 'ab-btn-dot ' + cls;
         var label = btn.querySelector('.ab-btn-label');
-        if (label) label.textContent = status.replace(/_/g, ' ');
+        if (label) {
+            label.textContent = status.replace(/_/g, ' ');
+            // 非 IDLE 状态：label 加 shimmer 动画
+            if (cls !== 'idle' && cls !== 'disconnected') {
+                label.classList.add('active');
+            } else {
+                label.classList.remove('active');
+            }
+        }
+        // IDLE 自动展开菜单，非 IDLE 自动收起
+        _syncExpanded();
     }
 
     /** 创建 bubble（close + textarea + send），返回 {el, inp, sendBtn} */
