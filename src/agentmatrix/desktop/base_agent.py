@@ -9,48 +9,12 @@ import traceback
 import inspect
 import json
 import textwrap
-from ..core.log_util import AutoLoggerMixin
-from ..core.agent_shell import AgentShell
-from ..core.state_manager import StateManagerMixin
 import logging
 from pathlib import Path
+from ..core.basic_agent import BasicAgent
 from ..core.micro_agent import MicroAgent
-
-
-@dataclass
-class EmailSignal:
-    """邮件信号 — Desktop 层实现，遵循 Signal 协议。"""
-    sender: str
-    recipient: str
-    subject: str
-    body: str
-    attachments: list = field(default_factory=list)
-    email_ids: list = field(default_factory=list)
-
-    @property
-    def signal_type(self) -> str:
-        return "email"
-
-    @property
-    def signal_id(self) -> Optional[str]:
-        # 邮件信号用 email_ids 作为可靠投递标识
-        return ",".join(self.email_ids) if self.email_ids else None
-
-    def to_text(self) -> str:
-        text = f"[新邮件] 来自 {self.sender}: {self.subject}\n{self.body}"
-        if self.attachments:
-            text += "\n" + "\n".join(
-                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
-                for att in self.attachments
-            )
-        return text
-
-    def log_detail(self) -> Dict[str, Any]:
-        return {
-            "signal_type": "email",
-            "email_ids": self.email_ids,
-            "sender": self.sender,
-        }
+from ..core.signals import CoreEvent
+from .signals import BrowserSignal
 
 
 # Agent 状态常量
@@ -99,7 +63,7 @@ class AskUserQuestion:
         )
 
 
-class BaseAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
+class BaseAgent(BasicAgent):
     _log_from_attr = "name"  # 日志名字来自 self.name 属性
 
     _custom_log_level = logging.DEBUG
@@ -108,9 +72,14 @@ class BaseAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
         from ..core.skills.registry import SKILL_REGISTRY
         SKILL_REGISTRY.add_search_path("agentmatrix.desktop.skills")
 
-        self.name = profile["name"]
+        # BasicAgent 初始化：name, profile, profile_path, input_queue,
+        # session state, brain, cerebellum, session_manager, skills, state_manager
+        super().__init__(profile, profile_path)
+
+        # inbox 向后兼容别名
+        self.inbox = self.input_queue
+
         self.description = profile["description"]
-        self.profile_path = profile_path  # 配置文件路径（用于 ConfigService 定位）
 
         # persona 直接是字符串
         self.persona = profile.get("persona", "")
@@ -121,32 +90,21 @@ class BaseAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
         # Prompt 模板缓存
         self._prompt_cache = {}
 
-        self.profile = profile
         self.backend_model = profile.get("backend_model", "default_llm")
 
-        # 🆕 新架构：读取 skills 配置
-        self.skills = profile.get("skills", [])
-        self.brain = None
-        self.cerebellum = None
-        self.vision_brain = None  # 🆕 视觉大模型（支持图片理解的LLM）
+        self.vision_brain = None  # 视觉大模型（支持图片理解的LLM）
 
-        self._status = AgentStatus.IDLE  # 🔧 私有变量，只能通过 update_status 修改
+        self._status = AgentStatus.IDLE
         from datetime import datetime
 
-        self._status_since = datetime.now()  # 状态变化的时间
+        self._status_since = datetime.now()
 
-        # 📊 状态历史（最近 10 条，用于前端查询）
+        # 状态历史（最近 10 条，用于前端查询）
         self.status_history = []
-        self._max_status_history = 10  # 🔧 扩展到 10 条
+        self._max_status_history = 10
 
-        self.last_received_email = None  # 最后收到的信
+        self.last_received_email = None
         self.post_office = None
-
-        # Session Manager（延迟初始化）
-        self.session_manager = None
-
-        # 标准组件
-        self.inbox = asyncio.Queue()
 
         # 事件回调 (Server 注入)
         self.async_event_callback: Optional[Callable] = None
@@ -154,59 +112,42 @@ class BaseAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
         # Runtime 引用 (由 AgentMatrix 注入)
         self._runtime = None
 
-        # ✨ 新架构：使用 action_registry 代替 actions_map
-        self.action_registry = {}  # name -> bound_method (新架构)
-        self.actions_meta = {}  # name -> metadata (给小脑看)
-        self.current_session = None
+        # action_registry 代替 actions_map
+        self.action_registry = {}
+        self.actions_meta = {}
         self.current_task_id = None
-        self.current_user_session_id = None  # 🆕 当前用户会话ID（如果邮件来自User）
+        self.current_user_session_id = None
 
-        # 🔧 广播消息的回调（由 runtime 注入）
+        # 广播消息的回调（由 runtime 注入）
         self._broadcast_message_callback = None
 
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
 
-        # 🔀 状态管理（pause/resume/stop/checkpoint）
-        self._init_state_manager()
+        # ask_user 机制（等待用户输入）
+        self._pending_user_question = None
+        self._user_input_future = None
 
-        # 💬 ask_user 机制（等待用户输入）
-        self._pending_user_question = None  # 当前等待用户回答的问题
-        self._user_input_future = None  # 用于等待用户输入的 Future
+        # 双 Worker 模型（history_worker）
+        self.pending_summaries_queue = []
+        self.history_worker_task = None
 
-        # 🆕 双 Worker 模型（email_worker + history_worker）
-        self.pending_summaries_queue = []  # 待总结的消息块队列
-        self.email_worker_task = None  # email worker 引用
-        self.history_worker_task = None  # history worker 引用
-
-        # 🆕 Stop 机制
-        self._execute_task = None  # 当前正在运行的 execute task
-
-        # 🆕 信号驱动架构 — session 管理
-        self.active_session_id: Optional[str] = None
-        self.active_micro_agent: Optional[MicroAgent] = None
-        self._session_task: Optional[asyncio.Task] = None
-        self.waiting_emails: List[Email] = []  # 非 active session 的邮件暂存
-
-        # 🐳 Container Session（延迟初始化）
+        # Container Session（延迟初始化）
         self.container_session = None
 
-        # 🌐 浏览器适配器（懒启动，Agent 级共享资源）
+        # 浏览器适配器（懒启动，Agent 级共享资源）
         self._browser_adapter = None
 
-        # 🆕 Collab Mode（运行时状态，不持久化）
+        # Collab Mode（运行时状态，不持久化）
         self.collab_mode: bool = False
         self._collab_output_loop: Optional[asyncio.AbstractEventLoop] = None
-        self.current_collab_file: Optional[str] = None  # 当前协作的文件路径
-        self._last_deactivated_session_id: Optional[str] = None  # 上一次停用的 session_id
+        self.current_collab_file: Optional[str] = None
+        self._last_deactivated_session_id: Optional[str] = None
 
-        # 🆕 记录最后一次 top-level MicroAgent 执行的 system prompt
+        # 记录最后一次 top-level MicroAgent 执行的 system prompt
         self.last_system_prompt = None
 
         self.logger.info(f"Agent {self.name} 初始化完成")
-
-        # ✨ 新架构：Skills 改为 Lazy Load（通过 SKILL_REGISTRY 自动发现）
-        # 不再需要手动注册，移除 _register_new_skills() 方法
 
     def _init_container_session(self):
         """初始化 Container Session"""
@@ -609,7 +550,7 @@ Start generating the Working Notes now.
 
     def _format_email_history(self, emails) -> str:
         """格式化邮件历史为聊天风格文本。"""
-        from ..core.micro_agent_utils import format_email_history
+        from agentmatrix.core.utils.micro_agent_utils import format_email_history
         return format_email_history(emails, self.name)
 
     def is_llm_available(self) -> bool:
@@ -1137,85 +1078,81 @@ Start generating the Working Notes now.
             await self.async_event_callback(event)
 
     async def run(self):
-        """主循环：启动 _main_loop + history_worker"""
-        self.email_worker_task = asyncio.create_task(self._main_loop())
+        """Desktop 主循环：启动 BasicAgent.run() + history_worker。"""
         self.history_worker_task = asyncio.create_task(self._history_worker())
 
         await self.emit("SYSTEM", f"{self.name} Started")
 
         try:
-            await asyncio.gather(self.email_worker_task, return_exceptions=True)
+            await super().run()
         except asyncio.CancelledError:
-            self.logger.info(f"{self.name} main loop cancelled")
-            if self.email_worker_task:
-                self.email_worker_task.cancel()
             if self.history_worker_task:
                 self.history_worker_task.cancel()
-            try:
-                await asyncio.gather(
-                    self.email_worker_task,
-                    self.history_worker_task,
-                    return_exceptions=True,
-                )
-            except Exception:
-                pass
+                try:
+                    await self.history_worker_task
+                except (asyncio.CancelledError, Exception):
+                    pass
             raise
-        except Exception as e:
-            self.logger.exception(f"Unexpected error in {self.name} main loop")
 
     async def _main_loop(self):
         """
-        主循环：收邮件 + 路由 + session 管理
+        Desktop: input_queue 消费 → _route_signal。
 
-        替代旧的 _email_worker + process_email。
-        邮件不再阻塞处理，而是路由到 active session 的 signal_queue，
-        或暂存到 waiting_emails 等待后续 session 处理。
+        input_queue 中的 item 都是 Signal（Email、BrowserSignal 等）。
         """
-        self.logger.info("🔄 Main loop 已启动")
+        self.logger.info("Desktop main loop 已启动")
 
         try:
             while True:
-                # 检查点：暂停/停止时阻塞等待
                 await self.checkpoint()
-
-                # 阻塞等待邮件
-                email = await self.inbox.get()
+                signal = await self.input_queue.get()
 
                 try:
-                    self.last_received_email = email
-                    await self._route_email(email)
+                    if isinstance(signal, Email):
+                        self.last_received_email = signal
+
+                    await self._route_signal(signal)
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
-                    self.logger.exception(f"Error routing email in {self.name}")
+                    self.logger.exception(f"Error routing signal in {self.name}")
                 finally:
-                    self.inbox.task_done()
+                    self.input_queue.task_done()
 
         except asyncio.CancelledError:
             # 取消 session task
             if self._session_task and not self._session_task.done():
-                # 取消所有 running action tasks
                 if self.active_micro_agent:
-                    for aid, task in self.active_micro_agent._running_actions.items():
+                    for aid, info in self.active_micro_agent._running_actions.items():
+                        task = info["task"] if isinstance(info, dict) else info
                         task.cancel()
                 self._session_task.cancel()
                 try:
                     await self._session_task
                 except (asyncio.CancelledError, Exception):
                     pass
-            self.logger.info("🔄 Main loop 已停止")
+            self.logger.info("Desktop main loop 已停止")
             raise
 
-    async def _route_email(self, email: Email):
-        """
-        路由邮件到正确的 session。
+    # ==========================================
+    # BasicAgent override: 信号路由
+    # ==========================================
 
-        三种情况：
-        1. 无 active session → activate session 并投递邮件
-        2. active session + 邮件属于同一 session → 投递到 signal_queue
-        3. active session + 邮件属于不同 session → 暂存到 waiting_emails
-        """
-        # 解析 session
+    async def _resolve_session(self, signal) -> dict:
+        """Desktop: 根据 signal 类型解析 session，记录事件。"""
+        # 如果已经被解析过（从 waiting_signals 取出），直接返回
+        if getattr(signal, '_desktop_resolved', False):
+            return signal._resolved_session
+
+        if isinstance(signal, Email):
+            return await self._resolve_email_session(signal)
+        elif isinstance(signal, BrowserSignal):
+            return await self._resolve_browser_session(signal)
+        else:
+            return await super()._resolve_session(signal)
+
+    async def _resolve_email_session(self, email: Email) -> dict:
+        """Email signal → 从邮件元数据解析 session。"""
         session = await self.session_manager.get_session(email)
         session_id = session["session_id"]
 
@@ -1227,7 +1164,7 @@ Start generating the Working Notes now.
                 receiver_name=self.name,
             )
 
-        # 📝 写入 session event: email.received（记录原始邮件内容）
+        # 写入 session event: email.received
         body_preview = email.body[:200] if email.body else ""
         await self._log_session_event(
             session_id=session_id,
@@ -1245,68 +1182,93 @@ Start generating the Working Notes now.
             },
         )
 
-        if self.active_session_id is None:
-            # 情况 1：无 active session → activate
-            await self._activate_session(session, email)
-        elif self.active_session_id == session_id:
-            # 情况 2：同一 session → 投递 batch 信号
-            if self.active_micro_agent:
-                self.active_micro_agent.signal_queue.put_nowait(
-                    EmailSignal(
-                        sender=email.sender,
-                        recipient=email.recipient,
-                        subject=email.subject,
-                        body=email.body,
-                        attachments=email.attachments or [],
-                        email_ids=[email.id],
-                    )
-                )
-            self.logger.debug(f"📧 邮件路由到 active session {session_id[:8]}")
-        else:
-            # 情况 3：不同 session → 暂存
-            self.waiting_emails.append(email)
-            self.logger.debug(
-                f"📧 邮件暂存 (session {session_id[:8]} != active {self.active_session_id[:8]})"
-            )
+        # 标记已解析（避免 waiting_signals 重路由时重复处理）
+        email._desktop_resolved = True
+        email._resolved_session = session
 
-    async def _activate_session(self, session: dict, first_email: Email):
-        """
-        激活 session：创建 MicroAgent，投递首封邮件，启动 session task。
-        """
+        return session
+
+    async def _resolve_browser_session(self, signal: BrowserSignal) -> dict:
+        """BrowserSignal → 从前端元数据解析 session。"""
+        session = await self.session_manager.get_session_by_id(
+            signal.agent_session_id
+        )
+
+        # 标记已解析
+        signal._desktop_resolved = True
+        signal._resolved_session = session
+
+        return session
+
+    async def _on_activate_session(self, session: dict, first_signal=None):
+        """Desktop: session 激活后的 hook — workspace 切换、状态更新。"""
         session_id = session["session_id"]
-        self.active_session_id = session_id
-        self.current_session = session
         self.current_task_id = session["task_id"]
+
         # 只在真正切换到不同 session 时才清空 collab file
-        # 同一 session re-activate（如等待用户输入后继续）应保留 collab file
         if self._last_deactivated_session_id != session_id:
             self.current_collab_file = None
 
-        # 设置 current_user_session_id
-        if self.runtime and first_email.sender == self.runtime.get_user_agent_name():
-            self.current_user_session_id = first_email.sender_session_id
-        else:
-            self.current_user_session_id = None
+        # 设置 current_user_session_id（从首条信号提取）
+        if first_signal:
+            if isinstance(first_signal, Email) and self.runtime and first_signal.sender == self.runtime.get_user_agent_name():
+                self.current_user_session_id = first_signal.sender_session_id
+            else:
+                self.current_user_session_id = None
 
         # 切换工作区
         if self.container_session is None:
             raise RuntimeError("Container Session 未初始化。")
-        # 重建 container shell（deactivate 时已 stop，这里按需 start）
         if not self.container_session.is_alive():
-            self.logger.info(f"🔌 重建 container shell: {self.container_session.session_id}")
+            self.logger.info(f"重建 container shell: {self.container_session.session_id}")
             self.container_session.start()
         success = await self.switch_workspace(session["task_id"])
         if not success:
-            self.logger.error(f"工作区切换失败: task_id={session['task_id']}, container_alive={self.container_session.is_alive()}")
+            self.logger.error(f"工作区切换失败: task_id={session['task_id']}")
             raise RuntimeError(f"工作区切换失败: {session['task_id']}")
 
-        # 准备 available_skills
-        available_skills = self.profile.get("skills", [])
+        # 写入 session event: session.activated
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="session",
+            event_name="activated",
+            event_detail={"task_id": session.get("task_id"), "original_sender": session.get("original_sender")},
+        )
+
+    async def _on_deactivate_session(self, session: dict):
+        """Desktop: session 停用前的 hook — 状态广播、event logging。"""
+        session_id = session.get("session_id", "unknown")
+
+        # 保存 session（设置 last_sender）
+        session["last_sender"] = self.name
+        try:
+            await self.session_manager.save_session(session)
+        except Exception as e:
+            self.logger.warning(f"Failed to save session on deactivate: {e}")
+
+        self._last_deactivated_session_id = session_id
+
+        if not self._is_stopping:
+            self.current_user_session_id = None
+            self.update_status(new_status=AgentStatus.IDLE)
+
+        self.logger.info(f"Session {session_id[:8]} deactivated (Desktop)")
+
+        # 写入 session event: session.deactivated
+        await self._log_session_event(
+            session_id=session_id,
+            event_type="session",
+            event_name="deactivated",
+            event_detail={"reason": "normal"},
+        )
+
+    def _create_micro_agent(self) -> MicroAgent:
+        """Desktop: 带有 base/email skills + md skills + custom prompt 的 MicroAgent。"""
+        available_skills = list(self.profile.get("skills", []))
         for required in ["base", "email"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 
-        # 预组装 system prompt 模板（Shell 选模板、填变量）
         template_key = "COLLAB_MODE" if getattr(self, "collab_mode", False) else "SYSTEM_PROMPT"
         template_str = self.render_template(
             self.get_prompt_template(template_key),
@@ -1315,180 +1277,110 @@ Start generating the Working Notes now.
             yellow_pages_section=self.post_office.yellow_page_exclude_me(self.name) or "",
         )
 
-        # 加载 md skill 名字列表
         md_skill_names = self._load_md_skill_names()
 
-        # 创建 MicroAgent
-        micro_agent = MicroAgent(
-            parent=self, name=self.name, available_skills=available_skills,
-            system_prompt=template_str, md_skill_names=md_skill_names,
+        return MicroAgent(
+            parent=self, name=self.name,
+            available_skills=available_skills,
+            system_prompt=template_str,
+            md_skill_names=md_skill_names,
         )
-        self.active_micro_agent = micro_agent
 
-        # 首封邮件作为 signal 放入 queue
-        micro_agent.signal_queue.put_nowait(EmailSignal(
-            sender=first_email.sender,
-            recipient=first_email.recipient,
-            subject=first_email.subject,
-            body=first_email.body,
-            attachments=first_email.attachments or [],
-            email_ids=[first_email.id],
+    def _get_run_label(self, session: dict) -> str:
+        """Desktop: execute() 的 run_label。"""
+        return "Process Email"
+
+    def _create_session_store(self, session: dict):
+        """Desktop: AgentSessionStore 持久化。"""
+        return AgentSessionStore(session, self.session_manager)
+
+    async def _handle_core_event(self, event: CoreEvent, session_id: str):
+        """Desktop: 处理 CoreEvent — 状态更新、邮件标记、事件持久化。"""
+        if event.event_type == "status":
+            self.update_status(new_status=event.event_name.upper())
+
+        elif event.event_type == "signal" and event.event_name == "processed":
+            signals = event.detail.get("signals", [])
+            signal_ids = [s.signal_id for s in signals if s.signal_id]
+            if signal_ids:
+                try:
+                    await self.post_office.email_db.mark_emails_processed(signal_ids)
+                except Exception as e:
+                    self.logger.warning(f"mark_emails_processed failed: {e}")
+
+        elif event.event_type == "signal":
+            # signal/received 等内部事件，忽略
+            pass
+
+        else:
+            await self._log_session_event(
+                session_id=session_id,
+                event_type=event.event_type,
+                event_name=event.event_name,
+                event_detail=event.detail or None,
+            )
+
+    def _handle_session_cancelled(self, session: dict):
+        """Desktop: session 被取消时的处理（stop 中断）。"""
+        if not self._is_stopping:
+            # 非 stop 的取消，重新抛出
+            raise asyncio.CancelledError()
+
+        session_id = session.get("session_id", "unknown")
+        self.logger.info(f"Session {session_id[:8]} 被 stop() 中断")
+
+        # 记录用户中断
+        asyncio.create_task(self._log_session_event(
+            session_id=session_id,
+            event_type="session",
+            event_name="user_interrupt",
         ))
 
-        # 启动 session task — task 为空，邮件通过 signal 进入
-        self._session_task = asyncio.create_task(
-            self._run_session(micro_agent, session)
-        )
-        self.logger.info(f"🚀 Session {session_id[:8]} 已激活")
-
-        # 📝 写入 session event: session.activated
-        await self._log_session_event(
-            session_id=session_id,
-            event_type="session",
-            event_name="activated",
-            event_detail={"task_id": session.get("task_id"), "original_sender": session.get("original_sender")},
-        )
-
-    async def _run_session(self, micro_agent: MicroAgent, session: dict):
-        """
-        运行 session 的 MicroAgent，处理完成后的清理。
-        """
-        session_id = session["session_id"]
-
-        async def _consume_events():
-            """消费 Core event queue，处理 DB 持久化、WebSocket 广播、邮件标记已读等。"""
-            while True:
-                try:
-                    event = await micro_agent.event_queue.get()
-                except asyncio.CancelledError:
-                    break
-
-                if event.event_type == "status":
-                    # 状态事件：只更新状态
-                    self.update_status(new_status=event.event_name.upper())
-
-                elif event.event_type == "signal" and event.event_name == "processed":
-                    # 信号处理完成：提取 signal_id 标记已读（如邮件），不广播
-                    signals = event.detail.get("signals", [])
-                    signal_ids = [s.signal_id for s in signals if s.signal_id]
-                    if signal_ids:
-                        try:
-                            await self.post_office.email_db.mark_emails_processed(signal_ids)
-                        except Exception as e:
-                            self.logger.warning(f"mark_emails_processed failed: {e}")
-
-                elif event.event_type == "signal":
-                    # signal/received 等内部事件，忽略
-                    pass
-
+        # 修改 session history
+        if session.get("history"):
+            history = session["history"]
+            if history:
+                last = history[-1]
+                if last.get("role") == "assistant":
+                    last["content"] = (
+                        last.get("content", "").strip()
+                        + "\n\n**执行中，用户要求中止**"
+                    )
                 else:
-                    # 其他事件：写入 session event + WebSocket 广播
-                    await self._log_session_event(
-                        session_id=session_id,
-                        event_type=event.event_type,
-                        event_name=event.event_name,
-                        event_detail=event.detail or None,
+                    history.append(
+                        {"role": "assistant", "content": "**执行中，用户要求中止**"}
                     )
 
-        event_task = asyncio.create_task(_consume_events())
         try:
-            result = await micro_agent.execute(
-                run_label="Process Email",
-                task="",  # 邮件通过 signal 进入，不再通过 task
-                session_store=AgentSessionStore(session, self.session_manager),
-            )
-        except asyncio.CancelledError:
-            if self._is_stopping:
-                self.logger.info(f"🛑 Session {session_id[:8]} 被 stop() 中断")
-                await self._log_session_event(
-                    session_id=session_id,
-                    event_type="session",
-                    event_name="user_interrupt",
-                )
-                if session.get("history"):
-                    history = session["history"]
-                    if history:
-                        last = history[-1]
-                        if last.get("role") == "assistant":
-                            last["content"] = (
-                                last.get("content", "").strip()
-                                + "\n\n**执行中，用户要求中止**"
-                            )
-                        else:
-                            history.append(
-                                {"role": "assistant", "content": "**执行中，用户要求中止**"}
-                            )
-                try:
-                    await self.session_manager.save_session(session)
-                except Exception as e:
-                    self.logger.warning(f"Failed to save session on stop: {e}")
-                self._is_stopping = False
-            else:
-                raise
+            asyncio.create_task(self.session_manager.save_session(session))
         except Exception as e:
-            self.logger.error(f"❌ Session {session_id[:8]} 出错: {e}")
-            user_name = self.runtime.get_user_agent_name() if self.runtime else "User"
-            try:
-                await micro_agent.send_internal_mail(
-                    to=user_name,
-                    subject=f"⚠️ {self.name} 执行出错",
-                    body=f"在处理您的邮件时发生错误：\n\n{str(e)}\n\n请检查后回复「继续」以便继续执行。",
-                )
-            except Exception as e2:
-                self.logger.error(f"发送错误通知邮件失败: {e2}")
-        finally:
-            event_task.cancel()
-            try:
-                await event_task
-            except asyncio.CancelledError:
-                pass
-            await self._deactivate_session(session)
+            self.logger.warning(f"Failed to save session on stop: {e}")
 
-    async def _deactivate_session(self, session: dict):
-        """
-        停用 session：保存 session，清理 active 状态，处理下一个 waiting email。
-        """
+        self._is_stopping = False
+
+    async def _handle_session_error(
+        self, micro_agent: MicroAgent, session: dict, error: Exception
+    ):
+        """Desktop: session 出错时发送通知邮件。"""
         session_id = session.get("session_id", "unknown")
+        self.logger.error(f"Session {session_id[:8]} error: {error}")
 
-        # 保存 session
-        session["last_sender"] = self.name
+        user_name = self.runtime.get_user_agent_name() if self.runtime else "User"
         try:
-            await self.session_manager.save_session(session)
-        except Exception as e:
-            self.logger.warning(f"Failed to save session on deactivate: {e}")
+            await micro_agent.send_internal_mail(
+                to=user_name,
+                subject=f"⚠️ {self.name} 执行出错",
+                body=f"在处理您的邮件时发生错误：\n\n{str(error)}\n\n请检查后回复「继续」以便继续执行。",
+            )
+        except Exception as e2:
+            self.logger.error(f"发送错误通知邮件失败: {e2}")
 
-        # 不再断开 container shell — 保持空闲 shell 开销极低（~5MB 内存，0 CPU），
-        # 且允许用户在 Agent 空闲时通过 Collab Terminal 持续操作。
-        # 若 shell 意外断开，terminal/exec 端点会 lazy-recreate。
-
-        # 清理 active 状态
-        self._last_deactivated_session_id = session_id
-        self.active_session_id = None
-        self.active_micro_agent = None
-        self._session_task = None
-        self._execute_task = None
+    async def _on_execute_done(self, session: dict):
+        """Desktop: execute 结束后更新状态为 IDLE。"""
         if not self._is_stopping:
-            self.current_user_session_id = None
             self.update_status(new_status=AgentStatus.IDLE)
 
-        self.logger.info(f"✅ Session {session_id[:8]} 已停用")
-
-        # 📝 写入 session event: session.deactivated
-        await self._log_session_event(
-            session_id=session_id,
-            event_type="session",
-            event_name="deactivated",
-            event_detail={"reason": "normal"},
-        )
-
-        # 自动处理 waiting emails
-        if self.waiting_emails:
-            next_email = self.waiting_emails.pop(0)
-            self.logger.info(f"📬 处理下一个 waiting email")
-            try:
-                await self._route_email(next_email)
-            except Exception as e:
-                self.logger.exception(f"Error routing waiting email: {e}")
+    # _run_session, _deactivate_session — 由 BasicAgent 提供
 
     async def _history_worker(self):
         """
