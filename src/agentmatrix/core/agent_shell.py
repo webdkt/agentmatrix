@@ -63,10 +63,11 @@ class AgentShell(Protocol):
         - 保留 system message，用原始 user message + working notes 重建
         - 清空 scratchpad
 
-        Shell 实现可覆盖此方法以自定义压缩策略（如保留邮件历史等）。
+        Shell 实现可覆盖此方法以自定义压缩策略（如保留邮件历史等）。session通过self访问
 
         Args:
-            agent: MicroAgent 实例（可访问 messages, scratchpad, session 等）
+            agent: MicroAgent 实例（可访问 messages, scratchpad 等）
+
         """
         ...
 
