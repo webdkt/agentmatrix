@@ -944,7 +944,25 @@ class MicroAgent(AutoLoggerMixin):
 
             # 检查是否需要自动压缩
             if self._should_compress_messages():
-                await self.root_agent.compress_messages(self)
+                self._emit_event("system", "compress_start")
+                try:
+                    await self.root_agent.compress_messages(self)
+                    self._emit_event("system", "compress_done")
+                except (LLMServiceUnavailableError, ValueError) as e:
+                    # LLM 服务不可用或返回无法解析的内容，等待恢复后重试
+                    error_type = "service unavailable" if isinstance(e, LLMServiceUnavailableError) else "parse failure"
+                    self.logger.warning(f"⚠️ LLM {error_type} during compress_messages, waiting for recovery...")
+                    self._emit_event("system", "waiting_llm_recovery", {
+                        "reason": error_type,
+                        "context": "compress_messages"
+                    })
+                    await asyncio.sleep(3)
+                    if not self.root_agent.is_llm_available():
+                        await self.root_agent.wait_for_llm_recovery()
+                    self.logger.info("✅ Service recovered, retrying compress_messages")
+                    self._emit_event("system", "compress_start")
+                    await self.root_agent.compress_messages(self)
+                    self._emit_event("system", "compress_done")
 
             
 
@@ -1105,6 +1123,15 @@ class MicroAgent(AutoLoggerMixin):
                     sequential_task.add_done_callback(
                         lambda t, aids=action_ids: self._on_actions_done(aids, t)
                     )
+
+                    # ⏳ 等待快速完成的 actions 收拢：如果 actions 在短时间内连续完成，
+                    # 稍等一下让它们的结果都进入 signal_queue，下一轮 LLM 能一次拿到。
+                    settle_window = 0.3  # 秒
+                    while self._running_actions:
+                        prev_count = len(self._running_actions)
+                        await asyncio.sleep(settle_window)
+                        if len(self._running_actions) >= prev_count:
+                            break  # 数量没减少（有慢 action 在跑），进入下一轮
 
                 # 5. 检查是否需要退出主循环
                 if should_break_loop:
