@@ -120,8 +120,13 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
         _tab_manager = TabManager(_cdp_client)
 
         _event_listener = BrowserEventListener(_cdp_client, _tab_manager, on_current_tab_change=_update_current_tab)
-        # 注册连接状态回调 → 推送到前端
-        _cdp_client.on_status_change(_event_listener.notify_connection_status)
+        # 注册连接状态回调：断线时通知前端，重连时先 resubscribe 再通知前端
+        async def _on_cdp_status(connected):
+            if connected:
+                await _event_listener._on_reconnected()
+            else:
+                await _event_listener.notify_connection_status(False)
+        _cdp_client.on_status_change(_on_cdp_status)
         await _event_listener.start_target_discovery()
 
         return _cdp_client, _tab_manager, _event_listener

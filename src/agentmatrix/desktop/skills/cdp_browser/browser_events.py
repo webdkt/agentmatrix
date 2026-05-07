@@ -127,6 +127,7 @@ class BrowserEventListener:
         self.tab_mgr = tab_mgr
         self.active = False
         self._handlers_registered = False
+        self._resubscribing = False
         self._on_current_tab_change = on_current_tab_change
 
         # 按 agent_name 索引的 agent input_queue
@@ -804,6 +805,15 @@ class BrowserEventListener:
 
     async def resubscribe_all(self):
         """重连后对所有已知 tab 重新 attach、启用 domain、注入 bridge。"""
+        if self._resubscribing:
+            return
+        self._resubscribing = True
+        try:
+            await self._resubscribe_all_inner()
+        finally:
+            self._resubscribing = False
+
+    async def _resubscribe_all_inner(self):
         logger.info("Resubscribing all tabs after reconnection...")
         self._auto_inject_sessions.clear()  # 重连后 session_id 全部失效
         self._orphan_tabs.clear()
@@ -838,6 +848,11 @@ class BrowserEventListener:
         if dead_tabs:
             logger.info(f"Removed {len(dead_tabs)} dead tabs after reconnect")
         logger.info(f"Resubscribed {len(self.tab_mgr._tabs)} tabs")
+
+    async def _on_reconnected(self):
+        """CDP 重连成功后的恢复流程：先 resubscribe 获取新 session_id，再通知前端。"""
+        await self.resubscribe_all()
+        await self.notify_connection_status(True)
 
     async def notify_connection_status(self, connected: bool):
         """向所有 tab 前端推送连接状态。"""
