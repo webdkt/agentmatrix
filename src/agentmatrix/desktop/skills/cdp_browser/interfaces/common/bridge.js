@@ -115,7 +115,18 @@
             '.__bh-confirm-no{background:rgba(0,0,0,0.04);color:#1a1a2e;border:1px solid rgba(0,0,0,0.12) !important;}',
             '.__bh-confirm-info{font-size:13px;color:rgba(0,0,0,0.45);}'
         ].join('\n');
-        (document.head || document.documentElement).appendChild(s);
+        var _target = document.head || document.documentElement || document.body;
+        if (_target) {
+            _target.appendChild(s);
+        } else {
+            // DOM 还没准备好，延迟注入
+            function _deferInject() {
+                var t = document.head || document.documentElement || document.body;
+                if (t) { t.appendChild(s); }
+                else { setTimeout(_deferInject, 50); }
+            }
+            _deferInject();
+        }
     })();
 
     // ==========================================

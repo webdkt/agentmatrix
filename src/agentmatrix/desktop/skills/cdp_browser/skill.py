@@ -7,7 +7,7 @@ Agent Actions:
 - list_tabs()                 → 列出当前 agent 的 tabs
 - close_tab(target_id)        → 关闭 tab
 - switch_to_tab(target_id)    → 切换 tab
-- show_interface(name)        → 注入前端 interface
+
 
 设计要点：
 - Chrome/CDP/TabManager/EventListener 是进程级单例（一个 Chrome 进程）
@@ -503,14 +503,8 @@ class Cdp_browserSkillMixin:
                 "error": str(e),
             }, ensure_ascii=False)
 
-    @register_action(
-        short_desc="show_interface(name)",
-        description="在当前页面注入一个前端 interface。"
-                    "Interface 是预置的前端应用，提供各种交互 UI。"
-                    "加载后的 interface 会通过事件与后端通信。",
-        param_infos={"name": "Interface 名称（如 'browser_learning'）"},
-    )
-    async def show_interface(self, name: str) -> str:
+    
+    async def deprecated_show_interface(self, name: str) -> str:
         """注入前端 interface。"""
         await self._ensure_browser()
         tab = self._get_current_tab()
@@ -545,17 +539,7 @@ class Cdp_browserSkillMixin:
             "target_id": tab.target_id,
         }, ensure_ascii=False)
 
-    @register_action(
-        short_desc="""ask_user_and_wait(question, options?)。options可选，JSON 字符串。如 '{"choices":["A","B","C"]}' 为单选，'{"choices":["A","B","C"],"multi":true}' 为多选。不传则为纯文本输入。""",
-        description="在浏览器前端弹出对话框向用户提问。"
-                    "支持三种模式：纯文本回答、单选、多选。"
-                    "用户回答通过事件异步返回，无需轮询。",
-        param_infos={
-            "question": "要展示给用户的问题文本",
-            "options": '可选，JSON 字符串。如 \'{"choices":["A","B","C"]}\' 为单选，'
-                       '\'{"choices":["A","B","C"],"multi":true}\' 为多选。不传则为纯文本输入。',
-        },
-    )
+    
     async def ask_user_and_wait(self, question: str, options: str = "") -> str:
         """在浏览器前端弹出对话框向用户提问。"""
         await self._ensure_browser()
@@ -612,22 +596,28 @@ class Cdp_browserSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="find_selector(instruction_text, tab_id) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
-        description="ind_selector(instruction_text, tab_id) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
+        short_desc="find_selector(instruction_text, tab_id?) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
+        description="find_selector(instruction_text, tab_id?) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
         param_infos={
             "additional_info": "用户对该元素的描述文字（从 indicator_result 信号获取）",
-            "tab_id": "目标 tab 的 tab_id",
+            "tab_id": "可选，目标 tab 的 tab_id，不传则使用当前 tab",
         },
     )
-    async def find_selector(self, instruction_text: str, tab_id: str) -> str:
+    async def find_selector(self, instruction_text: str, tab_id: str = None) -> str:
         from agentmatrix.core.micro_agent import MicroAgent
 
         if not _cdp_client or not _cdp_client._connected:
             return json.dumps({"status": "error", "error": "浏览器未连接"})
 
-        tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
-        if not tab:
-            return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
+        if tab_id:
+            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            if not tab:
+                return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
+        else:
+            tab = self._get_current_tab()
+            if not tab:
+                return json.dumps({"status": "error", "error": "没有活动的 tab，请先用 open_url() 打开页面"})
+            tab_id = tab.target_id
 
         prompt = (
             "你是一个 DOM 元素定位专家。\n"
@@ -646,6 +636,7 @@ class Cdp_browserSkillMixin:
             "   - **重要技巧**：元素本身可能会缺乏直接的、稳定的的属性。更聪明的办法是先寻找页面中稳定的结构（例如父元素中具有简单、稳定定位的元素，以其为锚点），在一个稳定的小范围内进行进一步的定位。例如table可能是不唯一的，但是在特定id的div中是唯一的。\n"
             "5. 可以用 __bh_test 或 __bh_test_xpath 验证selector匹配元素的数量"
             "6. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
+            "用户完全不懂技术，并且缺乏耐心，所以无论你做什么action，都要用 keep_user_from_bored 来说点什么避免用户长时间等待。可以通俗的解释工作，或者说一些相关话题、有趣又有智慧的评论，避免用户觉得无聊"
         )
 
         micro = MicroAgent(
@@ -654,11 +645,17 @@ class Cdp_browserSkillMixin:
             available_skills=["cdp_browser.dom_explorer"],
             system_prompt=prompt,
         )
+        micro._pinned_tab_id = tab_id
 
         try:
             result = await micro.execute(
                 run_label="Find Element Selector",
-                task= f"用户对于要找的元素的描述: {instruction_text}",
+                task=(
+                    f"用户对于要找的元素的描述: {instruction_text}\n"
+                    f"当前页面: {tab.url}\n"
+                    f"tab_id: {tab_id}\n\n"
+                    "请找到用户需要的元素的稳定定位表达式。"
+                ),
                 exit_actions=["return_selector"],
             )
             return json.dumps({
@@ -674,24 +671,30 @@ class Cdp_browserSkillMixin:
             }, ensure_ascii=False)
 
     @register_action(
-        short_desc="find_unique_selector_by_xy(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
+        short_desc="find_unique_selector_by_xy(additional_info, tab_id?, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
         description="find_unique_selector_by_xy(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
         param_infos={
             "additional_info": "用户对该元素的描述文字,以及任何有助于定位元素的额外信息",
-            "tab_id": "目标 tab 的 tab_id",
+            "tab_id": "可选，目标 tab 的 tab_id，不传则使用当前 tab",
             "x": "用户指向的 x 坐标",
             "y": "用户指向的 y 坐标",
         },
     )
-    async def find_unique_selector_by_xy(self, additional_info: str, tab_id: str, x: int = 0, y: int = 0) -> str:
+    async def find_unique_selector_by_xy(self, additional_info: str, tab_id: str = None, x: int = 0, y: int = 0) -> str:
         from agentmatrix.core.micro_agent import MicroAgent
 
         if not _cdp_client or not _cdp_client._connected:
             return json.dumps({"status": "error", "error": "浏览器未连接"})
 
-        tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
-        if not tab:
-            return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
+        if tab_id:
+            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            if not tab:
+                return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
+        else:
+            tab = self._get_current_tab()
+            if not tab:
+                return json.dumps({"status": "error", "error": "没有活动的 tab，请先用 open_url() 打开页面"})
+            tab_id = tab.target_id
 
         prompt = (
             "你是一个 DOM 元素定位专家。\n"
@@ -718,6 +721,7 @@ class Cdp_browserSkillMixin:
             "5. 用 __bh_test 或 __bh_test_xpath 验证唯一性（count 必须为 1）\n"
             "6. 不唯一则调整，直到唯一且稳定（不依赖动态、随机的属性、数量关系）\n"
             "7. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
+            "用户完全不懂技术，并且缺乏耐心，所以无论你做什么action，都要用 keep_user_from_bored 来说点什么避免用户长时间等待。可以通俗的解释工作，或者说一些相关话题、有趣又有智慧的评论，避免用户觉得无聊"
         )
 
         micro = MicroAgent(
@@ -726,6 +730,7 @@ class Cdp_browserSkillMixin:
             available_skills=["cdp_browser.dom_explorer"],
             system_prompt=prompt,
         )
+        micro._pinned_tab_id = tab_id
 
         try:
             result = await micro.execute(
@@ -752,21 +757,27 @@ class Cdp_browserSkillMixin:
             }, ensure_ascii=False)
 
     @register_action(
-        short_desc="confirm_element(selector, tab_id)在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",
+        short_desc="confirm_element(selector, tab_id?) 在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",
         description="在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。"
                     "立即返回，用户确认结果通过 element_confirmed 信号异步返回。",
         param_infos={
             "selector": "要确认的 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）",
-            "tab_id": "目标 tab 的 target_id（从信号中获取）",
+            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
         },
     )
-    async def confirm_element(self, selector: str, tab_id: str) -> str:
+    async def confirm_element(self, selector: str, tab_id: str = None) -> str:
         if not _cdp_client or not _cdp_client._connected:
             return json.dumps({"status": "error", "error": "浏览器未连接"})
 
-        tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
-        if not tab:
-            return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
+        if tab_id:
+            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            if not tab:
+                return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
+        else:
+            tab = self._get_current_tab()
+            if not tab:
+                return json.dumps({"status": "error", "error": "没有活动的 tab，请先用 open_url() 打开页面"})
+            tab_id = tab.target_id
 
         js = f"window.__bh_confirm__ ? window.__bh_confirm__({json.dumps(selector)}) : window.__bh_confirm({json.dumps(selector)})"
 
@@ -788,6 +799,86 @@ class Cdp_browserSkillMixin:
                 "status": "error",
                 "error": str(e),
             }, ensure_ascii=False)
+        
+    @register_action(
+        short_desc="eval_js(code, tab_id?) 在浏览器页面中执行 JavaScript 代码并返回结果。",
+        description="在浏览器页面中执行 JavaScript 代码并返回结果。"
+                    "可以写任意多行 JS（用 IIFE 包裹）。"
+                    "可用的工具函数：__bh_el_info(el), __bh_tag_path(el), __bh_test(selector), __bh_test_xpath(selector)。"
+                    "查询被标记元素：document.querySelector('[__bh_marked__]')。",
+        param_infos={
+            "code": "要执行的 JavaScript 代码（字符串）",
+            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
+        },
+    )
+    async def eval_js(self, code: str, tab_id: str = None) -> str:
+
+        if not _cdp_client or not _cdp_client._connected:
+            return json.dumps({"error": "CDP client not connected"})
+
+        if tab_id:
+            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            if not tab:
+                return json.dumps({"error": _tab_not_found_msg(tab_id)})
+        else:
+            tab = self._get_current_tab()
+            if not tab:
+                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
+            tab_id = tab.target_id
+
+        try:
+            result = await _cdp_client.send(
+                "Runtime.evaluate",
+                {
+                    "expression": code,
+                    "returnByValue": True,
+                    "awaitPromise": False,
+                },
+                session_id=tab.session_id,
+                timeout=10,
+            )
+            res = result.get("result", {})
+
+            # CDP 执行报错
+            if res.get("subtype") == "error":
+                desc = res.get("description", "unknown JS error")
+                logger.warning(f"[eval_js] JS exception: {desc}")
+                return json.dumps({"error": desc})
+
+            value = res.get("value")
+            type_name = res.get("type", "undefined")
+
+            if type_name == "undefined":
+                return json.dumps({"type": "undefined", "value": None})
+            if value is None:
+                return json.dumps({"type": type_name, "value": None})
+            if isinstance(value, (dict, list)):
+                return json.dumps(value, ensure_ascii=False)
+            return str(value)
+        except Exception as e:
+            logger.warning(f"[eval_js] CDP error: {e}")
+            return json.dumps({"error": str(e)})
+
+    # ==========================================
+    # Site Knowledge
+    # ==========================================
+
+    @register_action(
+        short_desc="load_site_knowledge(site_url_prefix) 加载指定站点的完整知识",
+        description="当有多个匹配的网站知识时，调用此函数选择一个站点加载完整知识。"
+                    "site_url_prefix 为注入文本中显示的 url_prefix 值。",
+        param_infos={"site_url_prefix": "要加载的站点 url_prefix（来自注入文本）"},
+    )
+    async def load_site_knowledge(self, site_url_prefix: str) -> str:
+        loader = getattr(self, '_site_knowledge_loader', None)
+        if not loader:
+            return json.dumps({"error": "site knowledge loader 未初始化"})
+        result = loader.set_current_site(site_url_prefix)
+
+        # 即时更新 system prompt，下次 LLM 调用立即生效
+        loader.reload_and_update_prompt(self)
+
+        return result
 
     # ==========================================
     # Cleanup

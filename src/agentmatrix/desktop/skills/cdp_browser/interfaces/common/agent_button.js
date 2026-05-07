@@ -93,6 +93,7 @@
         if (_rangeBubble) { _rangeBubble.remove(); _rangeBubble = null; }
         if (_instructBubble) { _instructBubble.remove(); _instructBubble = null; }
         if (_askHost) { _askHost.remove(); _askHost = null; }
+        _hideSpeechReply();
         // confirm overlay（bridge.js 创建，这里做安全清理）
         var confirmOverlay = document.getElementById('__bh_confirm_overlay__');
         if (confirmOverlay) confirmOverlay.remove();

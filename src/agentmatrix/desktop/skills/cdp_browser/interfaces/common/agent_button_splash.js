@@ -31,7 +31,8 @@
             }
         }
 
-        // 获取 speech 位置（在 _clearOverlay 之后，speech 已可见）
+        // 重新定位 speech，确保坐标是最新的
+        if (atSpeech && _speechEl) _positionSpeech();
         var pos = atSpeech && _speechEl ? _speechEl.getBoundingClientRect() : null;
 
         _setToolButtonsEnabled(false);
@@ -56,9 +57,9 @@
         // 定位到 speech bubble 位置（或居中 fallback）
         if (pos && pos.width > 0) {
             overlay.style.cssText = 'position:fixed;left:' + Math.round(pos.left) + 'px;top:' + Math.round(pos.top) +
-                'px;width:' + Math.round(pos.width) + 'px;height:' + Math.round(pos.height) +
+                'px;width:' + Math.round(pos.width) + 'px;min-height:' + Math.round(pos.height) +
                 'px;display:flex;align-items:center;justify-content:center;z-index:2147483647;pointer-events:auto;';
-            splash.style.cssText = 'background:rgba(255,255,255,0.95);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1.5px solid rgba(0,0,0,0.12);border-radius:18px;box-shadow:0 12px 40px rgba(0,0,0,0.14),0 1px 3px rgba(0,0,0,0.08);padding:18px 24px;display:flex;flex-direction:column;align-items:center;gap:10px;animation:ab-splash-in 0.25s ease-out;';
+            splash.style.cssText = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,0.95);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1.5px solid rgba(0,0,0,0.12);border-radius:18px;box-shadow:0 2px 16px rgba(0,0,0,0.12);padding:12px 16px;display:flex;align-items:center;gap:10px;animation:ab-splash-in 0.25s ease-out;';
         }
 
         shadow.appendChild(overlay);

@@ -1,9 +1,12 @@
     // ==========================================
     // Speech Bubble（Agent 说话气泡）
     // ==========================================
+    var _speechReplyEl = null;
+
     function _showSpeech(text) {
         if (_speechEl) {
             // Update existing
+            _hideSpeechReply();
             var txt = _speechEl.querySelector('.ab-speech-text');
             if (txt) { txt.textContent = text; txt.className = 'ab-speech-text'; }
             var more = _speechEl.querySelector('.ab-speech-more');
@@ -29,6 +32,12 @@
         _positionSpeech();
         // 新建的元素需要继承当前 dim 状态
         _syncOverlayUI();
+
+        // 点击 speech → 弹出回复输入框
+        el.addEventListener('click', function(e) {
+            if (e.target.closest('.ab-speech-close') || e.target.closest('.ab-speech-more')) return;
+            _showSpeechReply();
+        });
     }
 
     function _applySpeechClamp(el, txt) {
@@ -52,7 +61,61 @@
     }
 
     function _hideSpeech() {
+        _hideSpeechReply();
         if (_speechEl) { _speechEl.remove(); _speechEl = null; }
+    }
+
+    function _showSpeechReply() {
+        if (_speechReplyEl) return;
+        if (!_speechEl) return;
+
+        var reply = document.createElement('div');
+        reply.className = 'ab-speech-reply';
+
+        var inp = document.createElement('textarea');
+        inp.className = 'ab-speech-reply-input';
+        inp.placeholder = '回复 Agent...';
+        inp.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        var sendBtn = document.createElement('button');
+        sendBtn.className = 'ab-speech-reply-send';
+        sendBtn.textContent = '发送';
+
+        reply.appendChild(inp);
+        reply.appendChild(sendBtn);
+        shadow.appendChild(reply);
+        _speechReplyEl = reply;
+
+        // 定位到 speech 下方
+        var sr = _speechEl.getBoundingClientRect();
+        reply.style.left = sr.left + 'px';
+        reply.style.top = (sr.bottom + 8) + 'px';
+        reply.style.width = sr.width + 'px';
+
+        function submit() {
+            if (_splashActive) return;
+            var text = inp.value.trim();
+            if (!text) return;
+            window.__bh_emit__('chat_message', {text: text});
+            _bufPush({type: 'chat_message', text: text, ts: Date.now(), from: 'user'});
+            _hideSpeechReply();
+            _showSplash({atSpeech: true});
+        }
+
+        sendBtn.addEventListener('click', submit);
+        inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+            if (e.key === 'Escape') { _hideSpeechReply(); }
+        });
+
+        inp.focus();
+    }
+
+    function _hideSpeechReply() {
+        if (_speechReplyEl) { _speechReplyEl.remove(); _speechReplyEl = null; }
     }
 
     function _positionSpeech() {
@@ -61,7 +124,7 @@
         var bx = br.left, by = br.top, bw = br.width, bh = br.height;
         var sw = _speechEl.offsetWidth || 320, sh = _speechEl.offsetHeight || 60;
         var vw = window.innerWidth, vh = window.innerHeight;
-        var gap = 12;
+        var gap = 20;
 
         // Try right side
         var rightSpace = vw - (bx + bw) - gap;
