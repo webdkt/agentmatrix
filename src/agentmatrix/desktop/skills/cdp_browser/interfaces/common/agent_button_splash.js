@@ -1,10 +1,11 @@
     // ==========================================
     // Splash Transition（发送后过渡动画）
+    // 直接在 speech bubble 上显示，保持位置和大小一致
     // ==========================================
 
     /**
      * @param {object} [opts] - 可选参数
-     * @param {boolean} [opts.atSpeech] - 定位到 speech bubble 位置（overlay 提交时使用）
+     * @param {boolean} [opts.atSpeech] - 在 speech bubble 上显示（overlay 提交时使用）
      */
     function _showSplash(opts) {
         if (_splashActive) return;
@@ -15,72 +16,82 @@
 
         var atSpeech = opts && opts.atSpeech;
 
-        // 更新 speech 为"处理中..."（保持原始宽度）
-        if (atSpeech) {
-            if (_speechEl) {
-                var prevW = _speechEl.offsetWidth;
-                var txt = _speechEl.querySelector('.ab-speech-text');
-                if (txt) { txt.textContent = '处理中...'; txt.className = 'ab-speech-text'; }
-                var more = _speechEl.querySelector('.ab-speech-more');
-                if (more) more.remove();
-                _speechEl.style.minWidth = prevW + 'px';
-            }
-            // 如果没有 speech bubble，创建一个
-            if (!_speechEl) {
-                _showSpeech('处理中...');
-            }
+        // 确保 speech bubble 存在
+        if (atSpeech && !_speechEl) {
+            _showSpeech('');
         }
-
-        // 重新定位 speech，确保坐标是最新的
-        if (atSpeech && _speechEl) _positionSpeech();
-        var pos = atSpeech && _speechEl ? _speechEl.getBoundingClientRect() : null;
 
         _setToolButtonsEnabled(false);
 
-        var overlay = document.createElement('div');
-        overlay.className = 'ab-splash-overlay';
+        if (atSpeech && _speechEl) {
+            // ── 直接在 speech bubble 上显示 splash ──
+            _hideSpeechReply();
 
-        var splash = document.createElement('div');
-        splash.className = 'ab-splash';
+            // 隐藏关闭按钮和 more 按钮
+            var closeBtn = _speechEl.querySelector('.ab-speech-close');
+            var moreBtn = _speechEl.querySelector('.ab-speech-more');
+            if (closeBtn) closeBtn.style.display = 'none';
+            if (moreBtn) moreBtn.style.display = 'none';
 
-        var spinner = document.createElement('div');
-        spinner.className = 'ab-splash-spinner';
+            // 替换文本内容为 spinner + 提示
+            var txt = _speechEl.querySelector('.ab-speech-text');
+            if (txt) {
+                txt.className = 'ab-speech-text';
+                txt.innerHTML = '<div class="ab-splash-spinner" style="display:inline-block;vertical-align:middle;margin-right:10px;width:22px;height:22px;border:2.5px solid rgba(99,102,241,0.2);border-top-color:#6366f1;border-radius:50%;animation:ab-spin 0.8s linear infinite;"></div><span style="font-weight:600;">发送指令给Agent...</span>';
+            }
 
-        var text = document.createElement('div');
-        text.className = 'ab-splash-text';
-        text.textContent = '发送指令给Agent...';
-
-        splash.appendChild(spinner);
-        splash.appendChild(text);
-        overlay.appendChild(splash);
-
-        // 定位到 speech bubble 位置（或居中 fallback）
-        if (pos && pos.width > 0) {
-            overlay.style.cssText = 'position:fixed;left:' + Math.round(pos.left) + 'px;top:' + Math.round(pos.top) +
-                'px;width:' + Math.round(pos.width) + 'px;min-height:' + Math.round(pos.height) +
-                'px;display:flex;align-items:center;justify-content:center;z-index:2147483647;pointer-events:auto;';
-            splash.style.cssText = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,0.95);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1.5px solid rgba(0,0,0,0.12);border-radius:18px;box-shadow:0 2px 16px rgba(0,0,0,0.12);padding:12px 16px;display:flex;align-items:center;gap:10px;animation:ab-splash-in 0.25s ease-out;';
-        }
-
-        shadow.appendChild(overlay);
-
-        // Random duration 1-3.5s
-        var duration = 1000 + Math.random() * 2500;
-
-        setTimeout(function() {
-            // Phase 2: checkmark + "已发送"
-            spinner.className = 'ab-splash-check';
-            spinner.textContent = '\u2713';
-            text.textContent = '已发送';
+            // Random duration 1-3.5s
+            var duration = 1000 + Math.random() * 2500;
 
             setTimeout(function() {
-                // Close splash
-                overlay.remove();
-                if (atSpeech && _speechEl) _speechEl.style.minWidth = '';
-                _splashActive = false;
-                _setToolButtonsEnabled(true);
-            }, 800);
-        }, duration);
+                // Phase 2: checkmark + "已发送"
+                if (txt) {
+                    txt.innerHTML = '<span style="color:#16a34a;font-weight:600;">✓ 已发送</span>';
+                }
+
+                setTimeout(function() {
+                    // 恢复为等待状态，直到新消息替换
+                    if (txt) {
+                        txt.innerHTML = '<span style="color:var(--text-dim);font-style:italic;">等待Agent消息...</span>';
+                        txt.className = 'ab-speech-text';
+                    }
+                    if (closeBtn) closeBtn.style.display = '';
+                    _speechEl.style.minWidth = '';
+                    _splashActive = false;
+                    _setToolButtonsEnabled(true);
+                }, 800);
+            }, duration);
+
+        } else {
+            // ── Fallback: 无 speech bubble 时用居中 overlay ──
+            var overlay = document.createElement('div');
+            overlay.className = 'ab-splash-overlay';
+            var splash = document.createElement('div');
+            splash.className = 'ab-splash';
+            var spinner = document.createElement('div');
+            spinner.className = 'ab-splash-spinner';
+            var text = document.createElement('div');
+            text.className = 'ab-splash-text';
+            text.textContent = '发送指令给Agent...';
+            splash.appendChild(spinner);
+            splash.appendChild(text);
+            overlay.appendChild(splash);
+            shadow.appendChild(overlay);
+
+            var duration = 1000 + Math.random() * 2500;
+
+            setTimeout(function() {
+                spinner.className = 'ab-splash-check';
+                spinner.textContent = '\u2713';
+                text.textContent = '已发送';
+
+                setTimeout(function() {
+                    overlay.remove();
+                    _splashActive = false;
+                    _setToolButtonsEnabled(true);
+                }, 800);
+            }, duration);
+        }
     }
 
     function _setToolButtonsEnabled(enabled) {

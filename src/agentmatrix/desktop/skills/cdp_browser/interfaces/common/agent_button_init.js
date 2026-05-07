@@ -40,6 +40,22 @@
     shadow.appendChild(ab);
 
     // ==========================================
+    // Health check：确保 host 始终在 DOM 中且位于最顶层
+    // 适应复杂页面框架（Oracle ADF、React SPA 等）的 DOM 重构
+    // ==========================================
+    setInterval(function() {
+        // 1. Host 被框架移除（如 document.body 被替换）→ 重新挂载
+        if (!host.isConnected) {
+            (document.body || document.documentElement).appendChild(host);
+        }
+        // 2. 确保 host 是 body 最后一个子元素
+        //    同 z-index 时，后出现的元素在上层
+        if (document.body && host.parentElement === document.body && host !== document.body.lastElementChild) {
+            document.body.appendChild(host);
+        }
+    }, 2000);
+
+    // ==========================================
     // Hover expand/collapse
     // ==========================================
     var _hoverTimeout = null;

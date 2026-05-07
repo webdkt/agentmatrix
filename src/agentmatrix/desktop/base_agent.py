@@ -486,7 +486,7 @@ Start generating the Working Notes now.
             ).strip()
 
         # 写入 session event
-        session_id = agent.session.get("session_id") if agent.session else None
+        session_id = self.current_session.get("session_id") if self.current_session else None
         if session_id:
             await self._log_session_event(session_id, "session", "message_auto_compress", {
                 "step_count": agent.step_count,
@@ -501,7 +501,7 @@ Start generating the Working Notes now.
             # === Top-level: 使用邮件历史 ===
             try:
                 emails = await self.post_office.get_emails_by_session(
-                    session_id=agent.session["session_id"],
+                    session_id=self.current_session["session_id"],
                     agent_name=self.name,
                 )
                 agent.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
@@ -521,9 +521,9 @@ Start generating the Working Notes now.
             agent.messages = [{"role": "user", "content": new_user_content}]
 
         # 保存到 session
-        if agent.session and agent.session_manager:
-            agent.session["history"] = agent.messages
-            await agent.session_manager.save_session(agent.session)
+        if self.current_session and self.session_manager:
+            self.current_session["history"] = agent.messages
+            await self.session_manager.save_session(self.current_session)
 
         # 清空 scratchpad
         agent.scratchpad.clear()

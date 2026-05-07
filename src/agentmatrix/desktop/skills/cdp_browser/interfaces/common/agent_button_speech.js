@@ -3,15 +3,46 @@
     // ==========================================
     var _speechReplyEl = null;
 
+    /** 轻量 markdown → HTML（标题统一为正文大小） */
+    function _renderMarkdown(text) {
+        // escape HTML
+        var s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // code blocks (```...```)
+        s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+        // inline code
+        s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+        // headings (any level → same size)
+        s = s.replace(/^#{1,6}\s+(.+)$/gm, '<strong>$1</strong>');
+        // bold
+        s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        // italic
+        s = s.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+        // blockquote
+        s = s.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+        // hr
+        s = s.replace(/^[-*_]{3,}$/gm, '<hr>');
+        // unordered list
+        s = s.replace(/^[\-\*]\s+(.+)$/gm, '<li>$1</li>');
+        s = s.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+        // ordered list
+        s = s.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+        // links [text](url)
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+        // paragraphs: double newline → <p>, single newline → <br>
+        s = s.replace(/\n\n+/g, '</p><p>');
+        s = s.replace(/\n/g, '<br>');
+        s = '<p>' + s + '</p>';
+        // clean empty p
+        s = s.replace(/<p>\s*<\/p>/g, '');
+        return s;
+    }
+
     function _showSpeech(text) {
         if (_speechEl) {
             // Update existing
             _hideSpeechReply();
             var txt = _speechEl.querySelector('.ab-speech-text');
-            if (txt) { txt.textContent = text; txt.className = 'ab-speech-text'; }
-            var more = _speechEl.querySelector('.ab-speech-more');
-            if (more) more.remove();
-            _applySpeechClamp(_speechEl, txt);
+            if (txt) txt.innerHTML = _renderMarkdown(text);
             return;
         }
 
@@ -23,41 +54,20 @@
         closeBtn.addEventListener('click', function(e) { e.stopPropagation(); _hideSpeech(); });
         var txt = document.createElement('div');
         txt.className = 'ab-speech-text';
-        txt.textContent = text;
+        txt.innerHTML = _renderMarkdown(text);
         el.appendChild(closeBtn);
         el.appendChild(txt);
         shadow.appendChild(el);
         _speechEl = el;
-        _applySpeechClamp(el, txt);
         _positionSpeech();
         // 新建的元素需要继承当前 dim 状态
         _syncOverlayUI();
 
         // 点击 speech → 弹出回复输入框
         el.addEventListener('click', function(e) {
-            if (e.target.closest('.ab-speech-close') || e.target.closest('.ab-speech-more')) return;
+            if (e.target.closest('.ab-speech-close')) return;
             _showSpeechReply();
         });
-    }
-
-    function _applySpeechClamp(el, txt) {
-        // Check if text overflows 5 lines
-        setTimeout(function() {
-            var lineHeight = parseFloat(getComputedStyle(txt).lineHeight) || 22.4;
-            var maxHeight = lineHeight * 5;
-            if (txt.scrollHeight > maxHeight + 2) {
-                txt.classList.add('clamped');
-                var more = document.createElement('span');
-                more.className = 'ab-speech-more';
-                more.textContent = '(more)';
-                more.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    txt.classList.remove('clamped');
-                    more.remove();
-                });
-                el.appendChild(more);
-            }
-        }, 30);
     }
 
     function _hideSpeech() {
@@ -72,6 +82,15 @@
         var reply = document.createElement('div');
         reply.className = 'ab-speech-reply';
 
+        // 关闭按钮
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'ab-speech-reply-close';
+        closeBtn.textContent = '\u2715';
+        closeBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            _hideSpeechReply();
+        });
+
         var inp = document.createElement('textarea');
         inp.className = 'ab-speech-reply-input';
         inp.placeholder = '回复 Agent...';
@@ -84,6 +103,7 @@
         sendBtn.className = 'ab-speech-reply-send';
         sendBtn.textContent = '发送';
 
+        reply.appendChild(closeBtn);
         reply.appendChild(inp);
         reply.appendChild(sendBtn);
         shadow.appendChild(reply);
@@ -95,7 +115,8 @@
         reply.style.top = (sr.bottom + 8) + 'px';
         reply.style.width = sr.width + 'px';
 
-        function submit() {
+        function submit(e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
             if (_splashActive) return;
             var text = inp.value.trim();
             if (!text) return;
@@ -106,6 +127,7 @@
         }
 
         sendBtn.addEventListener('click', submit);
+        sendBtn.addEventListener('mousedown', function(e) { e.stopPropagation(); });
         inp.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
             if (e.key === 'Escape') { _hideSpeechReply(); }
@@ -141,6 +163,8 @@
             _speechEl.classList.add('tail-right');
             _speechEl.style.left = (bx - sw - gap) + 'px';
             _speechEl.style.top = Math.max(12, Math.min(by, vh - sh - 12)) + 'px';
+            // available width from bubble left edge to button left edge
+            _speechEl.style.setProperty('--speech-right', (bx - gap - 12) + 'px');
         } else if (topSpace >= sh + 10) {
             _speechEl.classList.add('tail-bottom');
             _speechEl.style.left = Math.max(12, Math.min(bx, vw - sw - 12)) + 'px';

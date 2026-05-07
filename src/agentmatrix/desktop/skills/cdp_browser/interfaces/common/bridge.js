@@ -97,12 +97,13 @@
     (function() {
         var s = document.createElement('style');
         s.textContent = [
-            '@keyframes __bh_flash_pulse{0%,100%{outline:3px solid rgba(99,102,241,0.9);box-shadow:0 0 12px 4px rgba(99,102,241,0.5)}50%{outline:3px solid rgba(255,100,50,0.9);box-shadow:0 0 12px 4px rgba(255,100,50,0.5)}}',
+            // 流动边框：颜色循环 + 光晕脉冲
+            '@keyframes __bh_flash_pulse{0%,100%{outline-color:#6366f1;box-shadow:0 0 0 3px #6366f1,0 0 20px 4px rgba(99,102,241,0.5)}33%{outline-color:#06b6d4;box-shadow:0 0 0 3px #06b6d4,0 0 20px 4px rgba(6,182,212,0.5)}66%{outline-color:#a855f7;box-shadow:0 0 0 3px #a855f7,0 0 20px 4px rgba(168,85,247,0.5)}}',
             // 统一元素高亮（探索 + confirm 共用）
-            '.__bh-highlight{outline:3px solid rgba(99,102,241,0.9) !important;outline-offset:2px !important;animation:__bh_flash_pulse 0.6s ease-in-out 3 !important;}',
+            '.__bh-highlight{outline:3px solid #6366f1 !important;outline-offset:2px !important;animation:__bh_flash_pulse 1.2s linear infinite !important;}',
             // Confirm overlay
             '.__bh-confirm-overlay{position:absolute;left:0;top:0;z-index:2147483645;background:rgba(0,0,0,0.45);pointer-events:auto;}',
-            '.__bh-confirm-highlight{position:absolute;z-index:2147483646;pointer-events:none;border-radius:6px;box-shadow:0 0 0 3px #6366f1,0 0 16px 4px rgba(99,102,241,0.4);animation:__bh_flash_pulse 0.6s ease-in-out 3;}',
+            '.__bh-confirm-highlight{position:absolute;z-index:2147483646;pointer-events:none;border-radius:6px;animation:__bh_flash_pulse 1.2s linear infinite;}',
             '.__bh-confirm-bubble{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;' +
                 'background:rgba(255,255,255,0.95);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);' +
                 'border:1.5px solid rgba(0,0,0,0.12);border-radius:16px;' +
@@ -119,11 +120,12 @@
         if (_target) {
             _target.appendChild(s);
         } else {
-            // DOM 还没准备好，延迟注入
+            // DOM 还没准备好，延迟注入（最多重试 100 次 = 5 秒）
+            var _retries = 0;
             function _deferInject() {
                 var t = document.head || document.documentElement || document.body;
                 if (t) { t.appendChild(s); }
-                else { setTimeout(_deferInject, 50); }
+                else if (_retries++ < 100) { setTimeout(_deferInject, 50); }
             }
             _deferInject();
         }
@@ -358,8 +360,10 @@
                 if (fallbackHost) fallbackHost.style.display = 'none';
             }
 
-            // 3. 滚动到第一个（最上面的）匹配元素
-            elements[0].scrollIntoView({behavior: 'smooth', block: 'start'});
+            // 3. 滚动到第一个匹配元素（距顶部约 300px，避免贴顶看不到）
+            var _rect = elements[0].getBoundingClientRect();
+            var _scrollTo = window.scrollY + _rect.top - 300;
+            window.scrollTo({top: Math.max(0, _scrollTo), behavior: 'smooth'});
 
             // 4. 高亮匹配元素（统一机制，duration=0 不自动消失）
             __bh_highlight(elements, {duration: 0});
