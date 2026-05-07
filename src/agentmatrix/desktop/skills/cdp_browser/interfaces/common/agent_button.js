@@ -107,16 +107,17 @@
 
     /**
      * 同步 overlay 活跃时的 UI 可见性。
-     * - _currentOverlay（真正的 overlay）：隐藏 Agent Button + speech
-     * - expanded（菜单展开）：只隐藏 speech（菜单是 Agent Button 的一部分，不触发按钮隐藏）
+     * 只有 confirm overlay 会隐藏 Agent Button + speech（避免遮挡确认目标），
+     * 其他 overlay 不影响它们的显示。
      */
     function _syncOverlayUI() {
-        var hasOverlay = !!_currentOverlay;
+        var hideForConfirm = _currentOverlay === 'confirm';
         if (_speechEl) {
-            _speechEl.style.display = hasOverlay ? 'none' : '';
+            _speechEl.style.display = hideForConfirm ? 'none' : '';
+            if (!hideForConfirm) _positionSpeech();
         }
         if (ab) {
-            ab.style.visibility = hasOverlay ? 'hidden' : '';
+            ab.style.visibility = hideForConfirm ? 'hidden' : '';
         }
     }
 

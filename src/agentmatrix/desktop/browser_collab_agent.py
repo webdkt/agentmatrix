@@ -90,7 +90,7 @@ class _SiteKnowledgeLoader:
         # 检查 current_site_url 是否仍匹配
         current_site = getattr(self.agent, '_current_site_url', None)
         if current_site:
-            still_match = any(m[0] == current_site for m in matches)
+            still_match = any(self._entry_key(m).startswith(current_site) for m in matches)
             if not still_match:
                 self.agent._current_site_url = None
                 current_site = None
@@ -102,13 +102,19 @@ class _SiteKnowledgeLoader:
             return self._format_multi(current_url, matches)
 
     def set_current_site(self, site_url_prefix: str) -> str:
-        """LLM 调用 load_site_knowledge 时设置 current_site_url。"""
+        """LLM 调用 load_site_knowledge 时设置 current_site_url。
+
+        site_url_prefix 为 index.txt 中的整行 key（url_prefix:desc:dir_name），
+        使用 startswith 匹配。
+        """
         entries = self._parse_index()
-        found = any(e[0] == site_url_prefix for e in entries)
-        if not found:
+        key = site_url_prefix.strip()
+        match = next((e for e in entries if self._entry_key(e).startswith(key)), None)
+        if not match:
             return json.dumps({"error": f"未找到站点: {site_url_prefix}"})
-        self.agent._current_site_url = site_url_prefix
-        return json.dumps({"status": "ok", "site_url_prefix": site_url_prefix})
+        full_key = self._entry_key(match)
+        self.agent._current_site_url = full_key
+        return json.dumps({"status": "ok", "site_url_prefix": full_key})
 
     def reload_and_update_prompt(self, micro_agent):
         """重新加载 site knowledge 并即时更新 micro agent 的 system prompt。"""
@@ -134,14 +140,15 @@ class _SiteKnowledgeLoader:
             f"当前URL: {current_url}",
             "",
             "匹配到以下已记录的网站知识：",
-            "使用 load_site_knowledge(site_url_prefix) 加载特定站点的完整知识。",
+            "使用 load_site_knowledge(site_key) 加载特定站点的完整知识（site_key 为上方列出的完整 site_key）。",
         ]
 
         for i, (ep, desc, dirname) in enumerate(matches, 1):
             site_dir = os.path.join(sk_dir, dirname)
+            full_key = self._entry_key((ep, desc, dirname))
             lines.append("")
             lines.append(f"=== site {i} ===")
-            lines.append(f"site_url_prefix: {ep}")
+            lines.append(f"site_key: {full_key}")
             lines.append(f"desc: {desc}")
             lines.append(f"目录: ~/site_knowledge/{dirname}")
 
@@ -162,7 +169,7 @@ class _SiteKnowledgeLoader:
     def _format_single(self, current_url: str, matches: list, current_site: str) -> str:
         """已选择模式：展示选中站点完整 500 行。"""
         sk_dir = os.path.join(self.home_dir, "site_knowledge")
-        entry = next((m for m in matches if m[0] == current_site), None)
+        entry = next((m for m in matches if self._entry_key(m).startswith(current_site)), None)
         if not entry:
             return "=== 当前网站知识 ===\n当前页面未匹配到已记录的网站知识"
 
@@ -203,6 +210,11 @@ class _SiteKnowledgeLoader:
             lines.append("已存储自动化流程:")
             for f in flows:
                 lines.append(f"- {f}")
+
+    @staticmethod
+    def _entry_key(entry):
+        """将 (url_prefix, desc, dirname) 拼成 index.txt 原始行作为唯一 key。"""
+        return f"{entry[0]}:{entry[1]}:{entry[2]}"
 
     def _parse_index(self) -> list:
         """解析 index.txt → [(url_prefix, desc, dirname), ...]"""

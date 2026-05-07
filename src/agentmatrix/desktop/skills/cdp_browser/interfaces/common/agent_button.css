@@ -23,7 +23,8 @@
 
 .ab {
     position:fixed; top:16px; right:16px; pointer-events:auto;
-    color: var(--text); font-size: 13px; line-height: 1.5; display: inline-block;
+    color: var(--text); font-size: 13px; line-height: 1.5; display: flex;
+    flex-direction: column; align-items: stretch;
     overflow:visible;
 }
 
@@ -40,7 +41,7 @@
 .ab-btn:hover { box-shadow: 0 6px 28px rgba(0,0,0,0.14), 0 1px 3px rgba(0,0,0,0.1); }
 .ab-btn:active { transform: scale(0.98); }
 .ab.expanded .ab-btn:hover { box-shadow:none; }
-.ab-btn.idle { cursor:pointer; opacity:1; }
+.ab-btn.idle { cursor:pointer; opacity:1; overflow:visible; }
 .ab-btn.busy { cursor:pointer; }
 .ab-btn.disconnected { opacity:0.4; }
 .ab.expanded .ab-btn { border-radius: var(--radius) var(--radius) 0 0; border-bottom:none; box-shadow:none; }

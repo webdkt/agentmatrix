@@ -43,6 +43,7 @@
             _hideSpeechReply();
             var txt = _speechEl.querySelector('.ab-speech-text');
             if (txt) txt.innerHTML = _renderMarkdown(text);
+            _positionSpeech();
             return;
         }
 
@@ -141,13 +142,14 @@
     }
 
     function _positionSpeech() {
-        if (!_speechEl) return;
+        if (!_speechEl || _speechEl.style.display === 'none') return;
         // 用整个 ab 容器（包含展开的菜单）而非仅 btn，避免 speech 与菜单重叠
         var ar = ab.getBoundingClientRect();
         var ax = ar.left, ay = ar.top, aw = ar.width, ah = ar.height;
         var sw = _speechEl.offsetWidth || 320, sh = _speechEl.offsetHeight || 60;
         var vw = window.innerWidth, vh = window.innerHeight;
-        var gap = 20;
+        // tail 伸出约 10px，再留 12px 间距避免覆盖按钮
+        var gap = 24;
 
         var rightSpace = vw - (ax + aw) - gap;
         var leftSpace = ax - gap;
@@ -155,15 +157,15 @@
         var bottomSpace = vh - (ay + ah) - gap;
 
         _speechEl.className = 'ab-speech';
-        if (rightSpace >= sw + 10) {
+        if (rightSpace >= sw) {
             _speechEl.classList.add('tail-left');
             _speechEl.style.left = (ax + aw + gap) + 'px';
             _speechEl.style.top = Math.max(12, Math.min(ay, vh - sh - 12)) + 'px';
-        } else if (leftSpace >= sw + 10) {
+        } else if (leftSpace >= sw) {
             _speechEl.classList.add('tail-right');
             _speechEl.style.left = (ax - sw - gap) + 'px';
             _speechEl.style.top = Math.max(12, Math.min(ay, vh - sh - 12)) + 'px';
-        } else if (bottomSpace >= sh + 10) {
+        } else if (bottomSpace >= sh) {
             _speechEl.classList.add('tail-top');
             _speechEl.style.left = Math.max(12, Math.min(ax, vw - sw - 12)) + 'px';
             _speechEl.style.top = (ay + ah + gap) + 'px';
@@ -173,3 +175,6 @@
             _speechEl.style.top = (ay - sh - gap) + 'px';
         }
     }
+
+    // 窗口大小变化时重新定位
+    window.addEventListener('resize', function() { _positionSpeech(); });
