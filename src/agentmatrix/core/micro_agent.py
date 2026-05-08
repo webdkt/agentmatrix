@@ -916,13 +916,12 @@ class MicroAgent(AutoLoggerMixin):
                 f"⚠️ Systemic LLM failure detected: {str(e)}"
             )
 
-            # 1. 等待 5 秒
-            await asyncio.sleep(5)
+            # 1. 通知 monitor 服务不可用，触发恢复轮询
+            self.root_agent.notify_llm_unavailable()
 
-            # 2. 等待 LLM service 恢复
-            if not self.root_agent.is_llm_available():
-                self.logger.warning("🔄 Service still unavailable, waiting for recovery...")
-                await self.root_agent.wait_for_llm_recovery()
+            # 2. 等待恢复
+            self.logger.warning("🔄 Waiting for LLM service recovery...")
+            await self.root_agent.wait_for_llm_recovery()
 
             # 3. 重试一次
             self.logger.info("🔄 Retrying after service recovery...")
@@ -956,9 +955,10 @@ class MicroAgent(AutoLoggerMixin):
                         "reason": error_type,
                         "context": "compress_messages"
                     })
+                    # 主动通知 monitor 服务不可用，触发恢复轮询
+                    self.root_agent.notify_llm_unavailable()
                     await asyncio.sleep(3)
-                    if not self.root_agent.is_llm_available():
-                        await self.root_agent.wait_for_llm_recovery()
+                    await self.root_agent.wait_for_llm_recovery()
                     self.logger.info("✅ Service recovered, retrying compress_messages")
                     self._emit_event("system", "compress_start")
                     await self.root_agent.compress_messages(self)
@@ -1207,21 +1207,12 @@ class MicroAgent(AutoLoggerMixin):
                     f"⚠️  LLM service error in step {step_count}: {str(e)}"
                 )
 
-                # 等待一小段时间（3秒），确保 monitor 完成至少一次检查
-                # monitor 最多 60 秒检查一次，但通常服务故障会很快被发现
-                self.logger.debug("Waiting for monitor to update service status...")
-                await asyncio.sleep(3)
+                # 通知 monitor 服务不可用，触发恢复轮询
+                self.root_agent.notify_llm_unavailable()
 
-                # 检查服务状态
-                if self.root_agent.is_llm_available():
-                    # 服务已恢复，重试当前步骤
-                    self.logger.info("✅ Service recovered, retrying current step")
-                    step_count -= 1  # 抵消上面的 +=1，重新执行这一步
-                    continue
-
-                # 服务确实不可用，进入等待模式
+                # 等待恢复
                 self.logger.warning(
-                    "🔄 Service still unavailable, entering wait mode..."
+                    "🔄 Waiting for LLM service recovery..."
                 )
                 await self.root_agent.wait_for_llm_recovery()
 

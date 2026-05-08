@@ -13,6 +13,7 @@ import { sessionAPI } from '@/api/session'
 import ChatMessage from './ChatMessage.vue'
 import CollabInput from './CollabInput.vue'
 import CollabStartPanel from './CollabStartPanel.vue'
+import EmptySessionPanel from './EmptySessionPanel.vue'
 import NewTaskPanel from './NewTaskPanel.vue'
 import TaskSendingOverlay from './TaskSendingOverlay.vue'
 import AgentTerminal from './AgentTerminal.vue'
@@ -352,8 +353,12 @@ const taskFilesWidth = computed(() => {
   <div class="agent-session-panel">
     <!-- Wizard mode / No session selected -->
     <template v-if="wizard.isActive.value || !currentSession">
+      <EmptySessionPanel
+        v-if="!wizard.isActive.value && !currentSession"
+        @start-new-task="wizard.enterWizard()"
+      />
       <CollabStartPanel
-        v-if="wizard.wizardStep.value === 'pick-agent' || (!wizard.isActive.value && !currentSession)"
+        v-else-if="wizard.wizardStep.value === 'pick-agent'"
         @select-agent="handleAgentSelected"
       />
       <NewTaskPanel

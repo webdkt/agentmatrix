@@ -7,6 +7,7 @@ Agent Actions:
 - list_tabs()                 → 列出当前 agent 的 tabs
 - close_tab(target_id)        → 关闭 tab
 - switch_to_tab(target_id)    → 切换 tab
+- cdp_command(method, params?) → 发送原始 CDP 协议指令
 
 
 设计要点：
@@ -17,6 +18,7 @@ Agent Actions:
 - 每个 tab 关联 agent_name + agent_session_id，前端事件自动附带这些元数据
 """
 
+import ast
 import asyncio
 import json
 import logging
@@ -118,8 +120,13 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
         _tab_manager = TabManager(_cdp_client)
 
         _event_listener = BrowserEventListener(_cdp_client, _tab_manager, on_current_tab_change=_update_current_tab)
-        # 注册连接状态回调 → 推送到前端
-        _cdp_client.on_status_change(_event_listener.notify_connection_status)
+        # 注册连接状态回调：断线时通知前端，重连时先 resubscribe 再通知前端
+        async def _on_cdp_status(connected):
+            if connected:
+                await _event_listener._on_reconnected()
+            else:
+                await _event_listener.notify_connection_status(False)
+        _cdp_client.on_status_change(_on_cdp_status)
         await _event_listener.start_target_discovery()
 
         return _cdp_client, _tab_manager, _event_listener
@@ -212,12 +219,13 @@ class Cdp_browserSkillMixin:
             _agent_last_session[agent_name] = current_sid
 
     async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
-        """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab。
+        """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab，收养匹配的 tab。
 
         对每个 page：
         1. 临时 attach → Runtime.evaluate 读 window.__bh_agent_meta__
         2. agent_name 匹配 且 agent_session_id ≠ 当前 session → 关闭
-        3. 否则 detach，保留
+        3. agent_name 匹配 且 agent_session_id == 当前 session → 收养（注册到 TabManager + 设为 current_tab）
+        4. 否则 detach，跳过
         """
         if not _cdp_client:
             return
@@ -232,6 +240,7 @@ class Cdp_browserSkillMixin:
             return
 
         closed = 0
+        adopt_candidates = []  # (target_id, url) 匹配当前 session 的 tab
         for page in pages:
             tid = page.get("targetId", "")
             url = page.get("url", "")
@@ -271,7 +280,9 @@ class Cdp_browserSkillMixin:
                 continue  # 属于其他 agent，跳过
             tab_sid = meta.get("agent_session_id", "")
             if not tab_sid or tab_sid == current_session_id:
-                continue  # 无 session 标记 或 当前 session，保留
+                # 无 session 标记 或 当前 session → 收养候选
+                adopt_candidates.append((tid, url))
+                continue
 
             # 关闭旧 session 的 tab
             logger.info(
@@ -287,6 +298,46 @@ class Cdp_browserSkillMixin:
                 closed += 1
             except Exception as e:
                 logger.warning(f"Failed to close tab {tid[:12]}: {e}")
+
+        # 收养匹配当前 session 的 tab（系统恢复/重启场景）
+        if adopt_candidates:
+            for tid, url in adopt_candidates:
+                if _tab_manager._tabs.get(tid):
+                    continue  # 已在 TabManager 中跟踪，跳过
+                try:
+                    tab = await _tab_manager.adopt_tab(
+                        tid, agent_name, current_session_id, url
+                    )
+                    await self._set_tab_agent_meta(tab)
+                    logger.info(
+                        f"Adopted matching-session tab: {tid[:12]} (url={url[:60]})"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to adopt tab {tid[:12]}: {e}")
+
+            # 选择 current_tab：优先 active（visibilityState=visible），否则最后一个
+            adopted_tabs = _tab_manager.get_agent_tabs_sync(agent_name)
+            if adopted_tabs and not _agent_current_tab.get(agent_name):
+                best = adopted_tabs[-1]
+                for t in adopted_tabs:
+                    try:
+                        res = await _cdp_client.send(
+                            "Runtime.evaluate",
+                            {"expression": "document.visibilityState",
+                             "returnByValue": True},
+                            session_id=t.session_id,
+                            timeout=3,
+                        )
+                        if res.get("result", {}).get("value") == "visible":
+                            best = t
+                            break
+                    except Exception:
+                        pass
+                _agent_current_tab[agent_name] = best
+                logger.info(
+                    f"Adopted current_tab: {best.target_id[:12]} "
+                    f"(url={best.url[:60]})"
+                )
 
         # 如果 current_tab 被关了，更新到剩余 tab
         current = _agent_current_tab.get(agent_name)
@@ -801,7 +852,7 @@ class Cdp_browserSkillMixin:
             }, ensure_ascii=False)
         
     @register_action(
-        short_desc="eval_js(code, tab_id?) 在浏览器页面中执行 JavaScript 代码并返回结果。",
+        short_desc="eval_js(code, tab_id?) 在浏览器页面中执行 JavaScript 代码并返回结果。可以写任意多行 JS（用 IIFE 包裹）。可用的工具函数：__bh_el_info(el), __bh_tag_path(el), __bh_test(selector), __bh_test_xpath(selector)。",
         description="在浏览器页面中执行 JavaScript 代码并返回结果。"
                     "可以写任意多行 JS（用 IIFE 包裹）。"
                     "可用的工具函数：__bh_el_info(el), __bh_tag_path(el), __bh_test(selector), __bh_test_xpath(selector)。"
@@ -859,21 +910,75 @@ class Cdp_browserSkillMixin:
             logger.warning(f"[eval_js] CDP error: {e}")
             return json.dumps({"error": str(e)})
 
+    @register_action(
+        short_desc="cdp_command(method, params?, tab_id?) 直接发送 CDP 协议指令.params 必须是 dict 对象",
+        description="向浏览器 tab 发送原始 CDP (Chrome DevTools Protocol) 指令并返回结果。"
+                    "可用于执行 Input.dispatchMouseEvent（鼠标事件）、Input.dispatchKeyEvent（键盘事件）、"
+                    "Page.captureScreenshot（截图）等任意 CDP 方法。\n\n"
+                    "params 必须是 dict 对象，示例：\n"
+                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mousePressed", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
+                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
+                    '  cdp_command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter", "text": "\\r"})\n\n'
+                    "完整文档参考 https://chromedevtools.github.io/devtools-protocol/",
+        param_infos={
+            "method": "CDP 方法名，如 Input.dispatchMouseEvent",
+            "params": "可选，CDP 参数 dict，如 {\"type\":\"mousePressed\",\"x\":100,\"y\":200}",
+            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
+        },
+    )
+    async def cdp_command(self, method: str, params=None, tab_id: str = None) -> str:
+        if not _cdp_client or not _cdp_client._connected:
+            return json.dumps({"error": "CDP client not connected"})
+
+        # 兜底：params 可能被框架传成字符串
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except (ValueError, SyntaxError):
+                try:
+                    params = ast.literal_eval(params)
+                except (ValueError, SyntaxError):
+                    return json.dumps({"error": f"params 无法解析为 dict: {params[:200]}"})
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return json.dumps({"error": f"params 必须是 dict，实际类型: {type(params).__name__}"})
+
+        if tab_id:
+            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            if not tab:
+                return json.dumps({"error": _tab_not_found_msg(tab_id)})
+        else:
+            tab = self._get_current_tab()
+            if not tab:
+                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
+
+        try:
+            result = await _cdp_client.send(
+                method,
+                params or {},
+                session_id=tab.session_id,
+                timeout=30,
+            )
+            return json.dumps(result, ensure_ascii=False, default=str)
+        except Exception as e:
+            logger.warning(f"[cdp_command] {method} error: {e}")
+            return json.dumps({"error": str(e)})
+
     # ==========================================
     # Site Knowledge
     # ==========================================
 
     @register_action(
-        short_desc="load_site_knowledge(site_url_prefix) 加载指定站点的完整知识",
-        description="当有多个匹配的网站知识时，调用此函数选择一个站点加载完整知识。"
-                    "site_url_prefix 为注入文本中显示的 url_prefix 值。",
-        param_infos={"site_url_prefix": "要加载的站点 url_prefix（来自注入文本）"},
+        short_desc="[site_key] 加载指定站点的完整知识, site_key 为 site_key 行内容（url_prefix:desc:dir_name）",
+        description="[site_key] 加载指定站点的完整知识, site_key 为注入文本中 site_key 行的完整内容",
+        param_infos={"prefix": "站点 site_key（来自注入文本的 site_key 行，格式 url_prefix:desc:dir_name）"},
     )
-    async def load_site_knowledge(self, site_url_prefix: str) -> str:
+    async def load_site_knowledge(self, prefix: str) -> str:
         loader = getattr(self, '_site_knowledge_loader', None)
         if not loader:
             return json.dumps({"error": "site knowledge loader 未初始化"})
-        result = loader.set_current_site(site_url_prefix)
+        result = loader.set_current_site(prefix)
 
         # 即时更新 system prompt，下次 LLM 调用立即生效
         loader.reload_and_update_prompt(self)

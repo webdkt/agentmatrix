@@ -14,7 +14,6 @@ from pathlib import Path
 from ..core.basic_agent import BasicAgent
 from ..core.micro_agent import MicroAgent
 from ..core.signals import CoreEvent
-from .signals import BrowserSignal
 
 
 # Agent 状态常量
@@ -561,6 +560,19 @@ Start generating the Working Notes now.
         if monitor is None:
             return True
         return monitor.llm_available.is_set()
+
+    def notify_llm_unavailable(self) -> None:
+        """通知 monitor LLM 服务不可用，触发恢复轮询。
+
+        Lazy 模式下 monitor 不会主动发现故障，需要调用方在捕获到
+        LLM 连接错误时主动调用此方法。
+        """
+        if not hasattr(self, "runtime") or self.runtime is None:
+            return
+        monitor = self.runtime.llm_monitor
+        if monitor is None:
+            return
+        monitor.mark_unavailable()
 
     async def wait_for_llm_recovery(self) -> None:
         """等待 LLM 服务恢复。"""
@@ -1146,8 +1158,6 @@ Start generating the Working Notes now.
 
         if isinstance(signal, Email):
             return await self._resolve_email_session(signal)
-        elif isinstance(signal, BrowserSignal):
-            return await self._resolve_browser_session(signal)
         else:
             return await super()._resolve_session(signal)
 
@@ -1185,18 +1195,6 @@ Start generating the Working Notes now.
         # 标记已解析（避免 waiting_signals 重路由时重复处理）
         email._desktop_resolved = True
         email._resolved_session = session
-
-        return session
-
-    async def _resolve_browser_session(self, signal: BrowserSignal) -> dict:
-        """BrowserSignal → 从前端元数据解析 session。"""
-        session = await self.session_manager.get_session_by_id(
-            signal.agent_session_id
-        )
-
-        # 标记已解析
-        signal._desktop_resolved = True
-        signal._resolved_session = session
 
         return session
 

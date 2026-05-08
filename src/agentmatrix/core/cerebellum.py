@@ -96,7 +96,7 @@ class Cerebellum(AutoLoggerMixin):
                 2. Identify which required parameters are missing
 
                 Output ONLY a JSON object:
-                {{"mapping": {{"user_name1": "correct_name1", ...}}, "missing": ["param1", "param2"], "action_label": "brief description"}}
+                {{"mapping": {{"user_name1": "correct_name1", ...}}, "missing": ["param1", "param2"], "action_label": "brief description of the purpose of action, NOT what the mapping did"}}
             """)
 
             messages = [

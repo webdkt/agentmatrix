@@ -43,6 +43,7 @@
             _hideSpeechReply();
             var txt = _speechEl.querySelector('.ab-speech-text');
             if (txt) txt.innerHTML = _renderMarkdown(text);
+            _positionSpeech();
             return;
         }
 
@@ -141,37 +142,45 @@
     }
 
     function _positionSpeech() {
-        if (!_speechEl) return;
-        var br = btn.getBoundingClientRect();
-        var bx = br.left, by = br.top, bw = br.width, bh = br.height;
+        if (!_speechEl || _speechEl.style.display === 'none') return;
+        // 用整个 ab 容器（包含展开的菜单）而非仅 btn，避免 speech 与菜单重叠
+        var ar = ab.getBoundingClientRect();
+        var ax = ar.left, ay = ar.top, aw = ar.width, ah = ar.height;
         var sw = _speechEl.offsetWidth || 320, sh = _speechEl.offsetHeight || 60;
         var vw = window.innerWidth, vh = window.innerHeight;
-        var gap = 20;
+        // tail 伸出约 10px，再留 12px 间距避免覆盖按钮
+        var gap = 24;
 
-        // Try right side
-        var rightSpace = vw - (bx + bw) - gap;
-        var leftSpace = bx - gap;
-        var topSpace = by - gap;
-        var bottomSpace = vh - (by + bh) - gap;
+        var rightSpace = vw - (ax + aw) - gap;
+        var leftSpace = ax - gap;
+        var topSpace = ay - gap;
+        var bottomSpace = vh - (ay + ah) - gap;
 
         _speechEl.className = 'ab-speech';
-        if (rightSpace >= sw + 10) {
+        if (rightSpace >= sw) {
+            // bubble RIGHT of button — anchor LEFT edge, expand right
             _speechEl.classList.add('tail-left');
-            _speechEl.style.left = (bx + bw + gap) + 'px';
-            _speechEl.style.top = Math.max(12, Math.min(by, vh - sh - 12)) + 'px';
-        } else if (leftSpace >= sw + 10) {
+            _speechEl.style.right = '';
+            _speechEl.style.left = (ax + aw + gap) + 'px';
+            _speechEl.style.top = Math.max(12, Math.min(ay, vh - sh - 12)) + 'px';
+        } else if (leftSpace >= sw) {
+            // bubble LEFT of button — anchor RIGHT edge, expand left
             _speechEl.classList.add('tail-right');
-            _speechEl.style.left = (bx - sw - gap) + 'px';
-            _speechEl.style.top = Math.max(12, Math.min(by, vh - sh - 12)) + 'px';
-            // available width from bubble left edge to button left edge
-            _speechEl.style.setProperty('--speech-right', (bx - gap - 12) + 'px');
-        } else if (topSpace >= sh + 10) {
-            _speechEl.classList.add('tail-bottom');
-            _speechEl.style.left = Math.max(12, Math.min(bx, vw - sw - 12)) + 'px';
-            _speechEl.style.top = (by - sh - gap) + 'px';
-        } else {
+            _speechEl.style.left = '';
+            _speechEl.style.right = (vw - ax + gap) + 'px';
+            _speechEl.style.top = Math.max(12, Math.min(ay, vh - sh - 12)) + 'px';
+        } else if (bottomSpace >= sh) {
             _speechEl.classList.add('tail-top');
-            _speechEl.style.left = Math.max(12, Math.min(bx, vw - sw - 12)) + 'px';
-            _speechEl.style.top = (by + bh + gap) + 'px';
+            _speechEl.style.right = '';
+            _speechEl.style.left = Math.max(12, Math.min(ax, vw - sw - 12)) + 'px';
+            _speechEl.style.top = (ay + ah + gap) + 'px';
+        } else {
+            _speechEl.classList.add('tail-bottom');
+            _speechEl.style.right = '';
+            _speechEl.style.left = Math.max(12, Math.min(ax, vw - sw - 12)) + 'px';
+            _speechEl.style.top = (ay - sh - gap) + 'px';
         }
     }
+
+    // 窗口大小变化时重新定位
+    window.addEventListener('resize', function() { _positionSpeech(); });

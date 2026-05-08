@@ -96,6 +96,10 @@ class AgentShell(Protocol):
         """检查 LLM 服务是否可用。"""
         ...
 
+    def notify_llm_unavailable(self) -> None:
+        """通知 monitor LLM 服务不可用，触发恢复轮询。"""
+        ...
+
     async def wait_for_llm_recovery(self) -> None:
         """等待 LLM 服务恢复。"""
         ...
