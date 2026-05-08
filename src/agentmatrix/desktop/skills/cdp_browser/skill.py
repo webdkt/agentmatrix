@@ -2,12 +2,14 @@
 CDP Browser Skill — 浏览器自动化，支持前端 Interface 注入和双向事件。
 
 Agent Actions:
-- open_browser()              → 启动/连接浏览器
 - open_url(url)               → 打开 URL（自动注入通信桥接）
 - list_tabs()                 → 列出当前 agent 的 tabs
 - close_tab(target_id)        → 关闭 tab
 - switch_to_tab(target_id)    → 切换 tab
 - cdp_command(method, params?) → 发送原始 CDP 协议指令
+
+CDP 连接对 Agent 完全透明：session 激活时自动建立连接、恢复 tab、注册 agent queue。
+无需手动调用 open_browser()。
 
 
 设计要点：
@@ -49,6 +51,17 @@ _init_lock = asyncio.Lock()
 # 每个 agent 的当前 tab
 _agent_current_tab: dict[str, TabInfo] = {}
 _agent_last_session: dict[str, str] = {}  # agent_name → last known session_id
+_agent_sk_callbacks: dict[str, callable] = {}  # agent_name → tab 变化时刷新 site knowledge prompt
+
+
+def _trigger_sk_callback(agent_name: str):
+    """触发 agent 的 site knowledge prompt 刷新回调（如果已注册）。"""
+    callback = _agent_sk_callbacks.get(agent_name)
+    if callback:
+        try:
+            callback()
+        except Exception as e:
+            logger.debug(f"Site knowledge callback failed for '{agent_name}': {e}")
 
 
 def _update_current_tab(agent_name: str, target_id: str):
@@ -58,6 +71,7 @@ def _update_current_tab(agent_name: str, target_id: str):
     tab = _tab_manager._tabs.get(target_id)
     if tab:
         _agent_current_tab[agent_name] = tab
+        _trigger_sk_callback(agent_name)
 
 
 def _short_url(url: str) -> str:
@@ -334,6 +348,7 @@ class Cdp_browserSkillMixin:
                     except Exception:
                         pass
                 _agent_current_tab[agent_name] = best
+                _trigger_sk_callback(agent_name)
                 logger.info(
                     f"Adopted current_tab: {best.target_id[:12]} "
                     f"(url={best.url[:60]})"
@@ -346,6 +361,7 @@ class Cdp_browserSkillMixin:
             still_exists = any(t.target_id == current.target_id for t in remaining)
             if not still_exists:
                 _agent_current_tab[agent_name] = remaining[0] if remaining else None
+                _trigger_sk_callback(agent_name)
 
         if closed:
             logger.info(
@@ -356,11 +372,6 @@ class Cdp_browserSkillMixin:
     # Actions
     # ==========================================
 
-    @register_action(
-        short_desc="open_browser()",
-        description="启动浏览器并建立 CDP 连接。如果浏览器已在运行则直接连接。"
-                    "自动开始监听前端事件。幂等操作，可重复调用。",
-    )
     async def open_browser(self) -> str:
         """启动/连接浏览器。"""
         await self._ensure_browser()
@@ -657,8 +668,7 @@ class Cdp_browserSkillMixin:
     async def find_selector(self, instruction_text: str, tab_id: str = None) -> str:
         from agentmatrix.core.micro_agent import MicroAgent
 
-        if not _cdp_client or not _cdp_client._connected:
-            return json.dumps({"status": "error", "error": "浏览器未连接"})
+        await self._ensure_browser()
 
         if tab_id:
             tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
@@ -734,8 +744,7 @@ class Cdp_browserSkillMixin:
     async def find_unique_selector_by_xy(self, additional_info: str, tab_id: str = None, x: int = 0, y: int = 0) -> str:
         from agentmatrix.core.micro_agent import MicroAgent
 
-        if not _cdp_client or not _cdp_client._connected:
-            return json.dumps({"status": "error", "error": "浏览器未连接"})
+        await self._ensure_browser()
 
         if tab_id:
             tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
@@ -817,8 +826,7 @@ class Cdp_browserSkillMixin:
         },
     )
     async def confirm_element(self, selector: str, tab_id: str = None) -> str:
-        if not _cdp_client or not _cdp_client._connected:
-            return json.dumps({"status": "error", "error": "浏览器未连接"})
+        await self._ensure_browser()
 
         if tab_id:
             tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
@@ -863,9 +871,7 @@ class Cdp_browserSkillMixin:
         },
     )
     async def eval_js(self, code: str, tab_id: str = None) -> str:
-
-        if not _cdp_client or not _cdp_client._connected:
-            return json.dumps({"error": "CDP client not connected"})
+        await self._ensure_browser()
 
         if tab_id:
             tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
@@ -927,8 +933,7 @@ class Cdp_browserSkillMixin:
         },
     )
     async def cdp_command(self, method: str, params=None, tab_id: str = None) -> str:
-        if not _cdp_client or not _cdp_client._connected:
-            return json.dumps({"error": "CDP client not connected"})
+        await self._ensure_browser()
 
         # 兜底：params 可能被框架传成字符串
         if isinstance(params, str):

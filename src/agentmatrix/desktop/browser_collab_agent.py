@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 SITE_KNOWLEDGE_MARKER_START = "=== 站点自动化知识 ==="
 SITE_KNOWLEDGE_MARKER_END = "=== 站点自动化知识 END ==="
+SYS_HINT_START = "**** 系统提示 ****"
+SYS_HINT_END = "**** 系统提示结束 ****"
 
 
 def update_site_knowledge_section(text: str, content: str) -> str:
@@ -46,7 +48,13 @@ def update_site_knowledge_section(text: str, content: str) -> str:
 class _SiteKnowledgeLoader:
     """根据当前 tab URL 加载匹配的 site knowledge。
 
-    读取 ~/site_knowledge/index.txt，按 url_prefix 匹配当前 URL。
+    读取 ~/site_knowledge/index.txt，按 hostname 匹配当前 URL。
+
+    输出结构（注入到 === 站点自动化知识 === 标记区间内）：
+        [agent 主动加载的站点知识 — load_site_knowledge 设置]
+        **** 系统提示 ****
+        [系统自动注入 — tab 变化时自动刷新，4 种场景]
+        **** 系统提示结束 ****
     """
 
     def __init__(self, agent_name: str, home_dir: str, agent):
@@ -55,51 +63,127 @@ class _SiteKnowledgeLoader:
         self.agent = agent  # BrowserCollabAgent 实例，读写 _current_site_url
 
     def load(self, current_url: str) -> str:
-        """返回注入到 system prompt 的 site knowledge 文本。"""
-        # 自动创建 ~/site_knowledge 目录
-        sk_dir = os.path.join(self.home_dir, "site_knowledge")
-        os.makedirs(sk_dir, exist_ok=True)
+        """生成完整的站点知识区块内容（不含外层 === 站点自动化知识 === 标记）。"""
+        os.makedirs(os.path.join(self.home_dir, "site_knowledge"), exist_ok=True)
 
-        if not current_url:
-            return "=== 当前网站知识 ===\n当前页面未匹配到已记录的网站知识"
-
-        # 解析 URL
-        parsed = urlparse(current_url)
-        hostname = parsed.hostname or ""
-        path = parsed.path.rstrip("/")
-        url_prefix = hostname + path  # e.g. "www.example.com/shop/item/123"
-
-        # 解析 index.txt
-        entries = self._parse_index()
-        if not entries:
-            return "=== 当前网站知识 ===\n当前页面未匹配到已记录的网站知识"
-
-        # 匹配：url_prefix 以 entry 开头，或 entry 以 url_prefix 开头
-        matches = [
-            (ep, desc, dirname)
-            for ep, desc, dirname in entries
-            if url_prefix.startswith(ep) or ep.startswith(url_prefix)
-        ]
-        # 最长前缀优先
-        matches.sort(key=lambda x: -len(x[0]))
-
-        if not matches:
-            self.agent._current_site_url = None
-            return "=== 当前网站知识 ===\n当前页面未匹配到已记录的网站知识"
-
-        # 检查 current_site_url 是否仍匹配
+        hostname = self._parse_hostname(current_url)
+        matches = self._get_hostname_matches(hostname)
         current_site = getattr(self.agent, '_current_site_url', None)
-        if current_site:
-            still_match = any(self._entry_key(m).startswith(current_site) for m in matches)
-            if not still_match:
-                self.agent._current_site_url = None
-                current_site = None
 
-        # 生成文本
-        if current_site:
-            return self._format_single(current_url, matches, current_site)
+        agent_section = self._build_agent_section(current_url, current_site)
+        system_section = self._build_system_hint(current_url, matches, current_site)
+
+        parts = []
+        if agent_section:
+            parts.append(agent_section)
+            parts.append("")
+        parts.append(SYS_HINT_START)
+        if system_section:
+            parts.append(system_section)
+        parts.append(SYS_HINT_END)
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Agent 主动加载区
+    # ------------------------------------------------------------------
+
+    def _build_agent_section(self, current_url: str, current_site: str) -> str:
+        """Agent 通过 load_site_knowledge 主动加载的站点知识（500 行预览）。"""
+        if not current_site:
+            return ""
+        entries = self._parse_index()
+        entry = next((e for e in entries if self._entry_key(e).startswith(current_site)), None)
+        if not entry:
+            return ""
+
+        ep, desc, dirname = entry
+        sk_dir = os.path.join(self.home_dir, "site_knowledge")
+        site_dir = os.path.join(sk_dir, dirname)
+
+        lines = [
+            f"=== 已加载站点知识: {ep} ({desc}) ===",
+            f"站点知识目录: ~/site_knowledge/{dirname}",
+            "",
+        ]
+        readme_path = os.path.join(site_dir, "readme.md")
+        content = self._read_file_lines(readme_path, 500)
+        if content:
+            lines.append(content)
+            if self._file_has_more(readme_path, 500):
+                lines.append("(read more from readme.md)")
+
+        self._append_flow_list(lines, site_dir)
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # 系统自动注入区（4 种场景）
+    # ------------------------------------------------------------------
+
+    def _build_system_hint(self, current_url: str, matches: list, current_site: str) -> str:
+        if not current_url:
+            # 无 tab
+            total = len(self._parse_index())
+            return f"当前无打开的网页。index.txt中共有{total}条站点知识"
+
+        if matches:
+            if current_site:
+                # (1) 有匹配 + agent 已加载 → 简短列表
+                return self._format_system_brief(current_url, matches)
+            else:
+                # (2) 有匹配 + agent 未加载 → 200 行预览
+                return self._format_system_preview(current_url, matches)
         else:
-            return self._format_multi(current_url, matches)
+            if current_site:
+                # (3) 无匹配 + agent 已加载 → 留白
+                return ""
+            else:
+                # (4) 无匹配 + agent 未加载 → 提示
+                total = len(self._parse_index())
+                return f"目前无匹配的站点知识，index.txt中共有{total}条站点知识"
+
+    def _format_system_brief(self, current_url: str, matches: list) -> str:
+        """场景 1：有匹配且 agent 已加载 → 仅列出 site_key 概要。"""
+        lines = [
+            f"当前URL: {current_url}",
+            "有以下站点知识可能匹配当前网页：",
+        ]
+        for ep, desc, dirname in matches:
+            lines.append(f"- {ep} | {desc} | 目录: ~/site_knowledge/{dirname}")
+        return "\n".join(lines)
+
+    def _format_system_preview(self, current_url: str, matches: list) -> str:
+        """场景 2：有匹配且 agent 未加载 → 展示每个匹配 200 行预览。"""
+        sk_dir = os.path.join(self.home_dir, "site_knowledge")
+        lines = [
+            f"当前URL: {current_url}",
+            "",
+            "匹配到以下已记录的网站知识：",
+            "使用 load_site_knowledge(site_key) 加载特定站点的完整知识（site_key 为上方列出的完整 site_key）。",
+        ]
+        for i, (ep, desc, dirname) in enumerate(matches, 1):
+            site_dir = os.path.join(sk_dir, dirname)
+            full_key = self._entry_key((ep, desc, dirname))
+            lines.append("")
+            lines.append(f"=== site {i} ===")
+            lines.append(f"site_key: {full_key}")
+            lines.append(f"desc: {desc}")
+            lines.append(f"目录: ~/site_knowledge/{dirname}")
+
+            readme_path = os.path.join(site_dir, "readme.md")
+            content = self._read_file_lines(readme_path, 200)
+            if content:
+                lines.append("site knowledge:")
+                lines.append(content)
+                if self._file_has_more(readme_path, 200):
+                    lines.append("(read more from readme.md)")
+
+            self._append_flow_list(lines, site_dir)
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # 公共接口
+    # ------------------------------------------------------------------
 
     def set_current_site(self, site_url_prefix: str) -> str:
         """LLM 调用 load_site_knowledge 时设置 current_site_url。
@@ -132,70 +216,27 @@ class _SiteKnowledgeLoader:
                 micro_agent.messages[0]["content"], new_content
             )
 
-    def _format_multi(self, current_url: str, matches: list) -> str:
-        """多匹配模式：展示所有匹配站点，每个前 200 行。"""
-        sk_dir = os.path.join(self.home_dir, "site_knowledge")
-        lines = [
-            "=== 当前网站知识 ===",
-            f"当前URL: {current_url}",
-            "",
-            "匹配到以下已记录的网站知识：",
-            "使用 load_site_knowledge(site_key) 加载特定站点的完整知识（site_key 为上方列出的完整 site_key）。",
+    # ------------------------------------------------------------------
+    # 内部 helpers
+    # ------------------------------------------------------------------
+
+    def _parse_hostname(self, url: str) -> str:
+        if not url:
+            return ""
+        return urlparse(url).hostname or ""
+
+    def _get_hostname_matches(self, hostname: str) -> list:
+        """按 hostname 匹配 index.txt 条目，最长前缀优先。"""
+        if not hostname:
+            return []
+        entries = self._parse_index()
+        matches = [
+            (ep, desc, dirname)
+            for ep, desc, dirname in entries
+            if ep.split("/")[0] == hostname
         ]
-
-        for i, (ep, desc, dirname) in enumerate(matches, 1):
-            site_dir = os.path.join(sk_dir, dirname)
-            full_key = self._entry_key((ep, desc, dirname))
-            lines.append("")
-            lines.append(f"=== site {i} ===")
-            lines.append(f"site_key: {full_key}")
-            lines.append(f"desc: {desc}")
-            lines.append(f"目录: ~/site_knowledge/{dirname}")
-
-            # readme.md 前 200 行
-            readme_path = os.path.join(site_dir, "readme.md")
-            content = self._read_file_lines(readme_path, 200)
-            if content:
-                lines.append(f"site knowledge:")
-                lines.append(content)
-                if self._file_has_more(readme_path, 200):
-                    lines.append("(read more from readme.md)")
-
-            # 列出其他 md 文件
-            self._append_flow_list(lines, site_dir)
-
-        return "\n".join(lines)
-
-    def _format_single(self, current_url: str, matches: list, current_site: str) -> str:
-        """已选择模式：展示选中站点完整 500 行。"""
-        sk_dir = os.path.join(self.home_dir, "site_knowledge")
-        entry = next((m for m in matches if self._entry_key(m).startswith(current_site)), None)
-        if not entry:
-            return "=== 当前网站知识 ===\n当前页面未匹配到已记录的网站知识"
-
-        ep, desc, dirname = entry
-        site_dir = os.path.join(sk_dir, dirname)
-
-        lines = [
-            "=== 当前网站知识 ===",
-            f"当前URL: {current_url}",
-            f"已选定站点: {ep} ({desc})",
-            f"站点知识目录: ~/site_knowledge/{dirname}",
-            "",
-        ]
-
-        # readme.md 前 500 行
-        readme_path = os.path.join(site_dir, "readme.md")
-        content = self._read_file_lines(readme_path, 500)
-        if content:
-            lines.append(content)
-            if self._file_has_more(readme_path, 500):
-                lines.append("(read more from readme.md)")
-
-        # 列出其他 md 文件
-        self._append_flow_list(lines, site_dir)
-
-        return "\n".join(lines)
+        matches.sort(key=lambda x: -len(x[0]))
+        return matches
 
     def _append_flow_list(self, lines: list, site_dir: str):
         """列出站点目录中的流程 md 文件（排除 readme.md）。"""
@@ -334,9 +375,21 @@ class BrowserCollabAgent(BaseAgent):
 
         return session
 
+    async def _on_activate_session(self, session: dict, first_signal=None):
+        """Session 激活时自动确保 CDP 浏览器基础设施就绪。
+
+        对 Agent 完全透明：无需手动调用 open_browser，
+        CDP 连接、tab 恢复、agent queue 注册全部自动完成。
+        """
+        try:
+            if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
+                await self.active_micro_agent._ensure_browser()
+        except Exception as e:
+            logger.warning(f"Auto CDP init failed (will retry in actions): {e}")
+
     def _create_micro_agent(self):
-        """注入 site knowledge 后创建 MicroAgent。"""
-        from .skills.cdp_browser.skill import _agent_current_tab
+        """注入 site knowledge 后创建 MicroAgent，并注册 tab 变化回调。"""
+        from .skills.cdp_browser.skill import _agent_current_tab, _agent_sk_callbacks
 
         home_dir = self.runtime.paths.get_agent_home_dir(self.name)
         sk_loader = _SiteKnowledgeLoader(self.name, home_dir, self)
@@ -348,10 +401,13 @@ class BrowserCollabAgent(BaseAgent):
         micro = super()._create_micro_agent()
         micro._site_knowledge_loader = sk_loader
 
-        # 直接注入 site knowledge 到标记区间
+        # 注入 site knowledge 到标记区间
         micro.system_prompt = update_site_knowledge_section(
             micro.system_prompt, site_knowledge
         )
+
+        # 注册回调：tab 变化时自动刷新 system prompt
+        _agent_sk_callbacks[self.name] = lambda: sk_loader.reload_and_update_prompt(micro)
 
         return micro
 
