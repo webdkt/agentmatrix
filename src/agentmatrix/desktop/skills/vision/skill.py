@@ -27,10 +27,10 @@ class VisionSkillMixin:
         description="查看并分析图片文件内容。支持常见图片格式（PNG, JPEG, GIF, WebP, BMP）。文件大小限制 10MB。",
         param_infos={
             "file_path": "图片文件路径（容器内绝对路径或相对路径）",
-            "instruction": "可选，对图片的观察指令，如'描述图片内容'、'识别图中文字'等。默认为描述图片内容。"
+            "instruction_or_question": "可选，对图片的观察指令，如'描述图片内容'、'识别图中文字'等。默认为描述图片内容。"
         },
     )
-    async def look(self, file_path: str, instruction: str = "") -> str:
+    async def look(self, file_path: str, instruction_or_question: str = "") -> str:
         """
         查看图片内容
 
@@ -38,7 +38,7 @@ class VisionSkillMixin:
 
         Args:
             file_path: 图片文件路径
-            instruction: 可选的观察指令，默认"描述图片内容"
+            instruction_or_question: 可选的观察指令，默认"描述图片内容"
 
         Returns:
             str: 视觉大模型对图片的理解文本
@@ -97,8 +97,8 @@ class VisionSkillMixin:
         base64_data = base64_stdout.strip()
 
         # 5. 构造 prompt
-        if not instruction:
-            instruction = "请详细描述这张图片的内容。"
+        if not instruction_or_question:
+            instruction_or_question = "请详细描述这张图片的内容。"
 
         filename = file_path.split("/")[-1]
 
@@ -110,7 +110,7 @@ class VisionSkillMixin:
 
         try:
             reply = await vision_client.think_with_image(
-                messages=instruction,
+                messages=instruction_or_question,
                 image=base64_data,
                 mime_type=mime_type,
             )

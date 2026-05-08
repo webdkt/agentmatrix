@@ -37,18 +37,24 @@
         return s;
     }
 
+    function _hasQuestion(text) {
+        return /[?？❓]/.test(text);
+    }
+
     function _showSpeech(text) {
+        var autoExpand = _hasQuestion(text);
         if (_speechEl) {
             // Update existing
             _hideSpeechReply();
             var txt = _speechEl.querySelector('.ab-speech-text');
             if (txt) txt.innerHTML = _renderMarkdown(text);
+            _speechEl.classList.toggle('auto-expand', autoExpand);
             _positionSpeech();
             return;
         }
 
         var el = document.createElement('div');
-        el.className = 'ab-speech';
+        el.className = 'ab-speech' + (autoExpand ? ' auto-expand' : '');
         var closeBtn = document.createElement('button');
         closeBtn.className = 'ab-speech-close';
         closeBtn.textContent = '\u2715';

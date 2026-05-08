@@ -67,6 +67,7 @@ onUnmounted(() => {
 const handleFileSelect = (event) => {
   const files = Array.from(event.target.files)
   attachments.value.push(...files)
+  event.target.value = ''
 }
 
 const handleDragEnter = (event) => {
@@ -177,50 +178,8 @@ const goBack = () => {
       </div>
     </div>
 
-    <!-- Attachments -->
-    <div v-if="attachments.length > 0" class="new-task-panel__attachments">
-      <div class="new-task-panel__attachments-header">
-        {{ attachments.length }} {{ attachments.length === 1 ? 'file' : 'files' }}
-      </div>
-      <div class="new-task-panel__attachments-list">
-        <div
-          v-for="(file, index) in attachments"
-          :key="index"
-          class="new-task-panel__attachment"
-        >
-          <MIcon name="file" class="new-task-panel__attachment-icon" />
-          <div class="new-task-panel__attachment-info">
-            <span class="new-task-panel__attachment-name">{{ file.name }}</span>
-            <span class="new-task-panel__attachment-size">{{ formatFileSize(file.size) }}</span>
-          </div>
-          <button @click="removeAttachment(index)" class="new-task-panel__attachment-remove">
-            <MIcon name="x" />
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Upload button -->
-    <div v-else class="new-task-panel__upload">
-      <button @click="$refs.fileInput.click()" class="new-task-panel__upload-btn">
-        <MIcon name="paperclip" />
-        <span>Attach files</span>
-      </button>
-      <input
-        ref="fileInput"
-        type="file"
-        @change="handleFileSelect"
-        multiple
-        class="hidden"
-        accept="*/*"
-      >
-    </div>
-
-    <!-- Spacer -->
-    <div class="new-task-panel__spacer"></div>
-
-    <!-- Footer -->
-    <div class="new-task-panel__footer">
+    <!-- Send button -->
+    <div class="new-task-panel__send-bar">
       <button
         @click="handleSend"
         :disabled="!canSend"
@@ -233,6 +192,53 @@ const goBack = () => {
         </span>
       </button>
     </div>
+
+    <!-- Attachments -->
+    <div v-if="attachments.length > 0" class="new-task-panel__attachments">
+      <div class="new-task-panel__attachments-scroll">
+        <div class="new-task-panel__attachments-header">
+          {{ attachments.length }} {{ attachments.length === 1 ? 'file' : 'files' }}
+        </div>
+        <div class="new-task-panel__attachments-list">
+          <div
+            v-for="(file, index) in attachments"
+            :key="index"
+            class="new-task-panel__attachment"
+          >
+            <MIcon name="file" class="new-task-panel__attachment-icon" />
+            <div class="new-task-panel__attachment-info">
+              <span class="new-task-panel__attachment-name">{{ file.name }}</span>
+              <span class="new-task-panel__attachment-size">{{ formatFileSize(file.size) }}</span>
+            </div>
+            <button @click="removeAttachment(index)" class="new-task-panel__attachment-remove">
+              <MIcon name="x" />
+            </button>
+          </div>
+        </div>
+        <button @click="$refs.fileInput.click()" class="new-task-panel__upload-more">
+          <MIcon name="paperclip" />
+          <span>Add more files</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Upload button (when no attachments) -->
+    <div v-else class="new-task-panel__upload">
+      <button @click="$refs.fileInput.click()" class="new-task-panel__upload-btn">
+        <MIcon name="paperclip" />
+        <span>Attach files</span>
+      </button>
+    </div>
+
+    <!-- Hidden file input (always rendered) -->
+    <input
+      ref="fileInput"
+      type="file"
+      @change="handleFileSelect"
+      multiple
+      class="hidden"
+      accept="*/*"
+    >
   </div>
 </template>
 
@@ -243,6 +249,7 @@ const goBack = () => {
   height: 100%;
   padding: var(--spacing-6);
   position: relative;
+  overflow: hidden;
 }
 
 .new-task-panel--dragging {
@@ -255,6 +262,7 @@ const goBack = () => {
   align-items: center;
   gap: var(--spacing-4);
   margin-bottom: var(--spacing-6);
+  flex-shrink: 0;
 }
 
 .new-task-panel__back {
@@ -293,6 +301,7 @@ const goBack = () => {
 
 .new-task-panel__agent {
   margin-bottom: var(--spacing-4);
+  flex-shrink: 0;
 }
 
 .new-task-panel__agent-display {
@@ -335,7 +344,7 @@ const goBack = () => {
 .new-task-panel__textarea-wrapper {
   position: relative;
   flex: 1;
-  min-height: 200px;
+  min-height: 120px;
 }
 
 .new-task-panel__textarea {
@@ -381,15 +390,87 @@ const goBack = () => {
   pointer-events: none;
 }
 
+/* Send bar */
+.new-task-panel__send-bar {
+  padding-top: var(--spacing-4);
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.new-task-panel__send {
+  height: 40px;
+  padding: 0 var(--spacing-8);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.new-task-panel__send:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.new-task-panel__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.new-task-panel__sending {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.new-task-panel__spinner {
+  animation: new-task-spin 1.2s linear infinite;
+}
+
+@keyframes new-task-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Attachments */
 .new-task-panel__attachments {
-  margin-top: var(--spacing-2);
+  margin-top: var(--spacing-3);
+  flex-shrink: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* Subtle scrollbar */
+.new-task-panel__attachments::-webkit-scrollbar {
+  width: 4px;
+}
+.new-task-panel__attachments::-webkit-scrollbar-track {
+  background: transparent;
+}
+.new-task-panel__attachments::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+.new-task-panel__attachments-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
 }
 
 .new-task-panel__attachments-header {
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
   color: var(--text-tertiary);
-  margin-bottom: var(--spacing-1);
+  padding-bottom: var(--spacing-1);
+  flex-shrink: 0;
 }
 
 .new-task-panel__attachments-list {
@@ -406,6 +487,7 @@ const goBack = () => {
   background: var(--surface-base);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  flex-shrink: 0;
 }
 
 .new-task-panel__attachment-icon {
@@ -454,8 +536,32 @@ const goBack = () => {
   background: var(--error-50);
 }
 
+/* Upload more button (inside attachments) */
+.new-task-panel__upload-more {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  flex-shrink: 0;
+}
+
+.new-task-panel__upload-more:hover {
+  background: var(--surface-hover);
+  border-color: var(--text-tertiary);
+}
+
+/* Upload button (when no attachments) */
 .new-task-panel__upload {
-  margin-top: var(--spacing-2);
+  margin-top: var(--spacing-3);
+  flex-shrink: 0;
 }
 
 .new-task-panel__upload-btn {
@@ -476,58 +582,5 @@ const goBack = () => {
 .new-task-panel__upload-btn:hover {
   background: var(--border);
   border-color: var(--text-tertiary);
-}
-
-.new-task-panel__spacer {
-  flex: 1;
-  min-height: var(--spacing-4);
-}
-
-.new-task-panel__footer {
-  padding-top: var(--spacing-4);
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: flex-end;
-}
-
-.new-task-panel__send {
-  height: 40px;
-  padding: 0 var(--spacing-8);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: white;
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-}
-
-.new-task-panel__send:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-.new-task-panel__send:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.new-task-panel__sending {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-1);
-}
-
-.new-task-panel__spinner {
-  animation: new-task-spin 1.2s linear infinite;
-}
-
-@keyframes new-task-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 </style>

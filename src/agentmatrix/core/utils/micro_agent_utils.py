@@ -108,16 +108,35 @@ def parse_function_calls(
         re.MULTILINE,
     )
 
+    # 跟踪已消费的字符范围，避免将函数参数内部的代码误识别为 action
+    # 例如 file.write(content=r"""...os.makedirs(...)...""") 不应把 os.makedirs 当成独立 action
+    consumed_end = 0
+
     for match in func_pattern.finditer(text):
+        # 跳过落在已消费范围内的匹配（属于某个上层函数调用的参数内容）
+        if match.start() < consumed_end:
+            continue
+
         func_name = match.group(1).lower()
         start_paren = match.end() - 1  # '(' 的位置
 
-        # 括号配对，支持多行和嵌套
+        # 括号配对，支持多行和嵌套（跳过引号内的括号）
         depth = 1
         pos = start_paren + 1
         while pos < len(text) and depth > 0:
             ch = text[pos]
-            if ch == '(':
+            if ch in ('"', "'"):
+                # 跳过引号内的内容（尊重转义）
+                quote = ch
+                pos += 1
+                while pos < len(text):
+                    if text[pos] == '\\':
+                        pos += 2  # 跳过转义字符
+                        continue
+                    if text[pos] == quote:
+                        break
+                    pos += 1
+            elif ch == '(':
                 depth += 1
             elif ch == ')':
                 depth -= 1
@@ -126,6 +145,9 @@ def parse_function_calls(
         if depth != 0:
             # 括号未闭合，跳过
             continue
+
+        # 标记消费范围：从本调用的开头到闭合括号
+        consumed_end = pos
 
         # params_text 是括号内的内容（不含外层括号）
         params_text = text[start_paren + 1 : pos - 1].strip()
@@ -182,24 +204,28 @@ def parse_params_from_call(params_text: str) -> Dict[str, Any]:
 
 
 def _split_params(text: str) -> List[str]:
-    """按逗号分割参数，忽略引号内的逗号和嵌套括号内的逗号。"""
+    """按逗号分割参数，忽略引号内的逗号和嵌套括号/花括号/方括号内的逗号。"""
     parts = []
     current = []
-    depth = 0
+    depth = 0          # tracks (), {}, [] nesting
     in_quote = None
+    prev_ch = None
 
     for ch in text:
         if in_quote:
             current.append(ch)
-            if ch == in_quote:
+            # 跳过转义引号
+            if prev_ch == '\\':
+                pass
+            elif ch == in_quote:
                 in_quote = None
         elif ch in ('"', "'"):
             in_quote = ch
             current.append(ch)
-        elif ch == '(':
+        elif ch in ('(', '{', '['):
             depth += 1
             current.append(ch)
-        elif ch == ')':
+        elif ch in (')', '}', ']'):
             depth -= 1
             current.append(ch)
         elif ch == ',' and depth == 0:
@@ -207,6 +233,7 @@ def _split_params(text: str) -> List[str]:
             current = []
         else:
             current.append(ch)
+        prev_ch = ch
 
     if current:
         parts.append(''.join(current))
@@ -237,7 +264,23 @@ def _parse_value(value_str: str) -> Any:
                 sanitized = value_str.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
                 return ast.literal_eval(sanitized)
             except (ValueError, SyntaxError):
-                return value_str[1:-1]
+                # 兜底：手动去引号 + 反转义
+                inner = value_str[1:-1]
+                inner = inner.replace('\\"', '"').replace("\\'", "'")
+                inner = inner.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                inner = inner.replace('\\\\', '\\')
+                return inner
+
+    # dict/list 字面量：先尝试 ast.literal_eval，再尝试 json.loads
+    if value_str.startswith('{') or value_str.startswith('['):
+        try:
+            return ast.literal_eval(value_str)
+        except (ValueError, SyntaxError):
+            try:
+                import json
+                return json.loads(value_str)
+            except (ValueError, SyntaxError):
+                pass
 
     # 布尔值
     if value_str.lower() == 'true':

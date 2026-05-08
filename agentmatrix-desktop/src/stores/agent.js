@@ -44,12 +44,27 @@ export const useAgentStore = defineStore('agent', () => {
     delete agents.value[agentName]
   }
 
+  // UI Actions 缓存
+  const setAgentUIActions = (agentName, actions) => {
+    if (!agents.value[agentName]) {
+      agents.value[agentName] = {}
+    }
+    agents.value[agentName].uiActions = actions
+    agents.value[agentName].uiActionsLoadedAt = new Date().toISOString()
+  }
+
+  const getAgentUIActions = (agentName) => {
+    return agents.value[agentName]?.uiActions || []
+  }
+
   return {
     agents,
     getAgent,
     getAgentStatus,
     getAgentSessionId,
+    getAgentUIActions,
     updateAgentStatus,
+    setAgentUIActions,
     clearAgentStatus
   }
 })

@@ -85,6 +85,12 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       if (detail.action_name === 'send_internal_mail') return 'skip'
       return 'pill'
     }
+    if (type === 'ui_action') {
+      const mode = detail.display_mode
+      if (mode === 'modal') return 'ui-action-modal'
+      if (mode === 'toast') return 'ui-action-toast'
+      return 'ui-action-text'
+    }
     if (type === 'session') {
       if (name === 'activated' || name === 'deactivated') return 'session-time'
       return 'skip'
@@ -276,6 +282,26 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     }
   }
 
+  // ---- Inject synthetic event (for UI actions without active session) ----
+
+  function injectUIActionResult(actionName, label, result, displayMode) {
+    const now = new Date().toISOString()
+    const syntheticEvent = {
+      id: `ui-action-${Date.now()}`,
+      timestamp: now,
+      eventType: 'ui_action',
+      eventName: actionName,
+      detail: {
+        result,
+        display_mode: displayMode,
+        label,
+      },
+      renderType: 'ui-action-text',
+    }
+    events.value.push(syntheticEvent)
+    nextTick(() => scrollToBottom())
+  }
+
   return {
     // State
     events,
@@ -301,5 +327,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     handleEmailSendFailed,
     handleEmailSent,
     handleAgentQuestionSubmit,
+    injectUIActionResult,
   }
 }

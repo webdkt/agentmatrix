@@ -15,6 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
     git \
     bc \
+    unzip \
+    zip \
+    jq \
+    procps \
+    less \
+    iproute2 \
+    dnsutils \
+    netcat-openbsd \
     # 清理缓存
     && rm -rf /var/lib/apt/lists/*
 

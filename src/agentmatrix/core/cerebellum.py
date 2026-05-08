@@ -122,8 +122,10 @@ class Cerebellum(AutoLoggerMixin):
             # 用 mapping 对齐参数名，value 原样保留
             aligned = {}
             for user_key, user_val in current_params.items():
-                correct_key = mapping.get(user_key, user_key)
-                aligned[correct_key] = user_val
+                correct_key = mapping.get(user_key)
+                if isinstance(correct_key, str):
+                    aligned[correct_key] = user_val
+                # mapping 返回 null/非字符串 → 无法映射，跳过（由调用方过滤）
             current_params = aligned
 
             # 全齐 → 返回

@@ -709,18 +709,13 @@ class MicroAgent(AutoLoggerMixin):
                 logging.INFO, f"Loaded {len(self.messages)} messages from session"
             )
 
-            # 🆕 总是使用最新的 system prompt（确保 skills 变化立即生效）
-            if self.messages and self.messages[0]["role"] == "system":
-                self.messages[0] = {
-                    "role": "system",
-                    "content": self._build_system_prompt(),
-                }
-                # 添加新的任务输入（只在恢复已有会话时，空 task 跳过）
+            if self.messages:
+                # 已有会话：直接复用，不重建 system prompt
+                # （运行时可能有动态注入的内容如 site_knowledge，不能覆盖）
                 if self.task:
                     self._add_message("user", self._format_task_message())
-            elif not self.messages:
+            else:
                 self._initialize_session()
-                # 🔥 Bug fix: 不要重复添加 user message，_initialize_session 已经添加了
         elif initial_history:
             # 恢复记忆：复制历史记录
             self.messages = initial_history.copy()
@@ -728,18 +723,11 @@ class MicroAgent(AutoLoggerMixin):
                 logging.INFO, f"Restoring memory with {len(initial_history)} messages"
             )
 
-            # 🆕 总是使用最新的 system prompt
-            if self.messages and self.messages[0]["role"] == "system":
-                self.messages[0] = {
-                    "role": "system",
-                    "content": self._build_system_prompt(),
-                }
-                # 添加新的任务输入（只在恢复已有会话时，空 task 跳过）
+            if self.messages:
                 if self.task:
                     self._add_message("user", self._format_task_message())
-            elif not self.messages:
+            else:
                 self._initialize_session()
-                # 🔥 Bug fix: 不要重复添加 user message，_initialize_session 已经添加了
         else:
             # 新对话：初始化
             self.messages = []
@@ -809,13 +797,11 @@ class MicroAgent(AutoLoggerMixin):
             self.messages.append({"role": "user", "content": task_message})
 
     def _build_system_prompt(self) -> str:
-        """每轮渲染 system prompt：注入 core_prompt 到模板"""
+        """渲染 system prompt：注入 core_prompt 到模板（不修改 self.system_prompt）"""
         core = self.get_core_prompt()
         if "$core_prompt" in self.system_prompt:
-            self.system_prompt = self.system_prompt.replace("$core_prompt", core)
-        else:
-            self.system_prompt += "\n\n" + core
-        return self.system_prompt
+            return self.system_prompt.replace("$core_prompt", core)
+        return self.system_prompt + "\n\n" + core
 
     def get_core_prompt(self) -> str:
         """Core 层 prompt：从 Core 内置模板加载，注入 actions list 和 md skills"""
@@ -921,6 +907,7 @@ class MicroAgent(AutoLoggerMixin):
 
             # 2. 等待恢复
             self.logger.warning("🔄 Waiting for LLM service recovery...")
+            self._emit_event("status", "recovering")
             await self.root_agent.wait_for_llm_recovery()
 
             # 3. 重试一次
@@ -957,6 +944,7 @@ class MicroAgent(AutoLoggerMixin):
                     })
                     # 主动通知 monitor 服务不可用，触发恢复轮询
                     self.root_agent.notify_llm_unavailable()
+                    self._emit_event("status", "recovering")
                     await asyncio.sleep(3)
                     await self.root_agent.wait_for_llm_recovery()
                     self.logger.info("✅ Service recovered, retrying compress_messages")
@@ -1214,6 +1202,7 @@ class MicroAgent(AutoLoggerMixin):
                 self.logger.warning(
                     "🔄 Waiting for LLM service recovery..."
                 )
+                self._emit_event("status", "recovering")
                 await self.root_agent.wait_for_llm_recovery()
 
                 # 恢复后重试当前步骤

@@ -68,6 +68,7 @@
 .ab-btn-dot.thinking { background:var(--warning); animation: ab-dot-active 1.2s ease-in-out infinite; }
 .ab-btn-dot.working { background:var(--accent); animation: ab-dot-active 1.2s ease-in-out infinite; }
 .ab-btn-dot.waiting { background:var(--danger); animation: ab-dot-active 1.5s ease-in-out infinite; }
+.ab-btn-dot.recovering { background:var(--warning); animation: ab-pulse 2s ease-in-out infinite; }
 .ab-btn-dot.disconnected { background:#aaa; animation: ab-pulse 2s ease-in-out infinite; }
 .ab-btn-label { font-size:14px; font-weight:600; letter-spacing:0.2px; }
 .ab-btn-label.active {
@@ -336,6 +337,7 @@
     cursor:pointer;
 }
 .ab-speech.dimmed { opacity:0.15; pointer-events:none; z-index:2147483644; }
+.ab-speech.auto-expand .ab-speech-text { max-height:60vh; overflow-y:auto; }
 @keyframes ab-speech-in { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
 
 /* Tail: rotated rounded square — curves naturally out of the bubble */

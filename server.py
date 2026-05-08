@@ -211,6 +211,11 @@ class LLMConfigCreateRequest(BaseModel):
     model_name: str
 
 
+class InvokeUIActionRequest(BaseModel):
+    """UI action 调用请求"""
+    payload: Optional[dict] = None
+
+
 # === Required LLM Configs ===
 REQUIRED_LLM_CONFIGS = ["default_llm", "default_slm", "browser-use-llm"]
 
@@ -1523,6 +1528,42 @@ async def get_agent_workspace(agent_name: str):
         return {"files": files, "workspace_path": str(workspace)}
     except Exception as e:
         print(f"Error getting workspace for '{agent_name}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{agent_name}/ui_actions")
+async def get_agent_ui_actions(agent_name: str):
+    """获取 Agent 暴露的 UI action 列表（用于前端渲染工具条）。"""
+    global matrix_runtime
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    agent = matrix_runtime.agents.get(agent_name)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    return {"actions": agent.get_ui_actions()}
+
+
+@app.post("/api/agents/{agent_name}/ui_actions/{action_name}")
+async def invoke_agent_ui_action(agent_name: str, action_name: str, request: InvokeUIActionRequest):
+    """调用 Agent 的 UI action。"""
+    global matrix_runtime
+    if not matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+
+    agent = matrix_runtime.agents.get(agent_name)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+    try:
+        result = await agent.execute_ui_action(action_name, request.payload or {})
+        return {"success": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
