@@ -977,13 +977,13 @@ class Cdp_browserSkillMixin:
     @register_action(
         short_desc="[site_key] 加载指定站点的完整知识, site_key 为 site_key 行内容（url_prefix:desc:dir_name）",
         description="[site_key] 加载指定站点的完整知识, site_key 为注入文本中 site_key 行的完整内容",
-        param_infos={"prefix": "站点 site_key（来自注入文本的 site_key 行，格式 url_prefix:desc:dir_name）"},
+        param_infos={"site_key": "站点 site_key（来自注入文本的 site_key 行，格式 url_prefix:desc:dir_name）"},
     )
-    async def load_site_knowledge(self, prefix: str) -> str:
+    async def load_site_knowledge(self, site_key: str) -> str:
         loader = getattr(self, '_site_knowledge_loader', None)
         if not loader:
             return json.dumps({"error": "site knowledge loader 未初始化"})
-        result = loader.set_current_site(prefix)
+        result = loader.set_current_site(site_key)
 
         # 即时更新 system prompt，下次 LLM 调用立即生效
         loader.reload_and_update_prompt(self)

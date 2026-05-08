@@ -921,6 +921,7 @@ class MicroAgent(AutoLoggerMixin):
 
             # 2. 等待恢复
             self.logger.warning("🔄 Waiting for LLM service recovery...")
+            self._emit_event("status", "recovering")
             await self.root_agent.wait_for_llm_recovery()
 
             # 3. 重试一次
@@ -957,6 +958,7 @@ class MicroAgent(AutoLoggerMixin):
                     })
                     # 主动通知 monitor 服务不可用，触发恢复轮询
                     self.root_agent.notify_llm_unavailable()
+                    self._emit_event("status", "recovering")
                     await asyncio.sleep(3)
                     await self.root_agent.wait_for_llm_recovery()
                     self.logger.info("✅ Service recovered, retrying compress_messages")
@@ -1214,6 +1216,7 @@ class MicroAgent(AutoLoggerMixin):
                 self.logger.warning(
                     "🔄 Waiting for LLM service recovery..."
                 )
+                self._emit_event("status", "recovering")
                 await self.root_agent.wait_for_llm_recovery()
 
                 # 恢复后重试当前步骤

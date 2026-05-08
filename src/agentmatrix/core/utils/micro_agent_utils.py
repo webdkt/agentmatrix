@@ -259,7 +259,12 @@ def _parse_value(value_str: str) -> Any:
                 sanitized = value_str.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
                 return ast.literal_eval(sanitized)
             except (ValueError, SyntaxError):
-                return value_str[1:-1]
+                # 兜底：手动去引号 + 反转义
+                inner = value_str[1:-1]
+                inner = inner.replace('\\"', '"').replace("\\'", "'")
+                inner = inner.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                inner = inner.replace('\\\\', '\\')
+                return inner
 
     # dict/list 字面量：先尝试 ast.literal_eval，再尝试 json.loads
     if value_str.startswith('{') or value_str.startswith('['):
