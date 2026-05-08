@@ -158,19 +158,25 @@
 
         _speechEl.className = 'ab-speech';
         if (rightSpace >= sw) {
+            // bubble RIGHT of button — anchor LEFT edge, expand right
             _speechEl.classList.add('tail-left');
+            _speechEl.style.right = '';
             _speechEl.style.left = (ax + aw + gap) + 'px';
             _speechEl.style.top = Math.max(12, Math.min(ay, vh - sh - 12)) + 'px';
         } else if (leftSpace >= sw) {
+            // bubble LEFT of button — anchor RIGHT edge, expand left
             _speechEl.classList.add('tail-right');
-            _speechEl.style.left = (ax - sw - gap) + 'px';
+            _speechEl.style.left = '';
+            _speechEl.style.right = (vw - ax + gap) + 'px';
             _speechEl.style.top = Math.max(12, Math.min(ay, vh - sh - 12)) + 'px';
         } else if (bottomSpace >= sh) {
             _speechEl.classList.add('tail-top');
+            _speechEl.style.right = '';
             _speechEl.style.left = Math.max(12, Math.min(ax, vw - sw - 12)) + 'px';
             _speechEl.style.top = (ay + ah + gap) + 'px';
         } else {
             _speechEl.classList.add('tail-bottom');
+            _speechEl.style.right = '';
             _speechEl.style.left = Math.max(12, Math.min(ax, vw - sw - 12)) + 'px';
             _speechEl.style.top = (ay - sh - gap) + 'px';
         }

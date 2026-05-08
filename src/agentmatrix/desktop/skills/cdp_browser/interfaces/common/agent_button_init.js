@@ -118,7 +118,6 @@
     // Menu item actions
     // ==========================================
     menu.addEventListener('click', function(e) {
-        if (_dragMoved) return;
         var item = e.target.closest('.ab-menu-item');
         if (!item) return;
         ab.classList.remove('expanded');
