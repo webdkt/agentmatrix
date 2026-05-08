@@ -273,6 +273,9 @@ class CLIAgent(BrowserCollabAgent):
     def is_llm_available(self) -> bool:
         return True
 
+    def notify_llm_unavailable(self) -> None:
+        pass
+
     async def wait_for_llm_recovery(self) -> None:
         self.logger.info("Waiting for LLM recovery...")
         await asyncio.sleep(5)

@@ -354,4 +354,4 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
     # brain, cerebellum, logger — 通过 __init__ 设置或 runtime 注入
     # get_prompt_template, generate_working_notes, compress_messages — 子类实现
     # checkpoint — 由 StateManagerMixin 提供
-    # get_md_skill_prompt, is_llm_available, wait_for_llm_recovery — 子类实现
+    # get_md_skill_prompt, is_llm_available, notify_llm_unavailable, wait_for_llm_recovery — 子类实现

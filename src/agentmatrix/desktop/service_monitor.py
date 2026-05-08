@@ -242,6 +242,17 @@ class LLMServiceMonitor(AutoLoggerMixin):
             self.logger.warning(f"✗ Service '{service_name}' check failed: {str(e)}")
             return False
 
+    def mark_unavailable(self):
+        """外部调用者通知 monitor：LLM 服务不可用（如连接失败）。
+
+        Lazy 模式下 monitor 不会主动发现故障，需要调用方在捕获到
+        LLMServiceConnectionError 时主动通知，以便触发恢复轮询。
+        """
+        if self.llm_available.is_set():
+            self.llm_available.clear()
+            self.echo("⚠️ Marked LLM as unavailable by caller, triggering on-demand check")
+            self._trigger_check_if_needed()
+
     def is_available(self, service_name: Optional[str] = None) -> bool:
         """
         查询服务是否可用（Lazy模式）

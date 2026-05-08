@@ -561,6 +561,19 @@ Start generating the Working Notes now.
             return True
         return monitor.llm_available.is_set()
 
+    def notify_llm_unavailable(self) -> None:
+        """通知 monitor LLM 服务不可用，触发恢复轮询。
+
+        Lazy 模式下 monitor 不会主动发现故障，需要调用方在捕获到
+        LLM 连接错误时主动调用此方法。
+        """
+        if not hasattr(self, "runtime") or self.runtime is None:
+            return
+        monitor = self.runtime.llm_monitor
+        if monitor is None:
+            return
+        monitor.mark_unavailable()
+
     async def wait_for_llm_recovery(self) -> None:
         """等待 LLM 服务恢复。"""
         monitor = self.runtime.llm_monitor if self.runtime else None
