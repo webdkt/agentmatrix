@@ -54,6 +54,7 @@ const {
   handleEmailSendFailed,
   handleEmailSent,
   handleAgentQuestionSubmit,
+  injectUIActionResult,
 } = useChatTimeline({ userAgentName: () => props.userAgentName })
 
 // ---- Agent name derived from session ----
@@ -158,6 +159,52 @@ const taskFiles = useTaskFiles({
   agentName: () => currentAgentName.value,
   sessionId: () => currentSessionId.value,
 })
+
+// ---- UI Actions (动态工具条按钮) ----
+const agentUIActions = ref([])
+
+const loadAgentUIActions = async () => {
+  if (!currentAgentName.value) {
+    agentUIActions.value = []
+    return
+  }
+  // 先查缓存
+  const cached = agentStore.getAgentUIActions(currentAgentName.value)
+  if (cached.length > 0) {
+    agentUIActions.value = cached
+    return
+  }
+  try {
+    const result = await agentAPI.getAgentUIActions(currentAgentName.value)
+    agentUIActions.value = result.actions || []
+    agentStore.setAgentUIActions(currentAgentName.value, result.actions || [])
+  } catch (e) {
+    console.error('Failed to load UI actions:', e)
+    agentUIActions.value = []
+  }
+}
+
+watch(currentAgentName, () => {
+  loadAgentUIActions()
+}, { immediate: true })
+
+const invokeUIAction = async (action) => {
+  if (!currentAgentName.value) return
+  try {
+    const resp = await agentAPI.invokeAgentUIAction(currentAgentName.value, action.name)
+    // 结果通过 SESSION_EVENT 自动推送到前端（有活跃 session 时）
+    // 如果没有活跃 session，直接注入到 timeline
+    if (resp.success && resp.result != null && !currentSession.value) {
+      injectUIActionResult(action.name, action.label, resp.result, resp.display_mode)
+    }
+  } catch (e) {
+    console.error('UI action failed:', e)
+  }
+}
+
+const floatingUIActions = computed(() =>
+  agentUIActions.value.filter(a => a.placement === 'floating')
+)
 
 // ---- Drag-drop file upload (single global listener) ----
 const isDragging = ref(false)
@@ -573,10 +620,10 @@ const taskFilesWidth = computed(() => {
           }"
           @click="openCollabFile"
           :disabled="!collabFileName"
-          :title="collabFileName || 'No collab file'"
         >
           <MIcon name="file" />
           <span class="floating-toolbar-btn__dot" v-if="collabFile"></span>
+          <span class="floating-toolbar-btn__tooltip">{{ collabFileName || 'No collab file' }}</span>
         </button>
 
         <!-- Task Files toggle -->
@@ -584,9 +631,9 @@ const taskFilesWidth = computed(() => {
           class="floating-toolbar-btn"
           :class="{ 'floating-toolbar-btn--active': showTaskFiles }"
           @click="showTaskFiles = !showTaskFiles"
-          title="Task Files"
         >
           <MIcon name="folder" />
+          <span class="floating-toolbar-btn__tooltip">Task Files</span>
         </button>
 
         <!-- Terminal toggle -->
@@ -594,9 +641,24 @@ const taskFilesWidth = computed(() => {
           class="floating-toolbar-btn"
           :class="{ 'floating-toolbar-btn--active': showTerminal }"
           @click="toggleTerminal"
-          title="Terminal"
         >
           <MIcon name="monitor-play" />
+          <span class="floating-toolbar-btn__tooltip">Terminal</span>
+        </button>
+
+        <!-- Dynamic UI Action buttons -->
+        <button
+          v-for="action in floatingUIActions"
+          :key="action.name"
+          class="floating-toolbar-btn floating-toolbar-btn--ui-action"
+          :class="{
+            'floating-toolbar-btn--disabled': !action.available,
+          }"
+          :disabled="!action.available"
+          @click="invokeUIAction(action)"
+        >
+          <MIcon :name="action.icon || 'zap'" />
+          <span class="floating-toolbar-btn__tooltip">{{ action.tooltip || action.label }}</span>
         </button>
       </div>
 
@@ -1128,45 +1190,99 @@ const taskFilesWidth = computed(() => {
   height: 36px;
   border-radius: 10px;
   border: none;
-  background: linear-gradient(135deg, #f8f9fa 0%, #f0f1f3 100%);
+  background: linear-gradient(135deg, #E8EDF2 0%, #DDE3EA 100%);
   color: var(--text-secondary);
   font-size: 16px;
   cursor: pointer;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* CollabFile: slate blue */
+.floating-toolbar-btn:nth-child(1) {
+  background: linear-gradient(135deg, #D5DEE8 0%, #C5D0DC 100%);
+  color: #5A7A9A;
+}
+
+/* Task Files: amber */
+.floating-toolbar-btn:nth-child(2) {
+  background: linear-gradient(135deg, #F0E6D4 0%, #E5D8C2 100%);
+  color: #A08050;
+}
+
+/* Terminal: sage green */
+.floating-toolbar-btn:nth-child(3) {
+  background: linear-gradient(135deg, #D8E8D5 0%, #C8DCC2 100%);
+  color: #5A8A52;
+}
+
+/* UI Action buttons: mauve */
+.floating-toolbar-btn--ui-action {
+  background: linear-gradient(135deg, #E5DFF0 0%, #D8D0E8 100%);
+  color: #8B7AAF;
 }
 
 .floating-toolbar-btn:hover {
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-  color: var(--accent);
   transform: translateY(-2px);
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .floating-toolbar-btn:active {
   transform: translateY(0);
 }
 
-.floating-toolbar-btn--active {
-  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-  color: #10b981;
-  box-shadow:
-    0 1px 3px rgba(16, 185, 129, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+/* ---- Active state: deeper color + glow ---- */
+.floating-toolbar-btn:nth-child(1).floating-toolbar-btn--active {
+  background: linear-gradient(135deg, #B0C4D8 0%, #9AB0C8 100%);
+  color: #3A5A7A;
+  box-shadow: 0 0 0 2px rgba(90, 122, 154, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-.floating-toolbar-btn--active:hover {
-  background: linear-gradient(135deg, #d4efd6 0%, #b9e6c1 100%);
-  color: #059669;
+.floating-toolbar-btn:nth-child(2).floating-toolbar-btn--active {
+  background: linear-gradient(135deg, #D8C4A0 0%, #C8B490 100%);
+  color: #7A5A20;
+  box-shadow: 0 0 0 2px rgba(160, 128, 80, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
+.floating-toolbar-btn:nth-child(3).floating-toolbar-btn--active {
+  background: linear-gradient(135deg, #B0D0A8 0%, #98C090 100%);
+  color: #3A6A32;
+  box-shadow: 0 0 0 2px rgba(90, 138, 82, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.floating-toolbar-btn--ui-action.floating-toolbar-btn--active {
+  background: linear-gradient(135deg, #C8B8E0 0%, #B0A0D0 100%);
+  color: #5A4A8A;
+  box-shadow: 0 0 0 2px rgba(139, 122, 175, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* ---- Hover tooltip ---- */
+.floating-toolbar-btn__tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  background: var(--text-primary, #18181B);
+  color: var(--surface-base, #fff);
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+}
+
+.floating-toolbar-btn:hover .floating-toolbar-btn__tooltip {
+  opacity: 1;
+}
+
+/* ---- Disabled ---- */
 .floating-toolbar-btn--disabled {
   opacity: 0.35;
   cursor: not-allowed;
@@ -1174,10 +1290,14 @@ const taskFilesWidth = computed(() => {
 
 .floating-toolbar-btn--disabled:hover {
   transform: none;
-  background: linear-gradient(135deg, #f8f9fa 0%, #f0f1f3 100%);
-  color: var(--text-secondary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
+.floating-toolbar-btn--disabled:hover .floating-toolbar-btn__tooltip {
+  opacity: 0;
+}
+
+/* ---- Green dot indicator ---- */
 .floating-toolbar-btn__dot {
   position: absolute;
   top: 8px;

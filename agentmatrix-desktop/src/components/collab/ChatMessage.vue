@@ -112,6 +112,34 @@ const systemText = computed(() => {
   return labels[eventName] || eventName
 })
 
+// ---- UI Action result ----
+
+const uiActionLabel = computed(() => {
+  if (!props.message.type?.startsWith('ui-action')) return ''
+  return props.message.data?.detail?.label || props.message.data?.eventName || ''
+})
+
+const uiActionDisplayMode = computed(() => {
+  if (!props.message.type?.startsWith('ui-action')) return 'text'
+  return props.message.data?.detail?.display_mode || 'text'
+})
+
+const renderedUIActionBody = computed(() => {
+  if (!props.message.type?.startsWith('ui-action')) return ''
+  const result = props.message.data?.detail?.result
+  if (result == null) return ''
+  if (uiActionDisplayMode.value === 'json') {
+    try {
+      const obj = typeof result === 'string' ? JSON.parse(result) : result
+      return JSON.stringify(obj, null, 2)
+    } catch { return String(result) }
+  }
+  if (uiActionDisplayMode.value === 'markdown') {
+    try { return marked(String(result)).trim() } catch { return String(result) }
+  }
+  return String(result)
+})
+
 // ---- Time formatting ----
 
 const formatTime = (timestamp) => {
@@ -248,6 +276,20 @@ const handleAttachmentClick = async (attachment) => {
   <!-- Session start/end (centered, time only) -->
   <div v-else-if="message.type === 'session-time'" class="chat-session-time">
     {{ formatTime(message.timestamp) }}
+  </div>
+
+  <!-- UI Action result (card style) -->
+  <div v-else-if="message.type === 'ui-action-text'" class="chat-ui-action">
+    <div class="chat-ui-action__header">
+      <MIcon name="zap" class="chat-ui-action__icon" />
+      <span class="chat-ui-action__label">{{ uiActionLabel }}</span>
+      <span class="chat-ui-action__time">{{ formatTime(message.timestamp) }}</span>
+    </div>
+    <div class="chat-ui-action__body">
+      <pre v-if="uiActionDisplayMode === 'json'" class="chat-ui-action__pre">{{ renderedUIActionBody }}</pre>
+      <div v-else-if="uiActionDisplayMode === 'markdown'" class="chat-ui-action__markdown" v-html="renderedUIActionBody"></div>
+      <div v-else class="chat-ui-action__text">{{ renderedUIActionBody }}</div>
+    </div>
   </div>
 
   <!-- System event (minimal, centered) -->
@@ -648,5 +690,87 @@ const handleAttachmentClick = async (attachment) => {
   color: var(--text-quaternary);
   flex-shrink: 0;
   margin-left: auto;
+}
+
+/* ===== UI Action result card ===== */
+.chat-ui-action {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  max-width: 72%;
+  background: var(--surface-secondary, #FAFAFA);
+  border-left: 3px solid #8B7AAF;
+  border-radius: 6px;
+  padding: 10px 14px;
+  animation: fadeIn 250ms var(--ease-out);
+}
+
+.chat-ui-action__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chat-ui-action__icon {
+  font-size: 14px;
+  color: #8B7AAF;
+  flex-shrink: 0;
+}
+
+.chat-ui-action__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chat-ui-action__time {
+  font-size: 11px;
+  color: var(--text-quaternary);
+  margin-left: auto;
+}
+
+.chat-ui-action__body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.chat-ui-action__pre {
+  background: var(--text-primary, #18181B);
+  color: var(--surface-base, #fff);
+  padding: 8px 12px;
+  border-radius: var(--radius-md, 4px);
+  overflow-x: auto;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  margin: 0;
+}
+
+.chat-ui-action__text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-ui-action__markdown :deep(p) {
+  margin-bottom: var(--spacing-1);
+}
+
+.chat-ui-action__markdown :deep(code) {
+  background: var(--surface-hover);
+  color: var(--accent);
+  padding: 1px 4px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+}
+
+.chat-ui-action__markdown :deep(pre) {
+  background: var(--text-primary);
+  color: var(--surface-base);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  font-size: 12px;
+  font-family: var(--font-mono);
 }
 </style>

@@ -94,4 +94,22 @@ export const agentAPI = {
   async terminalExec(agentName, command) {
     return API.post(`/api/agents/${agentName}/terminal/exec`, { command })
   },
+
+  /**
+   * 获取 Agent 暴露的 UI actions
+   * @param {string} agentName - Agent 名称
+   */
+  async getAgentUIActions(agentName) {
+    return API.get(`/api/agents/${agentName}/ui_actions`)
+  },
+
+  /**
+   * 调用 Agent 的 UI action
+   * @param {string} agentName - Agent 名称
+   * @param {string} actionName - Action 名称
+   * @param {object} payload - 参数（第一期无参）
+   */
+  async invokeAgentUIAction(agentName, actionName, payload = {}) {
+    return API.post(`/api/agents/${agentName}/ui_actions/${actionName}`, { payload })
+  },
 }
