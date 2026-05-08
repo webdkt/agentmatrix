@@ -975,6 +975,66 @@ class Cdp_browserSkillMixin:
     # ==========================================
 
     @register_action(
+        short_desc="get_cdp_info()",
+        description="获取当前 CDP 浏览器连接信息，供外部脚本连接浏览器做自动化。"
+                    "返回 WebSocket URL、调试端口、当前 tab 的 target_id 等。",
+    )
+    async def get_cdp_info(self) -> str:
+        """返回 CDP 连接信息，供 Agent 编写 Python 代码直接连接浏览器。"""
+        await self._ensure_browser()
+
+        port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
+        ws_url = _chrome_manager.get_ws_url() if _chrome_manager else None
+        tab = self._get_current_tab()
+
+        return json.dumps({
+            "status": "ok",
+            "port": port,
+            "ws_url": ws_url,
+            "http_endpoint": f"http://127.0.0.1:{port}",
+            "current_tab": tab.to_dict() if tab else None,
+        }, ensure_ascii=False, indent=2)
+
+    @register_action(
+        short_desc="set_work_mode(mode)",
+        description="切换工作模式。mode='learning' 进入学习模式，mode='automation' 进入自动化模式。"
+                    "会重建 system prompt（使用 profile 中对应的模式 persona）。",
+        param_infos={"mode": "工作模式：'learning' 或 'automation'"},
+    )
+    async def set_work_mode(self, mode: str) -> str:
+        """切换工作模式，用新 persona 重建 system prompt。"""
+        root = self.root_agent
+        profile = root.profile
+
+        mode_content = profile.get(f"{mode}_mode")
+        if not mode_content:
+            return json.dumps({"error": f"未知模式: {mode}，支持: learning, automation"}, ensure_ascii=False)
+
+        # 用新 persona 重新渲染模板
+        template = root.get_prompt_template("SYSTEM_PROMPT")
+        self.system_prompt = root.render_template(
+            template,
+            user_name=root.runtime.user_agent_name,
+            agent_name=root.name,
+            yellow_pages_section=root.post_office.yellow_page_exclude_me(root.name) or "",
+            persona=mode_content,
+        )
+
+        # 构建完整 system prompt（注入 core_prompt）并更新 messages[0]
+        full_prompt = self._build_system_prompt()
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0]["content"] = full_prompt
+
+        # 重新注入 site knowledge
+        sk_loader = getattr(self, '_site_knowledge_loader', None)
+        if sk_loader:
+            sk_loader.reload_and_update_prompt(self)
+
+        root._current_work_mode = mode
+
+        return json.dumps({"status": "ok", "mode": mode}, ensure_ascii=False)
+
+    @register_action(
         short_desc="[site_key] 加载指定站点的完整知识, site_key 为 site_key 行内容（url_prefix:desc:dir_name）",
         description="[site_key] 加载指定站点的完整知识, site_key 为注入文本中 site_key 行的完整内容",
         param_infos={"site_key": "站点 site_key（来自注入文本的 site_key 行，格式 url_prefix:desc:dir_name）"},

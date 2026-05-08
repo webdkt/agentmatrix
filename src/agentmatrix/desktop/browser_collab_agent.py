@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from .base_agent import BaseAgent
 from .signals import BrowserSignal
+from .ui_actions import ui_action
 from ..core.signals import CoreEvent
 
 logger = logging.getLogger(__name__)
@@ -391,6 +392,13 @@ class BrowserCollabAgent(BaseAgent):
         """注入 site knowledge 后创建 MicroAgent，并注册 tab 变化回调。"""
         from .skills.cdp_browser.skill import _agent_current_tab, _agent_sk_callbacks
 
+        # 如果之前设置过 work mode，用对应的 persona
+        mode = getattr(self, '_current_work_mode', None)
+        if mode:
+            mode_content = self.profile.get(f"{mode}_mode")
+            if mode_content:
+                self.persona = mode_content
+
         home_dir = self.runtime.paths.get_agent_home_dir(self.name)
         sk_loader = _SiteKnowledgeLoader(self.name, home_dir, self)
 
@@ -459,3 +467,53 @@ class BrowserCollabAgent(BaseAgent):
                 'type': 'action_completed',
                 'text': f"{name} -> {preview[:200]}" if status == 'ok' else f"{name} 失败: {preview}",
             })
+
+    # ==========================================
+    # UI Actions — 工作模式切换
+    # ==========================================
+
+    async def _switch_work_mode(self, mode: str) -> dict:
+        """通用模式切换。如果有活跃 MicroAgent 则立即生效，否则在下次创建时生效。"""
+        # 始终存储模式（供 _create_micro_agent 使用）
+        self._current_work_mode = mode
+        mode_content = self.profile.get(f"{mode}_mode")
+        if not mode_content:
+            return {"error": f"未知模式: {mode}"}
+
+        ma = self.active_micro_agent
+        if ma:
+            action_fn = ma.action_registry.get("_flat", {}).get("set_work_mode")
+            if action_fn:
+                result_str = await action_fn(mode)
+                result = json.loads(result_str)
+                self._fire_broadcast('work_mode_changed', {"mode": mode})
+                return result
+
+        # 无活跃 MicroAgent — 模式已存储，下次任务启动时自动生效
+        self.persona = mode_content
+        self._fire_broadcast('work_mode_changed', {"mode": mode})
+        return {"status": "ok", "mode": mode}
+
+    @ui_action(
+        name="set_learning_mode",
+        label="学习模式",
+        icon="school",
+        tooltip="切换到学习模式：和用户协作学习网站自动化流程",
+        placement="floating",
+        requires_idle=True,
+        display_mode="toast",
+    )
+    async def set_learning_mode(self):
+        return await self._switch_work_mode("learning")
+
+    @ui_action(
+        name="set_automate_mode",
+        label="自动化模式",
+        icon="robot",
+        tooltip="切换到自动化模式：执行已学会的自动化脚本",
+        placement="floating",
+        requires_idle=True,
+        display_mode="toast",
+    )
+    async def set_automate_mode(self):
+        return await self._switch_work_mode("automation")

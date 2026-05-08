@@ -204,24 +204,28 @@ def parse_params_from_call(params_text: str) -> Dict[str, Any]:
 
 
 def _split_params(text: str) -> List[str]:
-    """按逗号分割参数，忽略引号内的逗号和嵌套括号内的逗号。"""
+    """按逗号分割参数，忽略引号内的逗号和嵌套括号/花括号/方括号内的逗号。"""
     parts = []
     current = []
-    depth = 0
+    depth = 0          # tracks (), {}, [] nesting
     in_quote = None
+    prev_ch = None
 
     for ch in text:
         if in_quote:
             current.append(ch)
-            if ch == in_quote:
+            # 跳过转义引号
+            if prev_ch == '\\':
+                pass
+            elif ch == in_quote:
                 in_quote = None
         elif ch in ('"', "'"):
             in_quote = ch
             current.append(ch)
-        elif ch == '(':
+        elif ch in ('(', '{', '['):
             depth += 1
             current.append(ch)
-        elif ch == ')':
+        elif ch in (')', '}', ']'):
             depth -= 1
             current.append(ch)
         elif ch == ',' and depth == 0:
@@ -229,6 +233,7 @@ def _split_params(text: str) -> List[str]:
             current = []
         else:
             current.append(ch)
+        prev_ch = ch
 
     if current:
         parts.append(''.join(current))

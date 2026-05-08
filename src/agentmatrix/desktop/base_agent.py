@@ -4,6 +4,7 @@ from dataclasses import dataclass, asdict, field
 from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
+from .ui_actions import ui_action
 from .session_manager import SessionManager, AgentSessionStore
 import traceback
 import inspect
@@ -115,6 +116,7 @@ class BaseAgent(BasicAgent):
         # action_registry 代替 actions_map
         self.action_registry = {}
         self.actions_meta = {}
+        self.ui_actions_meta = {}
         self.current_task_id = None
         self.current_user_session_id = None
 
@@ -123,6 +125,7 @@ class BaseAgent(BasicAgent):
 
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
+        self._scan_ui_actions()
 
         # ask_user 机制（等待用户输入）
         self._pending_user_question = None
@@ -1027,6 +1030,97 @@ Start generating the Working Notes now.
                             "params": param_infos,
                         }
 
+    def _scan_ui_actions(self):
+        """扫描当前类及 MRO 上所有标记为 @ui_action 的方法。"""
+        for cls in self.__class__.__mro__:
+            for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+                if not hasattr(method, '_is_ui_action'):
+                    continue
+                meta = method._ui_action_meta
+                if meta.name not in self.ui_actions_meta:
+                    self.ui_actions_meta[meta.name] = {
+                        "name": meta.name,
+                        "label": meta.label,
+                        "icon": meta.icon,
+                        "tooltip": meta.tooltip,
+                        "placement": meta.placement,
+                        "requires_idle": meta.requires_idle,
+                        "display_mode": meta.display_mode,
+                        "_handler_name": name,
+                    }
+
+    def get_ui_actions(self) -> list:
+        """返回前端渲染工具条所需的 UI action 元数据列表。"""
+        return [
+            {
+                "name": meta["name"],
+                "label": meta["label"],
+                "icon": meta["icon"],
+                "tooltip": meta["tooltip"],
+                "placement": meta["placement"],
+                "requires_idle": meta["requires_idle"],
+                "display_mode": meta["display_mode"],
+                "available": not meta["requires_idle"] or self._status == AgentStatus.IDLE,
+            }
+            for meta in self.ui_actions_meta.values()
+        ]
+
+    async def execute_ui_action(self, action_name: str, payload: dict = None) -> dict:
+        """执行 UI action，并将结果记录为 session event 推送到前端。"""
+        meta = self.ui_actions_meta.get(action_name)
+        if not meta:
+            raise ValueError(f"UI action '{action_name}' not found")
+
+        if meta["requires_idle"] and self._status != AgentStatus.IDLE:
+            raise RuntimeError(f"Action '{action_name}' requires IDLE status")
+
+        handler = getattr(self, meta["_handler_name"], None)
+        if handler is None:
+            raise RuntimeError(f"Handler '{meta['_handler_name']}' not found on {self.name}")
+
+        result = handler(**(payload or {}))
+        if asyncio.iscoroutine(result):
+            result = await result
+
+        serializable = result if isinstance(result, (str, int, float, bool, list, dict, type(None))) else str(result)
+
+        session_id = self.current_session.get("session_id") if self.current_session else None
+        if session_id:
+            await self._log_session_event(
+                session_id,
+                "ui_action",
+                action_name,
+                {
+                    "result": serializable,
+                    "display_mode": meta["display_mode"],
+                    "label": meta["label"],
+                },
+            )
+
+        return {"result": serializable, "display_mode": meta["display_mode"]}
+
+    # ---- UI Actions（前端可调用）----
+
+    @ui_action(
+        name="view_current_prompt",
+        label="System Prompt",
+        icon="file-text",
+        tooltip="查看当前 system prompt",
+        display_mode="markdown",
+    )
+    async def view_current_prompt(self):
+        """返回当前 system prompt，用于调试。"""
+        # 优先从活跃 MicroAgent 的 messages 中取真正的 system prompt
+        if self.active_micro_agent and self.active_micro_agent.messages:
+            msg = self.active_micro_agent.messages[0]
+            if msg.get("role") == "system":
+                return msg["content"]
+        # fallback: 动态生成预览
+        try:
+            return self.preview_system_prompt()
+        except Exception as e:
+            return f"Error generating prompt: {e}"
+
     @property
     def private_workspace(self) -> Path:
         """
@@ -1533,9 +1627,7 @@ Start generating the Working Notes now.
         )
 
         # 渲染 prompt（注入 core_prompt）
-        temp_micro._build_system_prompt()
-
-        return temp_micro.system_prompt
+        return temp_micro._build_system_prompt()
 
     # ==========================================
     # 通用 Actions
