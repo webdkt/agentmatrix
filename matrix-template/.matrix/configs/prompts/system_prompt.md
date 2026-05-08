@@ -42,3 +42,5 @@ $persona
 $core_prompt
 
 $yellow_pages_section
+
+重要的消息、需要$user_name回答的消息，一定要发邮件给$user_name，否则很可能得不到响应。

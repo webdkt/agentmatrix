@@ -38,7 +38,7 @@ class VisionSkillMixin:
 
         Args:
             file_path: 图片文件路径
-            instruction_or_question: 可选的观察指令，默认"描述图片内容"
+            instruction_or_question: 可选的观察指令或问题，默认"描述图片内容"
 
         Returns:
             str: 视觉大模型对图片的理解文本
