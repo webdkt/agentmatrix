@@ -996,7 +996,37 @@ class Cdp_browserSkillMixin:
         }, ensure_ascii=False, indent=2)
 
     @register_action(
-        short_desc="set_work_mode(mode)",
+        short_desc="(container_path)，上传文件前必须将容器内路径转换为宿主机路径",
+        description="将容器内路径转换为宿主机真实路径。"
+                    "浏览器 CDP 文件上传在宿主机执行，Agent 拿到的是容器内路径，"
+                    "需要用本 action 转换后才能用于上传。",
+        param_infos={"container_path": "容器内文件路径（如 ~/site_knowledge/xxx/readme.md 或 /data/agents/xxx/...）"},
+    )
+    async def resolve_host_path(self, container_path: str) -> str:
+        """将容器内路径转换为宿主机路径，供 CDP 文件上传等场景使用。"""
+        root = self.root_agent
+        agent_name = root.name
+        task_id = getattr(root, "current_task_id", None) or "default"
+
+        host_path = root.runtime.paths.container_path_to_host(
+            container_path, agent_name, task_id
+        )
+
+        if host_path is None:
+            return json.dumps({
+                "error": f"无法转换路径: {container_path}（不在容器可映射范围内，必须是home目录或者~/current_task目录下的文件）",
+            }, ensure_ascii=False)
+
+        # 检查文件是否存在
+        exists = host_path.exists()
+        return json.dumps({
+            "container_path": container_path,
+            "host_path": str(host_path),
+            "exists": exists,
+        }, ensure_ascii=False)
+
+    @register_action(
+        short_desc="(mode)切换工作模式。mode='learning' 进入学习模式，mode='automation' 进入自动化模式。必须根据当前情况切换到合适的模式。",
         description="切换工作模式。mode='learning' 进入学习模式，mode='automation' 进入自动化模式。"
                     "会重建 system prompt（使用 profile 中对应的模式 persona）。",
         param_infos={"mode": "工作模式：'learning' 或 'automation'"},

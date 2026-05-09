@@ -1,7 +1,10 @@
 """Vision Skill - 图片查看和分析技能"""
 
 import asyncio
+import base64
 import mimetypes
+from pathlib import Path
+from typing import Optional
 from agentmatrix.core.action import register_action
 
 
@@ -22,6 +25,13 @@ class VisionSkillMixin:
     # 文件大小限制（10MB）
     _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10,485,760 bytes
 
+    def _container_path_to_host(self, container_path: str) -> Optional[Path]:
+        """将容器内路径转换为宿主路径"""
+        agent_name = self.root_agent.name
+        task_id = self.root_agent.current_task_id
+        paths = self.root_agent.runtime.paths
+        return paths.container_path_to_host(container_path, agent_name, task_id)
+
     @register_action(
         short_desc="[file_path, instruction_or_question?]，用视觉大模型分析图片内容返回文本描述,文件大小限制10MB",
         description="查看并分析图片文件内容。支持常见图片格式（PNG, JPEG, GIF, WebP, BMP）。文件大小限制 10MB。",
@@ -35,6 +45,7 @@ class VisionSkillMixin:
         查看图片内容
 
         对图片调用视觉大模型进行理解，返回文本描述。
+        优先将容器路径映射到宿主路径直接读取，映射失败则在容器内执行。
 
         Args:
             file_path: 图片文件路径
@@ -43,6 +54,60 @@ class VisionSkillMixin:
         Returns:
             str: 视觉大模型对图片的理解文本
         """
+        # 优先尝试宿主路径直接读取
+        host_path = self._container_path_to_host(file_path)
+
+        if host_path and host_path.exists() and host_path.is_file():
+            base64_data, mime_type, file_size = self._read_image_from_host(host_path)
+        else:
+            base64_data, mime_type, file_size = await self._read_image_from_container(file_path)
+
+        if isinstance(base64_data, str) and base64_data.startswith("查看图片失败"):
+            return base64_data
+
+        # 构造 prompt
+        if not instruction_or_question:
+            instruction_or_question = "请详细描述这张图片的内容。"
+
+        filename = file_path.split("/")[-1]
+
+        # 调用视觉大模型
+        vision_client = getattr(self.root_agent, "vision_brain", None)
+        if vision_client is None:
+            vision_client = self.brain
+
+        try:
+            reply = await vision_client.think_with_image(
+                messages=instruction_or_question,
+                image=base64_data,
+                mime_type=mime_type,
+            )
+        except Exception as e:
+            return f"查看图片失败：视觉模型调用出错\n  路径: {file_path}\n  错误: {e}"
+
+        return f"📷 {filename} ({mime_type}, {file_size / 1024:.1f}KB)\n\n{reply}"
+
+    def _read_image_from_host(self, host_path: Path) -> tuple:
+        """从宿主机直接读取图片文件，返回 (base64_data, mime_type, file_size) 或 (错误信息, None, 0)"""
+        file_size = host_path.stat().st_size
+        if file_size > self._MAX_FILE_SIZE:
+            size_mb = file_size / (1024 * 1024)
+            return (f"查看图片失败：文件超过大小限制\n  路径: {host_path}\n  大小: {size_mb:.2f}MB\n  限制: 10MB", None, 0)
+
+        mime_type, _ = mimetypes.guess_type(str(host_path))
+        if not mime_type or mime_type not in self._SUPPORTED_MIME_TYPES:
+            supported = ", ".join(sorted(self._SUPPORTED_MIME_TYPES))
+            return (f"查看图片失败：不支持的图片格式\n  路径: {host_path}\n  检测到: {mime_type or '未知'}\n  支持的格式: {supported}", None, 0)
+
+        try:
+            raw = host_path.read_bytes()
+            base64_data = base64.b64encode(raw).decode("utf-8")
+            return (base64_data, mime_type, file_size)
+        except Exception as e:
+            return (f"查看图片失败：读取文件失败\n  路径: {host_path}\n  错误: {e}", None, 0)
+
+    async def _read_image_from_container(self, file_path: str) -> tuple:
+        """在容器内读取图片文件，返回 (base64_data, mime_type, file_size) 或 (错误信息, None, 0)"""
         container_session = self.root_agent.container_session
 
         # 1. 检查文件是否存在
@@ -52,7 +117,7 @@ class VisionSkillMixin:
         )
 
         if exit_code != 0 or stdout.strip() != "exists":
-            return f"查看图片失败：文件不存在\n  路径: {file_path}"
+            return (f"查看图片失败：文件不存在\n  路径: {file_path}", None, 0)
 
         # 2. 检查文件大小（10MB 限制）
         size_cmd = f"stat -c %s '{file_path}' 2>/dev/null || stat -f %z '{file_path}' 2>/dev/null || echo '0'"
@@ -66,14 +131,13 @@ class VisionSkillMixin:
                 file_size = int(size_stdout.strip())
                 if file_size > self._MAX_FILE_SIZE:
                     size_mb = file_size / (1024 * 1024)
-                    return f"查看图片失败：文件超过大小限制\n  路径: {file_path}\n  大小: {size_mb:.2f}MB\n  限制: 10MB"
+                    return (f"查看图片失败：文件超过大小限制\n  路径: {file_path}\n  大小: {size_mb:.2f}MB\n  限制: 10MB", None, 0)
             except ValueError:
-                return f"查看图片失败：无法读取文件大小\n  路径: {file_path}"
+                return (f"查看图片失败：无法读取文件大小\n  路径: {file_path}", None, 0)
 
         # 3. 检测 MIME 类型
         mime_type, _ = mimetypes.guess_type(file_path)
         if not mime_type or mime_type not in self._SUPPORTED_MIME_TYPES:
-            # 尝试通过 file 命令检测
             file_cmd = f"file --mime-type '{file_path}' | cut -d' ' -f2"
             exit_code, mime_stdout, _ = await asyncio.to_thread(
                 container_session.execute, file_cmd
@@ -83,7 +147,7 @@ class VisionSkillMixin:
 
         if not mime_type or mime_type not in self._SUPPORTED_MIME_TYPES:
             supported = ", ".join(sorted(self._SUPPORTED_MIME_TYPES))
-            return f"查看图片失败：不支持的图片格式\n  路径: {file_path}\n  检测到: {mime_type or '未知'}\n  支持的格式: {supported}"
+            return (f"查看图片失败：不支持的图片格式\n  路径: {file_path}\n  检测到: {mime_type or '未知'}\n  支持的格式: {supported}", None, 0)
 
         # 4. 读取文件并转换为 base64
         base64_cmd = f"base64 -w 0 '{file_path}'"
@@ -92,29 +156,6 @@ class VisionSkillMixin:
         )
 
         if exit_code != 0:
-            return f"查看图片失败：读取文件失败\n  路径: {file_path}\n  错误: {stderr.strip() if stderr else '(未知错误)'}"
+            return (f"查看图片失败：读取文件失败\n  路径: {file_path}\n  错误: {stderr.strip() if stderr else '(未知错误)'}", None, 0)
 
-        base64_data = base64_stdout.strip()
-
-        # 5. 构造 prompt
-        if not instruction_or_question:
-            instruction_or_question = "请详细描述这张图片的内容。"
-
-        filename = file_path.split("/")[-1]
-
-        # 6. 调用视觉大模型
-        vision_client = getattr(self.root_agent, "vision_brain", None)
-        if vision_client is None:
-            # fallback 到主 brain
-            vision_client = self.brain
-
-        try:
-            reply = await vision_client.think_with_image(
-                messages=instruction_or_question,
-                image=base64_data,
-                mime_type=mime_type,
-            )
-        except Exception as e:
-            return f"查看图片失败：视觉模型调用出错\n  路径: {file_path}\n  错误: {e}"
-
-        return f"📷 {filename} ({mime_type}, {file_size / 1024:.1f}KB)\n\n{reply}"
+        return (base64_stdout.strip(), mime_type, file_size)

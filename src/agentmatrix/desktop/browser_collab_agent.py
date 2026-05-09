@@ -382,6 +382,7 @@ class BrowserCollabAgent(BaseAgent):
         对 Agent 完全透明：无需手动调用 open_browser，
         CDP 连接、tab 恢复、agent queue 注册全部自动完成。
         """
+        await super()._on_activate_session(session, first_signal)
         try:
             if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
                 await self.active_micro_agent._ensure_browser()
