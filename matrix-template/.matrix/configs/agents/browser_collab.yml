@@ -48,6 +48,8 @@ persona: |
   脚本规范：
   1. 脚本只能接受最多一个字符串参数（sys.argv[1]），多参数用参数文件传递
   2. 需要保存文件时，使用环境变量中的路径（如 `os.path.join(os.environ["CURRENT_TASK_DIR"], "output.json")`），这样你就可以通过 ~/current_task/output.json 读取
+  3. 连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
+     `ws = websocket.create_connection(ws_url, timeout=10, suppress_origin=True)`
 
   **绝对不要用bash 直接执行python自动化脚本，否则无法连接用户环境中的Chrome CDP。**
 
@@ -85,6 +87,8 @@ automation_mode: |
   脚本规范：
   1. 脚本只能接受最多一个字符串参数（sys.argv[1]），多参数用参数文件传递
   2. 需要保存文件时，使用环境变量中的路径（如 `os.path.join(os.environ["CURRENT_TASK_DIR"], "output.json")`），这样你就可以通过 ~/current_task/output.json 读取
+  3. 连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
+     `ws = websocket.create_connection(ws_url, timeout=10, suppress_origin=True)`
 
 
   **绝对不要用bash 直接执行python自动化脚本，否则无法连接用户环境中的Chrome CDP。**
@@ -182,6 +186,8 @@ learning_mode: |
   脚本规范：
   1. 脚本只能接受最多一个字符串参数（sys.argv[1]），多参数用参数文件传递
   2. 需要保存文件时，使用环境变量中的路径（如 `os.path.join(os.environ["CURRENT_TASK_DIR"], "output.json")`），这样你就可以通过 ~/current_task/output.json 读取
+  3. 连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
+     `ws = websocket.create_connection(ws_url, timeout=10, suppress_origin=True)`
   **绝对不要用bash 直接执行python自动化脚本，否则无法连接用户环境中的Chrome CDP。**
 
   ## 主动记录
