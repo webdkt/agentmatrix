@@ -12,6 +12,7 @@ export const useWebSocketStore = defineStore('websocket', {
     isConnected: false,
     lastEvent: null,
     listeners: {},               // 事件监听器 { eventType: [callback, ...] }
+    lastUIActionResult: null,    // UI action 结果（弹窗展示，不写入 session event）
   }),
 
   getters: {},
@@ -41,6 +42,10 @@ export const useWebSocketStore = defineStore('websocket', {
       // 处理 SESSION_EVENT（session 级事件，替代 user_session_updated）
       if (data.type === 'SESSION_EVENT') {
         this.handleSessionEvent(data)
+      }
+      // 处理 UI Action 结果（弹窗展示，不写入 session event）
+      else if (data.type === 'UI_ACTION_RESULT') {
+        this.handleUIActionResult(data)
       }
       // 处理新 user session（Agent 主动发新邮件时推送）
       else if (data.type === 'NEW_USER_SESSION') {
@@ -102,6 +107,14 @@ export const useWebSocketStore = defineStore('websocket', {
       if (event_type === 'email') {
         this._handleEmailEvent(userSessionId, isCurrentSession, event_name, event_detail, agent_name)
       }
+    },
+
+    /**
+     * 处理 UI_ACTION_RESULT — 弹窗展示，不写入 session event
+     */
+    handleUIActionResult(message) {
+      const { agent_name, data } = message
+      this.lastUIActionResult = { agent_name, ...data }
     },
 
     /**
