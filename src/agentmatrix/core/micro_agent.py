@@ -140,6 +140,7 @@ class MicroAgent(AutoLoggerMixin):
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
         self._action_counter: int = 0
         self._no_action_reflected: bool = False  # 是否已经 reflect 过"无 action"的情况
+        self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
 
         # 日志
         self.logger.info(
@@ -1143,44 +1144,11 @@ class MicroAgent(AutoLoggerMixin):
 
                     # 🆕 仅对 top-level micro agent 进行智能验证
                     if self.is_top_level:
-                        # 第一次检测到无 action：进行智能验证
-                        self.logger.info("No actions detected - initiating simple verification for top-level micro agent")
-
-                        # 构建简化的验证提示
-                        verification_prompt = _utils.build_exit_verification_prompt(raw_reply or "")
-
-                        # 独立的 LLM 调用，只传入验证提示（不携带 run_loop 上下文）
-                        try:
-                            verification_result = await self.brain.think_with_retry(
-                                initial_messages=[{"role": "user", "content": verification_prompt}],
-                                parser=self._parse_simple_yes_no,
-                                max_retries=3,  # 简单分类任务，最多重试 3 次
-                            )
-
-                            should_exit = verification_result.get("should_exit", False)
-                            self.logger.info(f"Verification result: should_exit={should_exit}")
-                            if not should_exit:
-                                # LLM 判断应该继续 → 注入继续信号
-                                self.logger.info("LLM determined task should continue")
-                                # 构建继续提示消息
-                                continue_message = """没有发现要执行的动作，如果要执行动作，按格式要求在<action_script>内输出。如果没有，可直接确认所有动作已完成"""
-
-                                # 注入继续信号
-                                self.signal_queue.put_nowait(TextSignal(
-                                    text=continue_message,
-                                    type_name="action_continue",
-                                ))
-                                continue  # 回到循环顶部，重新进入 think
-                            else:
-                                # LLM 确认应该退出
-                                self.logger.info("LLM confirmed should exit")
-                                break
-
-                        except Exception as e:
-                            # 验证失败（解析错误、LLM 错误等）→ 降级到原有逻辑
-                            self.logger.warning(f"Verification failed: {str(e)}, falling back to legacy logic")
-                            # 继续执行原有的退出逻辑
-                            pass
+                        # 启动异步退出验证：不阻塞循环，有新 signal 时自动取消
+                        self.logger.info("No actions detected - launching async exit verification")
+                        self._exit_verification_task = asyncio.create_task(
+                            self._run_exit_verification(raw_reply or "")
+                        )
 
                     # 没有疑似幻觉，或者已经 reflect/验证过 → 真正退出
                     self.logger.info("Loop exit: no actions detected, no running actions")
@@ -1238,6 +1206,48 @@ class MicroAgent(AutoLoggerMixin):
 
     def _parse_simple_yes_no(self, raw_reply: str) -> dict:
         return _utils.parse_simple_yes_no(raw_reply)
+
+    async def _run_exit_verification(self, raw_reply: str):
+        """异步退出验证：检查 agent 是否过早退出（幻觉或偷懒）。
+
+        循环退出后启动，有新 signal 时由 _start_session_task 取消。
+        - 验证"该退出" → 不做任何事
+        - 验证"不该退出" + 当前无新工作 → 投递 continue signal 并重启 session
+        - 验证"不该退出" + 已有新 signal → 不投递（不需要了）
+        """
+        try:
+            verification_prompt = _utils.build_exit_verification_prompt(raw_reply)
+            verification_result = await self.brain.think_with_retry(
+                initial_messages=[{"role": "user", "content": verification_prompt}],
+                parser=self._parse_simple_yes_no,
+                max_retries=3,
+            )
+
+            should_exit = verification_result.get("should_exit", False)
+            self.logger.info(f"Exit verification result: should_exit={should_exit}")
+
+            if should_exit:
+                return  # 确认该退出，循环已经退了，什么都不做
+
+            # 不该退出 — 检查是否已有新工作在进行
+            if not self.signal_queue.empty():
+                self.logger.info("Exit verification says continue, but signals already queued — skipping")
+                return
+
+            # 投递 continue signal 并重启 session
+            self.logger.info("Exit verification says continue — injecting continue signal")
+            self.signal_queue.put_nowait(TextSignal(
+                text="没有发现要执行的动作，如果要执行动作，按格式要求在<action_script>内输出。如果没有，可直接确认所有动作已完成",
+                type_name="action_continue",
+            ))
+            root = self.root_agent
+            if hasattr(root, '_restart_session_if_idle'):
+                root._restart_session_if_idle()
+
+        except asyncio.CancelledError:
+            self.logger.debug("Exit verification cancelled (new signal arrived)")
+        except Exception as e:
+            self.logger.warning(f"Exit verification failed: {e}")
 
     async def _detect_actions(self, full_text: str) -> Tuple[List[str], List[Tuple[str, dict, Any, str]]]:
         """

@@ -441,12 +441,12 @@ const taskFilesWidth = computed(() => {
           }"
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
-          <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+          <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-label">
             <template v-if="primaryAgentStatus.isOnCurrentSession">
-              {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
+              {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'RECOVERING' ? 'recovering' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
             </template>
             <template v-else>
               正在处理其他工作
@@ -549,12 +549,12 @@ const taskFilesWidth = computed(() => {
           }"
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
-          <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+          <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-indicator-agent">{{ primaryAgentName }}</span>
           <span v-if="primaryAgentStatus.isOnCurrentSession" class="agent-session-panel__status-indicator-label">
-            {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting for you' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
+            {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'RECOVERING' ? 'recovering' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting for you' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
           </span>
           <span v-else class="agent-session-panel__status-indicator-label">
             正在处理其他工作
