@@ -167,8 +167,8 @@ class Browser_automationSkillMixin:
         - 匹配规则：系统会自动根据hostname 来推荐匹配。但你必须显示的选择正确的site key 来加载对应的知识。系统不会自动加载，除非你明确的选择了一个site key。
         - 使用 load_site_knowledge(site_key) 来加载对应的知识
     - 每个网站(site key)一个子目录，内含：
-        - readme.md: 网站说明、流程目录带简要说明
-        - site_reference.md:  网站结构和常用元素的定位说明，所有流程共享
+        - index.md: 网站说明、该站点所有文档和脚本的index。 **MUST HAVE**, **MUST READ**
+        - shared_components.md:  站内公用元素的定位说明，所有流程共享
         - 其他 .md 文件: 特定自动化流程（如”登录流程.md”、”购买流程.md”）
         - scripts/ 目录：存放针对该站点的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
         - 其中py脚本 绝对不能通过bash执行。 原因见下面规范说明
@@ -195,8 +195,10 @@ class Browser_automationSkillMixin:
     #### 流程文档 
     - 必须是 .md格式
     - 文件开头部分必须有目录和meta data
+    - **必须记录自动化状态**：有没有自动化，哪些步骤自动化了，自动化脚本在哪里
     - 单个文件必须小于500行
     - 要增加任何新流程内容，必须先verify是否已经存在。READ BEFORE MODIFY 
+    - 流程知识更新后，执行load_site_knowledge，重新加载知识
   """
 
     def _agent_name(self) -> str:

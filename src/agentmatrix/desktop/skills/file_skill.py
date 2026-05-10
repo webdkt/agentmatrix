@@ -10,6 +10,7 @@ File Operation Skill - 容器内执行版本
 
 import asyncio
 import base64
+import shlex
 from pathlib import Path
 from typing import Optional
 from agentmatrix.core.action import register_action
@@ -61,9 +62,9 @@ class FileSkillMixin:
 
         # 构建命令
         if recursive:
-            cmd = f"ls -lhR {work_dir}"
+            cmd = f"ls -lhR {shlex.quote(work_dir)}"
         else:
-            cmd = f"ls -lho {work_dir}"
+            cmd = f"ls -lho {shlex.quote(work_dir)}"
 
         # 在容器内执行（异步避免阻塞）
         exit_code, stdout, stderr = await asyncio.to_thread(
@@ -127,7 +128,8 @@ class FileSkillMixin:
         container_session = self.root_agent.container_session
 
         # 使用 sed 读取指定行，合并 wc -l 为单次调用，加 30s 超时
-        cmd = f"sed -n '{start_line},{end_line}p' {file_path}; echo '___WC_SEP___'; wc -l {file_path}"
+        safe_path = shlex.quote(file_path)
+        cmd = f"sed -n '{start_line},{end_line}p' {safe_path}; echo '___WC_SEP___'; wc -l {safe_path}"
 
         exit_code, stdout, stderr = await asyncio.wait_for(
             asyncio.to_thread(container_session.execute, cmd, 30),
@@ -149,7 +151,16 @@ class FileSkillMixin:
         if exit_code != 0:
             return f"读取文件失败\n- 文件: {file_path}\n- 退出码: {exit_code}\n- 错误: {stderr.strip() if stderr else '(空)'}"
 
-        return f"# 文件: {file_path} (共 {total_lines} 行)\n# 显示第 {start_line}-{end_line} 行\n\n{content}"
+        # 只有内容被截断时才加头部信息
+        try:
+            total = int(total_lines)
+        except (ValueError, TypeError):
+            total = None
+
+        if total is not None and total > (end_line - start_line + 1):
+            return f"# 文件: {file_path} (共 {total} 行，显示第 {start_line}-{end_line} 行)\n\n{content}"
+
+        return content
 
     @register_action(
         short_desc="写入文件[file_path,content,mode='overwrite',allow_overwrite=False]",
@@ -283,16 +294,16 @@ class FileSkillMixin:
 
         if target == "filename":
             # 按文件名搜索
-            cmd = f"find {work_dir}"
+            cmd = f"find {shlex.quote(work_dir)}"
             if not recursive:
                 cmd += " -maxdepth 1"
-            cmd += f" -name '*{pattern}*'"
+            cmd += f" -name '*{shlex.quote(pattern)[1:-1]}*'"
         else:
             # 在文件内容中搜索
             if recursive:
-                cmd = f"grep -rn '{pattern}' {work_dir}"
+                cmd = f"grep -rn {shlex.quote(pattern)} {shlex.quote(work_dir)}"
             else:
-                cmd = f"grep -n '{pattern}' {work_dir}/*"
+                cmd = f"grep -n {shlex.quote(pattern)} {shlex.quote(work_dir)}/*"
 
         exit_code, stdout, stderr = await asyncio.to_thread(
             container_session.execute, cmd
@@ -368,35 +379,74 @@ class FileSkillMixin:
         self, file_path: str, old_pattern: str, new_string: str, use_regex: bool = False
     ) -> str:
         """
-        在文件中查找并替换字符串（容器内执行）
+        在文件中查找并替换字符串
 
         Args:
             file_path: 文件路径
-            old_pattern: 要替换的旧字符串
+            old_pattern: 要替换的旧字符串（或正则表达式）
             new_string: 新字符串
             use_regex: 是否使用正则表达式（默认false）
         """
+        host_path = self._container_path_to_host(file_path)
+
+        if host_path:
+            # 宿主路径可用，直接用 Python 替换
+            host_path_str = str(host_path)
+            if not host_path.exists():
+                return f"错误：文件不存在 {file_path}"
+
+            try:
+                with open(host_path_str, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                if use_regex:
+                    import re
+                    count = len(re.findall(old_pattern, content))
+                    new_content = re.sub(old_pattern, new_string, content)
+                else:
+                    count = content.count(old_pattern)
+                    new_content = content.replace(old_pattern, new_string)
+
+                if count == 0:
+                    return f"未找到匹配内容，未做修改。old_pattern: {old_pattern[:100]}"
+
+                with open(host_path_str, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+
+                self.logger.info(f"[replace] 宿主文件替换: {host_path_str}, {count} 处")
+                return f"已替换 {count} 处"
+
+            except Exception as e:
+                self.logger.error(f"[replace] 宿主替换失败: {e}")
+                return f"替换失败\n- 文件: {file_path}\n- 错误: {str(e)}"
+
+        # 回退到容器内执行 Python 脚本
         container_session = self.root_agent.container_session
+        import json
 
-        # 使用 sed 进行替换
-        if use_regex:
-            # sed 正则表达式替换
-            sed_pattern = old_pattern
-            cmd = f"sed -i 's/{sed_pattern}/{new_string}/g' {file_path}"
-        else:
-            # sed 字面字符串替换（需要转义）
-            sed_pattern = old_pattern.replace("/", "\\/")
-            sed_replacement = new_string.replace("/", "\\/")
-            cmd = f"sed -i 's/{sed_pattern}/{sed_replacement}/g' {file_path}"
-
+        payload = json.dumps({"path": file_path, "old": old_pattern, "new": new_string, "regex": use_regex})
+        script = (
+            "import json, re, sys\n"
+            "d = json.loads(sys.argv[1])\n"
+            "with open(d['path'], 'r') as f: c = f.read()\n"
+            "if d['regex']:\n"
+            "    n = len(re.findall(d['old'], c))\n"
+            "    c = re.sub(d['old'], d['new'], c)\n"
+            "else:\n"
+            "    n = c.count(d['old'])\n"
+            "    c = c.replace(d['old'], d['new'])\n"
+            "if n == 0: print(f'未找到匹配内容，未做修改'); sys.exit(0)\n"
+            "with open(d['path'], 'w') as f: f.write(c)\n"
+            "print(f'已替换 {n} 处')\n"
+        )
+        cmd = f"python3 -c {shlex.quote(script)} {shlex.quote(payload)}"
         exit_code, stdout, stderr = await asyncio.to_thread(
             container_session.execute, cmd
         )
 
-        self.logger.info(f"[replace_string_in_file] 命令: {cmd}")
-        self.logger.info(f"[replace_string_in_file] exit_code: {exit_code}")
+        self.logger.info(f"[replace] 命令 exit_code: {exit_code}")
 
         if exit_code != 0:
             return f"替换失败：{stderr}"
 
-        return "字符串已替换"
+        return stdout.strip()
