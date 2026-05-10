@@ -252,6 +252,12 @@ def _parse_value(value_str: str) -> Any:
     if not value_str:
         return ""
 
+    # 原始字符串：r"""...""" / r'''...''' — 内部内容原样保留，不解释转义
+    if value_str.startswith('r"""') and value_str.endswith('"""'):
+        return value_str[4:-3]
+    if value_str.startswith("r'''") and value_str.endswith("'''"):
+        return value_str[4:-3]
+
     # 带引号字符串：用 ast.literal_eval 解释转义序列（\n → 换行等）
     if (value_str.startswith('"') and value_str.endswith('"')) or \
        (value_str.startswith("'") and value_str.endswith("'")):
