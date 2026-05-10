@@ -126,16 +126,28 @@ def parse_function_calls(
         while pos < len(text) and depth > 0:
             ch = text[pos]
             if ch in ('"', "'"):
-                # 跳过引号内的内容（尊重转义）
                 quote = ch
-                pos += 1
-                while pos < len(text):
-                    if text[pos] == '\\':
-                        pos += 2  # 跳过转义字符
-                        continue
-                    if text[pos] == quote:
-                        break
+                # 检测 triple quote: """ 或 '''
+                if pos + 2 < len(text) and text[pos + 1] == quote and text[pos + 2] == quote:
+                    # Triple quote 模式：跳过直到找到连续三个相同引号
+                    pos += 3  # 跳过开头的 """
+                    while pos + 2 < len(text):
+                        if text[pos] == quote and text[pos + 1] == quote and text[pos + 2] == quote:
+                            pos += 2  # 留在外层 pos+=1 之前，确保不跳过下一个字符
+                            break
+                        pos += 1
+                    else:
+                        pos = len(text)  # 未闭合，跳到末尾
+                else:
+                    # 单引号模式：跳过引号内的内容（尊重转义）
                     pos += 1
+                    while pos < len(text):
+                        if text[pos] == '\\':
+                            pos += 2  # 跳过转义字符
+                            continue
+                        if text[pos] == quote:
+                            break
+                        pos += 1
             elif ch == '(':
                 depth += 1
             elif ch == ')':
@@ -264,18 +276,12 @@ def _parse_value(value_str: str) -> Any:
         try:
             return ast.literal_eval(value_str)
         except (ValueError, SyntaxError):
-            # LLM 长文本可能在引号内换行（ast.literal_eval 不允许裸换行）
-            # 将实际换行替换为 \n 转义序列后重试
-            try:
-                sanitized = value_str.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
-                return ast.literal_eval(sanitized)
-            except (ValueError, SyntaxError):
-                # 兜底：手动去引号 + 反转义
-                inner = value_str[1:-1]
-                inner = inner.replace('\\"', '"').replace("\\'", "'")
-                inner = inner.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
-                inner = inner.replace('\\\\', '\\')
-                return inner
+            # ast.literal_eval 失败（通常因为裸换行），直接手动去引号保留原始内容
+            inner = value_str[1:-1]
+            inner = inner.replace('\\"', '"').replace("\\'", "'")
+            inner = inner.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+            inner = inner.replace('\\\\', '\\')
+            return inner
 
     # dict/list 字面量：先尝试 ast.literal_eval，再尝试 json.loads
     if value_str.startswith('{') or value_str.startswith('['):

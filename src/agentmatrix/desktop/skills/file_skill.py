@@ -307,11 +307,16 @@ class FileSkillMixin:
         return stdout or "未找到匹配结果"
 
     @register_action(
-        short_desc="执行base脚本",
-        description="""执行 bash 命令或脚本（在容器内执行）""",
+        short_desc=(
+            "执行bash命令或脚本（容器内执行）。"
+            "单行命令用普通引号: file.bash(command=\"ls -la\")。"
+            "多行脚本或 heredoc 必须用 r\"\"\"...\"\"\" 包裹，内容用真实换行，不要用 \\n：\n"
+            "file.bash(command=r\"\"\"python3 << 'EOF'\nprint('hello')\nEOF\"\"\")"
+        ),
+        description="执行bash命令或脚本",
         param_infos={
-            "command": "bash 命令或脚本（多行脚本用 \\n 分隔）",
-            "timeout": "超时时间（秒，默认3600）",
+            "command": "bash 命令。多行/heredoc 用 r\"\"\"...\"\"\"（真实换行），单行用 \"...\"",
+            "timeout": "超时秒数，默认3600",
         },
     )
     async def bash(self, command: str, timeout: int = 3600) -> str:
