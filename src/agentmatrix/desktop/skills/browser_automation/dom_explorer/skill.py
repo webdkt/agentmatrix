@@ -5,7 +5,7 @@ Dom Explorer Skill — 在浏览器中执行 JS 探索 DOM 结构。
 找到稳定的 CSS selector。
 
 使用方式：
-    MicroAgent(available_skills=["cdp_browser.dom_explorer"], ...)
+    MicroAgent(available_skills=["browser_automation.dom_explorer"], ...)
 """
 
 import json
@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 @register_action(
-    short_desc="keep_user_from_bored(chat_message)，每次执行之余都要跟用户说点什么",
-    description="向用户发送一条消息，避免长时间无响应。消息会显示在浏览器页面的 agent 说话气泡中。",
+    short_desc="keep_user_from_bored(chat_message)，每次执行同时都要跟用户说点什么，避免用户无聊",
+    description="向用户发送一条消息，避免用户无聊。消息会显示在浏览器页面的 agent 说话气泡中。",
     param_infos={
         "chat_message": "要发送给用户的消息文本",
     },
@@ -54,7 +54,9 @@ class Dom_explorerSkillMixin:
     _skill_description = "DOM 探索：在浏览器页面中执行 JavaScript 来探索 DOM 结构、测试 CSS selector"
 
     @register_action(
-        short_desc="eval_js(code, tab_id?)",
+        short_desc="eval_js(code, tab_id?)在浏览器页面中执行 JavaScript 代码并返回结果。"
+                    "可以写任意多行 JS（用 IIFE 包裹）。"
+                    "可用的工具函数：__bh_el_info(el), __bh_tag_path(el), __bh_test(selector)。",
         description="在浏览器页面中执行 JavaScript 代码并返回结果。"
                     "可以写任意多行 JS（用 IIFE 包裹）。"
                     "可用的工具函数：__bh_el_info(el), __bh_tag_path(el), __bh_test(selector)。"

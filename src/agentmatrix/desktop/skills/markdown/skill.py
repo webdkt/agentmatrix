@@ -237,12 +237,12 @@ class MarkdownSkillMixin:
         return ast.get_toc(depth)
 
     @register_action(
-        short_desc="[file_path,query, context_lines] #query支持正则表达式",
+        short_desc="[file_path,query, context_lines?] 搜索关键词或正则表达式，context_lines返回结果包含额外前后行，默认2行",
         description="在 Markdown 文档中搜索关键字",
         param_infos={
             "file_path": "Markdown 文件路径",
             "query": "搜索关键词或正则表达式",
-            "context_lines": "上下文行数（默认 2）",
+            "context_lines": "可选，上下文行数（默认 2）",
         },
     )
     async def search_keywords(
@@ -263,7 +263,7 @@ class MarkdownSkillMixin:
         return ast.search_keywords(query, context_lines)
 
     @register_action(
-        short_desc="[file_path,node_id]",
+        short_desc="[file_path,node_id]节点 ID（如 root/h1_1/h2_2/p_3）",
         description="读取 Markdown 节点的内容",
         param_infos={
             "file_path": "Markdown 文件路径",
