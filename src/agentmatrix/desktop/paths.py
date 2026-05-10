@@ -280,6 +280,13 @@ class MatrixPaths:
         Returns:
             宿主路径对象，如果路径无法转换则返回 None
         """
+        print(f'resolving: {container_path}')
+        
+        home_path = f"/data/agents/{agent_name}/home/current_task/"
+        print(f"home path: {home_path}")
+        if container_path.startswith(home_path):
+            container_path = container_path.replace(home_path,"~/current_task/")
+        
         # 1. 处理 ~ 开头的路径
         if container_path.startswith("~"):
             # ~/current_task → 工作目录
@@ -293,6 +300,8 @@ class MatrixPaths:
             # ~ 或 ~/xxx → home目录
             relative_path = container_path[len("~/") :].lstrip("/")
             host_dir = self.get_agent_home_dir(agent_name)
+            r_dir = host_dir / relative_path if relative_path else host_dir
+            print(f"returning: {r_dir} ")
             return host_dir / relative_path if relative_path else host_dir
 
         # 2. 处理 /data/agents/{agent_name}/ 开头的路径
@@ -300,6 +309,8 @@ class MatrixPaths:
         if container_path.startswith(container_base):
             relative_path = container_path[len(container_base) :].lstrip("/")
             host_base = self.workspace_dir / "agent_files" / agent_name
+            r_dir= host_base / relative_path
+            print(f"returning: {r_dir}")
             return host_base / relative_path
 
         # 3. 其他路径（如 /tmp, /proc 等）返回 None，需要通过容器执行

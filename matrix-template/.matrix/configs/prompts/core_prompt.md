@@ -40,21 +40,7 @@ file.write(path="/app/config.json", content='{"updated": true}')
 </action_script>
 ```
 
-（2）有行动（多行代码/文本）
-当 `content` 包含多行内容、或含有反斜杠（`\`）时，请使用 **`r"""`** 原始字符串，内容会原样写入文件，不需要对 `\n`、`\t`、引号等做额外转义：
-```
-<action_script>
-file.write(path="/app/script.py", content=r"""import os
-
-def hello():
-    print("\nHello World")
-    path = "C:\Users\name"
-    return 42
-""")
-</action_script>
-```
-
-（3）无行动
+（2）无行动
 ```
 目前没有需要执行的操作，等待下一步指令。
 ```
