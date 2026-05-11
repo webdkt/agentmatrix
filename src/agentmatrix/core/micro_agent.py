@@ -139,7 +139,6 @@ class MicroAgent(AutoLoggerMixin):
         self.event_queue: asyncio.Queue = self.root_agent.event_queue
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
         self._action_counter: int = 0
-        self._no_action_reflected: bool = False  # 是否已经 reflect 过"无 action"的情况
         self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
 
         # 日志
@@ -964,7 +963,6 @@ class MicroAgent(AutoLoggerMixin):
             elapsed_minutes = elapsed / 60
             step_info += f" (时间: {elapsed_minutes:.1f}分钟)"
             self.logger.debug(step_info)
-            self._no_action_reflected = False  # 重置本轮是否有 action 被反映的标记
             # 🔀 检查点2：think 之前检查是否暂停
             await self.root_agent.checkpoint()
 
@@ -1129,28 +1127,13 @@ class MicroAgent(AutoLoggerMixin):
 
                 # 声明式退出：没有新 action 要执行，没有 running action 在跑，且 signal_queue 为空
                 if not action_names and not self._running_actions and self.signal_queue.empty():
-                    # 🔍 优先检查是否有疑似幻觉的 action 名称（在通用验证之前）
-                    if not self._no_action_reflected:
-                        reflect_msg = _utils.build_no_action_reflect_message(raw_reply or "", raw_reply or "", self.action_registry["_flat"])
-                        if reflect_msg:
-                            # 有疑似幻觉 → 给 LLM 一次 reflect 机会（比通用验证更精准）
-                            self.logger.info("No action detected but hallucination pattern found, sending reflect prompt")
-                            self._no_action_reflected = True
-                            self.signal_queue.put_nowait(TextSignal(
-                                text=reflect_msg,
-                                type_name="no_action_reflect",
-                            ))
-                            continue
-
-                    # 🆕 仅对 top-level micro agent 进行智能验证
+                    # 仅对 top-level micro agent 进行智能验证
                     if self.is_top_level:
-                        # 启动异步退出验证：不阻塞循环，有新 signal 时自动取消
                         self.logger.info("No actions detected - launching async exit verification")
                         self._exit_verification_task = asyncio.create_task(
                             self._run_exit_verification(raw_reply or "")
                         )
 
-                    # 没有疑似幻觉，或者已经 reflect/验证过 → 真正退出
                     self.logger.info("Loop exit: no actions detected, no running actions")
                     break
 
@@ -1208,12 +1191,12 @@ class MicroAgent(AutoLoggerMixin):
         return _utils.parse_simple_yes_no(raw_reply)
 
     async def _run_exit_verification(self, raw_reply: str):
-        """异步退出验证：检查 agent 是否过早退出（幻觉或偷懒）。
+        """异步退出验证：判断 LLM 是否在试图调用工具但格式错误，或表达了操作意图但没给命令。
 
         循环退出后启动，有新 signal 时由 _start_session_task 取消。
-        - 验证"该退出" → 不做任何事
-        - 验证"不该退出" + 当前无新工作 → 投递 continue signal 并重启 session
-        - 验证"不该退出" + 已有新 signal → 不投递（不需要了）
+        - 验证结果 "other" → 确认该退出，不做任何事
+        - 验证结果 "code" → LLM 试图调工具但格式错误，投递格式提示
+        - 验证结果 "intent" → LLM 表达了意图但没给命令，投递操作提示
         """
         try:
             verification_prompt = _utils.build_exit_verification_prompt(raw_reply)
@@ -1223,23 +1206,31 @@ class MicroAgent(AutoLoggerMixin):
                 max_retries=3,
             )
 
-            should_exit = verification_result.get("should_exit", False)
-            self.logger.info(f"Exit verification result: should_exit={should_exit}")
+            result = verification_result.get("result", "other")
+            self.logger.info(f"Exit verification result: {result}")
 
-            if should_exit:
+            if result == "other":
                 return  # 确认该退出，循环已经退了，什么都不做
 
             # 不该退出 — 检查是否已有新工作在进行
             if not self.signal_queue.empty():
-                self.logger.info("Exit verification says continue, but signals already queued — skipping")
+                self.logger.info(f"Exit verification result={result}, but signals already queued — skipping")
                 return
 
-            # 投递 continue signal 并重启 session
-            self.logger.info("Exit verification says continue — injecting continue signal")
-            self.signal_queue.put_nowait(TextSignal(
-                text="没有发现要执行的动作，如果要执行动作，按格式要求在<action_script>内输出。如果没有，可直接确认所有动作已完成",
-                type_name="action_continue",
-            ))
+            # 根据 result 类型投递不同提示
+            if result == "code":
+                self.logger.info("Exit verification: LLM tried to call tools but format wrong")
+                self.signal_queue.put_nowait(TextSignal(
+                    text="如果要执行action，请使用 <action_script> 块来包裹你的工具调用命令。",
+                    type_name="format_hint",
+                ))
+            elif result == "intent":
+                self.logger.info("Exit verification: LLM expressed intent but no commands")
+                self.signal_queue.put_nowait(TextSignal(
+                    text="如果要执行操作，请使用 <action_script> 块格式输出。确认没什么要执行的可以回复'确定'。",
+                    type_name="intent_hint",
+                ))
+
             root = self.root_agent
             if hasattr(root, '_restart_session_if_idle'):
                 root._restart_session_if_idle()
@@ -1375,9 +1366,18 @@ class MicroAgent(AutoLoggerMixin):
             # else: positional_values 为空，params 保持 {}
         # else: params_text 为空，params 保持 {}
 
-        # 4. 校验参数：未知参数名 或 缺少必须参数 → cerebellum 对齐
+        # 4. 校验参数：未知参数名 或 缺少必须参数 → 尝试自动修正 → cerebellum 对齐
         unknown = [p for p in params if p not in all_params]
         missing = [p for p in required_params if p not in params]
+
+        # 自动修正：只有一个未知参数且只有一个 required 参数 → 直接映射
+        if len(unknown) == 1 and len(missing) == 1 and len(params) == 1:
+            old_key = unknown[0]
+            params = {missing[0]: params[old_key]}
+            self.logger.debug(f"[{action_name}] 自动修正参数名: {old_key} → {missing[0]}")
+            unknown = []
+            missing = []
+
         need_align = unknown or missing
 
         if need_align:
