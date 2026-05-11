@@ -61,10 +61,11 @@ class FileSkillMixin:
         work_dir = directory or "."
 
         # 构建命令
+        safe_dir = self._shell_path(work_dir)
         if recursive:
-            cmd = f"ls -lhR {shlex.quote(work_dir)}"
+            cmd = f"ls -lhR {safe_dir}"
         else:
-            cmd = f"ls -lho {shlex.quote(work_dir)}"
+            cmd = f"ls -lho {safe_dir}"
 
         # 在容器内执行（异步避免阻塞）
         exit_code, stdout, stderr = await asyncio.to_thread(
@@ -78,6 +79,15 @@ class FileSkillMixin:
             return f"列出目录失败\n- 命令: {cmd}\n- 退出码: {exit_code}\n- 错误: {stderr.strip() if stderr else '(空)'}"
 
         return stdout or "目录为空"
+
+    @staticmethod
+    def _shell_path(path: str) -> str:
+        """Quote path for shell, but preserve ~ expansion."""
+        if path.startswith("~/"):
+            return "~/" + shlex.quote(path[2:])
+        if path == "~":
+            return "~"
+        return shlex.quote(path)
 
     # 不可读取的路径（设备文件、伪文件系统等会阻塞或无意义）
     _BLOCKED_PATHS = ("/dev/", "/proc/", "/sys/")
@@ -128,7 +138,7 @@ class FileSkillMixin:
         container_session = self.root_agent.container_session
 
         # 使用 sed 读取指定行，合并 wc -l 为单次调用，加 30s 超时
-        safe_path = shlex.quote(file_path)
+        safe_path = self._shell_path(file_path)
         cmd = f"sed -n '{start_line},{end_line}p' {safe_path}; echo '___WC_SEP___'; wc -l {safe_path}"
 
         exit_code, stdout, stderr = await asyncio.wait_for(
@@ -291,19 +301,20 @@ class FileSkillMixin:
 
         # 默认当前目录
         work_dir = directory or "."
+        safe_dir = self._shell_path(work_dir)
 
         if target == "filename":
             # 按文件名搜索
-            cmd = f"find {shlex.quote(work_dir)}"
+            cmd = f"find {safe_dir}"
             if not recursive:
                 cmd += " -maxdepth 1"
             cmd += f" -name '*{shlex.quote(pattern)[1:-1]}*'"
         else:
             # 在文件内容中搜索
             if recursive:
-                cmd = f"grep -rn {shlex.quote(pattern)} {shlex.quote(work_dir)}"
+                cmd = f"grep -rn {shlex.quote(pattern)} {safe_dir}"
             else:
-                cmd = f"grep -n {shlex.quote(pattern)} {shlex.quote(work_dir)}/*"
+                cmd = f"grep -n {shlex.quote(pattern)} {safe_dir}/*"
 
         exit_code, stdout, stderr = await asyncio.to_thread(
             container_session.execute, cmd
