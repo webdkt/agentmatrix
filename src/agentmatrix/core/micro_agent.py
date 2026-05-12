@@ -1113,7 +1113,7 @@ class MicroAgent(AutoLoggerMixin):
 
                     # ⏳ 等待快速完成的 actions 收拢：如果 actions 在短时间内连续完成，
                     # 稍等一下让它们的结果都进入 signal_queue，下一轮 LLM 能一次拿到。
-                    settle_window = 0.3  # 秒
+                    settle_window = 0.1  # 秒
                     while self._running_actions:
                         prev_count = len(self._running_actions)
                         await asyncio.sleep(settle_window)
