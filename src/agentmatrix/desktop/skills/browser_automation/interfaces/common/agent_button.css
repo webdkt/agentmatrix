@@ -445,3 +445,21 @@
     transition:background 0.15s, color 0.15s;
 }
 .ab-speech-reply-close:hover { background:rgba(0,0,0,0.1); color:rgba(0,0,0,0.7); }
+
+/* ---- Automation Badge ---- */
+.ab-automation-badge {
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:rgba(99,102,241,0.88); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    color:#fff; padding:8px 18px; border-radius:20px;
+    font-size:12px; font-weight:600; letter-spacing:0.3px;
+    display:flex; align-items:center; gap:8px;
+    pointer-events:none; z-index:2147483647;
+    box-shadow:0 2px 12px rgba(99,102,241,0.4);
+    animation:ab-automation-fade-in 0.2s ease-out;
+}
+.ab-automation-dot {
+    width:7px; height:7px; border-radius:50%; background:#fff;
+    animation:ab-automation-dot-pulse 1s ease-in-out infinite;
+}
+@keyframes ab-automation-fade-in { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+@keyframes ab-automation-dot-pulse { 0%,100%{opacity:0.4;transform:scale(0.8)} 50%{opacity:1;transform:scale(1.3)} }

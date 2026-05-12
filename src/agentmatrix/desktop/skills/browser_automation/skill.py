@@ -92,6 +92,30 @@ def _short_url(url: str) -> str:
         return url[:50] + "..." if len(url) > 50 else url
 
 
+async def _auto_yield_ui(tab: TabInfo):
+    """让前端 UI 进入避让模式（半透明 + 穿透 + 冻结）。"""
+    js = "(window.__bh_set_automation_mode__ || function(){})(true)"
+    try:
+        await _cdp_client.send(
+            "Runtime.evaluate", {"expression": js},
+            session_id=tab.session_id, timeout=3,
+        )
+    except Exception:
+        pass
+
+
+async def _auto_restore_ui(tab: TabInfo):
+    """通知前端 UI 可以恢复（1秒延迟防抖）。"""
+    js = "(window.__bh_set_automation_mode__ || function(){})(false)"
+    try:
+        await _cdp_client.send(
+            "Runtime.evaluate", {"expression": js},
+            session_id=tab.session_id, timeout=3,
+        )
+    except Exception:
+        pass
+
+
 def _tab_not_found_msg(invalid_id: str) -> str:
     """当 tab_id 不正确时，生成包含所有可用 tab 列表的错误消息。"""
     lines = []
@@ -921,9 +945,9 @@ class Browser_automationSkillMixin:
             try:
                 result = await _cdp_client.send(
                     "Runtime.evaluate",
-                    {"expression": content, "returnByValue": True, "awaitPromise": False},
+                    {"expression": content, "returnByValue": True, "awaitPromise": True},
                     session_id=tab.session_id,
-                    timeout=10,
+                    timeout=15,
                 )
                 res = result.get("result", {})
 
@@ -982,6 +1006,9 @@ class Browser_automationSkillMixin:
                         results.append({"index": i, "method": method, "error": "没有活动的 tab"})
                         continue
 
+                _is_input = method.startswith("Input.")
+                if _is_input:
+                    await _auto_yield_ui(tab)
                 try:
                     result = await _cdp_client.send(
                         method, params,
@@ -992,6 +1019,9 @@ class Browser_automationSkillMixin:
                 except Exception as e:
                     logger.warning(f"[run_script] {method} error: {e}")
                     results.append({"index": i, "method": method, "error": str(e)})
+                finally:
+                    if _is_input:
+                        await _auto_restore_ui(tab)
 
             if len(commands) == 1:
                 return json.dumps(results[0], ensure_ascii=False, default=str)
@@ -1022,29 +1052,36 @@ class Browser_automationSkillMixin:
             if str_arg1 is not None:
                 cmd.append(str_arg1)
 
-            # 执行
+            # 整个 .py 脚本期间 UI 避让（脚本可能做 CDP 操作）
+            if tab:
+                await _auto_yield_ui(tab)
             try:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=300
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return json.dumps({
-                    "status": "timeout",
-                    "error": "脚本执行超时（300秒）",
-                }, ensure_ascii=False)
-            except Exception as e:
-                return json.dumps({
-                    "status": "error",
-                    "error": f"脚本执行失败: {e}",
-                }, ensure_ascii=False)
+                # 执行
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                    )
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                        proc.communicate(), timeout=300
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    return json.dumps({
+                        "status": "timeout",
+                        "error": "脚本执行超时（300秒）",
+                    }, ensure_ascii=False)
+                except Exception as e:
+                    return json.dumps({
+                        "status": "error",
+                        "error": f"脚本执行失败: {e}",
+                    }, ensure_ascii=False)
+            finally:
+                if tab:
+                    await _auto_restore_ui(tab)
 
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
@@ -1094,11 +1131,11 @@ class Browser_automationSkillMixin:
         return json.dumps({"error": f"不支持的文件类型 '{ext}'，支持 .json / .js / .py"}, ensure_ascii=False)
 
     @register_action(
-        short_desc="eval_js(code, tab_id?) 在当前 tab 直接执行 JavaScript 代码字符串",
-        description="向当前（或指定）tab 发送 JavaScript 代码并返回执行结果。\n"
-                    "执行.js 不会返回 console 的输出，只会返回脚本 return 的值。",
+        short_desc="eval_js(code, tab_id?) 在当前 tab 执行 JavaScript，支持 await/Promise",
+        description="向当前（或指定）tab 发送 JavaScript 代码并返回执行结果。"
+                    "支持返回 Promise / 使用 await，会等待 resolve 后返回最终值。",
         param_infos={
-            "code": "要执行的 JavaScript 代码字符串",
+            "code": "要执行的 JavaScript 代码字符串（支持 async/await）",
             "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
         },
     )
@@ -1121,10 +1158,10 @@ class Browser_automationSkillMixin:
                 {
                     "expression": code,
                     "returnByValue": True,
-                    "awaitPromise": False,
+                    "awaitPromise": True,
                 },
                 session_id=tab.session_id,
-                timeout=10,
+                timeout=15,
             )
             res = result.get("result", {})
 
@@ -1191,13 +1228,21 @@ class Browser_automationSkillMixin:
                 return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
 
         try:
-            result = await _cdp_client.send(
-                method,
-                params or {},
-                session_id=tab.session_id,
-                timeout=30,
-            )
-            return json.dumps(result, ensure_ascii=False, default=str)
+            # Input.* 事件可能被 UI 拦截，自动进入避让模式
+            _is_input = method.startswith("Input.")
+            if _is_input:
+                await _auto_yield_ui(tab)
+            try:
+                result = await _cdp_client.send(
+                    method,
+                    params or {},
+                    session_id=tab.session_id,
+                    timeout=30,
+                )
+                return json.dumps(result, ensure_ascii=False, default=str)
+            finally:
+                if _is_input:
+                    await _auto_restore_ui(tab)
         except Exception as e:
             logger.warning(f"[cdp_command] {method} error: {e}")
             return json.dumps({"error": str(e)})

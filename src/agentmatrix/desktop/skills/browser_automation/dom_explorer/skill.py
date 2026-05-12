@@ -90,10 +90,10 @@ class Dom_explorerSkillMixin:
                 {
                     "expression": code,
                     "returnByValue": True,
-                    "awaitPromise": False,
+                    "awaitPromise": True,
                 },
                 session_id=tab.session_id,
-                timeout=10,
+                timeout=15,
             )
             res = result.get("result", {})
 
