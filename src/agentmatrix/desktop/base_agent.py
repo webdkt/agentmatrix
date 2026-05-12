@@ -1066,7 +1066,7 @@ Start generating the Working Notes now.
         ]
 
     async def execute_ui_action(self, action_name: str, payload: dict = None) -> dict:
-        """执行 UI action，并将结果记录为 session event 推送到前端。"""
+        """执行 UI action，将结果通过 UI_ACTION_RESULT 推送到前端弹窗展示（不写入 session event）。"""
         meta = self.ui_actions_meta.get(action_name)
         if not meta:
             raise ValueError(f"UI action '{action_name}' not found")
@@ -1084,18 +1084,20 @@ Start generating the Working Notes now.
 
         serializable = result if isinstance(result, (str, int, float, bool, list, dict, type(None))) else str(result)
 
-        session_id = self.current_session.get("session_id") if self.current_session else None
-        if session_id:
-            await self._log_session_event(
-                session_id,
-                "ui_action",
-                action_name,
-                {
+        # 直接广播 UI_ACTION_RESULT（不走 session event，不写入聊天时间线）
+        if self._broadcast_message_callback:
+            from datetime import datetime
+            asyncio.create_task(self._broadcast_message_callback({
+                "type": "UI_ACTION_RESULT",
+                "agent_name": self.name,
+                "data": {
+                    "action_name": action_name,
+                    "label": meta["label"],
                     "result": serializable,
                     "display_mode": meta["display_mode"],
-                    "label": meta["label"],
+                    "timestamp": datetime.now().isoformat(),
                 },
-            )
+            }))
 
         return {"result": serializable, "display_mode": meta["display_mode"]}
 

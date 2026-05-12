@@ -203,7 +203,7 @@ class _SiteKnowledgeLoader:
 
     def reload_and_update_prompt(self, micro_agent):
         """重新加载 site knowledge 并即时更新 micro agent 的 system prompt。"""
-        from .skills.cdp_browser.skill import _agent_current_tab
+        from .skills.browser_automation.skill import _agent_current_tab
 
         tab = _agent_current_tab.get(self.agent_name)
         url = tab.url if tab else ""
@@ -324,7 +324,7 @@ class BrowserCollabAgent(BaseAgent):
     async def _broadcast_to_browser(self, event_type: str, data: dict):
         """转发事件到浏览器前端。fire-and-forget，不阻塞主流程。"""
         try:
-            from .skills.cdp_browser.skill import _event_listener, _agent_current_tab
+            from .skills.browser_automation.skill import _event_listener, _agent_current_tab
             if not _event_listener or not _event_listener.active:
                 return
             tab = _agent_current_tab.get(self.name)
@@ -382,6 +382,14 @@ class BrowserCollabAgent(BaseAgent):
         对 Agent 完全透明：无需手动调用 open_browser，
         CDP 连接、tab 恢复、agent queue 注册全部自动完成。
         """
+        await super()._on_activate_session(session, first_signal)
+
+        # 明确切换到不同 session 时，清空 site knowledge 状态
+        session_id = session["session_id"]
+        if self._last_deactivated_session_id != session_id:
+            self._current_site_url = None
+            from .skills.browser_automation.skill import _agent_sk_callbacks
+            _agent_sk_callbacks.pop(self.name, None)
         try:
             if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
                 await self.active_micro_agent._ensure_browser()
@@ -390,7 +398,7 @@ class BrowserCollabAgent(BaseAgent):
 
     def _create_micro_agent(self):
         """注入 site knowledge 后创建 MicroAgent，并注册 tab 变化回调。"""
-        from .skills.cdp_browser.skill import _agent_current_tab, _agent_sk_callbacks
+        from .skills.browser_automation.skill import _agent_current_tab, _agent_sk_callbacks
 
         # 如果之前设置过 work mode，用对应的 persona
         mode = getattr(self, '_current_work_mode', None)

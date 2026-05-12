@@ -30,7 +30,7 @@ skill.action_name(param1=value1, param2=value2)
 
 ##### 输出样例
 
-（1）有行动
+（1）有行动（单行内容）
 ```
 我想先读取配置文件，然后更新它。
 

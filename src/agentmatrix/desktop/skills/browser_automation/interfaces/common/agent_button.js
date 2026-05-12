@@ -251,5 +251,73 @@
     }
 
     // ==========================================
+    // Automation Yield Mode（供后端调用）
+    // 进入时：所有 UI 半透明 + 冻结 + 穿透，底部显示 "Agent Working" 胶囊
+    // 退出时：延迟 1s 恢复（新 active=true 会取消恢复）
+    // ==========================================
+    var _automationActive = false;
+    var _automationRestoreTimer = null;
+    var _autoBadge = null;
+
+    function _enterAutomation() {
+        clearTimeout(_automationRestoreTimer);
+        if (_automationActive) return;
+        _automationActive = true;
+
+        // 1. 冻结所有交互元素
+        var els = shadow.querySelectorAll('input, textarea, button, [contenteditable]');
+        for (var i = 0; i < els.length; i++) {
+            els[i].setAttribute('disabled', 'disabled');
+            els[i].setAttribute('data-__bh_auto_frozen', '1');
+        }
+
+        // 2. 半透明 + 穿透所有 UI（用动态 style 覆盖）
+        var existingStyle = shadow.querySelector('#__bh_automation_style__');
+        if (!existingStyle) {
+            var s = document.createElement('style');
+            s.id = '__bh_automation_style__';
+            s.textContent =
+                '.ab, .ab-speech, .ab-bubble, .ab-instruct-overlay, .ab-crosshair, ' +
+                '.ab-range, .ab-dialog-overlay, .ab-splash-overlay, .ab-speech-reply, ' +
+                '.ab-disconnect-banner { opacity:0.3 !important; pointer-events:none !important; }';
+            shadow.appendChild(s);
+        }
+
+        // 3. 显示底部 badge
+        if (!_autoBadge) {
+            _autoBadge = document.createElement('div');
+            _autoBadge.className = 'ab-automation-badge';
+            _autoBadge.innerHTML = '<span class="ab-automation-dot"></span>Agent Working';
+            shadow.appendChild(_autoBadge);
+        }
+    }
+
+    function _exitAutomation() {
+        clearTimeout(_automationRestoreTimer);
+        _automationRestoreTimer = setTimeout(function() {
+            _automationActive = false;
+
+            // 移除冻结
+            var frozen = shadow.querySelectorAll('[data-__bh_auto_frozen]');
+            for (var i = 0; i < frozen.length; i++) {
+                frozen[i].removeAttribute('disabled');
+                frozen[i].removeAttribute('data-__bh_auto_frozen');
+            }
+
+            // 移除半透明/穿透
+            var s = shadow.querySelector('#__bh_automation_style__');
+            if (s) s.remove();
+
+            // 移除 badge
+            if (_autoBadge) { _autoBadge.remove(); _autoBadge = null; }
+        }, 1000);
+    }
+
+    window.__bh_set_automation_mode__ = function(active) {
+        if (active) _enterAutomation();
+        else _exitAutomation();
+    };
+
+    // ==========================================
     // 模块文件插入点（Python 拼接时在此处插入 splash/speech/indicator/range/dialog）
     // ==========================================

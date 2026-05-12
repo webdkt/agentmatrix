@@ -220,10 +220,22 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
 
     def _start_session_task(self, session: dict):
         """启动/重启 execute task。"""
+        # 取消正在进行的异步退出验证（有新 signal 来了，验证没必要了）
+        if self.active_micro_agent and hasattr(self.active_micro_agent, '_exit_verification_task'):
+            task = self.active_micro_agent._exit_verification_task
+            if task and not task.done():
+                task.cancel()
+            self.active_micro_agent._exit_verification_task = None
+
         self._ensure_event_consumer()
         self._session_task = asyncio.create_task(
             self._run_session(self.active_micro_agent, session)
         )
+
+    def _restart_session_if_idle(self):
+        """如果 session task 已完成，重新启动（由异步退出验证调用）。"""
+        if self._session_task and self._session_task.done() and self.current_session:
+            self._start_session_task(self.current_session)
 
     async def _run_session(self, micro_agent: MicroAgent, session: dict):
         """

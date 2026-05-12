@@ -162,7 +162,7 @@
         var topSpace = ay - gap;
         var bottomSpace = vh - (ay + ah) - gap;
 
-        _speechEl.className = 'ab-speech';
+        _speechEl.className = 'ab-speech' + (_speechEl.classList.contains('auto-expand') ? ' auto-expand' : '');
         if (rightSpace >= sw) {
             // bubble RIGHT of button — anchor LEFT edge, expand right
             _speechEl.classList.add('tail-left');

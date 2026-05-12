@@ -122,13 +122,14 @@ class BrowserEventListener:
     """
 
     def __init__(self, cdp: CDPClient, tab_mgr: TabManager,
-                 on_current_tab_change=None):
+                 on_current_tab_change=None, on_tab_removed=None):
         self.cdp = cdp
         self.tab_mgr = tab_mgr
         self.active = False
         self._handlers_registered = False
         self._resubscribing = False
         self._on_current_tab_change = on_current_tab_change
+        self._on_tab_removed = on_tab_removed  # callable(target_id, agent_name)
 
         # 按 agent_name 索引的 agent input_queue
         self._agent_queues: dict[str, asyncio.Queue] = {}
@@ -159,6 +160,51 @@ class BrowserEventListener:
     def _find_agent_queue(self, agent_name: str) -> Optional[asyncio.Queue]:
         """根据 agent_name 找到其 input_queue。"""
         return self._agent_queues.get(agent_name)
+
+    # ==========================================
+    # Session Recovery
+    # ==========================================
+
+    @staticmethod
+    def is_session_error(exc: Exception) -> bool:
+        """检查异常是否为 CDP session 失效。"""
+        msg = str(exc).lower()
+        return "session with given id not found" in msg
+
+    async def recover_session(self, target_id: str):
+        """尝试恢复失效的 CDP session。
+
+        流程：re-attach → 更新 TabManager → re-enable domains → re-inject bridge + meta。
+        使用 per-target Lock 防止并发 double-recovery。
+        成功返回新 session_id，失败返回 None（target 也已消失）。
+        """
+        tab = self.tab_mgr._tabs.get(target_id)
+        if not tab:
+            return None
+
+        old_sid = tab.session_id
+        logger.info(f"Recovering session for tab {target_id[:12]}...")
+
+        try:
+            new_sid = await self.cdp.attach_to_target(target_id)
+            self.tab_mgr.update_session_id(target_id, new_sid)
+            if old_sid:
+                self._auto_inject_sessions.discard(old_sid)
+            await self.cdp.enable_domains(new_sid)
+            await self.ensure_bridge(new_sid)
+            if tab.agent_name:
+                await self.set_agent_meta(new_sid, tab.agent_name, tab.agent_session_id)
+            logger.info(f"Session recovered: {target_id[:12]} → {new_sid[:12]}")
+            return new_sid
+        except Exception as e:
+            logger.warning(f"Session recovery failed for {target_id[:12]}: {e}")
+            # target 也不存在了，彻底清理
+            self.tab_mgr.remove_tab(target_id)
+            if old_sid:
+                self._auto_inject_sessions.discard(old_sid)
+            if self._on_tab_removed and tab.agent_name:
+                self._on_tab_removed(target_id, tab.agent_name)
+            return None
 
     # ==========================================
     # 生命周期
@@ -441,31 +487,54 @@ class BrowserEventListener:
             ))
 
     def _on_target_destroyed(self, params):
-        """Tab 关闭 → 通知 agent + 清理。"""
+        """Tab 关闭 → 通知 agent + 完整清理所有追踪结构。"""
         target_id = params.get("targetId", "")
         if not target_id:
             return
 
-        # 清理 orphan tab 记录
+        # 清理 orphan 追踪
         self._orphan_tabs.discard(target_id)
+        dead_orphan_sids = [
+            sid for sid, tid in self._orphan_sessions.items()
+            if tid == target_id
+        ]
+        for sid in dead_orphan_sids:
+            self._orphan_sessions.pop(sid, None)
 
+        # 取信息后再移除
         tab = self.tab_mgr._tabs.get(target_id)
-        if tab and tab.agent_name:
-            agent_name = tab.agent_name
+        agent_name = tab.agent_name if tab else ""
+        agent_session_id = tab.agent_session_id if tab else ""
+        tab_url = tab.url if tab else ""
+        old_sid = tab.session_id if tab else ""
+
+        # 从 TabManager 移除（不再追踪 dead tab）
+        self.tab_mgr.remove_tab(target_id)
+
+        # 清理 auto-inject 追踪
+        if old_sid:
+            self._auto_inject_sessions.discard(old_sid)
+
+        # 通知 agent
+        if agent_name:
             self._emit_to_agent(agent_name, BrowserSignal(
                 agent_name=agent_name,
-                agent_session_id=tab.agent_session_id,
+                agent_session_id=agent_session_id,
                 event_type="tab_closed",
-                url=tab.url,
+                url=tab_url,
                 data={"target_id": target_id},
             ))
-            # 如果关的是 current_tab，切换到下一个
-            if self._on_current_tab_change:
-                remaining = self.tab_mgr.get_agent_tabs_sync(agent_name)
-                other = [t for t in remaining if t.target_id != target_id]
-                if other:
-                    self._on_current_tab_change(agent_name, other[0].target_id)
-        logger.debug(f"Tab closed: {target_id}")
+            # 切换 current_tab 到剩余 tab
+            remaining = self.tab_mgr.get_agent_tabs_sync(agent_name)
+            if remaining:
+                if self._on_current_tab_change:
+                    self._on_current_tab_change(agent_name, remaining[0].target_id)
+            else:
+                # 无剩余 tab，清空 current_tab
+                if self._on_tab_removed:
+                    self._on_tab_removed(target_id, agent_name)
+
+        logger.info(f"Tab destroyed & cleaned up: {target_id[:12]}")
 
     # ==========================================
     # 新 Tab 自动继承

@@ -110,6 +110,20 @@ class TabManager:
 
         logger.info(f"Closed tab {target_id} (agent='{tab.agent_name}')")
 
+    def remove_tab(self, target_id: str):
+        """Remove a tab from tracking without calling CDP.
+
+        Used when the tab has already been destroyed in Chrome
+        (e.g. _on_target_destroyed) or when attach_to_target fails.
+        """
+        tab = self._tabs.pop(target_id, None)
+        if tab and tab.agent_name:
+            agent_tabs = self._agent_tabs.get(tab.agent_name)
+            if agent_tabs:
+                agent_tabs.discard(target_id)
+                if not agent_tabs:
+                    del self._agent_tabs[tab.agent_name]
+
     async def adopt_tab(
         self,
         target_id: str,

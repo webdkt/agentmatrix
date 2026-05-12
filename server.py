@@ -986,7 +986,7 @@ async def get_session_emails(session_id: str):
 
     try:
         # Get emails from PostOffice
-        emails = matrix_runtime.post_office.get_session_emails_for_user(session_id)
+        emails = await matrix_runtime.post_office.get_session_emails_for_user(session_id)
 
         # Convert to dict format for JSON response
         emails_data = []
@@ -1079,7 +1079,7 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
 
     try:
         # Get the email to find the recipient (who has the attachment)
-        emails = matrix_runtime.post_office.get_session_emails_for_user(session_id)
+        emails = await matrix_runtime.post_office.get_session_emails_for_user(session_id)
         target_email = None
         for email in emails:
             if email.id == email_id:

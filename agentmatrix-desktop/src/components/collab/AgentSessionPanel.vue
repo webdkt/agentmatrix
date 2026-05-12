@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useAgentStore } from '@/stores/agent'
 import { useWebSocketStore } from '@/stores/websocket'
+import { marked } from 'marked'
 import { useChatTimeline } from '@/composables/useChatTimeline'
 import { useCollabFile } from '@/composables/useCollabFile'
 import { useTaskFiles } from '@/composables/useTaskFiles'
@@ -54,7 +55,6 @@ const {
   handleEmailSendFailed,
   handleEmailSent,
   handleAgentQuestionSubmit,
-  injectUIActionResult,
 } = useChatTimeline({ userAgentName: () => props.userAgentName })
 
 // ---- Agent name derived from session ----
@@ -188,18 +188,48 @@ watch(currentAgentName, () => {
   loadAgentUIActions()
 }, { immediate: true })
 
+// ---- UI Action 弹窗 ----
+const wsStore = useWebSocketStore()
+const showUIActionModal = ref(false)
+const uiActionResult = ref(null)
+
+// 监听 WebSocket 推送的 UI_ACTION_RESULT
+watch(() => wsStore.lastUIActionResult, (result) => {
+  if (result && result.agent_name === currentAgentName.value) {
+    uiActionResult.value = result
+    showUIActionModal.value = true
+  }
+})
+
 const invokeUIAction = async (action) => {
   if (!currentAgentName.value) return
   try {
     const resp = await agentAPI.invokeAgentUIAction(currentAgentName.value, action.name)
-    // 结果通过 SESSION_EVENT 自动推送到前端（有活跃 session 时）
-    // 如果没有活跃 session，直接注入到 timeline
-    if (resp.success && resp.result != null && !currentSession.value) {
-      injectUIActionResult(action.name, action.label, resp.result, resp.display_mode)
+    // 结果通过 UI_ACTION_RESULT WebSocket 推送 → 弹窗展示
+    // 如果 WebSocket 未连接（无 session），直接用 HTTP 响应弹窗
+    if (resp.success && resp.result != null && !showUIActionModal.value) {
+      uiActionResult.value = {
+        agent_name: currentAgentName.value,
+        action_name: action.name,
+        label: action.label,
+        result: resp.result,
+        display_mode: resp.display_mode,
+      }
+      showUIActionModal.value = true
     }
   } catch (e) {
     console.error('UI action failed:', e)
   }
+}
+
+const closeUIActionModal = () => {
+  showUIActionModal.value = false
+  uiActionResult.value = null
+}
+
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  return marked.parse(String(text))
 }
 
 const floatingUIActions = computed(() =>
@@ -441,12 +471,12 @@ const taskFilesWidth = computed(() => {
           }"
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
-          <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+          <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-label">
             <template v-if="primaryAgentStatus.isOnCurrentSession">
-              {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
+              {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'RECOVERING' ? 'recovering' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
             </template>
             <template v-else>
               正在处理其他工作
@@ -549,12 +579,12 @@ const taskFilesWidth = computed(() => {
           }"
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
-          <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+          <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-indicator-agent">{{ primaryAgentName }}</span>
           <span v-if="primaryAgentStatus.isOnCurrentSession" class="agent-session-panel__status-indicator-label">
-            {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting for you' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
+            {{ primaryAgentStatus.status === 'THINKING' ? 'thinking' : primaryAgentStatus.status === 'WORKING' ? 'working' : primaryAgentStatus.status === 'RECOVERING' ? 'recovering' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'waiting for you' : primaryAgentStatus.status === 'PAUSED' ? 'paused' : primaryAgentStatus.status === 'ERROR' ? 'error' : 'idle' }}
           </span>
           <span v-else class="agent-session-panel__status-indicator-label">
             正在处理其他工作
@@ -699,6 +729,31 @@ const taskFilesWidth = computed(() => {
       />
     </div>
     </template> <!-- end session mode -->
+
+    <!-- UI Action Result Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showUIActionModal && uiActionResult" class="ui-action-modal">
+          <div class="ui-action-modal__overlay" @click="closeUIActionModal"></div>
+          <div class="ui-action-modal__content">
+            <div class="ui-action-modal__header">
+              <h2 class="ui-action-modal__title">{{ uiActionResult.label || uiActionResult.action_name }}</h2>
+              <button @click="closeUIActionModal" class="ui-action-modal__close">
+                <MIcon name="x" />
+              </button>
+            </div>
+            <div class="ui-action-modal__body">
+              <div v-if="uiActionResult.display_mode === 'markdown'" class="ui-action-modal__markdown" v-html="renderMarkdown(uiActionResult.result)"></div>
+              <div v-else-if="uiActionResult.display_mode === 'json'" class="ui-action-modal__pre-wrap"><pre>{{ typeof uiActionResult.result === 'string' ? uiActionResult.result : JSON.stringify(uiActionResult.result, null, 2) }}</pre></div>
+              <div v-else class="ui-action-modal__text">{{ uiActionResult.result }}</div>
+            </div>
+            <div class="ui-action-modal__footer">
+              <button @click="closeUIActionModal" class="ui-action-modal__btn">Close</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -1359,5 +1414,128 @@ const taskFilesWidth = computed(() => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px) }
   to { opacity: 1; transform: translateY(0) }
+}
+
+/* ---- UI Action Modal ---- */
+.ui-action-modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ui-action-modal__overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+}
+.ui-action-modal__content {
+  position: relative;
+  width: 90vw;
+  max-width: 900px;
+  height: 80vh;
+  max-height: 700px;
+  background: var(--surface-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ui-action-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-base);
+}
+.ui-action-modal__title {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.ui-action-modal__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  border: none; background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-tertiary);
+  transition: all 0.15s ease;
+}
+.ui-action-modal__close:hover {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+.ui-action-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+.ui-action-modal__body pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  background: var(--surface-base);
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.ui-action-modal__text {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+.ui-action-modal__markdown {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.ui-action-modal__markdown :deep(h1), .ui-action-modal__markdown :deep(h2), .ui-action-modal__markdown :deep(h3) {
+  margin: 16px 0 8px;
+}
+.ui-action-modal__markdown :deep(pre) {
+  background: var(--surface-base);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+.ui-action-modal__markdown :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.ui-action-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-base);
+}
+.ui-action-modal__btn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ui-action-modal__btn:hover {
+  background: var(--surface-secondary);
 }
 </style>

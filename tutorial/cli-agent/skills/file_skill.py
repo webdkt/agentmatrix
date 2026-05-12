@@ -32,7 +32,7 @@ class FileSkillMixin:
             return f"[Error] 读取失败: {e}"
 
     @register_action(
-        short_desc="写入文件内容",
+        short_desc="(path,content)写入文件内容,当 content包含多行内容、或含有反斜杠（`\`）时，请使用 **`r\"\"\"`** 原始字符串，内容会原样写入文件，不需要对 `\n`、`\t`、引号等做额外转义",
         description="将内容写入指定路径的文件（不存在则创建，存在则覆盖）",
         param_infos={
             "path": "文件路径",

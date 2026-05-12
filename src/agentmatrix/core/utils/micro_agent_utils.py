@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Any, Tuple
 
 def parse_simple_yes_no(raw_reply: str) -> dict:
     """
-    解析简单的 YES/NO 响应
+    解析退出验证的三分类响应：code / intent / other
 
     Parser Contract for think_with_retry:
     - Returns {"status": "success", "content": dict} on success
@@ -25,25 +25,25 @@ def parse_simple_yes_no(raw_reply: str) -> dict:
         raw_reply: LLM 的原始输出
 
     Returns:
-        dict: 解析结果，{"should_exit": bool}
+        dict: {"result": "code"|"intent"|"other"}
+              - code: LLM 输出了调用工具的代码，格式可能有误
+              - intent: LLM 表达了操作意图但没有给出具体命令
+              - other: 都不是，确认可以退出
     """
-    cleaned = raw_reply.strip().upper()
+    cleaned = raw_reply.strip()
 
-    if "YES" in cleaned and "NO" not in cleaned:
-        return {
-            "status": "success",
-            "content": {"should_exit": False}
-        }
-    elif "NO" in cleaned and "YES" not in cleaned:
-        return {
-            "status": "success",
-            "content": {"should_exit": True}
-        }
+    has_1 = bool(re.search(r'\b1\b', cleaned))
+    has_2 = bool(re.search(r'\b2\b', cleaned))
+    has_3 = bool(re.search(r'\b3\b', cleaned))
+
+    if has_1 and not has_2 and not has_3:
+        return {"status": "success", "content": {"result": "code"}}
+    elif has_2 and not has_1 and not has_3:
+        return {"status": "success", "content": {"result": "intent"}}
+    elif has_3 and not has_1 and not has_2:
+        return {"status": "success", "content": {"result": "other"}}
     else:
-        return {
-            "status": "error",
-            "feedback": "请只回答 YES 或 NO"
-        }
+        return {"status": "error", "feedback": "请只回答 1、2 或 3"}
 
 
 def parse_actions_from_thought(raw_reply: str) -> dict:
@@ -126,16 +126,28 @@ def parse_function_calls(
         while pos < len(text) and depth > 0:
             ch = text[pos]
             if ch in ('"', "'"):
-                # 跳过引号内的内容（尊重转义）
                 quote = ch
-                pos += 1
-                while pos < len(text):
-                    if text[pos] == '\\':
-                        pos += 2  # 跳过转义字符
-                        continue
-                    if text[pos] == quote:
-                        break
+                # 检测 triple quote: """ 或 '''
+                if pos + 2 < len(text) and text[pos + 1] == quote and text[pos + 2] == quote:
+                    # Triple quote 模式：跳过直到找到连续三个相同引号
+                    pos += 3  # 跳过开头的 """
+                    while pos + 2 < len(text):
+                        if text[pos] == quote and text[pos + 1] == quote and text[pos + 2] == quote:
+                            pos += 2  # 留在外层 pos+=1 之前，确保不跳过下一个字符
+                            break
+                        pos += 1
+                    else:
+                        pos = len(text)  # 未闭合，跳到末尾
+                else:
+                    # 单引号模式：跳过引号内的内容（尊重转义）
                     pos += 1
+                    while pos < len(text):
+                        if text[pos] == '\\':
+                            pos += 2  # 跳过转义字符
+                            continue
+                        if text[pos] == quote:
+                            break
+                        pos += 1
             elif ch == '(':
                 depth += 1
             elif ch == ')':
@@ -252,24 +264,24 @@ def _parse_value(value_str: str) -> Any:
     if not value_str:
         return ""
 
+    # 原始字符串：r"""...""" / r'''...''' — 内部内容原样保留，不解释转义
+    if value_str.startswith('r"""') and value_str.endswith('"""'):
+        return value_str[4:-3]
+    if value_str.startswith("r'''") and value_str.endswith("'''"):
+        return value_str[4:-3]
+
     # 带引号字符串：用 ast.literal_eval 解释转义序列（\n → 换行等）
     if (value_str.startswith('"') and value_str.endswith('"')) or \
        (value_str.startswith("'") and value_str.endswith("'")):
         try:
             return ast.literal_eval(value_str)
         except (ValueError, SyntaxError):
-            # LLM 长文本可能在引号内换行（ast.literal_eval 不允许裸换行）
-            # 将实际换行替换为 \n 转义序列后重试
-            try:
-                sanitized = value_str.replace('\r\n', '\\n').replace('\n', '\\n').replace('\r', '\\n')
-                return ast.literal_eval(sanitized)
-            except (ValueError, SyntaxError):
-                # 兜底：手动去引号 + 反转义
-                inner = value_str[1:-1]
-                inner = inner.replace('\\"', '"').replace("\\'", "'")
-                inner = inner.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
-                inner = inner.replace('\\\\', '\\')
-                return inner
+            # ast.literal_eval 失败（通常因为裸换行），直接手动去引号保留原始内容
+            inner = value_str[1:-1]
+            inner = inner.replace('\\"', '"').replace("\\'", "'")
+            inner = inner.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+            inner = inner.replace('\\\\', '\\')
+            return inner
 
     # dict/list 字面量：先尝试 ast.literal_eval，再尝试 json.loads
     if value_str.startswith('{') or value_str.startswith('['):
@@ -360,20 +372,19 @@ def validate_params(
 
 
 def build_exit_verification_prompt(raw_reply: str) -> str:
-    """构建退出验证 prompt"""
-    return f"""以下是大模型Agent对用户的回答，判断它的意思是（1）决定了做什么新动作（接下来要做）。（2）没有决定做什么
+    """构建退出验证 prompt：判断 LLM 输出是否包含未正确格式化的工具调用意图"""
+    return f"""以下是 Agent 的一段输出文本, 请判断它属于哪种情况:
 
-文本：
+1. 试图调用工具操作的代码
+2. 准备做某个操作但没有给出具体命令: 文本表达了要做某事的意图, 但没有给出具体的工具调用代码(比如"我来查一下"、"让我执行xx"、"接下来我会..."等)
+3. 其他: 以上都不是, 比如纯文字回答、总结、询问用户、解释说明、确认完成等。如果文本是问一个问题，就肯定属于这个类别
+
+文本:
 ```
 {raw_reply}
 ```
 
-你需要作出的回答：
-- YES: 表示"已经决定了做什么，接下来要做“
-- NO: 表示没有决定做什么
-
-只回答 YES 或 NO。
-注意，如果是询问用户是否要做什么，或者表达了"我可以做什么"、"我能帮你做什么"、"你需要我做什么"这样的意思，请回答 NO，因为这说明它在在询问用户建议用户，并非他的决定"""
+只回答 1、2 或 3。"""
 
 
 def build_no_action_reflect_message(
@@ -382,55 +393,21 @@ def build_no_action_reflect_message(
     action_registry_flat: dict,
 ) -> Optional[str]:
     """
-    检查是否有疑似幻觉的函数调用 pattern，构造 reflect 消息。
+    检查 action_script 块内是否有幻觉的函数调用名称。
 
-    如果文本匹配 func_name(...) 或 func.name(...) 格式，
-    但没有匹配到任何注册的 action，说明 LLM 幻觉了函数名。
-
-    同时检查 raw_reply：当 <action_script> 块为空但 raw_reply 中包含 JSON/XML action 格式
-    或函数调用 pattern 时，说明 LLM 试图输出 action 但格式不对。
+    仅在 action_script 块有内容时检查（路径 A）：
+    如果文本匹配 func_name(...) 格式但不在注册的 action 中，说明 LLM 幻觉了函数名。
+    块为空时不做检查（交给退出验证的 LLM 判断）。
 
     Args:
         action_section_text: <action_script> 块内的文本
-        raw_reply: LLM 的完整原始回复
+        raw_reply: LLM 的完整原始回复（未使用，保留参数兼容性）
         action_registry_flat: action_registry["_flat"] 字典
 
     Returns:
         reflect 消息字符串，如果没有疑似幻觉则返回 None
     """
     if not action_section_text or not action_section_text.strip():
-        # <action_script> 块为空，但检查 raw_reply 中是否有疑似 action 的内容
-        if raw_reply:
-            # 检查 JSON 格式的 action: "action": "xxx"
-            json_action_pattern = r'"action"\s*:\s*"([a-zA-Z_.]*)"'
-            json_matches = re.findall(json_action_pattern, raw_reply)
-
-            # 检查 XML 格式的 action: <function*> 标签
-            xml_action_pattern = r'<function[\w-]*\s*(?:name\s*=\s*["\']([^"\']+)["\'])?[^>]*>(?:\s*(\w+(?:\.\w+)*)\s*</[\w-]+>)?'
-            xml_matches = re.findall(xml_action_pattern, raw_reply)
-            # 展平结果：findall 返回 [(name_from_attr, content), ...]
-            xml_function_names = []
-            for match in xml_matches:
-                name_from_attr, content = match
-                if name_from_attr:
-                    xml_function_names.append(name_from_attr)
-                elif content:
-                    xml_function_names.append(content)
-
-            # 检查函数调用 pattern
-            call_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\('
-            call_matches = re.findall(call_pattern, raw_reply)
-
-            # 验证是否包含有效的 action（忽略大小写）
-            valid_actions = []
-            for name in (json_matches + xml_function_names + call_matches):
-                if name.lower() in action_registry_flat:
-                    valid_actions.append(name)
-
-            if valid_actions:
-                return "没有发现要执行的action。如果要执行action，需要使用 <action_script> 块格式来声明。确认没什么要执行的可以回复'确定'。"
-
-        # 确实没有疑似 action 的内容
         return None
 
     # 匹配 func_name(...) 或 func.name(...) 格式
@@ -442,20 +419,16 @@ def build_no_action_reflect_message(
 
     # 找到不在 registry 中的函数名
     invalid_names = []
-    valid_names = []
     for name in matches:
         name_lower = name.lower()
         if name_lower not in action_registry_flat:
             invalid_names.append(name)
-        else:
-            valid_names.append(name)
 
     if not invalid_names:
-        # 所有提到的函数名都在 registry 中，不是幻觉问题
         return None
 
     invalid_list = ", ".join(invalid_names)
-    hint = f"没有发现要执行的action。你使用了未注册的名称：{invalid_list}。请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
+    return f"没有发现要执行的action。你使用了未注册的名称：{invalid_list}。请检查action名称是否正确。确认没什么要执行的可以回复'确定'。"
     return hint
 
 
@@ -505,12 +478,30 @@ def format_email_history(emails, agent_name: str) -> str:
     if not emails:
         return "[EMAIL HISTORY]\n暂无邮件历史\n"
 
+    # 过滤：只保留 body 长度 > 10 或有附件的邮件
+    filtered = [
+        e for e in emails
+        if len(e.body.strip()) > 10 or e.attachments
+    ]
+
+    # 最多保留最近 50 条
+    max_emails = 50
+    skipped = 0
+    if len(filtered) > max_emails:
+        skipped = len(filtered) - max_emails
+        filtered = filtered[-max_emails:]
+
+    if not filtered:
+        return "[EMAIL HISTORY]\n暂无邮件历史\n"
+
     lines = ["[EMAIL HISTORY]"]
     lines.append("注：你发出的邮件会用 `-> 收件人名字` 的方式标出")
+    if skipped > 0:
+        lines.append(f"（还有 {skipped} 封旧邮件未加载）")
 
     today = datetime.now().date()
 
-    for i, email in enumerate(emails):
+    for email in filtered:
         # 判断邮件方向：发件人是否是自己
         sender_raw = (
             email.sender.split("@")[0] if "@" in email.sender else email.sender
