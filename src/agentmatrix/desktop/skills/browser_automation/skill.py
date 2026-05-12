@@ -74,6 +74,14 @@ def _update_current_tab(agent_name: str, target_id: str):
         _trigger_sk_callback(agent_name)
 
 
+def _on_tab_removed(target_id: str, agent_name: str):
+    """Tab 被销毁且 agent 无剩余 tab 时，清空 current_tab 引用。"""
+    current = _agent_current_tab.get(agent_name)
+    if current and current.target_id == target_id:
+        _agent_current_tab.pop(agent_name, None)
+        _trigger_sk_callback(agent_name)
+
+
 def _short_url(url: str) -> str:
     """截取 URL 的 scheme://host/首段路径，超出部分用 /... 表示。"""
     if not url:
@@ -114,6 +122,28 @@ async def _auto_restore_ui(tab: TabInfo):
         )
     except Exception:
         pass
+
+
+async def _cdp_send_with_recovery(method: str, params: dict = None,
+                                   tab: TabInfo = None,
+                                   timeout: float = 30) -> dict:
+    """发送 CDP 命令，遇到 session 失效自动 re-attach 并重试一次。
+
+    tab.session_id 会被 recover_session 自动更新。
+    """
+    try:
+        return await _cdp_client.send(method, params, session_id=tab.session_id, timeout=timeout)
+    except Exception as e:
+        if not _event_listener or not _event_listener.is_session_error(e):
+            raise
+        if not tab.target_id:
+            raise
+        logger.warning(f"Session error for {tab.target_id[:12]}: {e}, recovering...")
+        new_sid = await _event_listener.recover_session(tab.target_id)
+        if not new_sid:
+            raise
+        # tab.session_id 已被 recover_session 通过 tab_mgr.update_session_id 更新
+        return await _cdp_client.send(method, params, session_id=new_sid, timeout=timeout)
 
 
 def _tab_not_found_msg(invalid_id: str) -> str:
@@ -157,7 +187,11 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
 
         _tab_manager = TabManager(_cdp_client)
 
-        _event_listener = BrowserEventListener(_cdp_client, _tab_manager, on_current_tab_change=_update_current_tab)
+        _event_listener = BrowserEventListener(
+            _cdp_client, _tab_manager,
+            on_current_tab_change=_update_current_tab,
+            on_tab_removed=_on_tab_removed,
+        )
         # 注册连接状态回调：断线时通知前端，重连时先 resubscribe 再通知前端
         async def _on_cdp_status(connected):
             if connected:
@@ -484,17 +518,8 @@ class Browser_automationSkillMixin:
         self._set_current_tab(tab)
 
         try:
-            await _cdp_client.send(
-                "Page.enable",
-                session_id=tab.session_id,
-                timeout=5,
-            )
-            await _cdp_client.send(
-                "Page.navigate",
-                {"url": url},
-                session_id=tab.session_id,
-                timeout=30,
-            )
+            await _cdp_send_with_recovery("Page.enable", tab=tab, timeout=5)
+            await _cdp_send_with_recovery("Page.navigate", {"url": url}, tab=tab, timeout=30)
 
             await asyncio.sleep(1)
 
@@ -943,10 +968,10 @@ class Browser_automationSkillMixin:
                 return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
 
             try:
-                result = await _cdp_client.send(
+                result = await _cdp_send_with_recovery(
                     "Runtime.evaluate",
                     {"expression": content, "returnByValue": True, "awaitPromise": True},
-                    session_id=tab.session_id,
+                    tab=tab,
                     timeout=15,
                 )
                 res = result.get("result", {})
@@ -1010,10 +1035,8 @@ class Browser_automationSkillMixin:
                 if _is_input:
                     await _auto_yield_ui(tab)
                 try:
-                    result = await _cdp_client.send(
-                        method, params,
-                        session_id=tab.session_id,
-                        timeout=timeout,
+                    result = await _cdp_send_with_recovery(
+                        method, params, tab=tab, timeout=timeout,
                     )
                     results.append({"index": i, "method": method, "result": result})
                 except Exception as e:
@@ -1153,14 +1176,14 @@ class Browser_automationSkillMixin:
             tab_id = tab.target_id
 
         try:
-            result = await _cdp_client.send(
+            result = await _cdp_send_with_recovery(
                 "Runtime.evaluate",
                 {
                     "expression": code,
                     "returnByValue": True,
                     "awaitPromise": True,
                 },
-                session_id=tab.session_id,
+                tab=tab,
                 timeout=15,
             )
             res = result.get("result", {})
@@ -1233,11 +1256,8 @@ class Browser_automationSkillMixin:
             if _is_input:
                 await _auto_yield_ui(tab)
             try:
-                result = await _cdp_client.send(
-                    method,
-                    params or {},
-                    session_id=tab.session_id,
-                    timeout=30,
+                result = await _cdp_send_with_recovery(
+                    method, params or {}, tab=tab, timeout=30,
                 )
                 return json.dumps(result, ensure_ascii=False, default=str)
             finally:

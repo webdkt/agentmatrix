@@ -67,7 +67,7 @@ class Dom_explorerSkillMixin:
         },
     )
     async def eval_js(self, code: str, tab_id: str = None) -> str:
-        from ..skill import _cdp_client, _tab_manager, _tab_not_found_msg
+        from ..skill import _cdp_client, _tab_manager, _tab_not_found_msg, _cdp_send_with_recovery
 
         if not _cdp_client or not _cdp_client._connected:
             return json.dumps({"error": "CDP client not connected"})
@@ -85,14 +85,14 @@ class Dom_explorerSkillMixin:
                 return json.dumps({"error": f"绑定的 tab 已关闭 (tab_id={pinned_id})"})
 
         try:
-            result = await _cdp_client.send(
+            result = await _cdp_send_with_recovery(
                 "Runtime.evaluate",
                 {
                     "expression": code,
                     "returnByValue": True,
                     "awaitPromise": True,
                 },
-                session_id=tab.session_id,
+                tab=tab,
                 timeout=15,
             )
             res = result.get("result", {})
