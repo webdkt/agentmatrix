@@ -478,12 +478,30 @@ def format_email_history(emails, agent_name: str) -> str:
     if not emails:
         return "[EMAIL HISTORY]\n暂无邮件历史\n"
 
+    # 过滤：只保留 body 长度 > 10 或有附件的邮件
+    filtered = [
+        e for e in emails
+        if len(e.body.strip()) > 10 or e.attachments
+    ]
+
+    # 最多保留最近 50 条
+    max_emails = 50
+    skipped = 0
+    if len(filtered) > max_emails:
+        skipped = len(filtered) - max_emails
+        filtered = filtered[-max_emails:]
+
+    if not filtered:
+        return "[EMAIL HISTORY]\n暂无邮件历史\n"
+
     lines = ["[EMAIL HISTORY]"]
     lines.append("注：你发出的邮件会用 `-> 收件人名字` 的方式标出")
+    if skipped > 0:
+        lines.append(f"（还有 {skipped} 封旧邮件未加载）")
 
     today = datetime.now().date()
 
-    for i, email in enumerate(emails):
+    for email in filtered:
         # 判断邮件方向：发件人是否是自己
         sender_raw = (
             email.sender.split("@")[0] if "@" in email.sender else email.sender
