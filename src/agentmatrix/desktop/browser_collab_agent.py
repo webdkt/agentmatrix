@@ -569,8 +569,7 @@ class BrowserCollabAgent(BaseAgent):
 
         # 思考输出
         if et == "think" and en == "brain":
-            # raw_reply 是 core 层发来的原始输出，thought 是 desktop strip 后的
-            thought = d.get("thought", "") or d.get("raw_reply", "")
+            thought = self._strip_action_script(d.get("raw_reply", ""))
             if thought:
                 self._fire_broadcast('agent_output', {
                     'type': 'think',

@@ -219,12 +219,13 @@ class Browser_automationSkillMixin:
     _skill_description = """浏览器自动化开发：浏览器自动化流程和自动化脚本的生成、管理和运行
     已经学会的网站自动化流程，记录在`~/site_knowledge`目录下。
     ### site_knowledge 的结构
-    - index.txt: 已学会的网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
-        - url_prefix 可以是域名（如 `www.example.com`）或域名+路径前缀（如 `www.example.com/shop`）
-        - url_prefix 可能重复，但说明和子目录名必须不同（因为有些单体站点可能包含多个不同的子系统，结构和元素差异较大）
-        - 匹配规则：系统会自动根据hostname 来推荐匹配。但你必须显示的选择正确的site key 来加载对应的知识。系统不会自动加载，除非你明确的选择了一个site key。
-        - 使用 load_site_knowledge(site_key, process_dir_name?) 来加载对应的知识。仅提供 site_key 加载站点概览和流程列表；同时提供 process_dir_name 加载具体流程的详细步骤
-    - 每个网站(site key)一个子目录，内含：
+    - 根目录（~/site_knowledge)
+        - index.txt: 已学会的网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
+            - url_prefix 可以是域名（如 `www.example.com`）或域名+路径前缀（如 `www.example.com/shop`）
+            - url_prefix 可能重复，但说明和子目录名必须不同（因为有些单体站点可能包含多个不同的子系统，结构和元素差异较大）
+            - 匹配规则：系统会自动根据hostname 来推荐匹配。但你必须显示的选择正确的site key 来加载对应的知识。系统不会自动加载，除非你明确的选择了一个site key。
+            - 使用 load_site_knowledge(site_key, process_dir_name?) 来加载对应的知识。仅提供 site_key 加载站点概览和流程列表；同时提供 process_dir_name 加载具体流程的详细步骤
+    - 根目录下每个网站(site key)一个子目录，内含：
         - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
         - shared_elements.md:  站内公用元素的定位说明，所有流程共享
         - 流程子目录，每个自动化流程一个子目录，内含流程说明和针对该流程的自动化脚本，目录的名称即流程的名称

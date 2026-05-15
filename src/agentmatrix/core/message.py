@@ -53,10 +53,12 @@ class Email:
         return self.id
 
     def to_text(self) -> str:
-        text = f"[新邮件] 来自 {self.sender}: {self.subject}\n{self.body}"
+        text = f"邮件来自 {self.sender}: {self.subject}\n{self.body}"
         if self.attachments:
+            first_att = self.attachments[0]
+            text += f"\n附件保存在 {first_att.get('container_path')}"
             text += "\n" + "\n".join(
-                f"附件已保存在 {att.get('container_path', att.get('filename', ''))}"
+                f"  - {att.get('filename')}"
                 for att in self.attachments
             )
         return text
