@@ -90,6 +90,7 @@ a = Analysis(
         'markdown_it',
         'markdown_it.renderer',
         'sqlite3',
+        'aiosqlite',
         'pathlib',
 
         # Skills module (dynamic loading support)
