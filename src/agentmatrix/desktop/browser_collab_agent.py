@@ -569,11 +569,23 @@ class BrowserCollabAgent(BaseAgent):
 
         # 思考输出
         if et == "think" and en == "brain":
-            thought = d.get("thought", "")
+            # raw_reply 是 core 层发来的原始输出，thought 是 desktop strip 后的
+            thought = d.get("thought", "") or d.get("raw_reply", "")
             if thought:
                 self._fire_broadcast('agent_output', {
                     'type': 'think',
                     'text': thought,
+                })
+
+        # Agent 自动投递的消息（email.sent via auto-dispatch）
+        elif et == "email" and en == "sent":
+            body = d.get("body_preview", "")
+            sender = d.get("sender", "")
+            if body:
+                self._fire_broadcast('agent_output', {
+                    'type': 'message',
+                    'text': body,
+                    'sender': sender,
                 })
 
         # action 检测

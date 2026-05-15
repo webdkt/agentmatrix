@@ -160,7 +160,10 @@
             if (data.type === 'think' && data.text) {
                 _showSpeech(data.text);
             }
-            // action_detected/started/completed 不隐藏气泡，让 think 内容持续显示
+            if (data.type === 'message' && data.text) {
+                _showSpeech(data.text);
+            }
+            // action_detected/started/completed 不隐藏气泡，让 think/message 内容持续显示
         } else if (type === 'connection_status') {
             if (data.connected) {
                 _setStatus('IDLE');

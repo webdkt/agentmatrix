@@ -77,6 +77,59 @@ def extract_action_script_block(text: str) -> str:
     return ""
 
 
+def convert_function_blocks_to_action_script(text: str) -> str:
+    """
+    将 LLM 输出中的 <function=name>...</function> 块转换为 <action_script> 格式。
+
+    LLM 有时会忽略 <action_script> 语法要求，转而使用类 Anthropic 的 function call 格式。
+    本函数将其预处理为标准格式，使后续 action 检测管道无需修改。
+
+    示例输入:
+        <function=browser_automation.eval_js>
+        <parameter=code>
+        (() => { ... })()
+        </parameter>
+        <parameter=tab_id>ABC123</parameter>
+        </function>
+
+    示例输出:
+        <action_script>
+        browser_automation.eval_js(code=r'''...''', tab_id="ABC123")
+        </action_script>
+    """
+    if '<function=' not in text:
+        return text
+
+    def _convert_one(match):
+        func_name = match.group(1).strip()
+        body = match.group(2)
+
+        # 提取 <parameter=name>value</parameter> 对
+        params = []
+        for param_match in re.finditer(
+            r'<parameter=(\w+)>(.*?)</parameter>', body, re.DOTALL
+        ):
+            param_name = param_match.group(1)
+            param_value = param_match.group(2).strip()
+
+            if '\n' in param_value:
+                # 多行值用 r"""..."""
+                escaped = param_value.replace('"""', r'\"""')
+                params.append(f'{param_name}=r"""{escaped}"""')
+            else:
+                # 单行值用双引号
+                escaped = param_value.replace('\\', '\\\\').replace('"', '\\"')
+                params.append(f'{param_name}="{escaped}"')
+
+        params_str = ', '.join(params)
+        return f'<action_script>\n{func_name}({params_str})\n</action_script>'
+
+    return re.sub(
+        r'<function=([^>]+)>(.*?)</function>',
+        _convert_one, text, flags=re.DOTALL,
+    )
+
+
 def parse_function_calls(
     text: str, action_registry_flat: dict
 ) -> Tuple[List[Tuple[str, str]], List[str]]:

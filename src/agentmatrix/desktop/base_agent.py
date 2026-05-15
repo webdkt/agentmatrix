@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import Dict, Optional, Callable, List, Any, Tuple, Union
 from dataclasses import dataclass, asdict, field
 from ..core.message import Email
@@ -325,7 +326,6 @@ class BaseAgent(BasicAgent):
         messages: list,
         focus_hint: str = "",
         scratchpad: list = None,
-        is_top_level: bool = False,
     ) -> str:
         """从对话历史生成 Working Notes（AgentShell 接口实现）。
 
@@ -335,7 +335,6 @@ class BaseAgent(BasicAgent):
             messages: 当前对话历史
             focus_hint: 可选，指导 LLM 重点关注某方面
             scratchpad: 工作过程中的自留笔记列表
-            is_top_level: 是否是顶层 Agent（有邮件历史的场景）
         """
         from ..core.utils.parser_utils import working_notes_parser
         from ..core.utils.token_utils import format_session_messages
@@ -346,7 +345,7 @@ class BaseAgent(BasicAgent):
             persona_hint = f"""
 
 [Agent Persona Reference]
-{self.persona[:800]}
+{self.persona[:100]}...
 
 Use this to understand the agent's role and bias your scene diagnosis accordingly.
 """
@@ -374,42 +373,17 @@ Use this to understand the agent's role and bias your scene diagnosis accordingl
 ---
 """
 
-        # Top-level 和 Nested 的分层指引不同
-        if is_top_level:
-            step_2_5 = """## Step 2.5: Working Notes 用途意识 (Purpose Awareness)
+        step_2_5 = ""
 
-Working Notes 的读者是你自己——下一轮循环中继续工作的你。
-
-对话历史中，邮件记录始终可读（Email History will always be there）。
-你不需要担心沟通内容丢失或走样，也不需要在 Working Notes 中重述已经通过邮件表达过的内容。
-专注于**如何帮助自己记住对后续工作有必要的东西**。
-
-白问自己：下一轮醒来，你需要立刻知道什么才能接着干？
-
-信息天然分层：
-- **沟通层**（目标、计划、承诺、状态更新）→ 邮件已覆盖，Working Notes 不必重复
-- **执行层**（做了什么、调用了什么、文件在哪里）→ Working Notes 的核心
-- **发现层**（数据长什么样、遇到什么技术约束、搜索到了什么）→ Working Notes 的核心
-- **调整层**（原计划如何、实际为何调整、踩了什么坑）→ Working Notes 的核心"""
-
-            step_3 = """## Step 3: 状态提取 (State Extraction)
+        step_3 = """## Step 3: 状态提取 (State Extraction)
 - **去噪**：剔除客套话、重复信息。
 - **消歧**：将代词（他/它/那个）还原为实体全名。
 - **客观**：只记录事实和结论，不记录流水账。
-- **聚焦**：侧重执行层、发现层、调整层的信息。沟通层信息如果在邮件中已经完整记录，无需重复。
-- **完整**：保留继续工作所需的线索——文件路径、中间产物位置、技术决策原因、未完成的子任务。"""
+- **完整**：保留关键内容和结果，原始目的中不可缺失的部分，后续行动必须持有的线索。
+- **自包含**：Working Notes 是压缩后唯一的上下文来源，必须包含原始任务目标和所有必要的背景信息。"""
 
-            output_extra = """5. **写完后自问**：这些信息是否能帮助我下一轮立刻接着干？如果某些信息在 Email History 中已经清晰可查，考虑是否需要保留。"""
-        else:
-            step_2_5 = ""
-
-            step_3 = """## Step 3: 状态提取 (State Extraction)
-- **去噪**：剔除客套话、重复信息。
-- **消歧**：将代词（他/它/那个）还原为实体全名。
-- **客观**：只记录事实和结论，不记录流水账。
-- **完整**：保留关键内容和结果，原始目的中不可缺失的部分，后续行动必须持有的线索。"""
-
-            output_extra = ""
+        output_extra = """5. **写完后自问**：如果这是压缩后唯一的上下文，下一轮的我能否立刻接着干？
+        6. 验收标准：其他人仅仅依靠此 Working Notes 就能理解当前状态、目标、所需的关键文件和下一步行动，可以立刻继续。"""
 
         # 构造 Meta-Prompt
         prompt = f"""
@@ -470,20 +444,16 @@ Start generating the Working Notes now.
     async def compress_messages(self, agent) -> None:
         """压缩 agent 的 messages（AgentShell 接口实现）。
 
-        Desktop 实现：top-level 使用邮件历史 + working notes，nested 使用原始 user message + working notes。
+        Desktop 实现：生成 working notes 替换全部对话历史。
         """
-        is_top_level = agent.is_top_level
-
         # 生成 working notes
         working_notes = await self.generate_working_notes(
             agent.messages,
             scratchpad=agent.scratchpad,
-            is_top_level=is_top_level,
         )
 
         # 剥掉 working_notes 开头可能带的 [WORKING NOTES]
         if working_notes and "[WORKING NOTES]" in working_notes:
-            import re
             working_notes = re.sub(
                 r'\[WORKING NOTES\]\s*\n*', '', working_notes, count=1
             ).strip()
@@ -499,23 +469,8 @@ Start generating the Working Notes now.
         # 保留 system message
         has_system = agent.messages and agent.messages[0].get("role") == "system"
 
-        # 构建新的 user message content
-        if is_top_level:
-            # === Top-level: 使用邮件历史 ===
-            try:
-                emails = await self.post_office.get_emails_by_session(
-                    session_id=self.current_session["session_id"],
-                    agent_name=self.name,
-                )
-                agent.logger.debug(f"📧 已加载 {len(emails)} 封邮件")
-                email_history = self._format_email_history(emails)
-                new_user_content = f"{email_history}\n\n[WORKING NOTES]\n{working_notes}"
-            except Exception as e:
-                agent.logger.warning(f"⚠️ 获取邮件历史失败，降级到原有逻辑: {e}")
-                new_user_content = self._build_fallback_user_content(agent, working_notes)
-        else:
-            # === Nested: 原始 user message + working notes ===
-            new_user_content = self._build_fallback_user_content(agent, working_notes)
+        # 构建新的 user message content（纯 working notes）
+        new_user_content = f"[WORKING NOTES]\n{working_notes}\n\n请继续执行下一步。"
 
         # 重建 messages
         if has_system:
@@ -530,31 +485,6 @@ Start generating the Working Notes now.
 
         # 清空 scratchpad
         agent.scratchpad.clear()
-
-    def _build_fallback_user_content(self, agent, working_notes: str) -> str:
-        """构建默认的 user message content（原始 user message + working notes）。"""
-        first_user_msg = None
-        for msg in agent.messages:
-            if msg.get("role") == "user":
-                first_user_msg = msg
-                break
-
-        if not first_user_msg:
-            return f"[WORKING NOTES]\n{working_notes}\n\n请继续执行下一步。"
-
-        original_content = first_user_msg.get("content", "")
-        if "[WORKING NOTES]" in original_content:
-            import re
-            notes_index = original_content.index("[WORKING NOTES]")
-            original_without_old_notes = original_content[:notes_index].strip()
-            return f"{original_without_old_notes}\n\n[WORKING NOTES]\n{working_notes}"
-        else:
-            return f"{original_content}\n\n[WORKING NOTES]\n{working_notes}"
-
-    def _format_email_history(self, emails) -> str:
-        """格式化邮件历史为聊天风格文本。"""
-        from agentmatrix.core.utils.micro_agent_utils import format_email_history
-        return format_email_history(emails, self.name)
 
     def is_llm_available(self) -> bool:
         """检查 LLM 服务是否可用。"""
@@ -1407,6 +1337,25 @@ Start generating the Working Notes now.
             # signal/received 等内部事件，忽略
             pass
 
+        elif event.event_type == "think" and event.event_name == "brain":
+            detail = event.detail or {}
+            if self._is_agent_speaking(detail):
+                # Agent 在说话 → 自动投递为 Email
+                await self._auto_dispatch_agent_message(session_id, detail)
+            else:
+                # Agent 在做事或格式异常 → 仅展示（strip action_script 后写 session_event）
+                display_text = self._strip_action_script(detail.get("raw_reply", ""))
+                if display_text:
+                    await self._log_session_event(
+                        session_id=session_id,
+                        event_type="think",
+                        event_name="brain",
+                        event_detail={
+                            "step_count": detail.get("step_count"),
+                            "thought": display_text,
+                        },
+                    )
+
         else:
             await self._log_session_event(
                 session_id=session_id,
@@ -1414,6 +1363,78 @@ Start generating the Working Notes now.
                 event_name=event.event_name,
                 event_detail=event.detail or None,
             )
+
+    # ==================== Agent 自动消息投递 ====================
+
+    def _is_agent_speaking(self, detail: dict) -> bool:
+        """
+        三层判断：LLM 输出是否是"自然语言对话"。
+
+        1. 有 <action_script> → 做动作 → False
+        2. 无 <action_script>，但整体是 XML/JSON → False
+        3. 其他 → 在说话 → True
+        """
+        raw = detail.get("raw_reply", "")
+        if not raw or not raw.strip():
+            return False
+        # 1. 有 <action_script> → 做动作
+        if '<action_script>' in raw:
+            return False
+        # 2. 整体是结构化文本 → 不算说话
+        text = raw.strip()
+        if (text.startswith('<') and text.endswith('>')) or \
+           (text.startswith('{') and text.endswith('}')) or \
+           (text.startswith('[') and text.endswith(']')):
+            return False
+        # 3. 其他 → 在说话
+        return True
+
+    @staticmethod
+    def _strip_action_script(text: str) -> str:
+        """去掉 <action_script> 块，用于前端展示。"""
+        return re.sub(r'<action_script>.*?</action_script>', '', text, flags=re.DOTALL).strip()
+
+    async def _auto_dispatch_agent_message(self, session_id: str, detail: dict):
+        """当 LLM 输出是自然语言对话时，自动包装为 Email 投递。"""
+        from ..core.message import Email
+
+        session = self.current_session
+        last_email = self.last_received_email
+        body = detail.get("raw_reply", "")
+
+        if not body.strip() or not session:
+            return
+
+        recipient = last_email.sender if last_email else session.get("original_sender", "User")
+
+        msg = Email(
+            sender=self.name,
+            recipient=recipient,
+            subject="",
+            body=body,
+            in_reply_to=last_email.id if last_email else None,
+            task_id=session["task_id"],
+            sender_session_id=session["session_id"],
+            recipient_session_id=last_email.sender_session_id if last_email else None,
+        )
+
+        await self.post_office.dispatch(msg)
+
+        await self._log_session_event(session_id, "email", "sent", {
+            "email_id": msg.id,
+            "subject": "",
+            "body_preview": body,
+            "sender": self.name,
+            "recipient": recipient,
+            "has_more": len(body) > 200,
+            "task_id": session["task_id"],
+        })
+
+        await self.session_manager.update_reply_mapping(
+            msg_id=msg.id,
+            session_id=session["session_id"],
+            task_id=session["task_id"],
+        )
 
     def _handle_session_cancelled(self, session: dict):
         """Desktop: session 被取消时的处理（stop 中断）。"""

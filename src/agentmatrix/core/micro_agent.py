@@ -60,7 +60,7 @@ class MicroAgent(AutoLoggerMixin):
         available_skills: Optional[List[str]] = None,
         system_prompt: str = "",
         md_skill_names: Optional[List[str]] = None,
-        compression_token_threshold: int = 64000,
+        compression_token_threshold: int = 200000,
     ):
         """
         初始化 Micro Agent
@@ -1009,17 +1009,18 @@ class MicroAgent(AutoLoggerMixin):
                 action_section_text = thought["[ACTION]"]
                 raw_reply = thought.get("[RAW_REPLY]")
                 self.logger.debug(f"Raw LLM reply:\n{raw_reply}")
-                # 📝 写入 session event: think.brain（去掉 <action_script> 块）
-                think_event = re.sub(r'<action_script>.*?</action_script>', '', raw_reply, flags=re.DOTALL).strip() if raw_reply else None
-                if think_event:
+                # 📝 写入 session event: think.brain（原始输出，由 desktop 层决定如何处理）
+                if raw_reply:
                     self._emit_event("think", "brain", {
                         "step_count": step_count,
-                        "thought": think_event
+                        "raw_reply": raw_reply
                     })
                 
 
                 # 2. 检测 actions（参数对齐已在内完成）
-                action_names, action_results = await self._detect_actions(raw_reply or "")
+                # 预处理：将 <function=name> 格式转为 <action_script> 格式
+                action_text = _utils.convert_function_blocks_to_action_script(raw_reply or "")
+                action_names, action_results = await self._detect_actions(action_text)
 
                 self.logger.info(f"Detected actions: {action_names}")
 
