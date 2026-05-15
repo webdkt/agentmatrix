@@ -326,7 +326,8 @@ class SessionManager(AutoLoggerMixin):
             "task_id": session["task_id"],
             "created_at": session["created_at"],
             "last_modified": session["last_modified"],
-            "history": session["history"]
+            "history": session["history"],
+            "metadata": session.get("metadata", {}),
         }
 
         # 原子写入：先写入临时文件，然后重命名

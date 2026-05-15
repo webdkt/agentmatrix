@@ -966,6 +966,13 @@ class MicroAgent(AutoLoggerMixin):
             # 🔀 检查点2：think 之前检查是否暂停
             await self.root_agent.checkpoint()
 
+            # Hook: think 之前的回调（可用于刷新动态注入内容）
+            if hasattr(self, '_before_think_hook') and self._before_think_hook:
+                try:
+                    await self._before_think_hook()
+                except Exception as e:
+                    self.logger.debug(f"_before_think_hook error: {e}")
+
             # ===== 批量取信号 =====
             # 如果 signal_queue 非空 → drain 所有 signals
             # 如果 signal_queue 空 + 有 running actions → 阻塞等 signal
@@ -1370,10 +1377,12 @@ class MicroAgent(AutoLoggerMixin):
         unknown = [p for p in params if p not in all_params]
         missing = [p for p in required_params if p not in params]
 
-        # 自动修正：只有一个未知参数且只有一个 required 参数 → 直接映射
-        if len(unknown) == 1 and len(missing) == 1 and len(params) == 1:
+        # 自动修正：只有一个未知参数且只有一个 required 参数 → 直接重命名
+        # 不限制 len(params)==1，因为多参数场景下（如 path/allow_overwrite/content）
+        # 依然可以通过 1:1 映射修正参数名
+        if len(unknown) == 1 and len(missing) == 1:
             old_key = unknown[0]
-            params = {missing[0]: params[old_key]}
+            params[missing[0]] = params.pop(old_key)
             self.logger.debug(f"[{action_name}] 自动修正参数名: {old_key} → {missing[0]}")
             unknown = []
             missing = []

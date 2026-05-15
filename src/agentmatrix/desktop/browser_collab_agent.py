@@ -70,8 +70,9 @@ class _SiteKnowledgeLoader:
         hostname = self._parse_hostname(current_url)
         matches = self._get_hostname_matches(hostname)
         current_site = getattr(self.agent, '_current_site_url', None)
+        loaded_process = getattr(self.agent, '_loaded_process_dir', None)
 
-        agent_section = self._build_agent_section(current_url, current_site)
+        agent_section = self._build_agent_section(current_url, current_site, loaded_process)
         system_section = self._build_system_hint(current_url, matches, current_site)
 
         parts = []
@@ -88,8 +89,12 @@ class _SiteKnowledgeLoader:
     # Agent 主动加载区
     # ------------------------------------------------------------------
 
-    def _build_agent_section(self, current_url: str, current_site: str) -> str:
-        """Agent 通过 load_site_knowledge 主动加载的站点知识（500 行预览）。"""
+    def _build_agent_section(self, current_url: str, current_site: str, loaded_process: str = None) -> str:
+        """Agent 通过 load_site_knowledge 主动加载的站点知识。
+
+        如果只加载了 site → 注入 readme + 流程子目录列表
+        如果加载了 process → 注入 process 的 readme + step 列表
+        """
         if not current_site:
             return ""
         entries = self._parse_index()
@@ -101,9 +106,13 @@ class _SiteKnowledgeLoader:
         sk_dir = os.path.join(self.home_dir, "site_knowledge")
         site_dir = os.path.join(sk_dir, dirname)
 
+        if loaded_process:
+            return self._build_process_section(ep, desc, dirname, site_dir, loaded_process)
+
+        # Site-only loading
+        full_key = self._entry_key(entry)
         lines = [
-            f"=== 已加载站点知识: {ep} ({desc}) ===",
-            f"站点知识目录: ~/site_knowledge/{dirname}",
+            f"已加载：{full_key}",
             "",
         ]
         readme_path = os.path.join(site_dir, "readme.md")
@@ -115,6 +124,61 @@ class _SiteKnowledgeLoader:
 
         self._append_flow_list(lines, site_dir)
         return "\n".join(lines)
+
+    def _build_process_section(self, ep: str, desc: str, dirname: str,
+                                site_dir: str, process_dir_name: str) -> str:
+        """生成具体自动化流程的知识注入内容。"""
+        full_key = f"{ep}:{desc}:{dirname}"
+        process_dir = os.path.join(site_dir, process_dir_name)
+
+        if not os.path.isdir(process_dir):
+            return (f"已加载: {full_key}\n\n"
+                    f"⚠️ 流程目录不存在: {process_dir_name}")
+
+        lines = [
+            f"已加载: {full_key}",
+            f"Automation Process: {process_dir_name}",
+            "",
+        ]
+
+        # Process readme
+        readme_path = os.path.join(process_dir, "readme.md")
+        content = self._read_file_lines(readme_path, 500)
+        if content:
+            lines.append(content)
+            if self._file_has_more(readme_path, 500):
+                lines.append("(read more from readme.md)")
+            lines.append("")
+
+        # List steps
+        steps = self._list_process_steps(process_dir)
+        if steps:
+            lines.append("Process has following steps:")
+            for i, (step_name, has_script) in enumerate(steps, 1):
+                suffix = " (script exists)" if has_script else ""
+                lines.append(f" {i}. {step_name}{suffix}")
+
+        return "\n".join(lines)
+
+    def _list_process_steps(self, process_dir: str) -> list:
+        """列出流程目录中的步骤，返回 [(step_name, has_script), ...]。"""
+        import re as _re
+        step_pattern = _re.compile(r'^step-(\d+)-(.+)\.md$', _re.IGNORECASE)
+        steps = []
+
+        if not os.path.isdir(process_dir):
+            return steps
+
+        for filename in sorted(os.listdir(process_dir)):
+            m = step_pattern.match(filename)
+            if m:
+                step_name = m.group(2)
+                # Check if corresponding .py script exists
+                py_file = f"step-{m.group(1)}-{step_name}.py"
+                has_script = os.path.isfile(os.path.join(process_dir, py_file))
+                steps.append((step_name, has_script))
+
+        return steps
 
     # ------------------------------------------------------------------
     # 系统自动注入区（4 种场景）
@@ -128,8 +192,17 @@ class _SiteKnowledgeLoader:
 
         if matches:
             if current_site:
-                # (1) 有匹配 + agent 已加载 → 简短列表
-                return self._format_system_brief(current_url, matches)
+                # (1) 有匹配 + agent 已加载
+                # 检查是否有重叠：loaded site 是否在自动匹配列表中
+                loaded_in_matches = any(
+                    self._entry_key(m) == current_site for m in matches
+                )
+                if loaded_in_matches:
+                    # 重叠 → loaded site 与当前 URL 吻合，不需要额外提示
+                    return ""
+                else:
+                    # 不重叠 → 当前 URL 不匹配 loaded site，发出警告
+                    return self._format_mismatch_warning(current_url, matches)
             else:
                 # (2) 有匹配 + agent 未加载 → 200 行预览
                 return self._format_system_preview(current_url, matches)
@@ -142,14 +215,27 @@ class _SiteKnowledgeLoader:
                 total = len(self._parse_index())
                 return f"目前无匹配的站点知识，index.txt中共有{total}条站点知识"
 
-    def _format_system_brief(self, current_url: str, matches: list) -> str:
-        """场景 1：有匹配且 agent 已加载 → 仅列出 site_key 概要。"""
+    def _format_mismatch_warning(self, current_url: str, matches: list) -> str:
+        """当前 URL 不匹配已加载的 site，警告并列出实际匹配的站点。"""
+        sk_dir = os.path.join(self.home_dir, "site_knowledge")
         lines = [
-            f"当前URL: {current_url}",
-            "有以下站点知识可能匹配当前网页：",
+            "=== Warning ===",
+            f"Current loaded site knowledge does not match current url: {current_url}",
+            "Following site(s) match current url:",
         ]
         for ep, desc, dirname in matches:
-            lines.append(f"- {ep} | {desc} | 目录: ~/site_knowledge/{dirname}")
+            full_key = self._entry_key((ep, desc, dirname))
+            site_dir = os.path.join(sk_dir, dirname)
+            lines.append(f"- site_key: {full_key}")
+            lines.append(f"  desc: {desc}")
+
+            readme_path = os.path.join(site_dir, "readme.md")
+            content = self._read_file_lines(readme_path, 200)
+            if content:
+                lines.append(f"  {content}")
+                if self._file_has_more(readme_path, 200):
+                    lines.append("  (read more from readme.md)")
+
         return "\n".join(lines)
 
     def _format_system_preview(self, current_url: str, matches: list) -> str:
@@ -186,8 +272,8 @@ class _SiteKnowledgeLoader:
     # 公共接口
     # ------------------------------------------------------------------
 
-    def set_current_site(self, site_url_prefix: str) -> str:
-        """LLM 调用 load_site_knowledge 时设置 current_site_url。
+    def set_current_site(self, site_url_prefix: str, process_dir_name: str = None) -> str:
+        """LLM 调用 load_site_knowledge 时设置 current_site_url 和可选的 process_dir。
 
         site_url_prefix 为 index.txt 中的整行 key（url_prefix:desc:dir_name），
         使用 startswith 匹配。
@@ -199,7 +285,33 @@ class _SiteKnowledgeLoader:
             return json.dumps({"error": f"未找到站点: {site_url_prefix}"})
         full_key = self._entry_key(match)
         self.agent._current_site_url = full_key
-        return json.dumps({"status": "ok", "site_url_prefix": full_key})
+        self.agent._loaded_site_key = full_key
+
+        # Validate process_dir if provided
+        if process_dir_name:
+            ep, desc, dirname = match
+            site_dir = os.path.join(self.home_dir, "site_knowledge", dirname)
+            process_dir = os.path.join(site_dir, process_dir_name)
+            if not os.path.isdir(process_dir):
+                return json.dumps({"error": f"流程目录不存在: {process_dir_name}"})
+
+        self.agent._loaded_process_dir = process_dir_name if process_dir_name else None
+
+        # Persist to session metadata
+        self._sync_session_metadata()
+
+        result = {"status": "ok", "site_url_prefix": full_key}
+        if process_dir_name:
+            result["process_dir"] = process_dir_name
+        return json.dumps(result, ensure_ascii=False)
+
+    def _sync_session_metadata(self):
+        """将当前加载状态同步到 session metadata 以便持久化。"""
+        session = getattr(self.agent, 'current_session', None)
+        if session:
+            metadata = session.setdefault("metadata", {})
+            metadata["sk_site_key"] = self.agent._loaded_site_key
+            metadata["sk_process_dir"] = self.agent._loaded_process_dir
 
     def reload_and_update_prompt(self, micro_agent):
         """重新加载 site knowledge 并即时更新 micro agent 的 system prompt。"""
@@ -240,18 +352,22 @@ class _SiteKnowledgeLoader:
         return matches
 
     def _append_flow_list(self, lines: list, site_dir: str):
-        """列出站点目录中的流程 md 文件（排除 readme.md）。"""
+        """列出站点目录中的自动化流程子目录。"""
         if not os.path.isdir(site_dir):
             return
-        flows = sorted(
-            f for f in os.listdir(site_dir)
-            if f.endswith(".md") and f.lower() != "readme.md"
+        subdirs = sorted(
+            d for d in os.listdir(site_dir)
+            if os.path.isdir(os.path.join(site_dir, d))
+            and not d.startswith('.') and d != 'scripts'
         )
-        if flows:
+        if subdirs:
             lines.append("")
-            lines.append("已存储自动化流程:")
-            for f in flows:
-                lines.append(f"- {f}")
+            lines.append("# Automation Processes")
+            lines.append("This site has following automation process")
+            for d in subdirs:
+                lines.append(f"- {d}")
+            lines.append("")
+            lines.append("To use a specific process, call load_site_knowledge(site_key, process_dir_name)")
 
     @staticmethod
     def _entry_key(entry):
@@ -320,6 +436,8 @@ class BrowserCollabAgent(BaseAgent):
 
     # Site knowledge：跨 execute 保持，load_site_knowledge action 设置
     _current_site_url: str = None
+    _loaded_site_key: str = None
+    _loaded_process_dir: str = None
 
     async def _broadcast_to_browser(self, event_type: str, data: dict):
         """转发事件到浏览器前端。fire-and-forget，不阻塞主流程。"""
@@ -384,10 +502,13 @@ class BrowserCollabAgent(BaseAgent):
         """
         await super()._on_activate_session(session, first_signal)
 
-        # 明确切换到不同 session 时，清空 site knowledge 状态
+        # 明确切换到不同 session 时，恢复 site knowledge 状态
         session_id = session["session_id"]
         if self._last_deactivated_session_id != session_id:
-            self._current_site_url = None
+            metadata = session.get("metadata", {})
+            self._current_site_url = metadata.get("sk_site_key")
+            self._loaded_site_key = metadata.get("sk_site_key")
+            self._loaded_process_dir = metadata.get("sk_process_dir")
             from .skills.browser_automation.skill import _agent_sk_callbacks
             _agent_sk_callbacks.pop(self.name, None)
         try:
@@ -424,6 +545,11 @@ class BrowserCollabAgent(BaseAgent):
 
         # 注册回调：tab 变化时自动刷新 system prompt
         _agent_sk_callbacks[self.name] = lambda: sk_loader.reload_and_update_prompt(micro)
+
+        # Hook: 每次 think 前自动刷新 site knowledge（确保文件变更即时反映）
+        async def _refresh_sk_before_think():
+            sk_loader.reload_and_update_prompt(micro)
+        micro._before_think_hook = _refresh_sk_before_think
 
         return micro
 
@@ -503,25 +629,25 @@ class BrowserCollabAgent(BaseAgent):
         return {"status": "ok", "mode": mode}
 
     @ui_action(
-        name="set_learning_mode",
-        label="学习模式",
+        name="set_develop_mode",
+        label="开发构建",
         icon="school",
-        tooltip="切换到学习模式：和用户协作学习网站自动化流程",
+        tooltip="切换到开发构建模式：构建网站自动化流程和脚本",
         placement="floating",
         requires_idle=True,
         display_mode="toast",
     )
-    async def set_learning_mode(self):
-        return await self._switch_work_mode("learning")
+    async def set_develop_mode(self):
+        return await self._switch_work_mode("develop")
 
     @ui_action(
-        name="set_automate_mode",
-        label="自动化模式",
+        name="set_execute_mode",
+        label="自动化执行",
         icon="robot",
-        tooltip="切换到自动化模式：执行已学会的自动化脚本",
+        tooltip="切换到自动化执行模式：执行已构建的自动化脚本",
         placement="floating",
         requires_idle=True,
         display_mode="toast",
     )
-    async def set_automate_mode(self):
-        return await self._switch_work_mode("automation")
+    async def set_execute_mode(self):
+        return await self._switch_work_mode("execute")
