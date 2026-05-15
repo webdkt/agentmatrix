@@ -216,23 +216,30 @@ class Browser_automationSkillMixin:
     - 浏览器事件按 tab 归属路由到正确的 agent signal_queue
     """
 
-    _skill_description = """浏览器自动化：打开页面、管理 tab、运行cdp命令和js, 执行浏览器自动化脚本
-    已经学会的网站知识和流程，记录在`~/site_knowledge`目录下。
+    _skill_description = """浏览器自动化开发：浏览器自动化流程和自动化脚本的生成、管理和运行
+    已经学会的网站自动化流程，记录在`~/site_knowledge`目录下。
     ### site_knowledge 的结构
     - index.txt: 已学会的网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
         - url_prefix 可以是域名（如 `www.example.com`）或域名+路径前缀（如 `www.example.com/shop`）
         - url_prefix 可能重复，但说明和子目录名必须不同（因为有些单体站点可能包含多个不同的子系统，结构和元素差异较大）
         - 匹配规则：系统会自动根据hostname 来推荐匹配。但你必须显示的选择正确的site key 来加载对应的知识。系统不会自动加载，除非你明确的选择了一个site key。
-        - 使用 load_site_knowledge(site_key) 来加载对应的知识
+        - 使用 load_site_knowledge(site_key, process_dir_name?) 来加载对应的知识。仅提供 site_key 加载站点概览和流程列表；同时提供 process_dir_name 加载具体流程的详细步骤
     - 每个网站(site key)一个子目录，内含：
-        - index.md: 网站说明、该站点所有文档和脚本的index。 **MUST HAVE**, **MUST READ**
-        - shared_components.md:  站内公用元素的定位说明，所有流程共享
-        - 其他 .md 文件: 特定自动化流程（如”登录流程.md”、”购买流程.md”）
-        - scripts/ 目录：存放针对该站点的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
-        - 其中py脚本 绝对不能通过bash执行。 原因见下面规范说明
+        - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
+        - shared_elements.md:  站内公用元素的定位说明，所有流程共享
+        - 流程子目录，每个自动化流程一个子目录，内含流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
+    - 每个流程子目录的结构
+        - readme.md: 业务流程和规则的简要说明
+        - tech-spec.md: 该流程的技术规范，包括目录和文件规范，如何运行，如何单元测试，如何单步执行，如何异常检测和处理等等。
+        - main.py: 该流程的主自动化脚本
+        - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
+        - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
+        - 每一个step都应该有一个对应的全自动化 .py 脚本，文件名和步骤名一致：step-{{step_index}}-{{step_name}}.py。对于完全无法完全自动化的步骤（必须依赖你的判断
+        一步步执行的），需要在step-{{step_index}}-{{step_name}}.md中明确说明。但具体执行动作应该必须固化为脚本，不得每次临时生成代码。
+        - .py 脚本 绝对不能通过bash执行。 原因见下面规范说明
     ### site_knowledge 文件规范
     #### Python自动化脚本
-    py 自动化脚本**必须**通过 `run_automation_script(file_path, str_arg1?)` 执行，因为Chrome在用户环境而不是你的环境，通过bash直接执行python脚本将无法访问cdp。
+    所有 .py 自动化脚本**必须**通过 `run_automation_script(file_path, str_arg1?)` 执行，因为Chrome在用户环境而不是你的环境，通过bash直接执行python脚本将无法访问cdp。
     **切记**：Python脚本中绝对不可以直接使用任何硬编码的路径或连接信息，必须通过以下环境变量获取，才能保证脚本在用户环境中正确执行，脚本生成的文件你才能访问。
     脚本通过环境变量获取连接信息和路径：
     - `os.environ["CDP_PORT"]` — Chrome 调试端口（如 9222）
@@ -242,7 +249,7 @@ class Browser_automationSkillMixin:
     - `os.environ["HOME_DIR"]` — home 目录（对应你的 ~/）
     - `os.environ["SITE_KNOWLEDGE_DIR"]` — site_knowledge 目录（对应你的 ~/site_knowledge/）
     - `sys.argv[1]` — 可选的字符串参数。如需传递多个参数，将参数写入文件，传入文件路径
-    1. Py脚本只能接受最多一个字符串参数（sys.argv[1]），多参数用参数文件传递(文件路径作为参数传入，文件必须在 ~ （或者其子目录）下面。
+    1. Py脚本只能接受最多一个字符串参数（sys.argv[1]），多参数可用参数文件传递(文件路径作为参数传入，文件必须在 ~ （或者其子目录）下面。
     2. 需要保存文件时，使用环境变量中的路径（如 `os.path.join(os.environ["CURRENT_TASK_DIR"], "output.json")`），这样你就可以通过 ~/current_task/output.json 读取
     3. 连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
     **绝对不要用bash 直接执行python自动化脚本，否则无法连接用户环境中的Chrome CDP。** 
@@ -250,12 +257,11 @@ class Browser_automationSkillMixin:
     eval_js 和 run_automation_script 都不会返回console的输出。只会返回脚本 return的结果。
     #### 正式脚本 vs 探索脚本
     ~/site_knowledge 下只能存放正式的脚本。探索脚本放在 ~/current_task/tmp 下。
-    #### 流程文档 
-    - 必须是 .md格式
-    - 文件开头部分必须有目录和meta data
-    - **必须记录自动化状态**：有没有自动化，哪些步骤自动化了，自动化脚本在哪里
-    - 单个文件必须小于500行
-    - 要增加任何新流程内容，必须先verify是否已经存在。READ BEFORE MODIFY 
+    #### 流程文档 step-{{index}}-{{step_name}}.md
+    - 元素必须有明确、稳定的定位器
+    - 不得进行全局撒网式的探索
+    - 必须包含判断所在页面、当前状态的明确规则
+    - 操作元素前等待其可交互
     - 流程知识更新后，执行load_site_knowledge，重新加载知识
   """
 
@@ -1323,10 +1329,10 @@ class Browser_automationSkillMixin:
         }, ensure_ascii=False)
 
     @register_action(
-        short_desc="(mode)切换工作模式。mode='learning' 进入学习模式，mode='automation' 进入自动化模式。必须根据当前情况切换到合适的模式。",
-        description="切换工作模式。mode='learning' 进入学习模式，mode='automation' 进入自动化模式。"
+        short_desc="(mode)切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。必须根据当前情况切换到合适的模式。",
+        description="切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。"
                     "会重建 system prompt（使用 profile 中对应的模式 persona）。",
-        param_infos={"mode": "工作模式：'learning' 或 'automation'"},
+        param_infos={"mode": "工作模式：'develop' 或 'execute'"},
     )
     async def set_work_mode(self, mode: str) -> str:
         """切换工作模式，用新 persona 重建 system prompt。"""
@@ -1335,7 +1341,7 @@ class Browser_automationSkillMixin:
 
         mode_content = profile.get(f"{mode}_mode")
         if not mode_content:
-            return json.dumps({"error": f"未知模式: {mode}，支持: learning, automation"}, ensure_ascii=False)
+            return json.dumps({"error": f"未知模式: {mode}，支持: develop, execute"}, ensure_ascii=False)
 
         # 用新 persona 重新渲染模板
         template = root.get_prompt_template("SYSTEM_PROMPT")
@@ -1362,15 +1368,19 @@ class Browser_automationSkillMixin:
         return json.dumps({"status": "ok", "mode": mode}, ensure_ascii=False)
 
     @register_action(
-        short_desc="[site_key] 加载指定站点的完整知识, site_key 为 site_key 行内容（url_prefix:desc:dir_name）",
-        description="[site_key] 加载指定站点的完整知识, site_key 为注入文本中 site_key 行的完整内容",
-        param_infos={"site_key": "站点 site_key（来自注入文本的 site_key 行，格式 url_prefix:desc:dir_name）"},
+        short_desc="load_site_knowledge(site_key, process_dir_name?) 加载站点知识或具体自动化流程",
+        description="加载指定站点的知识。只传 site_key 时加载站点 readme 和流程列表；"
+                    "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。",
+        param_infos={
+            "site_key": "站点 site_key（来自注入文本的 site_key 行，格式 url_prefix:desc:dir_name）",
+            "process_dir_name": "可选，自动化流程子目录名称，加载具体流程的详细知识",
+        },
     )
-    async def load_site_knowledge(self, site_key: str) -> str:
+    async def load_site_knowledge(self, site_key: str, process_dir_name: str = None) -> str:
         loader = getattr(self, '_site_knowledge_loader', None)
         if not loader:
             return json.dumps({"error": "site knowledge loader 未初始化"})
-        result = loader.set_current_site(site_key)
+        result = loader.set_current_site(site_key, process_dir_name)
 
         # 即时更新 system prompt，下次 LLM 调用立即生效
         loader.reload_and_update_prompt(self)

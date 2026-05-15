@@ -354,6 +354,13 @@ class FileSkillMixin:
         """
         container_session = self.root_agent.container_session
 
+        # 自动补齐未闭合的双引号，防止 bash 卡死等待输入
+        import re
+        stripped = re.sub(r"'[^']*'", '', command)
+        if stripped.count('"') % 2 == 1:
+            self.logger.debug(f"[bash] 检测到未闭合双引号，自动补齐")
+            command += '"'
+
         # 执行前检查 shell 是否可响应，不可响应则自动重启
         await asyncio.to_thread(container_session.ensure_responsive)
 

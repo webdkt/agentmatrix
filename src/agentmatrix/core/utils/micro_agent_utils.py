@@ -120,34 +120,14 @@ def parse_function_calls(
         func_name = match.group(1).lower()
         start_paren = match.end() - 1  # '(' 的位置
 
-        # 括号配对，支持多行和嵌套（跳过引号内的括号）
+        # 括号配对，支持多行和嵌套（通过 _skip_string_literal 跳过字符串）
         depth = 1
         pos = start_paren + 1
         while pos < len(text) and depth > 0:
             ch = text[pos]
-            if ch in ('"', "'"):
-                quote = ch
-                # 检测 triple quote: """ 或 '''
-                if pos + 2 < len(text) and text[pos + 1] == quote and text[pos + 2] == quote:
-                    # Triple quote 模式：跳过直到找到连续三个相同引号
-                    pos += 3  # 跳过开头的 """
-                    while pos + 2 < len(text):
-                        if text[pos] == quote and text[pos + 1] == quote and text[pos + 2] == quote:
-                            pos += 2  # 留在外层 pos+=1 之前，确保不跳过下一个字符
-                            break
-                        pos += 1
-                    else:
-                        pos = len(text)  # 未闭合，跳到末尾
-                else:
-                    # 单引号模式：跳过引号内的内容（尊重转义）
-                    pos += 1
-                    while pos < len(text):
-                        if text[pos] == '\\':
-                            pos += 2  # 跳过转义字符
-                            continue
-                        if text[pos] == quote:
-                            break
-                        pos += 1
+            if ch in ('"', "'") or (ch in ('r', 'b', 'f', 'R', 'B', 'F') and pos + 1 < len(text) and text[pos + 1] in ('"', "'")):
+                pos = _skip_string_literal(text, pos)
+                continue
             elif ch == '(':
                 depth += 1
             elif ch == ')':
@@ -215,41 +195,98 @@ def parse_params_from_call(params_text: str) -> Dict[str, Any]:
     return result
 
 
-def _split_params(text: str) -> List[str]:
-    """按逗号分割参数，忽略引号内的逗号和嵌套括号/花括号/方括号内的逗号。"""
-    parts = []
-    current = []
-    depth = 0          # tracks (), {}, [] nesting
-    in_quote = None
-    prev_ch = None
+def _skip_string_literal(text: str, i: int) -> int:
+    """
+    如果 text[i] 位于字符串字面量起始处，跳过整个字符串并返回结束位置。
+    如果不是字符串起始，返回 i 原值。
 
-    for ch in text:
-        if in_quote:
-            current.append(ch)
-            # 跳过转义引号
-            if prev_ch == '\\':
-                pass
-            elif ch == in_quote:
-                in_quote = None
-        elif ch in ('"', "'"):
-            in_quote = ch
-            current.append(ch)
-        elif ch in ('(', '{', '['):
+    支持所有 Python 字符串形式：
+    - 单引号、双引号
+    - 三引号（三个连续相同引号字符）
+    - r/b/f 前缀
+    正确处理转义序列（反斜杠）。
+    """
+    if i >= len(text):
+        return i
+
+    # 跳过原始前缀 r/b/f
+    start = i
+    if text[i] in ('r', 'b', 'f', 'R', 'B', 'F') and i + 1 < len(text) and text[i + 1] in ('"', "'"):
+        i += 1
+
+    ch = text[i]
+    if ch not in ('"', "'"):
+        return start  # 不是字符串
+
+    # 检测三引号
+    is_triple = (i + 2 < len(text) and text[i + 1] == ch and text[i + 2] == ch)
+
+    if is_triple:
+        close_seq = ch * 3
+        j = i + 3
+        escape = False
+        while j <= len(text) - 3:
+            if escape:
+                escape = False
+                j += 1
+                continue
+            if text[j] == '\\':
+                escape = True
+                j += 1
+                continue
+            if text[j:j + 3] == close_seq:
+                return j + 3
+            j += 1
+        return len(text)  # 未闭合 → 跳到末尾
+    else:
+        j = i + 1
+        escape = False
+        while j < len(text):
+            if escape:
+                escape = False
+                j += 1
+                continue
+            if text[j] == '\\':
+                escape = True
+                j += 1
+                continue
+            if text[j] == ch:
+                return j + 1
+            j += 1
+        return len(text)  # 未闭合 → 跳到末尾
+
+
+def _split_params(text: str) -> List[str]:
+    """按逗号分割参数，忽略引号内和嵌套 ()/{}/[] 内的逗号。
+
+    通过 _skip_string_literal 跳过所有字符串字面量（含三引号），
+    确保字符串内部的逗号和括号不影响分割。
+    """
+    parts = []
+    segment_start = 0
+    depth = 0
+    i = 0
+    n = len(text)
+
+    while i < n:
+        ch = text[i]
+
+        # 遇到引号 → 跳过整个字符串字面量
+        if ch in ('"', "'") or (ch in ('r', 'b', 'f', 'R', 'B', 'F') and i + 1 < n and text[i + 1] in ('"', "'")):
+            i = _skip_string_literal(text, i)
+            continue
+
+        if ch in ('(', '{', '['):
             depth += 1
-            current.append(ch)
         elif ch in (')', '}', ']'):
             depth -= 1
-            current.append(ch)
         elif ch == ',' and depth == 0:
-            parts.append(''.join(current))
-            current = []
-        else:
-            current.append(ch)
-        prev_ch = ch
+            parts.append(text[segment_start:i])
+            segment_start = i + 1
 
-    if current:
-        parts.append(''.join(current))
+        i += 1
 
+    parts.append(text[segment_start:])
     return parts
 
 
@@ -269,6 +306,16 @@ def _parse_value(value_str: str) -> Any:
         return value_str[4:-3]
     if value_str.startswith("r'''") and value_str.endswith("'''"):
         return value_str[4:-3]
+
+    # 三引号字符串：'''...''' / """..."""
+    # 必须在单引号检查之前，否则 startswith("'") 会误匹配
+    if ((value_str.startswith("'''") and value_str.endswith("'''") and len(value_str) >= 6)
+        or (value_str.startswith('"""') and value_str.endswith('"""') and len(value_str) >= 6)):
+        try:
+            return ast.literal_eval(value_str)
+        except (ValueError, SyntaxError):
+            # ast 解析失败（含非法转义等），直接剥掉三引号返回原样内容
+            return value_str[3:-3]
 
     # 带引号字符串：用 ast.literal_eval 解释转义序列（\n → 换行等）
     if (value_str.startswith('"') and value_str.endswith('"')) or \

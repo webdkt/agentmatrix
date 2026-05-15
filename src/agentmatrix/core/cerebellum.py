@@ -4,6 +4,7 @@ import json
 import textwrap
 from ..core.log_util import AutoLoggerMixin
 from .utils import micro_agent_utils as _utils
+from .utils.micro_agent_utils import _skip_string_literal
 import logging
 from typing import Optional, TYPE_CHECKING
 
@@ -159,28 +160,43 @@ class Cerebellum(AutoLoggerMixin):
         """
         从 Brain 回答中提取目标 action 的函数调用。
 
-        Brain 可能输出额外文字、<action_script> 块等，
-        只提取以 action_name 开头的那行完整函数调用。
+        支持跨多行的调用（如 content='''...''' 包含换行），
+        通过 _skip_string_literal 正确跳过字符串内容。
 
         Returns:
             函数调用的参数文本（括号内），找不到返回空字符串
         """
-        for line in text.splitlines():
-            stripped = line.strip()
-            # 匹配 action_name( 或 skill.action_name(
-            if stripped.startswith(f"{action_name}(") or \
-               re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\.' + re.escape(action_name) + r'\(', stripped):
-                # 括号配对提取 params
-                start = stripped.index('(')
-                depth = 1
-                pos = start + 1
-                while pos < len(stripped) and depth > 0:
-                    if stripped[pos] == '(':
-                        depth += 1
-                    elif stripped[pos] == ')':
-                        depth -= 1
-                    pos += 1
+        # 在全文中搜索 action_name( 或 module.action_name(
+        pattern = re.compile(
+            r'(?:^|(?<=\n))[ \t]*([a-zA-Z_]\w*\.)?' + re.escape(action_name) + r'\(',
+            re.MULTILINE,
+        )
+        match = pattern.search(text)
+        if not match:
+            return ""
+
+        # 从 ( 开始引号感知地配对括号
+        paren_pos = text.index('(', match.start())
+        depth = 1
+        i = paren_pos + 1
+        n = len(text)
+
+        while i < n and depth > 0:
+            ch = text[i]
+
+            # 遇到字符串字面量 → 跳过
+            if ch in ('"', "'") or (ch in ('r', 'b', 'f', 'R', 'B', 'F') and i + 1 < n and text[i + 1] in ('"', "'")):
+                i = _skip_string_literal(text, i)
+                continue
+
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
                 if depth == 0:
-                    return stripped[start + 1:pos - 1].strip()
+                    return text[paren_pos + 1:i].strip()
+
+            i += 1
+
         return ""
 
