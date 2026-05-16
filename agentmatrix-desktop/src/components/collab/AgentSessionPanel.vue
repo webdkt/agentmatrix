@@ -116,6 +116,13 @@ watch(currentSessionId, (newId, oldId) => {
   }
 })
 
+// ---- Auto-load files when TaskFiles panel opens ----
+watch(showTaskFiles, (visible) => {
+  if (visible && currentAgentName.value && currentSessionId.value) {
+    taskFiles.loadFiles()
+  }
+})
+
 // ---- Update session subject ----
 async function updateSubject(event) {
   const newSubject = event.target.value.trim()
@@ -204,7 +211,9 @@ watch(() => wsStore.lastUIActionResult, (result) => {
 const invokeUIAction = async (action) => {
   if (!currentAgentName.value) return
   try {
-    const resp = await agentAPI.invokeAgentUIAction(currentAgentName.value, action.name)
+    const payload = { session_id: currentSessionId.value }
+    console.log('[UI Action]', action.name, payload)
+    const resp = await agentAPI.invokeAgentUIAction(currentAgentName.value, action.name, payload)
     // 结果通过 UI_ACTION_RESULT WebSocket 推送 → 弹窗展示
     // 如果 WebSocket 未连接（无 session），直接用 HTTP 响应弹窗
     if (resp.success && resp.result != null && !showUIActionModal.value) {

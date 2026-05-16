@@ -263,6 +263,11 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
 
         # 注意：不调用 _deactivate_session。
         # _route_signal 会在下一个信号到来时决定是否切换。
+        # 但如果有暂存信号，需要主动处理
+        if self.waiting_signals:
+            next_signal = self.waiting_signals.pop(0)
+            self.logger.info(f"Processing waiting signal after session {session_id[:8]} completed")
+            await self._route_signal(next_signal)
 
     # ==========================================
     # 事件消费者

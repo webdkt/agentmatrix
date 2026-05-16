@@ -1238,11 +1238,11 @@ class LLMClient(AutoLoggerMixin):
             buffer = ""
 
             # 超时配置：
-            # - total=None: 不限制总时间，LLM 输出多久都可以（只要在持续输出）
-            # - sock_read=300: 单次读取超时 5 分钟，如果 5 分钟内没有收到任何数据 chunk，才认为超时
+            # - total=600: 10 分钟总上限，防止异常慢连接无限挂起
+            # - sock_read=120: 2 分钟无数据则超时
             timeout = aiohttp.ClientTimeout(
-                total=None,      # 不限制总时长，允许 LLM 长时间输出
-                sock_read=300    # 单次读取超时 5 分钟（宽容的网络容错）
+                total=600,      # 10 分钟总上限
+                sock_read=120   # 2 分钟无数据则超时
             )
             async with aiohttp.ClientSession(headers=self.headers, timeout=timeout, trust_env=True) as session:
                 async with session.post(self.url, json=data) as resp:

@@ -992,7 +992,17 @@ Start generating the Working Notes now.
         if handler is None:
             raise RuntimeError(f"Handler '{meta['_handler_name']}' not found on {self.name}")
 
-        result = handler(**(payload or {}))
+        # 只传 handler 接受的参数，过滤掉多余的（如 session_id）
+        import inspect
+        sig = inspect.signature(handler)
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            # handler 有 **kwargs，全传
+            filtered_payload = payload or {}
+        else:
+            accepted = set(sig.parameters.keys()) - {"self"}
+            filtered_payload = {k: v for k, v in (payload or {}).items() if k in accepted}
+
+        result = handler(**filtered_payload)
         if asyncio.iscoroutine(result):
             result = await result
 
