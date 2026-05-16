@@ -117,8 +117,8 @@ class MicroAgent(AutoLoggerMixin):
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
         
-        self.scratchpad: List[str] = []  # 草稿纸：工作过程中随手记录的要点，压缩时辅助生成 Working Notes
-        self.scratchpad_limit: int = 8  # scratchpad 积累到此条数时触发自动压缩
+        self.whiteboard: dict = {}  # 草稿纸：工作过程中随手记录的要点，压缩时辅助生成 Working Notes
+        self.whiteboard_limit: int = 8  # whiteboard 积累到此条数时触发自动压缩
 
         # ========== 压缩相关 ==========
         self.compression_token_threshold = compression_token_threshold
@@ -616,7 +616,7 @@ class MicroAgent(AutoLoggerMixin):
 
         双通道触发：
         1. token 阈值（64K tokens）— 被动阈值
-        2. scratchpad 积累量 — 主动信号，LLM 自己认为已产生足够多值得总结的信息
+        2. whiteboard 积累量 — 主动信号，LLM 自己认为已产生足够多值得总结的信息
 
         Returns:
             bool: 是否应该压缩
@@ -625,8 +625,8 @@ class MicroAgent(AutoLoggerMixin):
         if total_tokens >= self.compression_token_threshold:
             self.logger.info(f"📦 Messages 达到 {total_tokens} tokens，自动压缩...")
             return True
-        if len(self.scratchpad) >= self.scratchpad_limit:
-            self.logger.info(f"📝 Scratchpad 积累 {len(self.scratchpad)} 条，自动压缩...")
+        if len(self.whiteboard) >= self.whiteboard_limit:
+            self.logger.info(f"📝 Scratchpad 积累 {len(self.whiteboard)} 条，自动压缩...")
             return True
         return False
 
@@ -1635,6 +1635,9 @@ class MicroAgent(AutoLoggerMixin):
 
         return result
 
+    # whiteboard 浮动块的正则（匹配末尾的 <whiteboard>...</whiteboard>）
+    _WHITEBOARD_RE = re.compile(r'\s*<whiteboard>.*?</whiteboard>\s*$', re.DOTALL)
+
     def _add_message(self, role: str, content: str):
         """
         添加消息到对话历史
@@ -1645,8 +1648,40 @@ class MicroAgent(AutoLoggerMixin):
            a. 如果最后一条 content 是 str → 直接拼接字符串
            b. 如果最后一条 content 是 list（多模态）→ 找到text部分并追加
 
+        浮动 whiteboard：
+        - whiteboard 始终出现在最后一个 user message 末尾
+        - 添加新 user message 时，从旧 user message 移除，追加到新的
+
         如果有 session，自动保存到 session
         """
+        # === 浮动 whiteboard ===
+        if role == "user":
+            # 从 messages 中找到最后一个 user message，移除旧 whiteboard block
+            for i in range(len(self.messages) - 1, -1, -1):
+                if self.messages[i]["role"] == "user":
+                    c = self.messages[i]["content"]
+                    if isinstance(c, str) and "<whiteboard>" in c:
+                        self.messages[i]["content"] = self._WHITEBOARD_RE.sub('', c).rstrip()
+                    break
+            # 追加 whiteboard block 到当前 user message
+            if self.whiteboard:
+                from datetime import datetime
+                sorted_items = sorted(self.whiteboard.items(), key=lambda x: x[1]["ts"])
+                lines = []
+                prev_date = None
+                for k, v in sorted_items:
+                    dt = datetime.fromtimestamp(v["ts"])
+                    cur_date = dt.strftime("%Y/%m/%d")
+                    if cur_date != prev_date:
+                        ts_str = dt.strftime("%Y/%m/%d %H:%M")
+                        prev_date = cur_date
+                    else:
+                        ts_str = dt.strftime("%H:%M")
+                    lines.append(f"[{ts_str}] {k}: {v['content']}")
+                content += "\n\n<whiteboard>\n" + "\n".join(lines) + "\n</whiteboard>"
+            else:
+                content += "\n\n<whiteboard>Whiteboard is empty</whiteboard>"
+
         if not self.messages or self.messages[-1]["role"] != role:
             # 没有前一条消息，或 role 不同 → 直接添加
             self.messages.append({"role": role, "content": content})

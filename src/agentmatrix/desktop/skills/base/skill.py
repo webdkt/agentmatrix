@@ -11,6 +11,7 @@ Base Skill - 所有 MicroAgent 必备的基础 Actions
 """
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 from agentmatrix.core.action import register_action
@@ -50,25 +51,28 @@ class BaseSkillMixin:
     
 
     @register_action(
-        short_desc="随手记录工作过程中的关键要点（完成的步骤、遇到的约束、重要发现等），没有记下的信息稍后会被遗忘",
-        description="随手记录工作过程中的关键要点（完成的步骤、遇到的约束、重要发现等）。这些笔记会在上下文压缩时辅助生成更精准的 Working Notes，压缩后自动清空。自由追加，无需清空。",
-        param_infos={"content": "要记录的要点内容"},
+        short_desc="(key,content) 设置/删除whiteboard内容：提供 key+content 写入，content 为空则删除该条目",
+        description="操作草稿纸（whiteboard）。提供 key 和 content 时写入或更新条目；content 为空时删除该 key。草稿纸用于随手记录工作要点，压缩时辅助生成 Working Notes，压缩后自动清空。",
+        param_infos={"key": "条目标识（必填）", "content": "要记录的内容，留空则删除该条目"},
     )
-    async def add_scratchpad(self, content: str) -> str:
+    async def set_whiteboard(self, key: str, content: str = "") -> str:
         """
-        在草稿纸上记一条要点
-
-        将重要信息追加到 scratchpad，压缩时作为辅助材料喂给 Working Notes 生成器。
-        压缩后自动清空，无需手动管理。
-
-        适用场景：完成关键步骤、遇到约束、发现重要信息时随手记一条。
+        设置或删除草稿纸条目
 
         Args:
-            content: 要记录的要点内容
+            key: 条目标识
+            content: 要记录的内容，为空则删除该 key
 
         Returns:
             str: 操作结果及当前条数
         """
-        self.scratchpad.append(content)
-        return f"Done (scratchpad: {len(self.scratchpad)} 条)"
+        if not content:
+            if key in self.whiteboard:
+                del self.whiteboard[key]
+                return f"Deleted '{key}'"
+            return f"Key '{key}' not found"
+        if len(self.whiteboard) >= 20 and key not in self.whiteboard:
+            return "Whiteboard is full. Delete some first."
+        self.whiteboard[key] = {"content": content, "ts": time.time()}
+        return f"Set '{key}'"
 

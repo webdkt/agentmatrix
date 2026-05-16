@@ -61,12 +61,12 @@ class AgentShell(Protocol):
         Core 在 token 超阈值时调用此方法。默认实现：
         - 调用 generate_working_notes() 生成工作笔记
         - 保留 system message，用原始 user message + working notes 重建
-        - 清空 scratchpad
+        - 清空 whiteboard
 
         Shell 实现可覆盖此方法以自定义压缩策略（如保留邮件历史等）。session通过self访问
 
         Args:
-            agent: MicroAgent 实例（可访问 messages, scratchpad 等）
+            agent: MicroAgent 实例（可访问 messages, whiteboard 等）
 
         """
         ...
