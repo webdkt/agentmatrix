@@ -19,7 +19,6 @@ const { t } = useI18n()
 
 const views = [
   { id: 'collab', icon: 'message-circle', label: 'views.collab.title' },
-  { id: 'email', icon: 'mail', label: 'views.email.title' },
   { id: 'dashboard', icon: 'layout-dashboard', label: 'views.dashboard.title' },
   { id: 'agents', icon: 'grid', label: 'views.agents.title' },
   { id: 'magic', icon: 'wand', label: 'views.magic.title' },
@@ -49,7 +48,7 @@ const handleViewClick = (viewId) => {
       >
         <MIcon :name="view.icon" />
         <span
-          v-if="(view.id === 'email' || view.id === 'collab') && sessionStore.hasUnreadSessions"
+          v-if="view.id === 'collab' && sessionStore.hasUnreadSessions"
           class="view-selector__badge"
         ></span>
       </button>

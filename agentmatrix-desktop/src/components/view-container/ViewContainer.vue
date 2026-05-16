@@ -7,12 +7,9 @@ import { useConfigStore } from '@/stores/config'
 import { useCollabWizard } from '@/composables/useCollabWizard'
 import { configAPI } from '@/api/config'
 import SessionList from '@/components/session/SessionList.vue'
-import EmailList from '@/components/email/EmailList.vue'
 import AgentSessionPanel from '@/components/collab/AgentSessionPanel.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
-import AgentStatusPanel from '@/components/agent/AgentStatusPanel.vue'
-import ResizableDivider from '@/components/view-container/ResizableDivider.vue'
 import AskUserDialog from '@/components/dialog/AskUserDialog.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
@@ -99,31 +96,6 @@ const handleViewChange = (viewId) => {
 const collabDraftMessage = ref('')
 provide('collabDraftMessage', collabDraftMessage)
 
-// Agent status panel state
-const expandedAgent = ref(null)
-const agentPanelWidth = ref(450) // Default width in pixels
-
-const handleAgentSelected = (agentName) => {
-  if (expandedAgent.value === agentName) {
-    expandedAgent.value = null
-  } else {
-    expandedAgent.value = agentName
-  }
-}
-
-const handlePanelClose = () => {
-  expandedAgent.value = null
-}
-
-const handlePanelWidthUpdate = (newWidth) => {
-  agentPanelWidth.value = newWidth
-}
-
-// Reset expanded agent when session changes
-watch(currentSession, () => {
-  expandedAgent.value = null
-})
-
 // Lifecycle
 onMounted(async () => {
   await setupAppAfterBackend()
@@ -138,34 +110,6 @@ onMounted(async () => {
         <SessionList mode="collab" />
       </KeepAlive>
       <AgentSessionPanel :user-agent-name="userAgentName" />
-    </div>
-
-    <!-- Email View -->
-    <div v-else-if="currentView === 'email'" class="view-container__content">
-      <KeepAlive>
-        <SessionList />
-      </KeepAlive>
-      <EmailList
-        :user_agent_name="userAgentName"
-        :selected-agent="expandedAgent"
-        @agent-selected="handleAgentSelected"
-      />
-      <ResizableDivider
-        v-if="expandedAgent"
-        :min-width="300"
-        :max-width="600"
-        :current-width="agentPanelWidth"
-        @update:width="handlePanelWidthUpdate"
-      />
-      <Transition name="panel-slide">
-        <AgentStatusPanel
-          v-if="expandedAgent"
-          :key="expandedAgent"
-          :agent-name="expandedAgent"
-          :style="{ width: `${agentPanelWidth}px` }"
-          @close="handlePanelClose"
-        />
-      </Transition>
     </div>
 
     <!-- Settings View -->
