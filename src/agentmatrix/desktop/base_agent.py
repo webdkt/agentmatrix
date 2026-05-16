@@ -1018,6 +1018,58 @@ Start generating the Working Notes now.
     # ---- UI Actions（前端可调用）----
 
     @ui_action(
+        name="pause_agent",
+        label="Pause",
+        icon="pause",
+        tooltip="暂停 Agent",
+        display_mode="toast",
+    )
+    async def pause_agent(self, session_id: str = ""):
+        if self.active_session_id != session_id:
+            return "Session mismatch"
+        if self.is_paused:
+            return "Already paused"
+        await self.pause()
+        return "Agent paused"
+
+    @ui_action(
+        name="continue_agent",
+        label="Continue",
+        icon="play",
+        tooltip="恢复或继续 Agent",
+        display_mode="toast",
+    )
+    async def continue_agent(self, session_id: str = ""):
+        if self.is_paused:
+            if self.active_session_id != session_id:
+                return "Session mismatch"
+            await self.resume()
+            return "Agent resumed"
+        if self._status == "STOPPED":
+            if self.active_session_id != session_id:
+                return "Session mismatch"
+        if self._status in ("IDLE", "STOPPED"):
+            from ..core.signals import TextSignal
+            signal = TextSignal(text="continue", type_name="continue")
+            signal.session_id = session_id
+            await self._route_signal(signal)
+            return "Continue signal sent"
+        return "Nothing to continue"
+
+    @ui_action(
+        name="stop_agent",
+        label="Stop",
+        icon="square",
+        tooltip="停止当前 session",
+        display_mode="toast",
+    )
+    async def stop_agent(self, session_id: str = ""):
+        if self.active_session_id != session_id:
+            return "Session mismatch"
+        self.stop()
+        return "Agent stopped"
+
+    @ui_action(
         name="view_current_prompt",
         label="System Prompt",
         icon="file-text",

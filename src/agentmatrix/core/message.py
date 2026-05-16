@@ -53,7 +53,7 @@ class Email:
         return self.id
 
     def to_text(self) -> str:
-        text = f"邮件来自 {self.sender}: {self.subject}\n{self.body}"
+        text = f"邮件来自 {self.sender}:\n{self.body}"
         if self.attachments:
             first_att = self.attachments[0]
             text += f"\n附件保存在 {first_att.get('container_path')}"
@@ -83,7 +83,6 @@ class Email:
             ===== Mail =====
             From: {self.sender}
             To: {self.recipient}
-            Subject: {self.subject}
             Date: {self.timestamp}{attachment_list}
 
             {self.body}{attachment_notice}

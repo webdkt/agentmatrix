@@ -236,24 +236,6 @@ class UserProxyAgent(BaseAgent):
             self.session_manager.sessions[session_id] = session
             # 🆕 不保存空session，避免后续移动目录时的冗余操作
 
-        if not subject:
-            self.logger.info(
-                f"🤖 Auto-generating subject for content: {content[:50]}..."
-            )
-            resp = await self.cerebellum.think(f"""
-            请你根据以下邮件内容生成一个高度扼要的邮件主题。明了的说明事情本质就行，不需要具体细节内容，例如"一个问题"，"下载任务" 等等
-
-            [邮件内容]
-            {content}
-
-            [输出要求]
-            你可以尽量简短的说明思路，但输出的最后一行必须是、也只能是邮件主题本身。例如如果邮件主题是ABC，那么最后一行就是ABC。不多不少，不要增加任何标点符号
-            """)
-            subject = resp["reply"] or ""
-            # 取subject 最后一行
-            subject = subject.split("\n")[-1]
-            self.logger.info(f"✅ Generated subject: {subject}")
-
         # 🔑 修复：只使用前端传递的 reply_to_id，不做任何自动判断
         # 前端说 reply to 谁，就 reply to 谁
         # 前端没有传 reply_to_id，就是新邮件（in_reply_to = None）
@@ -261,8 +243,28 @@ class UserProxyAgent(BaseAgent):
 
         if in_reply_to:
             self.logger.info(f"📧 Reply to email: {in_reply_to}")
+            # 回复邮件：不需要 subject
+            subject = subject or ""
         else:
             self.logger.info(f"📧 New email (no reply_to_id)")
+            # 新邮件：需要 subject 来生成 readable task_id
+            if not subject:
+                self.logger.info(
+                    f"🤖 Auto-generating subject for content: {content[:50]}..."
+                )
+                resp = await self.cerebellum.think(f"""
+                请你根据以下邮件内容生成一个高度扼要的邮件主题。明了的说明事情本质就行，不需要具体细节内容，例如"一个问题"，"下载任务" 等等
+
+                [邮件内容]
+                {content}
+
+                [输出要求]
+                你可以尽量简短的说明思路，但输出的最后一行必须是、也只能是邮件主题本身。例如如果邮件主题是ABC，那么最后一行就是ABC。不多不少，不要增加任何标点符号
+                """)
+                subject = resp["reply"] or ""
+                # 取subject 最后一行
+                subject = subject.split("\n")[-1]
+                self.logger.info(f"✅ Generated subject: {subject}")
             # 🆕 新邮件：生成 readable ID 并重命名目录
             # 1. 生成 readable ID
             readable_id = generate_readable_id(subject)

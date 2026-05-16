@@ -1244,8 +1244,8 @@ const taskFilesWidth = computed(() => {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  border: none;
-  background: linear-gradient(135deg, #E8EDF2 0%, #DDE3EA 100%);
+  border: 1.5px solid var(--border-color, #C5CDD8);
+  background: transparent;
   color: var(--text-secondary);
   font-size: 16px;
   cursor: pointer;
@@ -1258,30 +1258,31 @@ const taskFilesWidth = computed(() => {
 
 /* CollabFile: slate blue */
 .floating-toolbar-btn:nth-child(1) {
-  background: linear-gradient(135deg, #D5DEE8 0%, #C5D0DC 100%);
+  border-color: #5A7A9A;
   color: #5A7A9A;
 }
 
 /* Task Files: amber */
 .floating-toolbar-btn:nth-child(2) {
-  background: linear-gradient(135deg, #F0E6D4 0%, #E5D8C2 100%);
+  border-color: #A08050;
   color: #A08050;
 }
 
 /* Terminal: sage green */
 .floating-toolbar-btn:nth-child(3) {
-  background: linear-gradient(135deg, #D8E8D5 0%, #C8DCC2 100%);
+  border-color: #5A8A52;
   color: #5A8A52;
 }
 
 /* UI Action buttons: mauve */
 .floating-toolbar-btn--ui-action {
-  background: linear-gradient(135deg, #E5DFF0 0%, #D8D0E8 100%);
+  border-color: #8B7AAF;
   color: #8B7AAF;
 }
 
 .floating-toolbar-btn:hover {
   transform: translateY(-2px);
+  background: rgba(0, 0, 0, 0.04);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -1289,29 +1290,29 @@ const taskFilesWidth = computed(() => {
   transform: translateY(0);
 }
 
-/* ---- Active state: deeper color + glow ---- */
+/* ---- Active state: solid fill ---- */
 .floating-toolbar-btn:nth-child(1).floating-toolbar-btn--active {
-  background: linear-gradient(135deg, #B0C4D8 0%, #9AB0C8 100%);
+  border-color: #3A5A7A;
   color: #3A5A7A;
-  box-shadow: 0 0 0 2px rgba(90, 122, 154, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: rgba(90, 122, 154, 0.12);
 }
 
 .floating-toolbar-btn:nth-child(2).floating-toolbar-btn--active {
-  background: linear-gradient(135deg, #D8C4A0 0%, #C8B490 100%);
+  border-color: #7A5A20;
   color: #7A5A20;
-  box-shadow: 0 0 0 2px rgba(160, 128, 80, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: rgba(160, 128, 80, 0.12);
 }
 
 .floating-toolbar-btn:nth-child(3).floating-toolbar-btn--active {
-  background: linear-gradient(135deg, #B0D0A8 0%, #98C090 100%);
+  border-color: #3A6A32;
   color: #3A6A32;
-  box-shadow: 0 0 0 2px rgba(90, 138, 82, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: rgba(90, 138, 82, 0.12);
 }
 
 .floating-toolbar-btn--ui-action.floating-toolbar-btn--active {
-  background: linear-gradient(135deg, #C8B8E0 0%, #B0A0D0 100%);
+  border-color: #5A4A8A;
   color: #5A4A8A;
-  box-shadow: 0 0 0 2px rgba(139, 122, 175, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: rgba(139, 122, 175, 0.12);
 }
 
 /* ---- Hover tooltip ---- */
