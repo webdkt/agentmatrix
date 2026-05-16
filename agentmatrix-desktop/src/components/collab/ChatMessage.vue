@@ -1,8 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { marked } from 'marked'
+import { invoke } from '@tauri-apps/api/core'
 import MIcon from '@/components/icons/MIcon.vue'
 import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
+import { isContainerPath, containerPathToHost } from '@/utils/pathHelper'
 
 const props = defineProps({
   message: {
@@ -20,6 +22,63 @@ const props = defineProps({
 })
 
 const expanded = ref(false)
+const worldPath = ref('')
+
+onMounted(async () => {
+  try {
+    const config = await invoke('get_config')
+    worldPath.value = config.matrix_world_path || ''
+  } catch (e) {
+    console.error('Failed to get config for path resolution:', e)
+  }
+})
+
+// ---- Custom marked renderer: make container paths clickable ----
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function escapeAttr(s) {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function renderMarkdownWithPaths(text) {
+  if (!text) return ''
+  const renderer = new marked.Renderer()
+  renderer.codespan = function (token) {
+    const raw = token.text || token
+    if (isContainerPath(raw)) {
+      return `<code class="container-path" data-path="${escapeAttr(raw)}">${escapeHtml(raw)}</code>`
+    }
+    return `<code>${escapeHtml(raw)}</code>`
+  }
+  try {
+    return marked.parse(String(text), { renderer }).trim()
+  } catch {
+    return text
+  }
+}
+
+// ---- Path click handler ----
+
+const handlePathClick = async (e) => {
+  const codeEl = e.target.closest('code.container-path')
+  if (!codeEl) return
+  e.preventDefault()
+  e.stopPropagation()
+  const containerPath = codeEl.dataset.path
+  if (!containerPath || !worldPath.value) return
+  const taskId = props.message.data?.detail?.task_id
+  if (!taskId || !props.agentName) return
+  const hostPath = containerPathToHost(containerPath, props.agentName, taskId, worldPath.value)
+  if (!hostPath) return
+  try {
+    await invoke('reveal_in_folder', { path: hostPath })
+  } catch (err) {
+    console.error('Failed to open path:', err)
+  }
+}
 
 // ---- Bubble (user / agent) ----
 
@@ -32,11 +91,7 @@ const renderedBody = computed(() => {
   }
   const body = props.message.data?.detail?.body_preview
   if (!body) return ''
-  try {
-    return marked(body).trim()
-  } catch {
-    return body
-  }
+  return renderMarkdownWithPaths(body)
 })
 
 // ---- Pill (action events) ----
@@ -95,7 +150,7 @@ const agentCommBody = computed(() => {
   if (props.message.type !== 'agent-comm') return ''
   const body = props.message.data?.detail?.body_preview
   if (!body) return ''
-  try { return marked(body).trim() } catch { return body }
+  try { return renderMarkdownWithPaths(body) } catch { return body }
 })
 
 // ---- System event ----
@@ -161,7 +216,7 @@ const handleAttachmentClick = async (attachment) => {
   <!-- User chat bubble (right-aligned, green) -->
   <div v-if="message.type === 'bubble-user'" class="chat-msg chat-msg--user">
     <div class="chat-msg__bubble">
-      <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+      <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handlePathClick"></div>
       <div v-if="attachments.length > 0" class="chat-msg__attachments">
         <div
           v-for="(attachment, index) in attachments"
@@ -182,7 +237,7 @@ const handleAttachmentClick = async (attachment) => {
   <!-- Agent chat bubble (left-aligned, parchment) -->
   <div v-else-if="message.type === 'bubble-agent'" class="chat-msg">
     <div class="chat-msg__bubble">
-      <div class="chat-msg__body markdown-content" v-html="renderedBody"></div>
+      <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handlePathClick"></div>
       <div v-if="attachments.length > 0" class="chat-msg__attachments">
         <div
           v-for="(attachment, index) in attachments"
@@ -219,7 +274,7 @@ const handleAttachmentClick = async (attachment) => {
     </div>
     <Transition name="comm-expand">
       <div v-if="expanded" class="chat-agent-comm__body" @click.stop>
-        <div v-if="agentCommBody" class="chat-agent-comm__body-content markdown-content" v-html="agentCommBody"></div>
+        <div v-if="agentCommBody" class="chat-agent-comm__body-content markdown-content" v-html="agentCommBody" @click="handlePathClick"></div>
         <div v-if="attachments.length > 0" class="chat-msg__attachments">
           <div
             v-for="(attachment, index) in attachments"
@@ -558,6 +613,16 @@ const handleAttachmentClick = async (attachment) => {
   padding: 1px 4px;
   border-radius: var(--radius-md);
   font-size: var(--font-xs);
+}
+
+.markdown-content :deep(code.container-path) {
+  cursor: pointer;
+  transition: background 0.12s ease, text-decoration 0.12s ease;
+}
+
+.markdown-content :deep(code.container-path:hover) {
+  background: var(--accent-soft);
+  text-decoration: underline;
 }
 
 .markdown-content :deep(pre) {

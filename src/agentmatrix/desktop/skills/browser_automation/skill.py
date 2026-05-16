@@ -217,10 +217,10 @@ class Browser_automationSkillMixin:
     """
 
     _skill_description = """浏览器自动化开发：浏览器自动化流程和自动化脚本的生成、管理和运行
-    已经学会的网站自动化流程，记录在`~/site_knowledge`目录下。
-    ### site_knowledge 的结构
+    `~/site_knowledge`目录就是你的代码仓库。
+    ### ~/site_knowledge 的结构
     - 根目录（~/site_knowledge)
-        - index.txt: 已学会的网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
+        - index.txt: 网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
             - url_prefix 可以是域名（如 `www.example.com`）或域名+路径前缀（如 `www.example.com/shop`）
             - url_prefix 可能重复，但说明和子目录名必须不同（因为有些单体站点可能包含多个不同的子系统，结构和元素差异较大）
             - 匹配规则：系统会自动根据hostname 来推荐匹配。但你必须显示的选择正确的site key 来加载对应的知识。系统不会自动加载，除非你明确的选择了一个site key。
@@ -240,7 +240,7 @@ class Browser_automationSkillMixin:
         - .py 脚本 绝对不能通过bash执行。 原因见下面规范说明
     ### site_knowledge 文件规范
     #### Python自动化脚本
-    所有 .py 自动化脚本**必须**通过 `run_automation_script(file_path, str_arg1?)` 执行，因为Chrome在用户环境而不是你的环境，通过bash直接执行python脚本将无法访问cdp。
+    .py 自动化脚本**必须**通过 `run_automation_script(file_path, str_arg1?)` 执行，因为Chrome在用户环境而不是你的环境，通过bash直接执行python脚本将无法访问cdp。
     **切记**：Python脚本中绝对不可以直接使用任何硬编码的路径或连接信息，必须通过以下环境变量获取，才能保证脚本在用户环境中正确执行，脚本生成的文件你才能访问。
     脚本通过环境变量获取连接信息和路径：
     - `os.environ["CDP_PORT"]` — Chrome 调试端口（如 9222）
@@ -254,7 +254,7 @@ class Browser_automationSkillMixin:
     2. 需要保存文件时，使用环境变量中的路径（如 `os.path.join(os.environ["CURRENT_TASK_DIR"], "output.json")`），这样你就可以通过 ~/current_task/output.json 读取
     3. 连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
     **绝对不要用bash 直接执行python自动化脚本，否则无法连接用户环境中的Chrome CDP。** 
-    #### .js 脚本： No Console Output
+    #### Javascript: No Console Output
     eval_js 和 run_automation_script 都不会返回console的输出。只会返回脚本 return的结果。
     #### 正式脚本 vs 探索脚本
     ~/site_knowledge 下只能存放正式的脚本。探索脚本放在 ~/current_task/tmp 下。
@@ -924,7 +924,7 @@ class Browser_automationSkillMixin:
             }, ensure_ascii=False)
         
     @register_action(
-        short_desc="(file_path, str_arg1?) 按扩展名执行自动化脚本，str_arg1可选仅对 .py 有效"
+        short_desc="(file_path, str_arg1?) 按扩展名执行自动化脚本，str_arg1可选仅对 .py 有效。自动化工作必须通过此方法进行"
                     "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
                     "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
                     "- .py：在宿主机执行 Python 脚本，自动注入 CDP 连接环境变量，str_arg1 通过 sys.argv[1] 传入\n\n"
@@ -1161,7 +1161,7 @@ class Browser_automationSkillMixin:
         return json.dumps({"error": f"不支持的文件类型 '{ext}'，支持 .json / .js / .py"}, ensure_ascii=False)
 
     @register_action(
-        short_desc="eval_js(code, tab_id?) 在当前 tab 执行 JavaScript，支持 await/Promise",
+        short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug",
         description="向当前（或指定）tab 发送 JavaScript 代码并返回执行结果。"
                     "支持返回 Promise / 使用 await，会等待 resolve 后返回最终值。",
         param_infos={
@@ -1169,7 +1169,7 @@ class Browser_automationSkillMixin:
             "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
         },
     )
-    async def eval_js(self, code: str, tab_id: str = None) -> str:
+    async def try_js_code(self, code: str, tab_id: str = None) -> str:
         await self._ensure_browser()
 
         if tab_id:
@@ -1216,7 +1216,7 @@ class Browser_automationSkillMixin:
             return json.dumps({"error": str(e)})
 
     @register_action(
-        short_desc="cdp_command(method, params?, tab_id?) 直接发送 CDP 协议指令。params 必须是 dict 对象",
+        short_desc="(method, params?, tab_id?) 试验CDP协议指令。params 必须是 dict 对象，不能用于正式执行和测试，只能用于探索试验和debug，不得用于正式自动化执行",
         description="向浏览器 tab 发送原始 CDP (Chrome DevTools Protocol) 指令并返回结果。"
                     "可用于执行 Input.dispatchMouseEvent（鼠标事件）、Input.dispatchKeyEvent（键盘事件）、"
                     "Page.captureScreenshot（截图）等任意 CDP 方法。\n\n"
@@ -1231,7 +1231,7 @@ class Browser_automationSkillMixin:
             "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
         },
     )
-    async def cdp_command(self, method: str, params=None, tab_id: str = None) -> str:
+    async def try_cdp_command(self, method: str, params=None, tab_id: str = None) -> str:
         await self._ensure_browser()
 
         # 兜底：params 可能被框架传成字符串
