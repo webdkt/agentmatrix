@@ -1614,9 +1614,9 @@ def scan_available_skills() -> list:
 
     skills_info = []
 
-    # 1. 扫描内置 skills 目录
+    # 1. 扫描内置 skills 目录 (desktop/skills)
     try:
-        skills_module = importlib.import_module("agentmatrix.skills")
+        skills_module = importlib.import_module("agentmatrix.desktop.skills")
         skills_dir = Path(skills_module.__file__).parent
 
         # 扫描目录结构: agentmatrix/skills/{name}/skill.py
