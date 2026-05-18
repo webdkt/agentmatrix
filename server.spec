@@ -53,7 +53,7 @@ print(f"Collected {len(agentmatrix_hiddenimports)} agentmatrix hidden imports")
 
 a = Analysis(
     ['server.py'],
-    pathex=[str(project_root)],
+    pathex=[str(project_root), str(project_root / "src")],
     binaries=[],
     datas=[
         # Include the entire agentmatrix package (all submodules, including skills)
