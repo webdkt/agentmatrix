@@ -1615,20 +1615,7 @@ class MicroAgent(AutoLoggerMixin):
         result = ""
 
         try:
-            # 💬 特殊处理：ask_user action
-            if action_name == "ask_user":
-                if not hasattr(self, "root_agent") or not self.root_agent:
-                    raise RuntimeError("ask_user requires root_agent")
-
-                question = params.get("question", "")
-                if not question:
-                    raise ValueError("ask_user requires 'question' parameter")
-
-                # 调用 root_agent.ask_user（会挂起等待用户输入）
-                result = await self.root_agent.ask_user(question)
-            else:
-                # 普通 action：正常调用
-                result = await method(**params)
+            result = await method(**params)
         finally:
             # 记录最后执行的 action 名字
             self.last_action_name = action_name

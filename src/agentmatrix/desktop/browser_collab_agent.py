@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 from .base_agent import BaseAgent
 from .signals import BrowserSignal
-from .ui_actions import ui_action
+
 from ..core.signals import CoreEvent
 
 logger = logging.getLogger(__name__)
@@ -639,26 +639,24 @@ class BrowserCollabAgent(BaseAgent):
         self._fire_broadcast('work_mode_changed', {"mode": mode})
         return {"status": "ok", "mode": mode}
 
-    @ui_action(
-        name="set_develop_mode",
-        label="开发构建",
-        icon="school",
-        tooltip="切换到开发构建模式：构建网站自动化流程和脚本",
-        placement="floating",
-        requires_idle=True,
-        display_mode="toast",
-    )
+    # ---- UI Schema ----
+
+    def get_ui_schema(self):
+        base = super().get_ui_schema()
+        mode_group = {
+            "name": "mode",
+            "icon": "sliders",
+            "children": [
+                {"action": "set_develop_mode", "icon": "wand", "requires_idle": True, "display_mode": "toast"},
+                {"action": "set_execute_mode", "icon": "robot", "requires_idle": True, "display_mode": "toast"},
+            ]
+        }
+        return [mode_group] + base
+
+    # ---- UI Action 方法 ----
+
     async def set_develop_mode(self):
         return await self._switch_work_mode("develop")
 
-    @ui_action(
-        name="set_execute_mode",
-        label="自动化执行",
-        icon="robot",
-        tooltip="切换到自动化执行模式：执行已构建的自动化脚本",
-        placement="floating",
-        requires_idle=True,
-        display_mode="toast",
-    )
     async def set_execute_mode(self):
         return await self._switch_work_mode("execute")

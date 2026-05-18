@@ -32,7 +32,6 @@ from imap_tools.errors import MailboxLoginError
 from agentmatrix.core.id_generator import IDGenerator
 from agentmatrix.core.message import Email
 from agentmatrix.core.log_util import AutoLoggerMixin
-from ..base_agent import AskUserQuestion
 
 
 class EmailProxyService(AutoLoggerMixin):
@@ -387,168 +386,6 @@ class EmailProxyService(AutoLoggerMixin):
                 self.logger.error(f"轮询失败: {e}", exc_info=True)
                 break
 
-    def _parse_ask_user_metadata(self, subject: str) -> Optional[dict]:
-        """
-        解析 subject 中的 ask_user 标记
-
-        标记格式：#ASK_USER#{agent_name}#{agent_session_id}#
-
-        Args:
-            subject: 邮件 subject（可能包含标记）
-
-        Returns:
-            如果是 ask_user 回复，返回 dict：
-                {
-                    'agent_name': str,
-                    'agent_session_id': str
-                }
-            否则返回 None
-        """
-        # 正则表达式匹配 #ASK_USER#...#
-        match = re.search(r"#ASK_USER#([^#]+)#([^#]+)#", subject)
-        if match:
-            agent_name = match.group(1)
-            agent_session_id = match.group(2)
-            return {"agent_name": agent_name, "agent_session_id": agent_session_id}
-        return None
-
-    async def _handle_ask_user_reply(self, internal_email: Email):
-        """
-        处理 ask_user 回复邮件
-
-        流程：
-        1. 从 metadata 获取 ask_user_metadata
-        2. 查找对应的 Agent
-        3. 调用 Agent 的 submit_user_input() 方法
-        4. 捕获异常（RuntimeError）并发送反馈邮件
-
-        Args:
-            internal_email: 内部Email对象（metadata 包含 ask_user_metadata）
-        """
-        try:
-            # 1. 获取 ask_user_metadata
-            ask_user_metadata = internal_email.metadata.get("ask_user_metadata")
-            if not ask_user_metadata:
-                self.logger.warning("⚠️ Email 缺少 ask_user_metadata，跳过处理")
-                return
-
-            agent_name = ask_user_metadata.get("agent_name")
-            agent_session_id = ask_user_metadata.get("agent_session_id")
-
-            self.logger.info(
-                f"📬 检测到 ask_user 回复: agent={agent_name}, session={agent_session_id[:8] if agent_session_id else None}..."
-            )
-
-            # 2. 查找 Agent
-            agent = self.post_office.directory.get(agent_name)
-            if not agent:
-                # Agent 不存在
-                self.logger.warning(f"⚠️ Agent {agent_name} 不存在")
-                await self._send_ask_user_feedback(
-                    internal_email,
-                    success=False,
-                    message=f"未找到 Agent: {agent_name}，可能 Agent 已停止或名称错误",
-                )
-                return
-
-            # 3. 提取用户回答（邮件正文）
-            answer = internal_email.body.strip()
-            if not answer:
-                self.logger.warning("⚠️ ask_user 回复内容为空")
-                await self._send_ask_user_feedback(
-                    internal_email,
-                    success=False,
-                    message="回复内容为空，请输入你的回答",
-                )
-                return
-
-            # 4. 调用 Agent 的 submit_user_input() 方法
-            try:
-                await agent.submit_user_input(answer, agent_session_id)
-                self.logger.info(f"✅ 成功提交 ask_user 回复给 {agent_name}")
-
-                # 发送成功反馈
-                await self._send_ask_user_feedback(
-                    internal_email,
-                    success=True,
-                    message=f"✅ 你的回答已成功提交给 {agent_name}",
-                )
-
-            except RuntimeError as e:
-                # Agent 当前不在等待状态（已经回答或超时）
-                self.logger.warning(
-                    f"⚠️ Agent {agent_name} 当前不在等待用户输入状态: {e}"
-                )
-                await self._send_ask_user_feedback(
-                    internal_email,
-                    success=False,
-                    message=f"提交失败：{agent_name} 当前不在等待状态，可能已经回答或任务已结束",
-                )
-
-        except Exception as e:
-            self.logger.error(f"❌ 处理 ask_user 回复失败: {e}", exc_info=True)
-            await self._send_ask_user_feedback(
-                internal_email, success=False, message=f"处理失败：{str(e)}"
-            )
-
-    async def _send_ask_user_feedback(
-        self, original_email: Email, success: bool, message: str
-    ):
-        """
-        发送 ask_user 反馈邮件
-
-        Args:
-            original_email: 原始的 ask_user 回复邮件
-            success: 是否成功
-            message: 反馈消息
-        """
-        try:
-            # 获取原始发送者邮箱
-            original_sender = original_email.metadata.get("original_sender")
-            if not original_sender:
-                self.logger.warning("⚠️ 无法确定反馈邮件收件人")
-                return
-
-            # 构造 subject
-            status = "✅" if success else "❌"
-            subject = f"{status} ask_user 回复反馈"
-
-            # 构造邮件正文
-            body = f"""你好，
-
-{message}
-
----
-原始问题：{original_email.subject}
----
-
-AgentMatrix 自动回复
-"""
-
-            # 创建内部 Email 对象
-            email_id = IDGenerator.generate_email_id()
-            email_session_id = IDGenerator.generate_session_id()
-
-            feedback_email = Email(
-                id=email_id,
-                sender="System",
-                recipient="User",
-                subject=subject,
-                body=body,
-                in_reply_to=None,
-                task_id="ask_user_feedback",
-                sender_session_id=None,
-                recipient_session_id=email_session_id,
-                metadata={"is_external": True, "original_sender": original_sender},
-            )
-
-            # 通过 Email Proxy 发送
-            await self.send_to_external(feedback_email)
-            self.logger.info(f"📧 已发送 ask_user 反馈邮件: {message[:50]}...")
-
-        except Exception as e:
-            self.logger.error(f"❌ 发送 ask_user 反馈邮件失败: {e}", exc_info=True)
-
     def parse_subject(self, subject: str) -> Optional[dict]:
         """
         解析邮件subject
@@ -654,41 +491,14 @@ AgentMatrix 自动回复
         # 2. 解码subject
         subject = self._decode_header(raw_email["Subject"])
 
-        # 3. 优先检查是否是 ask_user 回复
-        ask_user_metadata = self._parse_ask_user_metadata(subject)
-        if ask_user_metadata:
-            self.logger.info("📬 检测到 ask_user 回复邮件")
-            body, attachments = self._extract_body_and_attachments(
-                raw_email, "ask_user"
-            )
-
-            ask_user_email = Email(
-                id=IDGenerator.generate_email_id(),
-                sender="User",
-                recipient="System",
-                subject=subject,
-                body=body,
-                in_reply_to=None,
-                task_id="ask_user",
-                sender_session_id=None,
-                recipient_session_id=None,
-                metadata={
-                    "ask_user_metadata": ask_user_metadata,
-                    "original_sender": from_addr,
-                },
-            )
-
-            await self._handle_ask_user_reply(ask_user_email)
-            return
-
-        # 4. 尝试 mapping 回溯（主路径）
+        # 3. 尝试 mapping 回溯（主路径）
         mapping_data = None
         reply_to_id = None
 
-        # 4a. 从 X-AgentMatrix-Email-Id 或 In-Reply-To 解析出内部 email ID
+        # 3a. 从 X-AgentMatrix-Email-Id 或 In-Reply-To 解析出内部 email ID
         reply_to_id = await self._resolve_reply_to_id(raw_email)
 
-        # 4b. 用 In-Reply-To 的 external_message_id 查完整 mapping
+        # 3b. 用 In-Reply-To 的 external_message_id 查完整 mapping
         in_reply_to_header = raw_email.get("In-Reply-To")
         if in_reply_to_header:
             mapping_data = await self.db.get_mapping_by_external_id(
@@ -848,126 +658,6 @@ AgentMatrix 自动回复
         # 发送到外部
         await self.send_to_external(email)
 
-    async def send_ask_user_email(
-        self, agent_name: str, agent_session_id: str, question: AskUserQuestion
-    ):
-        """
-        发送 ask_user 特殊邮件（不经过 PostOffice）
-
-        Subject 格式：请回答问题 #ASK_USER#{agent_name}#{agent_session_id}#
-
-        Args:
-            agent_name: Agent 名称
-            agent_session_id: Agent 的 session_id
-            question: AskUserQuestion 对象（包含问题、选项、图片等信息）
-        """
-        try:
-            # 截断过长的问题
-            question_preview = (
-                question.question[:100] + "..."
-                if len(question.question) > 100
-                else question.question
-            )
-            subject = f"请回答问题 #ASK_USER#{agent_name}#{agent_session_id}#"
-
-            # 构造邮件正文
-            body_parts = [f"你好，\n\n{agent_name} 有一个问题需要你回答：\n\n"]
-
-            # 问题文本
-            body_parts.append(f"问题：{question.question}\n")
-
-            # 选项文本（邮件无法显示按钮，格式化为列表）
-            if question.options:
-                body_parts.append("\n可选选项：\n")
-                for i, option in enumerate(question.options, 1):
-                    body_parts.append(f"  {i}. {option}\n")
-
-                if question.multiple:
-                    body_parts.append("（可以多选，请回复选项编号，如：1,3）\n")
-                else:
-                    body_parts.append("（请回复选项编号，如：2）\n")
-
-            body_parts.append("\n---\n请直接回复此邮件来回答问题。\n")
-            body_parts.append("如果不想选择预设选项，可以直接输入自定义回答。\n")
-            body_parts.append("\n---\nAgentMatrix 自动回复\n")
-
-            body = "".join(body_parts)
-
-            # 构造邮件
-            msg = MIMEMultipart()
-            msg["From"] = self.matrix_mailbox
-            msg["To"] = self.user_mailbox
-            msg["Subject"] = subject
-
-            domain = self.matrix_mailbox.split("@")[1]
-            external_message_id = IDGenerator.generate_message_id(domain)
-            msg["Message-ID"] = external_message_id
-
-            # 添加正文
-            msg.attach(MIMEText(body, "plain", "utf-8"))
-
-            # 添加图片附件
-            if question.image_path:
-                await self._add_question_image(
-                    msg, question.image_path, agent_name, agent_session_id
-                )
-
-            # 发送
-            with smtplib.SMTP_SSL(
-                self.smtp_config["host"], int(self.smtp_config["port"])
-            ) as server:
-                server.login(self.smtp_config["user"], self.smtp_config["password"])
-                server.send_message(msg)
-
-            # 保存映射（ask_user 邮件没有内部 email ID，用 agent_session_id 占位）
-            await self.db.save_external_email_mapping(
-                external_message_id,
-                agent_session_id,
-                agent_name=agent_name,
-                agent_session_id=agent_session_id,
-            )
-
-            self.logger.info(
-                f"📧 发送 ask_user 邮件: {agent_name} → {self.user_mailbox}"
-            )
-
-        except Exception as e:
-            self.logger.error(f"❌ 发送 ask_user 邮件失败: {e}", exc_info=True)
-
-    async def _add_question_image(
-        self, msg: MIMEMultipart, image_filename: str, agent_name: str, agent_session_id: str
-    ):
-        """添加问题图片到邮件"""
-        try:
-            from pathlib import Path
-
-            # 构建图片路径（在 agent 的 attachments 目录）
-            image_dir = self.paths.get_agent_attachments_dir(agent_name, agent_session_id)
-            image_path = image_dir / image_filename
-
-            if not image_path.exists():
-                self.logger.warning(f"⚠️ 图片不存在: {image_path}")
-                return
-
-            # 读取并添加图片
-            with open(image_path, "rb") as f:
-                image_data = f.read()
-
-            image_part = MIMEApplication(image_data)
-
-            # 添加附件头
-            image_part.add_header(
-                "Content-Disposition",
-                "attachment",
-                filename=image_filename
-            )
-            msg.attach(image_part)
-
-            self.logger.info(f"✅ 添加图片附件: {image_filename}")
-
-        except Exception as e:
-            self.logger.error(f"❌ 添加图片附件失败: {e}", exc_info=True)
-
     async def send_to_external(self, email: Email):
         """发送内部邮件到外部邮箱"""
         try:
@@ -1032,23 +722,8 @@ AgentMatrix 自动回复
             self.logger.error(f"❌ 发送外部邮件失败: {e}", exc_info=True)
 
     async def _generate_external_subject(self, email: Email) -> str:
-        """
-        生成外部邮件的subject
-
-        格式：
-        - 普通邮件: 原始主题 #{agent_name}
-        - ask_user: 原始主题 #ASK_USER#{agent_name}#{agent_session_id}#
-        """
+        """生成外部邮件的subject：原始主题 #{agent_name}"""
         agent_name = email.sender
-
-        # 检查是否是 ask_user 邮件
-        ask_user_metadata = email.metadata.get("ask_user_metadata")
-        if ask_user_metadata:
-            agent_session_id = email.sender_session_id
-            tag = f"#ASK_USER#{agent_name}#{agent_session_id}#"
-            return f"{email.subject} {tag}".strip()
-
-        # 普通邮件：只保留 agent_name 标签
         return f"{email.subject} #{agent_name}".strip()
 
     async def _find_user_session_id_for_outbound(

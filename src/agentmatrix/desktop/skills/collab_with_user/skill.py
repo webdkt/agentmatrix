@@ -34,36 +34,7 @@ class Collab_with_userSkillMixin:
         return self.skill_context["preview"]
  
     @register_action(
-        short_desc="[question=问题， options*=单选选项， multiple*=多选选项, image_path*=要显示的图片] 暂停工作向用户提问（支持文本/单选/多选，都可选带图片, 单多选时用户也可以自定义文本来回答）",
-        description="向用户提问并等待回答。当你需要用户提供信息时调用此 action。",
-        param_infos={"question": "要向用户提出的问题（清晰、具体）"},
-    )
-    async def ask_user(self, question: str) -> str:
-        """
-        💬 向用户提问并等待回答（特殊 action）
-
-        这是一个特殊的 action，会挂起当前 MicroAgent 的执行，等待用户通过 Server API 提供答案。
-
-        注意：此方法会被 MicroAgent._execute_action 特殊处理，实际调用 root_agent.ask_user()。
-
-        Args:
-            question: 向用户提出的问题
-
-        Returns:
-            str: 用户的回答
-
-        Raises:
-            RuntimeError: 如果没有 root_agent（不应该发生）
-        """
-        # 这个方法不应该被直接调用
-        # _execute_action 会检测到 action_name="ask_user" 并调用 root_agent.ask_user()
-        # 这里只是为了注册 action，提供一个占位实现
-        raise RuntimeError(
-            "ask_user should be handled by MicroAgent._execute_action, check root_agent"
-        )
-
-    @register_action(
-        short_desc="[file_path]展示当前协作文件，每次展示后都MUST用ask_user询问是否看到文件，是否正常，是否有反馈等，也起到一个提醒用户文件已打开的作用。",
+        short_desc="[file_path]展示当前协作文件。",
         description="在宿主机用默认应用打开文件进行展示。每次只能展示一个文件，新文件会关闭旧文件。不支持可执行脚本文件。",
         param_infos={
             "file_path": "要展示的文件路径（容器内路径）"

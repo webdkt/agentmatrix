@@ -714,6 +714,10 @@ fn main() {
             wizard_complete,
             commands::ui::is_window_focused,
             commands::ui::show_window,
+            commands::ui::create_floating_window,
+            commands::ui::destroy_floating_window,
+            commands::ui::minimize_main_window,
+            commands::ui::restore_main_window,
         ])
         .build(tauri::generate_context!())
         .expect("error with building tauri application")

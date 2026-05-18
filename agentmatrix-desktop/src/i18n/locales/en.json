@@ -209,5 +209,20 @@
     "reload": "Reload Agent",
     "viewPrompt": "View Prompt",
     "newMessage": "New Message"
+  },
+  "ui_actions": {
+    "groups": {
+      "control": "Control",
+      "mode": "Mode",
+      "debug": "Debug"
+    },
+    "actions": {
+      "pause_agent": "Pause",
+      "continue_agent": "Continue",
+      "stop_agent": "Stop",
+      "view_current_prompt": "System Prompt",
+      "set_develop_mode": "Develop Mode",
+      "set_execute_mode": "Execute Mode"
+    }
   }
 }

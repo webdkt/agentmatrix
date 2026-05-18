@@ -4,7 +4,6 @@ Base Skill - 所有 MicroAgent 必备的基础 Actions
 包含基础 actions：
 - get_current_datetime: 获取当前时间
 - take_a_break: 60秒休息
-- ask_user: 向用户提问并等待回答
 
 注意：
 - send_email 已移到 email skill 中

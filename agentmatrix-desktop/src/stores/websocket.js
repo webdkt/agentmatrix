@@ -184,101 +184,28 @@ export const useWebSocketStore = defineStore('websocket', {
         return
       }
 
-      const sessionStore = useSessionStore()
       const agentStore = useAgentStore()
 
       // 更新 agent store 中的状态
       agentStore.updateAgentStatus(agent_name, data)
-
-      // 如果 agent 有 pending_question，设置到 session store
-      if (data.pending_question && data.current_user_session_id) {
-        sessionStore.setPendingQuestion(data.current_user_session_id, {
-          agent_name: agent_name,
-          agent_session_id: data.current_session_id,
-          question: data.pending_question,
-          task_id: data.current_task_id,
-          timestamp: new Date().toISOString()
-        })
-      }
-      // 如果有 pending_question 但没有 current_user_session_id，设置全局 pending_question
-      else if (data.pending_question) {
-        sessionStore.setGlobalPendingQuestion({
-          agent_name: agent_name,
-          agent_session_id: data.current_session_id,
-          question: data.pending_question,
-          task_id: data.current_task_id,
-          timestamp: new Date().toISOString()
-        })
-      }
-      // 如果 pending_question 被清空，清除 session store 中的记录
-      else if (data.current_user_session_id) {
-        sessionStore.clearPendingQuestion(data.current_user_session_id)
-      }
-      // 如果 pending_question 被清空且没有 current_user_session_id，清除全局 pending_question
-      else if (!data.pending_question && !data.current_user_session_id) {
-        sessionStore.clearGlobalPendingQuestion()
-      }
     },
 
     /**
      * 处理运行时事件
      */
     handleRuntimeEvent(eventData) {
-      const eventType = eventData.type
-
-      // 处理 ASK_USER 事件
-      if (eventType === 'ASK_USER') {
-        this.handleAskUserEvent(eventData)
-      }
-    },
-
-    /**
-     * 处理 ASK_USER 事件
-     */
-    handleAskUserEvent(eventData) {
-      const { source: agentName, content: question, payload } = eventData
-      const sessionStore = useSessionStore()
-
-      sessionStore.setPendingQuestion(payload.session_id, {
-        agent_name: agentName,
-        question: question,
-        task_id: payload.task_id,
-        timestamp: new Date().toISOString()
-      })
+      // runtime events
     },
 
     /**
      * 处理 SYSTEM_STATUS 事件
      */
     handleSystemStatus(statusData) {
-      const sessionStore = useSessionStore()
       const agentStore = useAgentStore()
 
       if (statusData.agents) {
         Object.entries(statusData.agents).forEach(([agentName, agentInfo]) => {
           agentStore.updateAgentStatus(agentName, agentInfo)
-
-          if (agentInfo.pending_question && agentInfo.current_user_session_id) {
-            sessionStore.setPendingQuestion(agentInfo.current_user_session_id, {
-              agent_name: agentName,
-              agent_session_id: agentInfo.current_session_id,
-              question: agentInfo.pending_question,
-              task_id: agentInfo.current_task_id,
-              timestamp: new Date().toISOString()
-            })
-          } else if (agentInfo.pending_question) {
-            sessionStore.setGlobalPendingQuestion({
-              agent_name: agentName,
-              agent_session_id: agentInfo.current_session_id,
-              question: agentInfo.pending_question,
-              task_id: agentInfo.current_task_id,
-              timestamp: new Date().toISOString()
-            })
-          } else if (agentInfo.current_user_session_id) {
-            sessionStore.clearPendingQuestion(agentInfo.current_user_session_id)
-          } else if (!agentInfo.pending_question && !agentInfo.current_user_session_id) {
-            sessionStore.clearGlobalPendingQuestion()
-          }
         })
       }
     },

@@ -38,9 +38,6 @@ const showMenu = ref(false)
 const showReplyDialog = ref(false)
 const replyEmail = ref(null)
 
-const answer = ref('')
-const hideInlineForm = ref(false)
-const submittedAnswer = ref(null)
 const currentSession = computed(() => sessionStore.currentSession)
 const hasEmails = computed(() => emails.value.length > 0)
 
@@ -142,18 +139,6 @@ const loadEmails = async (sessionId) => {
   }
 }
 
-const pendingQuestion = computed(() => {
-  if (!currentSession.value) {
-    return null
-  }
-  const sessionId = currentSession.value.session_id
-  const question = sessionStore.getPendingQuestion(sessionId)
-  return question
-})
-
-watch(pendingQuestion, (newQuestion) => {
-}, { immediate: true })
-
 watch(currentSession, async (newSession) => {
   if (newSession) {
     if (newSession._isPlaceholder) {
@@ -178,8 +163,6 @@ watch(currentSession, async (newSession) => {
   } else {
     emails.value = []
   }
-  answer.value = ''
-  hideInlineForm.value = false
 }, { immediate: true })
 
 const scrollToBottom = () => {
@@ -310,30 +293,6 @@ const handleAgentSelected = (agentName) => {
   emit('agent-selected', agentName)
 }
 
-const handleAgentQuestionSubmit = async () => {
-  if (!answer.value.trim() || !currentSession.value) return
-
-  const sessionId = currentSession.value.session_id
-  const question = sessionStore.getPendingQuestion(sessionId)
-
-  try {
-    await sessionStore.submitAskUserAnswer(sessionId, answer.value)
-
-    submittedAnswer.value = {
-      question: question?.question || '',
-      answer: answer.value,
-      agentName: question?.agent_name || 'Agent',
-      timestamp: new Date()
-    }
-
-    answer.value = ''
-    hideInlineForm.value = false
-
-    console.log('✅ Agent question answered, temporary display added')
-  } catch (error) {
-    console.error('❌ Failed to submit answer:', error)
-    alert('Failed to submit answer: ' + error.message)
-  }
 }
 </script>
 
@@ -445,39 +404,8 @@ const handleAgentQuestionSubmit = async () => {
       </template>
     </div>
 
-    <!-- Agent 问题回答表单 - 固定在底部 -->
-    <div
-      v-if="pendingQuestion && !hideInlineForm"
-      class="email-list__bottom-area email-list__question-form-wrapper"
-    >
-      <div class="email-list__question-form">
-        <div class="email-list__question-header">
-          <MIcon name="message-circle" />
-          <span class="email-list__question-title">{{ pendingQuestion.agent_name }} {{ t('emails.hasQuestion') }}</span>
-        </div>
-        <p class="email-list__question-text">
-          {{ pendingQuestion.question }}
-        </p>
-        <textarea
-          v-model="answer"
-          rows="3"
-          :placeholder="t('emails.questionPlaceholder')"
-          class="email-list__question-input"
-        />
-        <div class="email-list__question-actions">
-          <button
-            @click="handleAgentQuestionSubmit"
-            :disabled="!answer.trim()"
-            class="email-list__question-btn email-list__question-btn--primary"
-          >
-            {{ t('common.submit') }}
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- EmailReply - 固定在底部 -->
-    <div v-if="!pendingQuestion || hideInlineForm" class="email-list__bottom-area">
+    <div class="email-list__bottom-area">
       <EmailReply
         :current-session="currentSession"
         :emails="emails"
@@ -668,145 +596,10 @@ const handleAgentQuestionSubmit = async () => {
 .email-list__retry-btn:hover {
   opacity: 0.9;
 }
-.email-list__question-form {
-  flex-shrink: 0;
-  padding: var(--spacing-lg);
-  background: var(--parchment-50);
-  border: 2px solid var(--accent);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 2px 12px rgba(194, 59, 34, 0.15);
-  position: relative;
-  transition: all 0.3s var(--ease-out);
-}
-
-/* 输入框聚焦时，表单边框变淡 */
-.email-list__question-form:focus-within {
-  border-color: var(--parchment-300);
-  box-shadow: none;
-}
-
-.email-list__question-header {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
-}
-
-.email-list__question-header .m-icon {
-  font-size: var(--icon-lg);
-  color: var(--accent);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.email-list__question-title {
-  font-family: var(--font-serif);
-  font-size: var(--font-lg);
-  font-weight: var(--font-semibold);
-  color: var(--ink-900);
-  line-height: var(--leading-snug);
-}
-
-.email-list__question-text {
-  font-size: var(--font-base);
-  color: var(--ink-700);
-  padding: 0;
-  margin: 0 0 var(--spacing-lg) 0;
-  line-height: 1.8;
-  font-family: var(--font-serif);
-}
-
-.email-list__question-input {
-  width: 100%;
-  padding: var(--spacing-md);
-  background: var(--parchment-50);
-  border: 1px solid var(--parchment-300);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-base);
-  color: var(--ink-700);
-  resize: none;
-  margin-bottom: var(--spacing-lg);
-  font-family: var(--font-serif);
-  line-height: 1.8;
-  transition: all var(--duration-base) var(--ease-out);
-}
-
-.email-list__question-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  border-width: 2px;
-  padding: calc(var(--spacing-md) - 1px);
-  box-shadow: 0 0 0 3px rgba(194, 59, 34, 0.1);
-  background: var(--parchment-50);
-}
-
-.email-list__question-input::placeholder {
-  color: var(--ink-400);
-  font-style: italic;
-}
-
-.email-list__question-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-}
-
-.email-list__question-btn {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
-}
-
-.email-list__question-btn--primary {
-  background: var(--ink-900);
-  color: var(--parchment-50);
-}
-
-.email-list__question-btn--primary:hover:not(:disabled) {
-  background: var(--accent);
-}
-
-.email-list__question-btn--primary:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-
-.email-list__messages {
-}
-
-/* 底部控件区域的通用样式 */
-
 
 .email-list__bottom-area {
   flex-shrink: 0;
   background: var(--parchment-50);
   padding: var(--spacing-md);
-}
-
-/* 问题表单特殊样式 */
-.email-list__question-form-wrapper {
-  /* wrapper本身不设置样式，所有样式在question-form上 */
-}
-
-.email-list__question-form {
-  padding: var(--spacing-lg);
-  background: var(--parchment-50);
-  border: 2px solid var(--accent);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 2px 12px rgba(194, 59, 34, 0.15);
-  position: relative;
 }
 </style>

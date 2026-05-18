@@ -162,7 +162,7 @@ ChatHistory 通过 `sessionStore.lastSessionEvent` watch 增量 append 所有类
 |---|---|---|
 | 用途 | Agent 级状态变化 | Session 级事件日志 |
 | 触发 | `update_status()` | `_log_event()` / `_log_session_event()` |
-| 数据 | status, current_task_id, pending_question | event_type, event_name, event_detail |
+| 数据 | status, current_task_id | event_type, event_name, event_detail |
 | 消费者 | Agent Status Panel, Agent Store | ChatHistory, EmailList, Session List |
 | 持久化 | 否（纯实时状态） | 是（session_events 表） |
 

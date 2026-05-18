@@ -44,17 +44,17 @@ export const useAgentStore = defineStore('agent', () => {
     delete agents.value[agentName]
   }
 
-  // UI Actions 缓存
-  const setAgentUIActions = (agentName, actions) => {
+  // UI Schema 缓存
+  const setAgentUISchema = (agentName, schema) => {
     if (!agents.value[agentName]) {
       agents.value[agentName] = {}
     }
-    agents.value[agentName].uiActions = actions
-    agents.value[agentName].uiActionsLoadedAt = new Date().toISOString()
+    agents.value[agentName].uiSchema = schema
+    agents.value[agentName].uiSchemaLoadedAt = new Date().toISOString()
   }
 
-  const getAgentUIActions = (agentName) => {
-    return agents.value[agentName]?.uiActions || []
+  const getAgentUISchema = (agentName) => {
+    return agents.value[agentName]?.uiSchema || []
   }
 
   return {
@@ -62,9 +62,9 @@ export const useAgentStore = defineStore('agent', () => {
     getAgent,
     getAgentStatus,
     getAgentSessionId,
-    getAgentUIActions,
+    getAgentUISchema,
     updateAgentStatus,
-    setAgentUIActions,
+    setAgentUISchema,
     clearAgentStatus
   }
 })

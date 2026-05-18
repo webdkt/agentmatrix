@@ -50,7 +50,7 @@
     // ==========================================
     // 共享状态（IIFE 闭包作用域，供所有模块访问）
     // ==========================================
-    var _status = 'IDLE';      // IDLE | THINKING | WORKING | WAITING_FOR_USER | DISCONNECTED
+    var _status = 'IDLE';      // IDLE | THINKING | WORKING | DISCONNECTED
     var _agentName = (window.__bh_agent_meta__ && window.__bh_agent_meta__.agent_name) || 'Agent';
     var _splashActive = false;
     var _speechEl = null;

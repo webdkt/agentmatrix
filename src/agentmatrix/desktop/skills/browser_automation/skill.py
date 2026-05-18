@@ -661,58 +661,6 @@ class Browser_automationSkillMixin:
             "target_id": tab.target_id,
         }, ensure_ascii=False)
 
-    
-    async def ask_user_and_wait(self, question: str, options: str = "") -> str:
-        """在浏览器前端弹出对话框向用户提问。"""
-        await self._ensure_browser()
-        tab = self._get_current_tab()
-
-        if not tab:
-            return json.dumps({
-                "status": "error",
-                "error": "没有活动的 tab。请先使用 open_url() 打开页面。",
-            }, ensure_ascii=False)
-
-        # 解析 options
-        choices = []
-        multi = False
-        if options:
-            try:
-                opts = json.loads(options)
-                choices = opts.get("choices", [])
-                multi = opts.get("multi", False)
-            except json.JSONDecodeError:
-                return json.dumps({
-                    "status": "error",
-                    "error": f"options JSON 解析失败: {options}",
-                }, ensure_ascii=False)
-
-        # 构造调用（__bh_ask_user__ 已由 agent_button.js 自动注入）
-        call_js = f"window.__bh_ask_user__({json.dumps({
-            'question': question,
-            'choices': choices,
-            'multi': multi,
-        })})"
-
-        # 调用
-        if _event_listener:
-            await _event_listener.inject_js(tab.session_id, call_js)
-        else:
-            await _cdp_client.send(
-                "Runtime.evaluate",
-                {"expression": call_js},
-                session_id=tab.session_id,
-            )
-
-        mode = "纯文本" if not choices else ("多选" if multi else "单选")
-        return json.dumps({
-            "status": "ok",
-            "message": f"已向用户提问（{mode}模式），等待回答...",
-            "question": question,
-            "choices": choices,
-            "multi": multi,
-        }, ensure_ascii=False)
-
     # ==========================================
     # DOM 探索 (indicator → selector)
     # ==========================================
