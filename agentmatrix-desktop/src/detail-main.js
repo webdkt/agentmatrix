@@ -10,9 +10,9 @@ import './styles/components.css'
 document.documentElement.style.cssText += ';background:transparent!important;background-color:transparent!important'
 document.body.style.cssText += ';background:transparent!important;background-color:transparent!important'
 
-import FloatingAgentPanel from './components/floating/FloatingAgentPanel.vue'
+import EventDetailPanel from './components/floating/EventDetailPanel.vue'
 
-const app = createApp(FloatingAgentPanel)
+const app = createApp(EventDetailPanel)
 const pinia = createPinia()
 app.use(pinia)
-app.mount('#floating-app')
+app.mount('#detail-app')

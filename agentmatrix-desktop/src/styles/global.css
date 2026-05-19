@@ -9,7 +9,7 @@
 
 html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 
-body { font-family: var(--font-sans); font-size: var(--font-base); font-weight: var(--font-normal); line-height: var(--leading-relaxed); color: var(--text-secondary); background-color: #FFFFFF; overflow-x: hidden; }
+body { font-family: var(--font-sans); font-size: var(--font-base); font-weight: var(--font-normal); line-height: var(--leading-relaxed); color: var(--text-secondary); overflow-x: hidden; }
 
 h1, h2, h3, h4, h5, h6 { font-family: var(--font-sans); font-weight: var(--font-semibold); line-height: var(--leading-snug); color: var(--text-primary); margin: 0; }
 h1 { font-size: var(--font-3xl); }

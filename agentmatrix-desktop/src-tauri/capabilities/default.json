@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default permissions for AgentMatrix",
-  "windows": ["main", "wizard", "splash", "floating"],
+  "windows": ["main", "wizard", "splash", "floating", "floating-capsule", "floating-stream", "input", "detail"],
   "permissions": [
     "core:default",
     "core:window:allow-create",
@@ -24,6 +24,7 @@
     "fs:read-files",
     "dialog:allow-confirm",
     "dialog:allow-message",
-    "dialog:default"
+    "dialog:default",
+    "core:event:default"
   ]
 }

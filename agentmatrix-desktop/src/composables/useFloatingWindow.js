@@ -63,6 +63,9 @@ export function useFloatingWindow() {
    * 关闭浮动窗口并恢复主窗口
    */
   async function closeFloating() {
+    // Close input and detail windows if open
+    try { await invoke('destroy_input_window') } catch { /* ignore */ }
+    try { await invoke('destroy_detail_window') } catch { /* ignore */ }
     try {
       await invoke('destroy_floating_window')
     } catch (e) {

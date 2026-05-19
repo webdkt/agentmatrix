@@ -37,6 +37,8 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         floating: path.resolve(__dirname, 'floating.html'),
+        input: path.resolve(__dirname, 'input.html'),
+        detail: path.resolve(__dirname, 'detail.html'),
       },
     },
   },

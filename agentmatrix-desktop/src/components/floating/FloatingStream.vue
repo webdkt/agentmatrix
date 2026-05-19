@@ -1,15 +1,11 @@
 <script setup>
-import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
-import { emit } from '@tauri-apps/api/event'
-import { listen } from '@tauri-apps/api/event'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { emit as tauriEmit } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useAgentStore } from '@/stores/agent'
-import { agentAPI } from '@/api/agent'
 import { sessionAPI } from '@/api/session'
 import { useKaraokeScroll } from '@/composables/useKaraokeScroll'
-import GlassCard from './GlassCard.vue'
 import KaraokeStream from './KaraokeStream.vue'
-import FloatingMenu from './FloatingMenu.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 // ---- Parse session info from URL hash ----
@@ -39,10 +35,6 @@ readParamsFromHash()
 window.addEventListener('hashchange', readParamsFromHash)
 
 const isValidSession = computed(() => !!(agentName.value && agentSessionId.value))
-
-// ---- UI state ----
-const showMenu = ref(false)
-const panelRef = ref(null)
 
 // ---- Stores ----
 const agentStore = useAgentStore()
@@ -122,7 +114,6 @@ async function loadHistory() {
   try {
     const result = await sessionAPI.getSessionEvents(agentName.value, agentSessionId.value, 200)
     const events = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
-    // Replay in order: action sets bar, non-action washes it away
     let lastAction = null
     for (const e of events) {
       if (e.renderType === 'pill') {
@@ -132,80 +123,20 @@ async function loadHistory() {
       }
     }
     currentAction.value = lastAction
-    // Stream shows everything except actions
     messages.value = events.filter(e => e.renderType !== 'pill')
   } catch (err) {
-    console.error('[Floating] Failed to load history:', err)
+    console.error('[Stream] Failed to load history:', err)
   } finally {
     isLoading.value = false
   }
 }
 
-// ---- Restore to desktop ----
-async function restoreToDesktop() {
-  await emit('floating:restore')
-}
-
-// ---- Open/close input window ----
-let isInputWindowOpen = false
-
-/** Find the last email event ID for in_reply_to */
-function getLastEmailId() {
-  const emailEvents = messages.value.filter(
-    e => ['bubble-user', 'bubble-agent', 'agent-comm'].includes(e.renderType)
-  )
-  if (emailEvents.length === 0) return undefined
-  return emailEvents[emailEvents.length - 1].id
-}
-
-// ---- Open/close input window (toggle) ----
-async function openInputWindow() {
-  if (!sessionId.value || !agentName.value) return
+// ---- Broadcast agent status to capsule window ----
+async function broadcastStatus(status) {
   try {
-    if (isInputWindowOpen) {
-      await invoke('destroy_input_window')
-      isInputWindowOpen = false
-    } else {
-      await invoke('create_input_window', {
-        sessionId: sessionId.value,
-        agentName: agentName.value,
-        agentSessionId: agentSessionId.value,
-        lastEmailId: getLastEmailId() || '',
-      })
-      isInputWindowOpen = true
-    }
+    await tauriEmit('floating:status-update', { status })
   } catch (e) {
-    console.error('[Floating] Failed to toggle input window:', e)
-    isInputWindowOpen = false
-  }
-}
-
-// ---- UI Actions ----
-const agentUISchema = ref([])
-
-async function loadAgentUISchema() {
-  if (!agentName.value) return
-  const cached = agentStore.getAgentUISchema(agentName.value)
-  if (cached.length > 0) {
-    agentUISchema.value = cached
-    return
-  }
-  try {
-    const result = await agentAPI.getAgentUIActions(agentName.value)
-    agentUISchema.value = result.schema || []
-    agentStore.setAgentUISchema(agentName.value, result.schema || [])
-  } catch (e) {
-    console.error('[Floating] Failed to load UI schema:', e)
-  }
-}
-
-async function invokeUIAction(actionNode) {
-  if (!agentName.value) return
-  try {
-    const payload = { session_id: sessionId.value }
-    await agentAPI.invokeAgentUIAction(agentName.value, actionNode.action, payload)
-  } catch (e) {
-    console.error('[Floating] UI action failed:', e)
+    console.error('[Stream] Failed to broadcast status:', e)
   }
 }
 
@@ -228,7 +159,7 @@ function connectWebSocket() {
         const data = JSON.parse(event.data)
         handleWsMessage(data)
       } catch (e) {
-        console.error('[Floating] WS parse error:', e)
+        console.error('[Stream] WS parse error:', e)
       }
     }
 
@@ -237,10 +168,10 @@ function connectWebSocket() {
     }
 
     ws.onerror = (e) => {
-      console.error('[Floating] WebSocket error:', e)
+      console.error('[Stream] WebSocket error:', e)
     }
   }).catch(e => {
-    console.error('[Floating] Failed to get backend port:', e)
+    console.error('[Stream] Failed to get backend port:', e)
   })
 }
 
@@ -252,13 +183,12 @@ function handleWsMessage(data) {
 
     const parsed = parseEvent(eventData)
     if (parsed.renderType === 'skip') return
-    if (parsed.renderType === 'bubble-user') return // skip echo
+    if (parsed.renderType === 'bubble-user') return
     if (parsed.renderType === 'pill') {
       currentAction.value = formatAction(parsed)
       return
     }
 
-    // Any non-action message washes away the action bar
     currentAction.value = null
     messages.value.push(parsed)
   } else if (data.type === 'AGENT_STATUS_UPDATE') {
@@ -266,42 +196,29 @@ function handleWsMessage(data) {
     agentStore.updateAgentStatus(agent_name, statusData)
     if (agent_name === agentName.value) {
       agentStatus.value = statusData.status || 'IDLE'
+      broadcastStatus(statusData.status || 'IDLE')
     }
   }
 }
 
-// ---- Dynamic window sizing ----
-const menuRef = ref(null)
-
-function updateWindowSize() {
-  if (!panelRef.value) return
-  const el = panelRef.value
-  const width = Math.ceil(el.scrollWidth)
-  const height = Math.ceil(el.scrollHeight)
-  invoke('resize_floating_window', { width, height }).catch(() => {})
-}
-
-// ---- Lifecycle: react to session becoming valid ----
+// ---- Lifecycle ----
 let sessionInitialized = false
 let unlistenDetail = null
+
+onMounted(() => {
+  invoke('clip_window_rounded', { label: 'floating-stream', radius: 16 })
+})
 
 watch(isValidSession, async (valid) => {
   if (!valid || sessionInitialized) return
   sessionInitialized = true
   await loadHistory()
-  await loadAgentUISchema()
   connectWebSocket()
 
-  // Listen for detail window close
   unlistenDetail = await listen('detail:closed', () => {
     onDetailClose()
   })
 }, { immediate: true })
-
-// Resize window when content changes (including menu toggle)
-watch([karaokeTriple, isValidSession, showMenu, currentAction], () => {
-  nextTick(updateWindowSize)
-}, { deep: true })
 
 onUnmounted(() => {
   window.removeEventListener('hashchange', readParamsFromHash)
@@ -316,38 +233,19 @@ onUnmounted(() => {
     ws = null
   }
 })
+
+// Need to import listen for detail:closed
+import { listen } from '@tauri-apps/api/event'
 </script>
 
 <template>
-  <div ref="panelRef" class="floating-panel">
-    <template v-if="isValidSession">
-    <!-- Capsule: card + menu only -->
-    <div class="glass-capsule">
-      <GlassCard
-        :agent-name="agentName"
-        :agent-status="agentStatus"
-        @toggle-menu="showMenu = !showMenu"
-        @open-input="openInputWindow"
-      />
-
-      <FloatingMenu
-        ref="menuRef"
-        :visible="showMenu"
-        :schema="agentUISchema"
-        :agent-name="agentName"
-        :agent-status="agentStatus"
-        @close="showMenu = false"
-        @invoke-action="invokeUIAction"
-        @restore="restoreToDesktop"
-      />
-
-      <!-- Loading state -->
-      <div v-if="isLoading" class="floating-loading">
-        <span class="floating-loading__spinner"><MIcon name="loader" /></span>
-      </div>
+  <div class="stream-panel">
+    <!-- Loading state -->
+    <div v-if="isLoading" class="stream-loading">
+      <span class="stream-loading__spinner"><MIcon name="loader" /></span>
     </div>
 
-    <!-- Stream: wider than capsule (1.618x), right-aligned with it -->
+    <!-- Stream -->
     <KaraokeStream
       v-if="!isLoading"
       :karaoke-triple="karaokeTriple"
@@ -357,7 +255,7 @@ onUnmounted(() => {
       @scroll-resume="resumeAutoScroll"
     />
 
-    <!-- Action status bar: bottom of stream, washed away by any new message -->
+    <!-- Action status bar -->
     <div v-if="currentAction" class="action-bar">
       <Transition name="action-flip">
         <div class="action-bar__line" :key="currentAction.key">
@@ -366,36 +264,28 @@ onUnmounted(() => {
         </div>
       </Transition>
     </div>
-    </template>
   </div>
 </template>
 
 <style scoped>
-.floating-panel {
-  background: transparent;
+.stream-panel {
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
   padding: 0;
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.08));
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.glass-capsule {
   display: flex;
   flex-direction: column;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.97);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  width: fit-content;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
 }
 
-/* ---- Action status bar (below stream) ---- */
+/* ---- Action status bar ---- */
 .action-bar {
-  width: 453px;
+  width: 100%;
   padding: 0 14px 6px;
+  box-sizing: border-box;
   overflow: hidden;
   position: relative;
 }
@@ -442,14 +332,14 @@ onUnmounted(() => {
   transform: translateY(-100%);
 }
 
-.floating-loading {
+.stream-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 8px;
 }
 
-.floating-loading__spinner {
+.stream-loading__spinner {
   font-size: 16px;
   color: var(--text-quaternary, #d4d4d8);
   animation: spin 1s linear infinite;
