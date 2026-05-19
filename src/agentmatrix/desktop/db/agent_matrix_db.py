@@ -110,7 +110,9 @@ class AgentMatrixDB(AutoLoggerMixin):
                 is_read INTEGER NOT NULL DEFAULT 0,
                 timestamp TEXT,
                 created_at TEXT,
-                last_email_id TEXT
+                last_email_id TEXT,
+                last_agent_mail_time TEXT,
+                last_check_time TEXT
             )
         """)
         await self.conn.execute("""
