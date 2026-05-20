@@ -1,588 +1,429 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
-import EmailProxyForm from './EmailProxyForm.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const settingsStore = useSettingsStore()
 const uiStore = useUIStore()
 
-// State
-const showForm = ref(false)
-const isEnabled = ref(false)
-const config = ref(null)
 const isLoading = ref(false)
-const isTesting = ref(false)
+const isSaving = ref(false)
+const isEnabled = ref(false)
+const hasChanges = ref(false)
+const loadError = ref(null)
+const expanded = ref(false)
 
-// Local config storage (flattened format for form)
-const localConfig = ref(null)
-
-// Computed
-const hasConfig = computed(() => {
-  return !!localConfig.value
+const form = reactive({
+  matrix_mailbox: '',
+  user_mailbox: '',
+  imap_host: '',
+  imap_port: '993',
+  imap_user: '',
+  imap_password: '',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_user: '',
+  smtp_password: '',
 })
 
-const configSummary = computed(() => {
-  if (!localConfig.value) return null
-
+function toFrontend(backend) {
+  if (!backend) return null
+  const ep = backend.email_proxy || backend
+  const userMb = ep.user_mailbox
+  const userMailboxStr = Array.isArray(userMb) ? userMb.join(', ') : (userMb || '')
   return {
-    email: localConfig.value.email || 'Not configured',
-    imapHost: localConfig.value.imap_host || 'Not configured',
-    imapPort: localConfig.value.imap_port || '993',
-    smtpHost: localConfig.value.smtp_host || 'Not configured',
-    smtpPort: localConfig.value.smtp_port || '587'
-  }
-})
-
-// Convert backend config format to frontend format
-const convertBackendToFrontend = (backendConfig) => {
-  if (!backendConfig) return null
-
-  // Backend format (from YAML):
-  // {
-  //   email_proxy: {
-  //     enabled: false,
-  //     matrix_mailbox: "...",
-  //     imap: { host: "...", port: 993, user: "...", password: "..." },
-  //     smtp: { host: "...", port: 587, user: "...", password: "..." }
-  //   }
-  // }
-
-  // Frontend format (flat):
-  // {
-  //   email: "...",
-  //   imap_host: "...",
-  //   imap_port: "...",
-  //   imap_user: "...",
-  //   imap_password: "...",
-  //   smtp_host: "...",
-  //   smtp_port: "...",
-  //   smtp_user: "...",
-  //   smtp_password: "..."
-  // }
-
-  const emailProxy = backendConfig.email_proxy || backendConfig
-
-  return {
-    email: emailProxy.matrix_mailbox || emailProxy.user_mailbox || '',
-    imap_host: emailProxy.imap?.host || '',
-    imap_port: emailProxy.imap?.port?.toString() || '993',
-    imap_user: emailProxy.imap?.user || '',
-    imap_password: emailProxy.imap?.password || '',
-    smtp_host: emailProxy.smtp?.host || '',
-    smtp_port: emailProxy.smtp?.port?.toString() || '587',
-    smtp_user: emailProxy.smtp?.user || '',
-    smtp_password: emailProxy.smtp?.password || ''
+    matrix_mailbox: ep.matrix_mailbox || '',
+    user_mailbox: userMailboxStr,
+    imap_host: ep.imap?.host || '',
+    imap_port: ep.imap?.port?.toString() || '993',
+    imap_user: ep.imap?.user || '',
+    imap_password: ep.imap?.password || '',
+    smtp_host: ep.smtp?.host || '',
+    smtp_port: ep.smtp?.port?.toString() || '587',
+    smtp_user: ep.smtp?.user || '',
+    smtp_password: ep.smtp?.password || '',
   }
 }
 
-// Convert frontend config format to backend format
-const convertFrontendToBackend = (frontendConfig) => {
-  // Frontend format -> Backend format
+function toBackend() {
+  let userMailbox = form.user_mailbox.trim()
+  if (userMailbox.includes(',')) {
+    userMailbox = userMailbox.split(',').map(s => s.trim()).filter(Boolean)
+  }
   return {
     email_proxy: {
       enabled: isEnabled.value,
-      matrix_mailbox: frontendConfig.email,
+      matrix_mailbox: form.matrix_mailbox.trim(),
+      user_mailbox: userMailbox,
       imap: {
-        host: frontendConfig.imap_host,
-        port: parseInt(frontendConfig.imap_port) || 993,
-        user: frontendConfig.imap_user,
-        password: frontendConfig.imap_password
+        host: form.imap_host.trim(),
+        port: parseInt(form.imap_port) || 993,
+        user: form.imap_user.trim(),
+        password: form.imap_password,
       },
       smtp: {
-        host: frontendConfig.smtp_host,
-        port: parseInt(frontendConfig.smtp_port) || 587,
-        user: frontendConfig.smtp_user,
-        password: frontendConfig.smtp_password
-      }
-    }
+        host: form.smtp_host.trim(),
+        port: parseInt(form.smtp_port) || 587,
+        user: form.smtp_user.trim(),
+        password: form.smtp_password,
+      },
+    },
   }
 }
 
-// Methods
-const loadConfig = async () => {
+async function load() {
   isLoading.value = true
+  loadError.value = null
   try {
     const backendConfig = await settingsStore.loadEmailProxyConfig()
     if (backendConfig) {
-      // Convert backend format to frontend format
-      const frontendConfig = convertBackendToFrontend(backendConfig)
-      localConfig.value = frontendConfig
+      const fe = toFrontend(backendConfig)
+      if (fe) {
+        Object.assign(form, fe)
+      }
       isEnabled.value = backendConfig.email_proxy?.enabled || backendConfig.enabled || false
     }
-  } catch (error) {
-    console.log('Failed to load email proxy config:', error.message)
-    // Don't show error for expected failures
+  } catch (e) {
+    console.error('Failed to load email proxy config:', e)
+    loadError.value = e.message
   } finally {
     isLoading.value = false
   }
 }
 
-const handleToggleEnable = async () => {
+async function save() {
+  if (!hasChanges.value) return
+  isSaving.value = true
+  try {
+    await settingsStore.updateEmailProxyConfig(toBackend())
+    hasChanges.value = false
+    expanded.value = false
+    uiStore.showNotification('Email proxy saved', 'success')
+  } catch (e) {
+    uiStore.showNotification('Save failed: ' + e.message, 'error')
+  } finally {
+    isSaving.value = false
+  }
+}
+
+async function toggleEnable() {
   try {
     if (isEnabled.value) {
       await settingsStore.disableEmailProxy()
+      isEnabled.value = false
     } else {
       await settingsStore.enableEmailProxy()
+      isEnabled.value = true
     }
-    isEnabled.value = !isEnabled.value
-    uiStore.showNotification(
-      `Email proxy ${isEnabled.value ? 'enabled' : 'disabled'}`,
-      'success'
-    )
-  } catch (error) {
-    console.error('Failed to toggle email proxy:', error)
-    uiStore.showNotification('Failed to toggle email proxy', 'error')
+  } catch (e) {
+    uiStore.showNotification('Failed to toggle', 'error')
   }
 }
 
-const handleEditConfig = () => {
-  showForm.value = true
-}
+function trackChange() { hasChanges.value = true }
 
-const handleCloseForm = () => {
-  showForm.value = false
-}
+onMounted(load)
 
-const handleConfigSaved = async (savedFrontendConfig) => {
-  // Convert frontend format to backend format
-  const backendConfig = convertFrontendToBackend(savedFrontendConfig)
-
-  // Save to backend
-  try {
-    await settingsStore.updateEmailProxyConfig(backendConfig)
-    localConfig.value = savedFrontendConfig
-    showForm.value = false
-    uiStore.showNotification('Email proxy configuration saved', 'success')
-  } catch (error) {
-    console.error('Failed to save email proxy config:', error)
-    uiStore.showNotification(`Failed to save: ${error.message}`, 'error')
-  }
-}
-
-const handleTestConnection = async () => {
-  isTesting.value = true
-  try {
-    await settingsStore.testEmailProxyConnection()
-    uiStore.showNotification('Connection test successful', 'success')
-  } catch (error) {
-    console.error('Connection test failed:', error)
-    uiStore.showNotification('Connection test failed', 'error')
-  } finally {
-    isTesting.value = false
-  }
-}
-
-// Lifecycle
-onMounted(async () => {
-  await loadConfig()
-})
+defineExpose({ save: () => { if (hasChanges.value) save() } })
 </script>
 
 <template>
-  <div class="email-proxy-config">
-    <!-- Status Card -->
-    <div class="status-card">
-      <div class="status-header">
-        <div class="status-info">
-          <div class="status-icon" :class="{ enabled: isEnabled }">
-            <MIcon name="mail" />
-          </div>
-          <div>
-            <h3 class="status-title">Email Proxy Service</h3>
-            <p class="status-description">
-              {{ isEnabled ? 'Service is enabled and running' : 'Service is disabled' }}
-            </p>
-          </div>
-        </div>
-        <div class="status-actions">
-          <button
-            @click="handleTestConnection"
-            :disabled="!hasConfig || isTesting"
-            class="btn-test"
-            title="Test connection"
-          >
-            <MIcon name="flask" :class="{ spinner: isTesting }" />
-            <span>{{ isTesting ? 'Testing...' : 'Test' }}</span>
-          </button>
-          <button
-            @click="handleToggleEnable"
-            :disabled="!hasConfig"
-            class="btn-toggle"
-            :class="{ enabled: isEnabled }"
-          >
-            <MIcon :name="isEnabled ? 'player-pause' : 'player-play'" />
-            <span>{{ isEnabled ? 'Disable' : 'Enable' }}</span>
-          </button>
-        </div>
-      </div>
-    </div>
+  <div class="config-section">
+    <div v-if="isLoading" class="loading-state"><MIcon name="loader" class="spinner" /> 加载中...</div>
+    <div v-else-if="loadError" class="error-state">{{ loadError }}</div>
 
-    <!-- Configuration Card -->
-    <div class="config-card">
-      <div class="config-header">
-        <div>
-          <h3 class="config-title">Configuration</h3>
-          <p class="config-description">
-            {{ hasConfig ? 'Email proxy is configured' : 'No configuration found' }}
-          </p>
-        </div>
-        <button
-          @click="handleEditConfig"
-          class="btn-edit"
-        >
-          <MIcon name="pencil" />
-          <span>{{ hasConfig ? 'Edit' : 'Configure' }}</span>
-        </button>
-      </div>
-
-      <div v-if="hasConfig && configSummary" class="config-details">
-        <div class="detail-section">
-          <h4 class="detail-section-title">
-            <MIcon name="mail" />
-            Email Settings
-          </h4>
-          <div class="detail-item">
-            <span class="detail-label">Email Address</span>
-            <span class="detail-value">{{ configSummary.email }}</span>
+    <template v-else>
+      <!-- Main card -->
+      <div :class="['card', { expanded }]">
+        <div class="card-header" @click="expanded = !expanded">
+          <div class="card-title-row">
+            <span class="card-key">email_proxy</span>
+            <span class="card-display">Email Proxy</span>
+            <button
+              class="toggle-chip"
+              :class="{ on: isEnabled }"
+              @click.stop="toggleEnable"
+            >
+              {{ isEnabled ? 'On' : 'Off' }}
+            </button>
           </div>
+          <div v-if="!expanded" class="card-summary">
+            <template v-if="form.matrix_mailbox">
+              {{ form.matrix_mailbox }}
+            </template>
+            <template v-else>
+              <span class="placeholder">{{ isEnabled ? '已配置' : '未配置' }}</span>
+            </template>
+          </div>
+          <span class="expand-icon" :class="{ rotated: expanded }"><MIcon name="chevron-down" /></span>
         </div>
 
-        <div class="detail-section">
-          <h4 class="detail-section-title">
-            <MIcon name="inbox" />
-            IMAP Configuration
-          </h4>
-          <div class="detail-item">
-            <span class="detail-label">Host</span>
-            <span class="detail-value">{{ configSummary.imapHost }}</span>
+        <div v-if="expanded" class="card-form" @click.stop>
+          <div class="field">
+            <label>System Mailbox</label>
+            <input v-model="form.matrix_mailbox" class="input" placeholder="agent@mymatrix.com" @input="trackChange" />
+            <span class="field-hint">AgentMatrix uses this mailbox to send and receive emails</span>
           </div>
-          <div class="detail-item">
-            <span class="detail-label">Port</span>
-            <span class="detail-value">{{ configSummary.imapPort }}</span>
+          <div class="field">
+            <label>User Mailbox</label>
+            <input v-model="form.user_mailbox" class="input" placeholder="you@gmail.com" @input="trackChange" />
+            <span class="field-hint">Emails from this address are recognized as user messages (comma-separated for multiple)</span>
           </div>
-          <div v-if="localConfig?.imap_user" class="detail-item">
-            <span class="detail-label">Username</span>
-            <span class="detail-value">{{ localConfig.imap_user }}</span>
-          </div>
-        </div>
 
-        <div class="detail-section">
-          <h4 class="detail-section-title">
-            <MIcon name="send" />
-            SMTP Configuration
-          </h4>
-          <div class="detail-item">
-            <span class="detail-label">Host</span>
-            <span class="detail-value">{{ configSummary.smtpHost }}</span>
+          <div class="field-group-label">IMAP</div>
+          <div class="field-row">
+            <div class="field flex-2">
+              <label>Host</label>
+              <input v-model="form.imap_host" class="input" placeholder="imap.gmail.com" @input="trackChange" />
+            </div>
+            <div class="field flex-0">
+              <label>Port</label>
+              <input v-model="form.imap_port" class="input" placeholder="993" @input="trackChange" />
+            </div>
           </div>
-          <div class="detail-item">
-            <span class="detail-label">Port</span>
-            <span class="detail-value">{{ configSummary.smtpPort }}</span>
+          <div class="field-row">
+            <div class="field flex-1">
+              <label>User</label>
+              <input v-model="form.imap_user" class="input" placeholder="user@gmail.com" @input="trackChange" />
+            </div>
+            <div class="field flex-1">
+              <label>Password</label>
+              <input v-model="form.imap_password" class="input" type="password" placeholder="••••••••" @input="trackChange" />
+            </div>
           </div>
-          <div v-if="localConfig?.smtp_user" class="detail-item">
-            <span class="detail-label">Username</span>
-            <span class="detail-value">{{ localConfig.smtp_user }}</span>
+
+          <div class="field-group-label">SMTP</div>
+          <div class="field-row">
+            <div class="field flex-2">
+              <label>Host</label>
+              <input v-model="form.smtp_host" class="input" placeholder="smtp.gmail.com" @input="trackChange" />
+            </div>
+            <div class="field flex-0">
+              <label>Port</label>
+              <input v-model="form.smtp_port" class="input" placeholder="587" @input="trackChange" />
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field flex-1">
+              <label>User</label>
+              <input v-model="form.smtp_user" class="input" placeholder="user@gmail.com" @input="trackChange" />
+            </div>
+            <div class="field flex-1">
+              <label>Password</label>
+              <input v-model="form.smtp_password" class="input" type="password" placeholder="••••••••" @input="trackChange" />
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <button class="btn-text" @click="expanded = false">取消</button>
+            <button class="btn-text primary" @click="save" :disabled="isSaving">{{ isSaving ? '保存中...' : '保存' }}</button>
           </div>
         </div>
       </div>
-
-      <div v-else class="empty-config">
-        <div class="empty-icon">
-          <MIcon name="mail-off" />
-        </div>
-        <h4>No Configuration</h4>
-        <p>Configure your email proxy settings to enable email services</p>
-        <button
-          @click="handleEditConfig"
-          class="btn-configure"
-        >
-          <MIcon name="plus" />
-          <span>Configure Now</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Form Modal -->
-    <EmailProxyForm
-      v-if="showForm"
-      :config="localConfig"
-      @close="handleCloseForm"
-      @saved="handleConfigSaved"
-    />
+    </template>
   </div>
 </template>
 
 <style scoped>
-.email-proxy-config {
+.config-section {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-8);
 }
 
-.status-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-6);
-}
-
-.status-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-6);
-}
-
-.status-info {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-4);
-}
-
-.status-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-md);
-  background: var(--surface-hover);
-  color: var(--text-tertiary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-  transition: all var(--duration-base) var(--ease-out);
-}
-
-.status-icon.enabled {
-  background: var(--success-50);
-  color: var(--success-500);
-}
-
-.status-title {
-  font-size: var(--font-lg);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.status-description {
-  font-size: var(--font-sm);
-  color: var(--text-tertiary);
-  margin: var(--spacing-1) 0 0 0;
-}
-
-.status-actions {
-  display: flex;
-  gap: var(--spacing-3);
-}
-
-.btn-test,
-.btn-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-strong);
-  background: white;
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
-}
-
-.btn-test:hover:not(:disabled),
-.btn-toggle:hover:not(:disabled) {
-  background: var(--surface-base);
-  border-color: var(--text-tertiary);
-}
-
-.btn-test:disabled,
-.btn-toggle:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-toggle.enabled {
-  background: var(--error-50);
-  border-color: var(--error-300);
-  color: var(--error-700);
-}
-
-.btn-toggle.enabled:hover {
-  background: var(--error-100);
-}
-
-.spinner {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.config-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-6);
-}
-
-.config-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: var(--spacing-6);
-  padding-bottom: var(--spacing-6);
-  border-bottom: 1px solid var(--surface-hover);
-}
-
-.config-title {
-  font-size: var(--font-lg);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.config-description {
-  font-size: var(--font-sm);
-  color: var(--text-tertiary);
-  margin: var(--spacing-1) 0 0 0;
-}
-
-.btn-edit {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-3) var(--spacing-4);
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
-  flex-shrink: 0;
-}
-
-.btn-edit:hover {
-  background: var(--accent-hover);
-}
-
-.config-details {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-6);
-}
-
-.detail-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-3);
-  padding: var(--spacing-4);
-  background: var(--surface-base);
-  border-radius: var(--radius-md);
-}
-
-.detail-section-title {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.detail-section-title i {
-  color: var(--accent);
-  font-size: var(--icon-lg);
-}
-
-.detail-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-2) 0;
-  border-bottom: 1px solid var(--surface-hover);
-}
-
-.detail-item:last-child {
-  border-bottom: none;
-}
-
-.detail-label {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  font-weight: var(--font-medium);
-}
-
-.detail-value {
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.empty-config {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-12) var(--spacing-6);
-  gap: var(--spacing-4);
+.loading-state, .error-state {
+  padding: var(--spacing-8);
   text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-sm);
 }
 
-.empty-icon {
-  width: 80px;
-  height: 80px;
-  border-radius: var(--radius-md);
-  background: var(--surface-hover);
+.spinner { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--duration-base) var(--ease-out);
+}
+
+.card.expanded {
+  box-shadow: var(--shadow-md);
+}
+
+.card-header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 40px;
-  color: var(--border-strong);
+  justify-content: space-between;
+  padding: 14px 18px;
+  cursor: pointer;
+  min-height: 48px;
+  border-radius: 10px;
+  transition: background-color var(--duration-base) var(--ease-out);
 }
 
-.empty-config h4 {
-  font-size: var(--font-lg);
-  font-weight: var(--font-semibold);
-  color: var(--text-secondary);
-  margin: 0;
+.card:not(.expanded) .card-header:hover {
+  background-color: var(--surface-secondary);
 }
 
-.empty-config p {
-  font-size: var(--font-sm);
-  color: var(--text-tertiary);
-  margin: 0;
-}
-
-.btn-configure {
+.card-title-row {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
-  padding: var(--spacing-4) var(--spacing-6);
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
+  flex: 1;
+  min-width: 0;
+}
+
+.card-key {
+  font-family: 'SF Mono', 'Menlo', monospace;
   font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.card-display {
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+}
+
+.toggle-chip {
+  margin-left: auto;
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-out);
-  margin-top: var(--spacing-2);
 }
 
-.btn-configure:hover {
-  background: var(--accent-hover);
+.toggle-chip:hover {
+  background: var(--surface-active);
 }
+
+.toggle-chip.on {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  color: var(--success);
+}
+
+.toggle-chip.on:hover {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+}
+
+.card-summary {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  margin-left: var(--spacing-3);
+  margin-right: var(--spacing-1);
+}
+
+.placeholder { color: var(--text-quaternary); font-style: italic; }
+
+.expand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-quaternary);
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: transform var(--duration-base) var(--ease-out);
+  pointer-events: none;
+}
+
+.expand-icon.rotated {
+  transform: rotate(180deg);
+}
+
+.card-form {
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.field-group-label {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--accent);
+  padding-top: var(--spacing-2);
+}
+
+.field-row {
+  display: flex;
+  gap: var(--spacing-3);
+}
+
+.flex-1 { flex: 1; }
+.flex-2 { flex: 2; }
+.flex-0 { width: 80px; flex-shrink: 0; }
+
+.input {
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-secondary);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface-base);
+}
+.input::placeholder { color: var(--text-quaternary); }
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-2);
+  padding-top: var(--spacing-2);
+}
+
+.btn-text {
+  padding: var(--spacing-1) var(--spacing-2);
+  background: none; border: none;
+  font-size: var(--font-sm); color: var(--text-secondary);
+  cursor: pointer; border-radius: var(--radius-md);
+}
+
+.btn-text:hover { background: var(--surface-hover); color: var(--text-primary); }
+.btn-text.primary { color: var(--accent); font-weight: var(--font-medium); }
+.btn-text.primary:hover { color: var(--accent-hover); }
+.btn-text:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

@@ -1,5 +1,4 @@
 <script setup>
-import { computed } from 'vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -13,33 +12,30 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['category-change'])
-
-const handleCategoryClick = (categoryId) => {
-  emit('category-change', categoryId)
-}
-
-const isActive = (categoryId) => {
-  return props.currentCategory === categoryId
-}
+const emit = defineEmits(['category-change', 'back'])
 </script>
 
 <template>
   <aside class="settings-sidebar">
+    <div class="sidebar-top">
+      <button class="back-btn" @click="emit('back')">
+        <MIcon name="arrow-left" class="back-icon" />
+        <span>返回</span>
+      </button>
+    </div>
+
     <nav class="sidebar-nav">
       <button
-        v-for="category in categories"
-        :key="category.id"
-        @click="handleCategoryClick(category.id)"
-        :class="['nav-item', { active: isActive(category.id) }]"
-        :title="category.description"
+        v-for="cat in categories"
+        :key="cat.id"
+        :class="['nav-item', { active: props.currentCategory === cat.id }]"
+        @click="emit('category-change', cat.id)"
       >
-        <div class="nav-item-icon-wrapper">
-          <MIcon :name="category.icon" class="nav-item-icon" />
-        </div>
-        <div class="nav-item-content">
-          <span class="nav-item-label">{{ category.label }}</span>
-          <span class="nav-item-description">{{ category.description }}</span>
+        <div class="nav-indicator" />
+        <MIcon :name="cat.icon" class="nav-icon" />
+        <div class="nav-text">
+          <span class="nav-label">{{ cat.labelZh }}</span>
+          <span class="nav-sublabel">{{ cat.label }}</span>
         </div>
       </button>
     </nav>
@@ -48,101 +44,120 @@ const isActive = (categoryId) => {
 
 <style scoped>
 .settings-sidebar {
-  width: 280px;
+  width: 220px;
   flex-shrink: 0;
-  background: var(--surface-hover);
+  display: flex;
+  flex-direction: column;
+  background: white;
   border-right: 1px solid var(--border);
-  overflow-y: auto;
-  overflow-x: hidden;
+  padding: 20px 16px;
+  gap: 24px;
+}
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  width: fit-content;
+}
+
+.back-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.back-icon {
+  font-size: 14px;
 }
 
 .sidebar-nav {
-  padding: var(--spacing-4);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
+  gap: 4px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  padding: var(--spacing-4);
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
+  gap: 12px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--text-secondary);
-  text-align: left;
   cursor: pointer;
-  transition: all var(--duration-base) var(--ease-out);
+  text-align: left;
   width: 100%;
+  position: relative;
+  transition: all var(--duration-base) var(--ease-out);
 }
 
 .nav-item:hover {
-  background: var(--surface-base);
-  border-color: transparent;
+  background: var(--surface-secondary);
   color: var(--text-primary);
 }
 
 .nav-item.active {
-  background: var(--surface-base);
-  border-left: 2px solid var(--accent);
-  border-color: transparent;
-  border-left-color: var(--accent);
+  background: var(--surface-secondary);
   color: var(--text-primary);
 }
 
-.nav-item-icon-wrapper {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--border);
-  transition: all var(--duration-base) var(--ease-out);
-}
-
-.nav-item:hover .nav-item-icon-wrapper {
-  background: var(--border-strong);
-}
-
-.nav-item.active .nav-item-icon-wrapper {
+.nav-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0;
   background: var(--accent);
-  color: white;
+  border-radius: 0 2px 2px 0;
+  transition: height var(--duration-base) var(--ease-out);
 }
 
-.nav-item-icon {
-  font-size: var(--icon-lg);
-  color: inherit;
+.nav-item.active .nav-indicator {
+  height: 20px;
 }
 
-.nav-item-content {
-  flex: 1;
-  min-width: 0;
+.nav-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+
+.nav-item:hover .nav-icon,
+.nav-item.active .nav-icon {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.nav-text {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-1);
+  gap: 1px;
+  min-width: 0;
 }
 
-.nav-item-label {
+.nav-label {
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-  color: inherit;
-  display: block;
+  line-height: 1.3;
 }
 
-.nav-item-description {
-  font-size: var(--font-xs);
+.nav-sublabel {
+  font-size: 11px;
+  font-weight: var(--font-normal);
   color: var(--text-tertiary);
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.nav-item.active .nav-item-description {
-  color: var(--text-secondary);
+  line-height: 1.3;
 }
 </style>
