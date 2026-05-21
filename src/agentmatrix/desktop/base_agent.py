@@ -1058,12 +1058,37 @@ Start generating the Working Notes now.
 
         md_skill_names = self._load_md_skill_names()
 
-        return MicroAgent(
+        micro = MicroAgent(
             parent=self, name=self.name,
             available_skills=available_skills,
             system_prompt=template_str,
             md_skill_names=md_skill_names,
         )
+
+        # 注册 system prompt 热刷新 hook：每轮 think 前重新拼装
+        async def _refresh_system_prompt():
+            new_prompt = self._assemble_system_prompt(micro)
+            micro.update_system_message(new_prompt)
+
+        micro._before_think_hook = _refresh_system_prompt
+        return micro
+
+    def _assemble_system_prompt(self, micro_agent: MicroAgent) -> str:
+        """完整的 system prompt 拼装流水线，每轮 think 前调用。
+
+        Shell 负责：渲染模板（身份、persona、yellow_pages 等变量）。
+        MicroAgent 负责：注入 $core_prompt（action list，最后一道工序）。
+        """
+        template_key = "COLLAB_MODE" if getattr(self, "collab_mode", False) else "SYSTEM_PROMPT"
+        template_str = self.render_template(
+            self.get_prompt_template(template_key),
+            user_name=self.runtime.user_agent_name,
+            agent_name=self.name,
+            yellow_pages_section=self.post_office.yellow_page_exclude_me(self.name) or "",
+        )
+
+        micro_agent.system_prompt = template_str
+        return micro_agent._finalize_system_prompt()
 
     def _get_run_label(self, session: dict) -> str:
         """Desktop: execute() 的 run_label。"""
@@ -1397,14 +1422,14 @@ Start generating the Working Notes now.
         # 加载 md skill 名字列表
         md_skill_names = self._load_md_skill_names()
 
-        # 创建临时 MicroAgent
+        # 创建临时 MicroAgent（用于获取 action_registry）
         temp_micro = MicroAgent(
             parent=self, name=self.name, available_skills=available_skills,
             system_prompt=template_str, md_skill_names=md_skill_names,
         )
 
-        # 渲染 prompt（注入 core_prompt）
-        return temp_micro._build_system_prompt()
+        # MicroAgent 负责最后一道：注入 action list
+        return temp_micro._finalize_system_prompt()
 
     # ==========================================
     # 通用 Actions

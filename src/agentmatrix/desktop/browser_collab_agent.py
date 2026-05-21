@@ -549,9 +549,12 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
         # 注册回调：tab 变化时自动刷新 system prompt
         _agent_sk_callbacks[self.name] = lambda: sk_loader.reload_and_update_prompt(micro)
 
-        # Hook: 每次 think 前自动刷新 site knowledge（确保文件变更即时反映）
+        # Hook: 链式叠加 site knowledge 刷新到基础 prompt 刷新之上
+        base_hook = micro._before_think_hook
         async def _refresh_sk_before_think():
-            sk_loader.reload_and_update_prompt(micro)
+            if base_hook:
+                await base_hook()  # 先执行基础 prompt 刷新
+            sk_loader.reload_and_update_prompt(micro)  # 再刷新站点知识
         micro._before_think_hook = _refresh_sk_before_think
 
         return micro

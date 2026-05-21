@@ -85,7 +85,7 @@ class Deep_researcherSkillMixin:
 
         # 更新 system prompt（如果 messages 已初始化且第一条是 system）
         if self.messages and self.messages[0].get("role") == "system":
-            self.messages[0]["content"] = self._build_system_prompt()
+            self.messages[0]["content"] = self._finalize_system_prompt()
 
         # 更新 phase.md（通过 file.write action 或直接写）
         work_dir = Path(self._get_work_dir())

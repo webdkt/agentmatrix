@@ -1286,8 +1286,8 @@ class Browser_automationSkillMixin:
             persona=mode_content,
         )
 
-        # 构建完整 system prompt（注入 core_prompt）并更新 messages[0]
-        full_prompt = self._build_system_prompt()
+        # 构建完整 system prompt（注入 action list）并更新 messages[0]
+        full_prompt = self._finalize_system_prompt()
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0]["content"] = full_prompt
 
