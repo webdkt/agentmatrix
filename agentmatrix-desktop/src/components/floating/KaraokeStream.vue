@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import MIcon from '@/components/icons/MIcon.vue'
 
@@ -8,17 +8,7 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  isAutoScrolling: {
-    type: Boolean,
-    default: true,
-  },
-  unreadCount: {
-    type: Number,
-    default: 0,
-  },
 })
-
-const emit = defineEmits(['scroll-pause', 'scroll-resume'])
 
 // ---- Alignment detection ----
 const streamRef = ref(null)
@@ -27,7 +17,6 @@ const alignLeft = ref(false)
 function checkAlignment() {
   if (!streamRef.value) return
   const rect = streamRef.value.getBoundingClientRect()
-  // If the stream's left edge is at or past screen left, switch to left-align
   alignLeft.value = rect.left < 4
 }
 
@@ -74,16 +63,7 @@ function truncate(str, len) {
   return str.length > len ? str.slice(0, len) + '...' : str
 }
 
-// ---- Mouse interaction ----
-function onMouseEnter() {
-  emit('scroll-pause')
-  checkAlignment()
-}
-
-function onMouseLeave() {
-  emit('scroll-resume')
-}
-
+// ---- Click handler ----
 async function handleClick(event) {
   const hasContent = event.renderType === 'thought'
   if (!hasContent) return
@@ -110,8 +90,6 @@ onUnmounted(() => {
     ref="streamRef"
     class="karaoke-stream"
     :class="{ 'karaoke-stream--align-left': alignLeft }"
-    @mouseenter="onMouseEnter"
-    @mouseleave="onMouseLeave"
   >
     <!-- Empty state -->
     <div v-if="karaokeTriple.length === 0" class="karaoke-empty">
@@ -125,7 +103,7 @@ onUnmounted(() => {
         class="karaoke-slot"
         :class="`karaoke-slot--${event._slot}`"
       >
-        <!-- Coming placeholder -->
+        <!-- Coming placeholder (dots) -->
         <template v-if="event._placeholder">
           <div class="karaoke-coming">
             <span class="karaoke-coming__dots">
@@ -133,10 +111,20 @@ onUnmounted(() => {
               <span class="karaoke-coming__dot"></span>
               <span class="karaoke-coming__dot"></span>
             </span>
-            <!-- Unread badge when paused -->
-            <span v-if="unreadCount > 0" class="karaoke-unread">
-              {{ unreadCount }}
-            </span>
+          </div>
+        </template>
+
+        <!-- Coming typewriter -->
+        <template v-else-if="event._typewriter">
+          <div class="karaoke-msg karaoke-msg--typewriter">
+            <div v-if="eventIcon(event)" class="karaoke-msg__icon">
+              <MIcon :name="eventIcon(event)" />
+            </div>
+            <div class="karaoke-msg__body">
+              <div class="karaoke-msg__text karaoke-msg__text--typing">
+                {{ event._displayedText }}<span v-if="event._isTyping" class="karaoke-cursor">|</span>
+              </div>
+            </div>
           </div>
         </template>
 
@@ -150,7 +138,7 @@ onUnmounted(() => {
         <!-- Normal message -->
         <template v-else>
           <div class="karaoke-msg" @click="handleClick(event)">
-            <div class="karaoke-msg__icon" v-if="eventIcon(event)">
+            <div v-if="eventIcon(event)" class="karaoke-msg__icon">
               <MIcon :name="eventIcon(event)" />
             </div>
             <div class="karaoke-msg__body">
@@ -235,7 +223,7 @@ onUnmounted(() => {
   margin-top: 8px;
 }
 
-/* ---- Coming placeholder ---- */
+/* ---- Coming placeholder (dots) ---- */
 .karaoke-coming {
   display: flex;
   align-items: center;
@@ -268,22 +256,6 @@ onUnmounted(() => {
 @keyframes coming-pulse {
   0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
   40% { opacity: 1; transform: scale(1.2); }
-}
-
-/* ---- Unread badge ---- */
-.karaoke-unread {
-  background: var(--error, #B57171);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
 }
 
 /* ---- Message ---- */
@@ -322,16 +294,32 @@ onUnmounted(() => {
   -webkit-line-clamp: 2;
 }
 
-.karaoke-slot--coming .karaoke-msg__text {
-  -webkit-line-clamp: 2;
-}
-
 .karaoke-msg__ts {
   font-size: 10px;
   color: var(--text-quaternary, #d4d4d8);
   margin-top: 1px;
 }
 
+/* ---- Typewriter ---- */
+.karaoke-msg__text--typing {
+  -webkit-line-clamp: 3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.karaoke-cursor {
+  display: inline;
+  animation: cursor-blink 0.8s step-end infinite;
+  color: var(--text-tertiary, #a1a1aa);
+  margin-left: 1px;
+  font-weight: 300;
+}
+
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
 
 /* ---- Time ---- */
 .karaoke-time {

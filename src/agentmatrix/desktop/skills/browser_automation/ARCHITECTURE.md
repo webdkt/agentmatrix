@@ -106,15 +106,12 @@ Agent action (如 show_interface)
 | 组件 | 路径 | 职责 |
 |------|------|------|
 | bridge.js | `interfaces/common/bridge.js` | 通信协议：`__bh_emit__`、`__bh_on_event__`、`__bh_agent_meta__`、`visibilitychange` → `tab_activated`、DOM 探索工具函数、`__bh_confirm`（支持 CSS + XPath） |
-| agent_button.js | `interfaces/common/agent_button.js` | IIFE 开头 + 共享状态 + 4 个 helper 函数（_createBubble, _bindSubmit, _posBubbleRightOf, _makeDraggable） |
-| agent_button_splash.js | `interfaces/common/agent_button_splash.js` | 发送过渡动画 |
-| agent_button_speech.js | `interfaces/common/agent_button_speech.js` | Agent 说话气泡（CSS `::after` 实现尾巴） |
+| agent_button.js | `interfaces/common/agent_button.js` | IIFE 开头 + 共享状态 + 4 个 helper 函数（_createBubble, _bindSubmit, _posBubbleRightOf, _makeDraggable）+ Automation glow 效果 |
+| agent_button_splash.js | `interfaces/common/agent_button_splash.js` | 发送过渡动画（居中 overlay） |
 | agent_button_indicator.js | `interfaces/common/agent_button_indicator.js` | 指示器（十字准心） |
-| agent_button_instruct.js | `interfaces/common/agent_button_instruct.js` | 给AI指示（居中输入框） |
 | agent_button_range.js | `interfaces/common/agent_button_range.js` | 范围选择器 |
-| agent_button_dialog.js | `interfaces/common/agent_button_dialog.js` | 提问对话框 |
-| agent_button_init.js | `interfaces/common/agent_button_init.js` | DOM 构建 + 事件绑定 + IIFE 结尾 |
-| agent_button.css | `interfaces/common/agent_button.css` | 所有前端 UI 组件样式 |
+| agent_button_init.js | `interfaces/common/agent_button_init.js` | 事件绑定 + IIFE 结尾 + 暴露 `__bh_show_indicator__` / `__bh_show_range__` |
+| agent_button.css | `interfaces/common/agent_button.css` | 所有前端 UI 组件样式 + Automation glow 动画 |
 
 ---
 
@@ -263,15 +260,12 @@ Interface 是可插拔的前端 UI 应用，注入到网页中运行。
 interfaces/
 ├── common/
 │   ├── bridge.js              # 通信协议 + DOM 探索工具 + visibilitychange
-│   ├── agent_button.js        # IIFE 开头 + 共享状态 + helpers
-│   ├── agent_button_splash.js # 发送过渡动画
-│   ├── agent_button_speech.js # 说话气泡
-│   ├── agent_button_indicator.js  # 指示器
-│   ├── agent_button_instruct.js   # 给AI指示
+│   ├── agent_button.js        # IIFE 开头 + 共享状态 + helpers + Automation glow
+│   ├── agent_button_splash.js # 发送过渡动画（居中 overlay）
+│   ├── agent_button_indicator.js  # 指示器（十字准心）
 │   ├── agent_button_range.js      # 范围选择器
-│   ├── agent_button_dialog.js     # 提问对话框
-│   ├── agent_button_init.js       # IIFE 结尾
-│   ├── agent_button.css           # 所有前端 UI 样式
+│   ├── agent_button_init.js       # 事件绑定 + IIFE 结尾
+│   ├── agent_button.css           # 所有前端 UI 样式 + Automation glow 动画
 │   └── ask_dialog.js         # 问答对话框
 └── {name}/
     ├── manifest.json   # {name, description, requires: ["indicator", ...]}

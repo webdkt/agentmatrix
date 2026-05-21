@@ -68,15 +68,34 @@ function formatAction(event) {
 }
 
 // ---- Karaoke scroll logic ----
+function truncate(str, len) {
+  if (!str) return ''
+  return str.length > len ? str.slice(0, len) + '...' : str
+}
+
+function eventSummary(event) {
+  const { renderType, detail, eventName } = event
+  switch (renderType) {
+    case 'thought':
+      return truncate(detail.thought || detail.body_preview || '', 120)
+    case 'agent-comm': {
+      if (eventName === 'received') return `收到来自 ${detail.sender || '未知'} 的邮件`
+      return ''
+    }
+    case 'system':
+      return eventName
+    default:
+      return ''
+  }
+}
+
 const {
   karaokeTriple,
-  isAutoScrolling,
-  unreadCount,
+  isTyping,
+  enqueueTypewriter,
   onDetailOpen,
   onDetailClose,
-  pauseAutoScroll,
-  resumeAutoScroll,
-} = useKaraokeScroll(messages)
+} = useKaraokeScroll(messages, eventSummary)
 
 // ---- Parse event ----
 function parseEvent(raw) {
@@ -260,7 +279,7 @@ function handleWsMessage(data) {
 
     // Any non-action message washes away the action bar
     currentAction.value = null
-    messages.value.push(parsed)
+    enqueueTypewriter(parsed)
   } else if (data.type === 'AGENT_STATUS_UPDATE') {
     const { agent_name, data: statusData } = data
     agentStore.updateAgentStatus(agent_name, statusData)
@@ -351,10 +370,6 @@ onUnmounted(() => {
     <KaraokeStream
       v-if="!isLoading"
       :karaoke-triple="karaokeTriple"
-      :is-auto-scrolling="isAutoScrolling"
-      :unread-count="unreadCount"
-      @scroll-pause="pauseAutoScroll"
-      @scroll-resume="resumeAutoScroll"
     />
 
     <!-- Action status bar: bottom of stream, washed away by any new message -->

@@ -1,43 +1,22 @@
     // ==========================================
-    // DOM 构建 + 事件绑定 + IIFE 结尾
+    // 事件绑定 + IIFE 结尾
     // 此文件在拼接时位于所有模块文件之后
     // ==========================================
 
-    function __bh_init_agent_button() {
+    function __bh_init_overlay() {
     if (!document.body) {
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', __bh_init_agent_button);
+            document.addEventListener('DOMContentLoaded', __bh_init_overlay);
         } else {
-            setTimeout(__bh_init_agent_button, 50);
+            setTimeout(__bh_init_overlay, 50);
         }
         return;
     }
 
     // ==========================================
-    // Agent Button + Hover Menu
-    // ==========================================
-    ab = document.createElement('div');
-    ab.className = 'ab';
-
-    btn = document.createElement('div');
-    btn.className = 'ab-btn idle';
-    btn.innerHTML = '<div class="ab-btn-name">' + _escHtml(_agentName) + '</div>' +
-        '<div class="ab-btn-status"><div class="ab-btn-dot idle"></div><span class="ab-btn-label">IDLE</span></div>';
-    ab.appendChild(btn);
-
-    menu = document.createElement('div');
-    menu.className = 'ab-menu';
-    menu.innerHTML =
-        '<button class="ab-menu-item" data-action="indicator"><span class="ab-menu-icon">\u25CE</span>指给 AI 看</button>' +
-        '<button class="ab-menu-item" data-action="range"><span class="ab-menu-icon">\u25AD</span>选择范围</button>' +
-        '<button class="ab-menu-item" data-action="instruct"><span class="ab-menu-icon">\u270E</span>给AI指示</button>';
-    ab.appendChild(menu);
-
-    // ==========================================
-    // Mount
+    // Mount Shadow DOM host
     // ==========================================
     document.body.appendChild(host);
-    shadow.appendChild(ab);
 
     // ==========================================
     // Health check：确保 host 始终在 DOM 中且位于最顶层
@@ -56,91 +35,22 @@
     }, 2000);
 
     // ==========================================
-    // Menu expand/collapse（IDLE 自动展开，非 IDLE hover 展开）
+    // 暴露 indicator / range 触发函数（供后端 CDP 调用）
     // ==========================================
-    var _hoverExpanded = false;
-    var _hoverTimeout = null;
-
-    /** 同步菜单展开状态：IDLE 时自动展开，否则由 hover 控制 */
-    function _syncExpanded() {
-        var shouldExpand = (_status === 'IDLE') || _hoverExpanded;
-        if (shouldExpand) {
-            ab.classList.add('expanded');
-        } else {
-            ab.classList.remove('expanded');
-        }
-        _syncOverlayUI();
-        // 菜单展开/收起改变 ab 尺寸，需重新定位 speech
-        _positionSpeech();
-    }
-
-    ab.addEventListener('mouseenter', function() {
-        clearTimeout(_hoverTimeout);
-        _hoverExpanded = true;
-        _syncExpanded();
-    });
-    ab.addEventListener('mouseleave', function() {
-        _hoverTimeout = setTimeout(function() {
-            _hoverExpanded = false;
-            _syncExpanded();
-        }, 200);
-    });
-
-    // 初始状态：IDLE 自动展开
-    _syncExpanded();
+    window.__bh_show_indicator__ = function() {
+        _showIndicator(Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2), '拖动准心到目标位置');
+    };
+    window.__bh_show_range__ = function() {
+        _showRangeSelector();
+    };
 
     // ==========================================
-    // Drag（基于 getBoundingClientRect，兼容 right 定位）
-    // ==========================================
-    var _dragging = false, _dragMoved = false, _dragOX = 0, _dragOY = 0;
-    btn.addEventListener('mousedown', function(e) {
-        _dragging = true;
-        _dragMoved = false;
-        var r = ab.getBoundingClientRect();
-        _dragOX = e.clientX - r.left;
-        _dragOY = e.clientY - r.top;
-        e.preventDefault();
-    });
-    document.addEventListener('mousemove', function(e) {
-        if (!_dragging) return;
-        var r = ab.getBoundingClientRect();
-        var dx = e.clientX - _dragOX - r.left;
-        var dy = e.clientY - _dragOY - r.top;
-        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) _dragMoved = true;
-        ab.style.left = (e.clientX - _dragOX) + 'px';
-        ab.style.top = (e.clientY - _dragOY) + 'px';
-        ab.style.right = 'auto';
-        _positionSpeech();
-    });
-    document.addEventListener('mouseup', function() { _dragging = false; });
-
-    // ==========================================
-    // Menu item actions
-    // ==========================================
-    menu.addEventListener('click', function(e) {
-        var item = e.target.closest('.ab-menu-item');
-        if (!item) return;
-        ab.classList.remove('expanded');
-        var action = item.dataset.action;
-        if (action === 'indicator') {
-            _showIndicator(Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2), '拖动准心到目标位置');
-        } else if (action === 'range') {
-            _showRangeSelector();
-        } else if (action === 'instruct') {
-            _showInstructBubble();
-        }
-    });
-
-    // ==========================================
-    // Escape key to cancel active tool or menu
+    // Escape key to cancel active tool
     // ==========================================
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             if (_currentOverlay) {
                 _clearOverlay();
-            } else if (ab.classList.contains('expanded')) {
-                ab.classList.remove('expanded');
-                _syncOverlayUI();
             }
         }
     });
@@ -149,49 +59,29 @@
     // Backend event handler
     // ==========================================
     window.__bh_event_listeners__.push(function(type, data) {
-        if (type === 'agent_status') {
-            _setStatus((data.status || '').toUpperCase().replace(' ', '_'));
-        } else if (type === 'agent_thinking') {
-            _setStatus('THINKING');
-        } else if (type === 'agent_done') {
-            _setStatus('IDLE');
-        } else if (type === 'agent_output') {
-            _bufPush({type: 'agent_output', data: data, ts: Date.now()});
-            if (data.type === 'think' && data.text) {
-                _showSpeech(data.text);
-            }
-            if (data.type === 'message' && data.text) {
-                _showSpeech(data.text);
-            }
-            // action_detected/started/completed 不隐藏气泡，让 think/message 内容持续显示
+        if (type === 'show_indicator') {
+            _showIndicator(
+                data.x || Math.round(window.innerWidth / 2),
+                data.y || Math.round(window.innerHeight / 2),
+                data.text || '拖动准心到目标位置'
+            );
+        } else if (type === 'show_range') {
+            _showRangeSelector();
         } else if (type === 'connection_status') {
-            if (data.connected) {
-                _setStatus('IDLE');
-                var banner = shadow.querySelector('.ab-disconnect-banner');
-                if (banner) banner.remove();
-            } else {
-                _setStatus('DISCONNECTED');
+            if (!data.connected) {
                 if (!shadow.querySelector('.ab-disconnect-banner')) {
                     var b = document.createElement('div');
                     b.className = 'ab-disconnect-banner';
                     b.textContent = 'Backend disconnected \u2014 reconnecting...';
                     shadow.appendChild(b);
                 }
+            } else {
+                var banner = shadow.querySelector('.ab-disconnect-banner');
+                if (banner) banner.remove();
             }
         }
     });
 
-    // ==========================================
-    // Update agent name from meta (may be set after bridge)
-    // ==========================================
-    var _nameInterval = setInterval(function() {
-        var meta = window.__bh_agent_meta__;
-        if (meta && meta.agent_name && meta.agent_name !== _agentName) {
-            _agentName = meta.agent_name;
-            btn.querySelector('.ab-btn-name').textContent = _agentName;
-        }
-    }, 2000);
-
-    } // end __bh_init_agent_button
-    __bh_init_agent_button();
+    } // end __bh_init_overlay
+    __bh_init_overlay();
 })();

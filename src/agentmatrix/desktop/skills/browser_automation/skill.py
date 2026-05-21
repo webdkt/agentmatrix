@@ -231,35 +231,20 @@ class Browser_automationSkillMixin:
         - 流程子目录，每个自动化流程一个子目录，内含流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
     - 每个流程子目录的结构
         - readme.md: 业务流程和规则的简要说明
-        - tech-spec.md: 该流程的技术规范，包括目录和文件规范，如何运行，如何单元测试，如何单步执行，如何异常检测和处理等等。
-        - main.py: 该流程的主自动化脚本
         - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
         - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
-        - 每一个step都应该有一个对应的全自动化 .py 脚本，文件名和步骤名一致：step-{{step_index}}-{{step_name}}.py。对于完全无法完全自动化的步骤（必须依赖你的判断
-        一步步执行的），需要在step-{{step_index}}-{{step_name}}.md中明确说明。但具体执行动作应该必须固化为脚本，不得每次临时生成代码。
-        - .py 脚本 绝对不能通过bash执行。 原因见下面规范说明
+        
     ### site_knowledge 文件规范
     #### Python自动化脚本
-    .py 自动化脚本**必须**通过 `run_automation_script(file_path, str_arg1?)` 执行，因为Chrome在用户环境而不是你的环境，通过bash直接执行python脚本将无法访问cdp。
-    **切记**：Python脚本中绝对不可以直接使用任何硬编码的路径或连接信息，必须通过以下环境变量获取，才能保证脚本在用户环境中正确执行，脚本生成的文件你才能访问。
-    脚本通过环境变量获取连接信息和路径：
-    - `os.environ["CDP_PORT"]` — Chrome 调试端口（如 9222）
-    - `os.environ["CDP_HTTP_ENDPOINT"]` — HTTP 端点（如 http://127.0.0.1:9222）
-    - `os.environ["CDP_CURRENT_TAB_ID"]` — 当前 tab 的 target_id
-    - `os.environ["CURRENT_TASK_DIR"]` — 当前任务工作目录（对应你的 ~/current_task/）
-    - `os.environ["HOME_DIR"]` — home 目录（对应你的 ~/）
-    - `os.environ["SITE_KNOWLEDGE_DIR"]` — site_knowledge 目录（对应你的 ~/site_knowledge/）
-    - `sys.argv[1]` — 可选的字符串参数。如需传递多个参数，将参数写入文件，传入文件路径
-    1. Py脚本只能接受最多一个字符串参数（sys.argv[1]），多参数可用参数文件传递(文件路径作为参数传入，文件必须在 ~ （或者其子目录）下面。
-    2. 需要保存文件时，使用环境变量中的路径（如 `os.path.join(os.environ["CURRENT_TASK_DIR"], "output.json")`），这样你就可以通过 ~/current_task/output.json 读取
-    3. 连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
-    **绝对不要用bash 直接执行python自动化脚本，否则无法连接用户环境中的Chrome CDP。** 
+    Python 脚本应该通过 CDP_PORT, CDP_HTTP_ENDPOINT, CDP_CURRENT_TAB_ID 等环境变量获取连接信息和路径，不要硬编码。
+    连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
+    
     #### Javascript: No Console Output
-    eval_js 和 run_automation_script 都不会返回console的输出。只会返回脚本 return的结果。
+    eval_js 不会返回console的输出。只会返回脚本 return的结果。
     #### 正式脚本 vs 探索脚本
     ~/site_knowledge 下只能存放正式的脚本。探索脚本放在 ~/current_task/tmp 下。
     #### 流程文档 step-{{index}}-{{step_name}}.md
-    - 流程文档的final 版本是一个执行手册
+    - 流程文档本质上是一个执行手册，是一份“代码”
     - 流程文档的基本结构
         - Part 1（Code): 带有编号的执行步骤。每个步骤要么是（a）自动化脚本，（b）手动执行的具体js or cdp命令,或者是(c) Agent 进行判断的、分支或者循环的说明。 Part 1 的目的是让任何Agent可以按照步骤完成该流程，无需懂的业务。
         - Part 2 (Doc): 对业务逻辑的补充说明，作为参考供debug, 后续开发和版本review用。
@@ -299,6 +284,12 @@ class Browser_automationSkillMixin:
             _agent_current_tab[name] = tab
         else:
             _agent_current_tab.pop(name, None)
+
+        # 同步更新 bash session 中的 CDP_CURRENT_TAB_ID 环境变量
+        local_session = getattr(self.root_agent, 'local_session', None)
+        if local_session:
+            tab_id = tab.target_id if tab else ""
+            local_session.execute(f'export CDP_CURRENT_TAB_ID="{tab_id}"')
 
     async def _ensure_browser(self):
         """确保浏览器已启动，注册当前 agent 的 input_queue。"""
@@ -343,6 +334,18 @@ class Browser_automationSkillMixin:
         if current_sid and current_sid != last_sid:
             await self._cleanup_old_session_tabs(agent_name, current_sid)
             _agent_last_session[agent_name] = current_sid
+
+        # 自动设置 CDP 环境变量到 Agent 的 bash session
+        local_session = getattr(self.root_agent, 'local_session', None)
+        if local_session:
+            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
+            tab = self._get_current_tab()
+            env_cmds = (
+                f'export CDP_PORT={port}\n'
+                f'export CDP_HTTP_ENDPOINT="http://127.0.0.1:{port}"\n'
+                f'export CDP_CURRENT_TAB_ID="{tab.target_id if tab else ""}"\n'
+            )
+            local_session.execute(env_cmds)
 
     async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
         """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab，收养匹配的 tab。
@@ -877,7 +880,7 @@ class Browser_automationSkillMixin:
                 "error": str(e),
             }, ensure_ascii=False)
         
-    @register_action(
+    """@register_action(
         short_desc="(file_path, str_arg1?) 按扩展名执行自动化脚本，str_arg1可选仅对 .py 有效。自动化工作必须通过此方法进行"
                     "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
                     "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
@@ -898,7 +901,7 @@ class Browser_automationSkillMixin:
             "file_path": "脚本文件路径，支持 .json / .js / .py（必须是 ~ 或 ~/current_task 及其子目录下）",
             "str_arg1": "可选，仅对 .py 有效，传递给脚本的字符串参数（脚本通过 sys.argv[1] 读取）",
         },
-    )
+    )"""
     async def run_automation_script(self, file_path: str, str_arg1: str = None) -> str:
         await self._ensure_browser()
 
@@ -1115,6 +1118,7 @@ class Browser_automationSkillMixin:
             return json.dumps(result, ensure_ascii=False)
 
         return json.dumps({"error": f"不支持的文件类型 '{ext}'，支持 .json / .js / .py"}, ensure_ascii=False)
+    
 
     @register_action(
         short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug",
