@@ -159,7 +159,7 @@ defineExpose({ save })
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  background: #F2F2F5;
+  background: var(--surface-secondary);
   padding: 28px 40px 48px;
 }
 </style>

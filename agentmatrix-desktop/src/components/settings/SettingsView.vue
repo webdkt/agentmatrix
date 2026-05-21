@@ -49,6 +49,6 @@ const handleSave = () => {
   display: flex;
   height: 100%;
   overflow: hidden;
-  background: #F2F2F5;
+  background: var(--surface-secondary);
 }
 </style>

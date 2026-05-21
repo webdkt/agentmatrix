@@ -10,18 +10,28 @@ const configs = reactive({})
 const isLoading = ref(false)
 const isSaving = ref(false)
 const loadError = ref(null)
-const expandedKey = ref(null)
 const hasChanges = ref(false)
 const newConfigName = ref('')
 const showAddRow = ref(false)
+const showKeys = reactive({})
 
 const SYSTEM_CONFIGS = getSystemConfigs()
 const SYSTEM_ORDER = ['default_llm', 'default_slm', 'default_vision']
 
+const systemIconMap = {
+  default_llm: 'brain',
+  default_slm: 'bolt',
+  default_vision: 'eye',
+}
+
+const systemDescMap = {
+  default_llm: '主推理模型，用于 Agent 核心决策',
+  default_slm: '轻量模型，用于快速响应和简单任务',
+  default_vision: '视觉模型，用于图像理解（可选）',
+}
+
 const systemEntries = computed(() => SYSTEM_ORDER.filter(n => configs[n] !== undefined))
 const customEntries = computed(() => Object.keys(configs).filter(n => !isSystemConfig(n)).sort())
-
-const hasData = computed(() => Object.keys(configs).length > 0)
 
 function isEmpty(entry) {
   return !entry || (!entry.model_name && !entry.api_key && !entry.url)
@@ -37,12 +47,12 @@ function getSummary(entry) {
   return parts.join('  \u2192  ')
 }
 
-function toggleExpand(key) {
-  expandedKey.value = expandedKey.value === key ? null : key
-}
-
 function trackChange() {
   hasChanges.value = true
+}
+
+function toggleShowKey(name) {
+  showKeys[name] = !showKeys[name]
 }
 
 async function load() {
@@ -97,7 +107,7 @@ function addCustom() {
   const name = newConfigName.value.trim()
   if (!name || isSystemConfig(name) || configs[name]) return
   configs[name] = { model_name: '', api_key: '', url: '' }
-  expandedKey.value = name
+  showKeys[name] = false
   newConfigName.value = ''
   showAddRow.value = false
   trackChange()
@@ -105,17 +115,13 @@ function addCustom() {
 
 function removeCustom(name) {
   delete configs[name]
-  if (expandedKey.value === name) expandedKey.value = null
+  delete showKeys[name]
   trackChange()
 }
 
 function clearSystem(name) {
   configs[name] = { model_name: '', api_key: '', url: '' }
   trackChange()
-}
-
-function cancelEdit(key) {
-  expandedKey.value = null
 }
 
 onMounted(load)
@@ -132,114 +138,173 @@ defineExpose({ save })
 
     <div v-else-if="loadError" class="error-state">
       <p>{{ loadError }}</p>
-      <button @click="load">Retry</button>
+      <button class="retry-btn" @click="load">Retry</button>
     </div>
 
     <template v-else>
-      <!-- System -->
-      <div class="section">
-        <div class="section-label">系统配置</div>
-        <div class="cards">
-          <div
-            v-for="name in systemEntries"
-            :key="name"
-            :class="['card', 'card-system', { expanded: expandedKey === name }]"
-            @click="expandedKey !== name && toggleExpand(name)"
-          >
-            <!-- Header -->
-            <div class="card-header" @click="toggleExpand(name)">
-              <div class="card-title-row">
-                <span class="card-key">{{ name }}</span>
-                <span class="card-display">{{ getSystemDisplayName(name) }}</span>
+      <!-- ═══ System Configs ═══ -->
+      <div class="section-group">
+        <div class="section-group-header">
+          <MIcon name="settings" :size="14" class="group-icon" />
+          <span>系统配置</span>
+        </div>
+
+        <div
+          v-for="name in systemEntries"
+          :key="name"
+          class="sec"
+        >
+          <div class="sec-side">
+            <div class="sec-icon">
+              <MIcon :name="systemIconMap[name] || 'box'" :size="16" />
+            </div>
+            <div class="sec-text">
+              <div class="sec-title">
+                {{ getSystemDisplayName(name) }}
                 <span v-if="isRequiredConfig(name)" class="badge required">Required</span>
                 <span v-else class="badge optional">Optional</span>
               </div>
-              <div v-if="expandedKey !== name" class="card-summary">
-                <template v-if="getSummary(configs[name])">
-                  {{ getSummary(configs[name]) }}
-                </template>
-                <template v-else>
-                  <span class="placeholder">Click to configure</span>
-                </template>
-              </div>
-              <span class="expand-icon" :class="{ rotated: expandedKey === name }"><MIcon name="chevron-down" /></span>
+              <div class="sec-desc">{{ systemDescMap[name] || '' }}</div>
+              <div v-if="getSummary(configs[name])" class="sec-summary">{{ getSummary(configs[name]) }}</div>
             </div>
+          </div>
 
-            <!-- Expanded form -->
-            <div v-if="expandedKey === name" class="card-form" @click.stop>
-              <div class="field">
-                <label>Model</label>
-                <input v-model="configs[name].model_name" class="input" placeholder="e.g. gpt-4o" @input="trackChange" />
+          <div class="sec-main">
+            <div class="sec-row">
+              <div class="fi">
+                <label class="fi-lbl">Model</label>
+                <input
+                  v-model="configs[name].model_name"
+                  class="fi-inp mono"
+                  placeholder="e.g. gpt-4o"
+                  spellcheck="false"
+                  @input="trackChange"
+                />
               </div>
-              <div class="field">
-                <label>API Key</label>
-                <input v-model="configs[name].api_key" class="input" type="password" placeholder="sk-..." @input="trackChange" />
+              <div class="fi">
+                <label class="fi-lbl">API Key</label>
+                <div class="pw-wrap">
+                  <input
+                    v-model="configs[name].api_key"
+                    :type="showKeys[name] ? 'text' : 'password'"
+                    class="fi-inp mono"
+                    placeholder="sk-..."
+                    spellcheck="false"
+                    @input="trackChange"
+                  />
+                  <button class="eye-btn" @click="toggleShowKey(name)" type="button">
+                    <MIcon :name="showKeys[name] ? 'eye-off' : 'eye'" :size="14" />
+                  </button>
+                </div>
               </div>
-              <div class="field">
-                <label>URL</label>
-                <input v-model="configs[name].url" class="input" placeholder="https://api.openai.com/v1/chat/completions" @input="trackChange" />
+              <div class="fi">
+                <label class="fi-lbl">Endpoint URL</label>
+                <input
+                  v-model="configs[name].url"
+                  class="fi-inp mono"
+                  placeholder="https://api.openai.com/v1"
+                  spellcheck="false"
+                  @input="trackChange"
+                />
               </div>
-              <div class="card-actions">
-                <button v-if="!isRequiredConfig(name)" class="btn-text danger" @click="clearSystem(name)">Clear</button>
-                <button class="btn-text" @click="cancelEdit(name)">Cancel</button>
-              </div>
+            </div>
+            <div v-if="!isRequiredConfig(name)" class="sec-actions">
+              <button class="btn-text danger" @click="clearSystem(name)">
+                <MIcon name="trash" :size="12" />
+                Clear
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Custom -->
-      <div class="section">
-        <div class="section-label">
-          <span>自定义配置</span>
-          <button class="btn-add" @click="showAddRow = true"><MIcon name="plus" /><span>添加</span></button>
+      <!-- ═══ Custom Configs ═══ -->
+      <div class="section-group">
+        <div class="section-group-header">
+          <div class="group-header-left">
+            <MIcon name="layers" :size="14" class="group-icon" />
+            <span>自定义配置</span>
+          </div>
+          <button class="btn-add" @click="showAddRow = true">
+            <MIcon name="plus" :size="12" />
+            <span>添加</span>
+          </button>
         </div>
 
+        <!-- Add row -->
         <div v-if="showAddRow" class="add-row">
-          <input v-model="newConfigName" class="input" placeholder="配置名称" @keyup.enter="addCustom" @keyup.escape="showAddRow = false" />
-          <button class="btn-sm primary" @click="addCustom" :disabled="!newConfigName.trim()">添加</button>
+          <input
+            v-model="newConfigName"
+            class="fi-inp"
+            placeholder="配置名称"
+            @keyup.enter="addCustom"
+            @keyup.escape="showAddRow = false; newConfigName = ''"
+          />
+          <button class="btn-sm primary" :disabled="!newConfigName.trim()" @click="addCustom">添加</button>
           <button class="btn-sm ghost" @click="showAddRow = false; newConfigName = ''">取消</button>
         </div>
 
-        <div class="cards">
-          <div
-            v-for="name in customEntries"
-            :key="name"
-            :class="['card', { expanded: expandedKey === name }]"
-            @click="expandedKey !== name && toggleExpand(name)"
-          >
-            <div class="card-header" @click="toggleExpand(name)">
-              <div class="card-title-row">
-                <span class="card-key">{{ name }}</span>
-              </div>
-              <div v-if="expandedKey !== name" class="card-summary">
-                <template v-if="getSummary(configs[name])">
-                  {{ getSummary(configs[name]) }}
-                </template>
-                <template v-else>
-                  <span class="placeholder">Click to configure</span>
-                </template>
-              </div>
-              <span class="expand-icon" :class="{ rotated: expandedKey === name }"><MIcon name="chevron-down" /></span>
+        <!-- Custom entries -->
+        <div
+          v-for="name in customEntries"
+          :key="name"
+          class="sec"
+        >
+          <div class="sec-side">
+            <div class="sec-icon custom">
+              <MIcon name="database" :size="16" />
             </div>
+            <div class="sec-text">
+              <div class="sec-title">{{ name }}</div>
+              <div v-if="getSummary(configs[name])" class="sec-summary">{{ getSummary(configs[name]) }}</div>
+              <div v-else class="sec-desc placeholder">未配置</div>
+            </div>
+          </div>
 
-            <div v-if="expandedKey === name" class="card-form" @click.stop>
-              <div class="field">
-                <label>Model</label>
-                <input v-model="configs[name].model_name" class="input" placeholder="e.g. deepseek-v4-pro" @input="trackChange" />
+          <div class="sec-main">
+            <div class="sec-row">
+              <div class="fi">
+                <label class="fi-lbl">Model</label>
+                <input
+                  v-model="configs[name].model_name"
+                  class="fi-inp mono"
+                  placeholder="e.g. deepseek-v4-pro"
+                  spellcheck="false"
+                  @input="trackChange"
+                />
               </div>
-              <div class="field">
-                <label>API Key</label>
-                <input v-model="configs[name].api_key" class="input" type="password" placeholder="sk-..." @input="trackChange" />
+              <div class="fi">
+                <label class="fi-lbl">API Key</label>
+                <div class="pw-wrap">
+                  <input
+                    v-model="configs[name].api_key"
+                    :type="showKeys[name] ? 'text' : 'password'"
+                    class="fi-inp mono"
+                    placeholder="sk-..."
+                    spellcheck="false"
+                    @input="trackChange"
+                  />
+                  <button class="eye-btn" @click="toggleShowKey(name)" type="button">
+                    <MIcon :name="showKeys[name] ? 'eye-off' : 'eye'" :size="14" />
+                  </button>
+                </div>
               </div>
-              <div class="field">
-                <label>URL</label>
-                <input v-model="configs[name].url" class="input" placeholder="https://api.example.com/v1/chat/completions" @input="trackChange" />
+              <div class="fi">
+                <label class="fi-lbl">Endpoint URL</label>
+                <input
+                  v-model="configs[name].url"
+                  class="fi-inp mono"
+                  placeholder="https://api.example.com/v1"
+                  spellcheck="false"
+                  @input="trackChange"
+                />
               </div>
-              <div class="card-actions">
-                <button class="btn-text danger" @click="removeCustom(name)">Delete</button>
-                <button class="btn-text" @click="cancelEdit(name)">Cancel</button>
-              </div>
+            </div>
+            <div class="sec-actions">
+              <button class="btn-text danger" @click="removeCustom(name)">
+                <MIcon name="trash" :size="12" />
+                Delete
+              </button>
             </div>
           </div>
         </div>
@@ -253,12 +318,9 @@ defineExpose({ save })
 </template>
 
 <style scoped>
-.llm-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-}
-
+/* ═══════════════════════════════════════
+   STATES
+   ═══════════════════════════════════════ */
 .loading-state, .error-state {
   display: flex;
   align-items: center;
@@ -269,25 +331,278 @@ defineExpose({ save })
   font-size: var(--font-sm);
 }
 
-.spinner { animation: spin 1s linear infinite; }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-.section {
-  display: flex;
+.error-state {
   flex-direction: column;
   gap: var(--spacing-3);
 }
 
-.section-label {
-  font-size: 13px;
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  letter-spacing: var(--tracking-wide);
+.error-state p {
+  color: var(--error);
+  font-size: var(--font-sm);
+}
+
+.retry-btn {
+  padding: var(--spacing-1) var(--spacing-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.retry-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spinner { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════
+   SECTION GROUP
+   ═══════════════════════════════════════ */
+.section-group {
+  background: var(--surface-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.section-group-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 2px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-wide);
 }
+
+.group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-icon {
+  color: var(--text-tertiary);
+}
+
+/* ═══════════════════════════════════════
+   SECTION — left title + right fields
+   ═══════════════════════════════════════ */
+.sec {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  padding: 20px 20px;
+  border-bottom: 1px solid var(--border-light);
+  transition: background-color var(--duration-base) var(--ease-out);
+}
+
+.sec:last-child {
+  border-bottom: none;
+}
+
+.sec:nth-child(even) {
+  background: var(--surface-secondary);
+}
+
+/* ─── Left side: icon + title + description ─── */
+.sec-side {
+  display: flex;
+  gap: 12px;
+  padding-right: 20px;
+}
+
+.sec-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--accent-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.sec-icon.custom {
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+
+.sec-text {
+  padding-top: 2px;
+  min-width: 0;
+}
+
+.sec-title {
+  font-size: var(--font-base);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sec-desc {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.sec-desc.placeholder {
+  color: var(--text-quaternary);
+  font-style: italic;
+}
+
+.sec-summary {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: var(--font-medium);
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.badge.required {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.badge.optional {
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
+}
+
+/* ─── Right side: form fields ─── */
+.sec-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sec-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+/* ═══════════════════════════════════════
+   FIELDS
+   ═══════════════════════════════════════ */
+.fi {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fi-lbl {
+  font-size: var(--font-sm);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+
+.fi-inp {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface-secondary);
+  border: 1.5px solid #B0B0B4;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-base);
+  color: var(--text-primary);
+  transition: all var(--duration-base) var(--ease-out);
+  caret-color: var(--accent);
+  outline: none;
+}
+
+.fi-inp::placeholder { color: var(--text-quaternary); }
+
+.fi-inp:focus {
+  outline: none;
+  border-color: var(--accent);
+  border-width: 3px;
+  padding: 7px 11px;
+  background: var(--surface-base);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.fi-inp.mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+}
+
+/* ─── Password ─── */
+.pw-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.pw-wrap .fi-inp {
+  padding-right: 32px;
+}
+
+.eye-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-quaternary);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: color var(--duration-base) var(--ease-out);
+}
+
+.eye-btn:hover { color: var(--text-tertiary); }
+
+/* ─── Section actions ─── */
+.sec-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ═══════════════════════════════════════
+   BUTTONS
+   ═══════════════════════════════════════ */
+.btn-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-1) var(--spacing-2);
+  background: none;
+  border: none;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.btn-text:hover { background: var(--surface-hover); color: var(--text-primary); }
+.btn-text.danger { color: var(--text-tertiary); }
+.btn-text.danger:hover { color: var(--error); background: var(--error-muted); }
 
 .btn-add {
   display: inline-flex;
@@ -309,204 +624,24 @@ defineExpose({ save })
   color: white;
 }
 
-.cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* Card */
-.card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow var(--duration-base) var(--ease-out);
-}
-
-.card.expanded {
-  box-shadow: var(--shadow-md);
-}
-
-.card-system { border-left: 3px solid var(--accent); }
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  cursor: pointer;
-  min-height: 48px;
-  border-radius: 10px;
-  transition: background-color var(--duration-base) var(--ease-out);
-}
-
-.card:not(.expanded) .card-header:hover {
-  background-color: var(--surface-secondary);
-}
-
-.card-title-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  flex: 1;
-  min-width: 0;
-}
-
-.card-key {
-  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.card-display {
-  font-size: var(--font-sm);
-  color: var(--text-tertiary);
-}
-
-.badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: var(--font-medium);
-  line-height: 1.5;
-}
-
-.badge.required {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
-}
-
-.badge.optional {
-  background: var(--surface-hover);
-  color: var(--text-tertiary);
-}
-
-.card-summary {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-  margin-left: var(--spacing-3);
-  margin-right: var(--spacing-1);
-}
-
-.placeholder {
-  color: var(--text-quaternary);
-  font-style: italic;
-}
-
-.expand-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  color: var(--text-quaternary);
-  font-size: 14px;
-  flex-shrink: 0;
-  transition: transform var(--duration-base) var(--ease-out);
-  pointer-events: none;
-}
-
-.expand-icon.rotated {
-  transform: rotate(180deg);
-}
-
-/* Form */
-.card-form {
-  padding: 16px 18px 18px;
-  border-top: 1px solid var(--border-light);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field label {
-  font-size: var(--font-xs);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.input {
-  width: 100%;
-  padding: var(--spacing-2) var(--spacing-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-secondary);
-  font-size: var(--font-sm);
-  color: var(--text-primary);
-  outline: none;
-  transition: border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
-}
-
-.input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-  background: var(--surface-base);
-}
-
-.input::placeholder {
-  color: var(--text-quaternary);
-}
-
-.card-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-2);
-  padding-top: var(--spacing-2);
-}
-
-.btn-text {
-  padding: var(--spacing-1) var(--spacing-2);
-  background: none;
-  border: none;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-}
-
-.btn-text:hover { background: var(--surface-hover); color: var(--text-primary); }
-.btn-text.danger:hover { color: var(--error-600); background: var(--error-50); }
-
-/* Add row */
+/* ─── Add row ─── */
 .add-row {
   display: flex;
   gap: var(--spacing-2);
   align-items: center;
-  padding: var(--spacing-2) var(--spacing-3);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface-secondary);
 }
 
-.add-row .input {
+.add-row .fi-inp {
   flex: 1;
-  padding: var(--spacing-1) var(--spacing-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  max-width: 240px;
   background: var(--surface-base);
 }
 
-.add-row .input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 .btn-sm {
-  padding: var(--spacing-1) var(--spacing-3);
+  padding: 6px 14px;
   border-radius: var(--radius-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
@@ -525,6 +660,7 @@ defineExpose({ save })
   background: var(--border-strong);
   color: var(--text-tertiary);
   cursor: not-allowed;
+  border-color: var(--border-strong);
 }
 
 .btn-sm.ghost {
@@ -532,10 +668,17 @@ defineExpose({ save })
   color: var(--text-secondary);
 }
 
+.btn-sm.ghost:hover {
+  background: var(--surface-hover);
+}
+
+/* ═══════════════════════════════════════
+   EMPTY HINT
+   ═══════════════════════════════════════ */
 .empty-hint {
   font-size: var(--font-sm);
   color: var(--text-quaternary);
   text-align: center;
-  padding: var(--spacing-4);
+  padding: var(--spacing-8) var(--spacing-4);
 }
 </style>
