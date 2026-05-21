@@ -34,13 +34,10 @@ _BRIDGE_JS_PATH = _JS_COMMON_DIR / "bridge.js"
 _AGENT_BUTTON_CSS_PATH = _JS_COMMON_DIR / "agent_button.css"
 _AGENT_BUTTON_JS_FILES = [
     _JS_COMMON_DIR / "agent_button.js",           # IIFE 开头 + 共享状态 + helpers
-    _JS_COMMON_DIR / "agent_button_splash.js",     # 发送过渡动画
-    _JS_COMMON_DIR / "agent_button_speech.js",     # Agent 说话气泡
-    _JS_COMMON_DIR / "agent_button_indicator.js",  # 指示器（十字准心）
-    _JS_COMMON_DIR / "agent_button_instruct.js",   # 给AI指示（居中输入框）
-    _JS_COMMON_DIR / "agent_button_range.js",      # 范围选择器
-    _JS_COMMON_DIR / "agent_button_dialog.js",     # 提问对话框
-    _JS_COMMON_DIR / "agent_button_init.js",       # DOM 构建 + 事件绑定 + IIFE 结尾
+    _JS_COMMON_DIR / "agent_button_splash.js",    # 发送过渡动画
+    _JS_COMMON_DIR / "agent_button_indicator.js", # 指示器（十字准心）
+    _JS_COMMON_DIR / "agent_button_range.js",     # 范围选择器
+    _JS_COMMON_DIR / "agent_button_init.js",      # 事件绑定 + IIFE 结尾
 ]
 
 
@@ -64,17 +61,15 @@ def _load_bridge_js() -> str:
 
 
 def _load_agent_button_js() -> str:
-    """加载并拼接 agent_button 全部模块。
+    """加载并拼接 overlay 全部模块。
 
     拼接顺序：
     1. CSS → var __bh_css__ = "...";
     2. agent_button.js — IIFE 开头 + 共享状态 + helpers
     3. agent_button_splash.js — 发送过渡动画
-    4. agent_button_speech.js — Agent 说话气泡
-    5. agent_button_indicator.js — 指示器（十字准心）
-    6. agent_button_range.js — 范围选择器
-    7. agent_button_dialog.js — 提问对话框
-    8. agent_button_init.js — DOM 构建 + 事件绑定 + IIFE 结尾
+    4. agent_button_indicator.js — 指示器（十字准心）
+    5. agent_button_range.js — 范围选择器
+    6. agent_button_init.js — 事件绑定 + IIFE 结尾
 
     所有 JS 文件在同一 IIFE 闭包内共享变量。
     """

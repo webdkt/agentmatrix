@@ -3,95 +3,128 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 /**
  * Karaoke-style scrolling event display logic.
  *
- * Shows 3 events at a time: previous (fading), current (full), coming (hint/placeholder).
+ * Shows 3 events at a time: previous (fading), current (full), coming (typewriter).
  *
- * Modes:
- *   - Auto-scroll (default): tracks latest event, new messages animate in
- *   - Paused (hover): freezes display, accumulates unread count
- *   - Detail open: pauses without unread accumulation
+ * New messages appear in the "coming" slot with typewriter effect,
+ * then scroll up to "current" position when complete.
  */
-export function useKaraokeScroll(events) {
-  const isAutoScrolling = ref(true)
+export function useKaraokeScroll(events, getEventText) {
   const isDetailOpen = ref(false)
-  const unreadCount = ref(0)
 
-  // The index of the "current" event — auto-scrolling always tracks the latest
+  // The index of the "current" event — always tracks the latest
   const currentIndex = computed(() => Math.max(0, events.value.length - 1))
 
-  // The frozen index when paused
-  const frozenIndex = ref(currentIndex.value)
+  // ---- Typewriter state ----
+  const typewriterQueue = ref([])
+  const typewriterEvent = ref(null)
+  const isTyping = ref(false)
+  const displayedText = ref('')
+  let typewriterTimer = null
 
-  const activeIndex = computed(() => {
-    return isAutoScrolling.value ? currentIndex.value : frozenIndex.value
-  })
+  const TYPING_SPEED = 30 // ms per character
 
-  // Track new events while paused
-  watch(currentIndex, (newIdx, oldIdx) => {
-    if (!isAutoScrolling.value && !isDetailOpen.value && newIdx > oldIdx) {
-      unreadCount.value += (newIdx - oldIdx)
+  // ---- Typewriter queue ----
+  function enqueueTypewriter(event) {
+    typewriterQueue.value.push(event)
+    if (!isTyping.value) {
+      processNextInQueue()
     }
-  })
+  }
 
-  // Extract 3 events around the active index
+  function processNextInQueue() {
+    if (typewriterQueue.value.length === 0) {
+      typewriterEvent.value = null
+      return
+    }
+    const event = typewriterQueue.value.shift()
+    typewriterEvent.value = event
+    startTypewriter()
+  }
+
+  function startTypewriter() {
+    const fullText = getEventText(typewriterEvent.value)
+    displayedText.value = ''
+    isTyping.value = true
+
+    let i = 0
+    typewriterTimer = setInterval(() => {
+      if (i < fullText.length) {
+        displayedText.value = fullText.slice(0, i + 1)
+        i++
+      } else {
+        clearInterval(typewriterTimer)
+        typewriterTimer = null
+        onTypewriterComplete()
+      }
+    }, TYPING_SPEED)
+  }
+
+  function onTypewriterComplete() {
+    isTyping.value = false
+
+    // Immediately add event to messages and clear typewriter
+    // Let TransitionGroup handle the scroll animation
+    const completedEvent = typewriterEvent.value
+    typewriterEvent.value = null
+    events.value.push(completedEvent)
+
+    // Process next in queue after a short delay
+    setTimeout(() => {
+      processNextInQueue()
+    }, 100)
+  }
+
+  // Extract 3 events around the current index
   const karaokeTriple = computed(() => {
-    const idx = activeIndex.value
+    const idx = currentIndex.value
     const list = events.value
-    if (list.length === 0) return []
-
     const result = []
+
     // previous
     if (idx > 0) {
       result.push({ ...list[idx - 1], _slot: 'previous' })
     }
     // current
-    result.push({ ...list[idx], _slot: 'current' })
-    // coming — the actual next message if it exists
-    if (idx < list.length - 1) {
-      result.push({ ...list[idx + 1], _slot: 'coming' })
+    if (list.length > 0) {
+      result.push({ ...list[idx], _slot: 'current' })
+    }
+    // coming — typewriter or placeholder
+    if (typewriterEvent.value) {
+      result.push({
+        ...typewriterEvent.value,
+        _slot: 'coming',
+        _typewriter: true,
+        _displayedText: displayedText.value,
+        _isTyping: isTyping.value,
+      })
     } else {
-      // No next message yet — show a placeholder "coming" slot
       result.push({ _slot: 'coming', _placeholder: true, id: '__coming__' })
     }
 
     return result
   })
 
-  /** Pause auto-scroll (called on mouseenter) */
-  function pauseAutoScroll() {
-    if (isDetailOpen.value) return
-    isAutoScrolling.value = false
-    frozenIndex.value = currentIndex.value
-  }
-
-  /** Resume auto-scroll (called on mouseleave) */
-  function resumeAutoScroll() {
-    if (isDetailOpen.value) return
-    isAutoScrolling.value = true
-    unreadCount.value = 0
-  }
-
+  // ---- Detail window sync ----
   function onDetailOpen() {
     isDetailOpen.value = true
-    isAutoScrolling.value = false
-    frozenIndex.value = currentIndex.value
   }
 
   function onDetailClose() {
     isDetailOpen.value = false
-    isAutoScrolling.value = true
-    unreadCount.value = 0
   }
 
+  // ---- Cleanup ----
   onUnmounted(() => {
+    if (typewriterTimer) {
+      clearInterval(typewriterTimer)
+      typewriterTimer = null
+    }
   })
 
   return {
     karaokeTriple,
-    isAutoScrolling,
-    isDetailOpen,
-    unreadCount,
-    pauseAutoScroll,
-    resumeAutoScroll,
+    isTyping,
+    enqueueTypewriter,
     onDetailOpen,
     onDetailClose,
   }

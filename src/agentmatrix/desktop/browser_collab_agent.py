@@ -444,14 +444,16 @@ class _SiteKnowledgeLoader:
 
 
 class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
-    """支持浏览器内嵌聊天的 Agent。
+    """支持浏览器协作的 Agent。
 
-    在 BaseAgent 基础上，自动将以下信息转发到浏览器前端：
-    - Agent 状态变化（IDLE / THINKING / WORKING 等）
-    - CoreEvent（思考输出、action 执行结果等）
+    在 BaseAgent 基础上，提供：
+    - 通过 CDP 触发浏览器内的 indicator（十字准星）和 range selector（范围选择器）
+    - 自动解析 BrowserSignal 的 session
+    - 自动确保 CDP 浏览器基础设施就绪
+    - Site knowledge 注入到 MicroAgent 系统提示
 
-    前端通过 __bh_on_event__ 接收这些事件，在聊天组件中展示。
-    用户在浏览器中输入的消息通过 __bh_emit__('chat_message') 发回 Agent。
+    浏览器端通过 __bh_emit__ 发送事件（indicator_result, range_result 等），
+    Agent 通过 CDP 调用 __bh_show_indicator__ / __bh_show_range__ 触发交互。
 
     继承 LocalFileAgentMixin，直接操作宿主机文件（不经过容器）。
     """
@@ -460,27 +462,6 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
     _current_site_url: str = None
     _loaded_site_key: str = None
     _loaded_process_dir: str = None
-
-    async def _broadcast_to_browser(self, event_type: str, data: dict):
-        """转发事件到浏览器前端。fire-and-forget，不阻塞主流程。"""
-        try:
-            from .skills.browser_automation.skill import _event_listener, _agent_current_tab
-            if not _event_listener or not _event_listener.active:
-                return
-            tab = _agent_current_tab.get(self.name)
-            if not tab or not tab.session_id:
-                return
-            await _event_listener.emit_to_browser(tab.session_id, event_type, data)
-        except Exception as e:
-            logger.debug(f"Browser broadcast failed: {e}")
-
-    def _fire_broadcast(self, event_type: str, data: dict):
-        """异步触发浏览器广播（fire-and-forget）。"""
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._broadcast_to_browser(event_type, data))
-        except RuntimeError:
-            pass
 
     # ==========================================
     # BaseAgent overrides
@@ -576,64 +557,12 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
         return micro
 
     def update_status(self, new_status=None):
-        """状态更新后转发到浏览器。"""
+        """状态更新。"""
         super().update_status(new_status)
-        if new_status is not None:
-            self._fire_broadcast('agent_status', {
-                'status': self._status,
-            })
 
     async def _handle_core_event(self, event: CoreEvent, session_id: str):
-        """CoreEvent 处理后转发到浏览器。"""
+        """CoreEvent 处理。"""
         await super()._handle_core_event(event, session_id)
-
-        et, en, d = event.event_type, event.event_name, event.detail
-
-        # 思考输出
-        if et == "think" and en == "brain":
-            thought = self._strip_action_script(d.get("raw_reply", ""))
-            if thought:
-                self._fire_broadcast('agent_output', {
-                    'type': 'think',
-                    'text': thought,
-                })
-
-        # Agent 自动投递的消息（email.sent via auto-dispatch）
-        elif et == "email" and en == "sent":
-            body = d.get("body_preview", "")
-            sender = d.get("sender", "")
-            if body:
-                self._fire_broadcast('agent_output', {
-                    'type': 'message',
-                    'text': body,
-                    'sender': sender,
-                })
-
-        # action 检测
-        elif et == "action" and en == "detected":
-            actions = d.get("actions", [])
-            if actions:
-                self._fire_broadcast('agent_output', {
-                    'type': 'action_detected',
-                    'text': ', '.join(actions),
-                })
-
-        # action 开始
-        elif et == "action" and en == "started":
-            self._fire_broadcast('agent_output', {
-                'type': 'action_started',
-                'text': d.get('action_name', '?'),
-            })
-
-        # action 完成
-        elif et == "action" and en == "completed":
-            name = d.get('action_name', '?')
-            status = d.get('status', 'ok')
-            preview = d.get('result_preview', '')
-            self._fire_broadcast('agent_output', {
-                'type': 'action_completed',
-                'text': f"{name} -> {preview[:200]}" if status == 'ok' else f"{name} 失败: {preview}",
-            })
 
     # ==========================================
     # UI Actions — 工作模式切换
@@ -653,18 +582,24 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
             if action_fn:
                 result_str = await action_fn(mode)
                 result = json.loads(result_str)
-                self._fire_broadcast('work_mode_changed', {"mode": mode})
                 return result
 
         # 无活跃 MicroAgent — 模式已存储，下次任务启动时自动生效
         self.persona = mode_content
-        self._fire_broadcast('work_mode_changed', {"mode": mode})
         return {"status": "ok", "mode": mode}
 
     # ---- UI Schema ----
 
     def get_ui_schema(self):
         base = super().get_ui_schema()
+        browser_group = {
+            "name": "browser",
+            "icon": "globe",
+            "children": [
+                {"action": "show_indicator", "icon": "crosshair", "display_mode": "toast"},
+                {"action": "show_range_selector", "icon": "square-dashed", "display_mode": "toast"},
+            ]
+        }
         mode_group = {
             "name": "mode",
             "icon": "sliders",
@@ -673,9 +608,37 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
                 {"action": "set_execute_mode", "icon": "robot", "requires_idle": True, "display_mode": "toast"},
             ]
         }
-        return [mode_group] + base
+        return [browser_group, mode_group] + base
 
     # ---- UI Action 方法 ----
+
+    async def show_indicator(self):
+        """触发浏览器内的indicator（十字准星）"""
+        from .skills.browser_automation.skill import _cdp_client, _agent_current_tab
+        tab = _agent_current_tab.get(self.name)
+        if not tab or not tab.session_id:
+            return {"error": "No active browser tab"}
+
+        js = "window.__bh_show_indicator__ ? window.__bh_show_indicator__() : null"
+        await _cdp_client.send(
+            "Runtime.evaluate", {"expression": js},
+            session_id=tab.session_id, timeout=5,
+        )
+        return {"status": "ok"}
+
+    async def show_range_selector(self):
+        """触发浏览器内的range selector"""
+        from .skills.browser_automation.skill import _cdp_client, _agent_current_tab
+        tab = _agent_current_tab.get(self.name)
+        if not tab or not tab.session_id:
+            return {"error": "No active browser tab"}
+
+        js = "window.__bh_show_range__ ? window.__bh_show_range__() : null"
+        await _cdp_client.send(
+            "Runtime.evaluate", {"expression": js},
+            session_id=tab.session_id, timeout=5,
+        )
+        return {"status": "ok"}
 
     async def set_develop_mode(self):
         return await self._switch_work_mode("develop")

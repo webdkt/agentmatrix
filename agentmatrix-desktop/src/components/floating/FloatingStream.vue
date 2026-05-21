@@ -4,6 +4,7 @@ import { emit as tauriEmit, listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
+import { configAPI } from '@/api/config'
 import { useKaraokeScroll } from '@/composables/useKaraokeScroll'
 import KaraokeStream from './KaraokeStream.vue'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -17,17 +18,17 @@ const isLoading = ref(false)
 
 async function loadSessionFromGlobal() {
   try {
+    const config = await configAPI.getFullConfig()
+    userAgentName.value = config?.user_agent_name || null
+  } catch (e) {
+    console.error('[Stream] Failed to load backend config:', e)
+  }
+  try {
     const ctx = await invoke('get_current_session')
     agentSessionId.value = ctx.agent_session_id || null
     agentName.value = ctx.agent_name || null
   } catch (e) {
     console.error('[Stream] Failed to load session:', e)
-  }
-  try {
-    const config = await invoke('get_config')
-    userAgentName.value = config.user_agent_name || null
-  } catch (e) {
-    console.error('[Stream] Failed to load config:', e)
   }
 }
 
@@ -56,16 +57,36 @@ function formatAction(event) {
   return { text, status, key: event.id }
 }
 
+// ---- Event display helpers ----
+function truncate(str, len) {
+  if (!str) return ''
+  return str.length > len ? str.slice(0, len) + '...' : str
+}
+
+function eventSummary(event) {
+  const { renderType, detail, eventName } = event
+  switch (renderType) {
+    case 'thought':
+      return truncate(detail.thought || detail.body_preview || '', 120)
+    case 'agent-comm': {
+      if (eventName === 'received') return `收到来自 ${detail.sender || '未知'} 的邮件`
+      return ''
+    }
+    case 'system':
+      return eventName
+    default:
+      return ''
+  }
+}
+
 // ---- Karaoke scroll logic ----
 const {
   karaokeTriple,
-  isAutoScrolling,
-  unreadCount,
+  isTyping,
+  enqueueTypewriter,
   onDetailOpen,
   onDetailClose,
-  pauseAutoScroll,
-  resumeAutoScroll,
-} = useKaraokeScroll(messages)
+} = useKaraokeScroll(messages, eventSummary)
 
 // ---- Parse event ----
 function parseEvent(raw) {
@@ -208,7 +229,7 @@ function handleWsMessage(data) {
     }
 
     currentAction.value = null
-    messages.value.push(parsed)
+    enqueueTypewriter(parsed)
   } else if (data.type === 'AGENT_STATUS_UPDATE') {
     const { agent_name, data: statusData } = data
     agentStore.updateAgentStatus(agent_name, statusData)
@@ -277,10 +298,6 @@ onUnmounted(() => {
     <KaraokeStream
       v-if="!isLoading"
       :karaoke-triple="karaokeTriple"
-      :is-auto-scrolling="isAutoScrolling"
-      :unread-count="unreadCount"
-      @scroll-pause="pauseAutoScroll"
-      @scroll-resume="resumeAutoScroll"
     />
 
     <!-- Action status bar -->

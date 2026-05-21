@@ -41,6 +41,16 @@ const isActive = computed(() => {
   return ['THINKING', 'WORKING', 'RECOVERING'].includes(props.agentStatus)
 })
 
+const statusType = computed(() => {
+  if (!props.isOnCurrentSession && props.agentStatus !== 'IDLE') return 'working'
+  switch (props.agentStatus) {
+    case 'THINKING': return 'thinking'
+    case 'WORKING': return 'working'
+    case 'RECOVERING': return 'recovering'
+    default: return null
+  }
+})
+
 const activeIcon = computed(() => {
   if (!props.isOnCurrentSession && props.agentStatus !== 'IDLE') return 'loader'
   switch (props.agentStatus) {
@@ -78,6 +88,7 @@ function onBodyMouseDown(e) {
           <span class="glass-card__status" :class="{
             'glass-card__status--idle': agentStatus === 'IDLE',
             'glass-card__status--active': isActive,
+            [`glass-card__status--${statusType}`]: statusType,
           }">
             {{ statusLabel }}
           </span>
@@ -196,7 +207,7 @@ function onBodyMouseDown(e) {
 }
 
 .glass-card__status {
-  padding: 2px 8px;
+  padding: 3px 10px;
   background: rgba(0, 0, 0, 0.04);
   border-radius: 12px;
   font-size: 13px;
@@ -204,6 +215,8 @@ function onBodyMouseDown(e) {
   color: var(--text-secondary, #52525b);
   white-space: nowrap;
   transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 
 .glass-card__status--idle {
@@ -214,7 +227,151 @@ function onBodyMouseDown(e) {
 .glass-card__status--active {
   background: rgba(184, 169, 201, 0.12);
   color: var(--morandi-mauve, #8B7BA5);
-  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/* Thinking state - violet glow with shimmer */
+.glass-card__status--thinking {
+  background: linear-gradient(90deg, 
+    rgba(124, 58, 237, 0.08) 0%,
+    rgba(124, 58, 237, 0.18) 50%,
+    rgba(124, 58, 237, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  color: #7C3AED;
+  font-weight: 600;
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  animation: thinking-shimmer 2s ease-in-out infinite;
+  text-shadow: 0 0 8px rgba(124, 58, 237, 0.3);
+}
+
+.glass-card__status--thinking::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, 
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  animation: thinking-light 2s ease-in-out infinite;
+}
+
+@keyframes thinking-shimmer {
+  0%, 100% { 
+    background-position: 0% 50%;
+    box-shadow: 0 0 8px rgba(124, 58, 237, 0.15);
+  }
+  50% { 
+    background-position: 100% 50%;
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.3);
+  }
+}
+
+@keyframes thinking-light {
+  0% { left: -100%; }
+  50% { left: 100%; }
+  100% { left: 100%; }
+}
+
+/* Working state - teal glow with pulse */
+.glass-card__status--working {
+  background: linear-gradient(90deg,
+    rgba(13, 148, 136, 0.08) 0%,
+    rgba(13, 148, 136, 0.2) 50%,
+    rgba(13, 148, 136, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  color: #0D9488;
+  font-weight: 600;
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  animation: working-pulse 1.5s ease-in-out infinite;
+  text-shadow: 0 0 8px rgba(13, 148, 136, 0.3);
+}
+
+.glass-card__status--working::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 120%;
+  height: 120%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(13, 148, 136, 0.15) 0%, transparent 70%);
+  animation: working-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes working-pulse {
+  0%, 100% {
+    background-position: 0% 50%;
+    transform: scale(1);
+  }
+  50% {
+    background-position: 100% 50%;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes working-glow {
+  0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* Recovering state - amber glow with flash */
+.glass-card__status--recovering {
+  background: linear-gradient(90deg,
+    rgba(217, 119, 6, 0.08) 0%,
+    rgba(217, 119, 6, 0.2) 50%,
+    rgba(217, 119, 6, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  color: #D97706;
+  font-weight: 600;
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  animation: recovering-flash 1.2s ease-in-out infinite;
+  text-shadow: 0 0 8px rgba(217, 119, 6, 0.3);
+}
+
+.glass-card__status--recovering::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(217, 119, 6, 0.1) 25%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(217, 119, 6, 0.1) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: recovering-light 1.2s linear infinite;
+}
+
+@keyframes recovering-flash {
+  0%, 100% {
+    background-position: 0% 50%;
+    box-shadow: 0 0 8px rgba(217, 119, 6, 0.2);
+  }
+  25% {
+    box-shadow: 0 0 16px rgba(217, 119, 6, 0.4);
+  }
+  50% {
+    background-position: 100% 50%;
+    box-shadow: 0 0 8px rgba(217, 119, 6, 0.2);
+  }
+  75% {
+    box-shadow: 0 0 20px rgba(217, 119, 6, 0.5);
+  }
+}
+
+@keyframes recovering-light {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .glass-card__icon-btn {
