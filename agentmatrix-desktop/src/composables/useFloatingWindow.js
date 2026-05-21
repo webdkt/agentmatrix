@@ -1,6 +1,6 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { listen, emit as tauriEmit } from '@tauri-apps/api/event'
 import { useSessionStore } from '@/stores/session'
 
 /**
@@ -9,10 +9,26 @@ import { useSessionStore } from '@/stores/session'
  */
 const isActive = ref(false)
 let unlistenRestore = null
+let unlistenSwitchSession = null
 
 export function useFloatingWindow() {
   const sessionStore = useSessionStore()
   const currentSession = computed(() => sessionStore.currentSession)
+
+  /**
+   * 将当前 session 写入 Rust 全局状态
+   */
+  async function syncCurrentSession(session) {
+    await invoke('set_current_session', {
+      session: {
+        user_session_id: session.session_id || null,
+        agent_session_id: session.agent_session_id || null,
+        agent_name: session.agent_name || session.name || null,
+        task_id: session.task_id || session.session_id || null,
+        last_email_id: session.last_email_id || null,
+      },
+    })
+  }
 
   /**
    * 打开浮动窗口
@@ -22,7 +38,6 @@ export function useFloatingWindow() {
     if (!session) return
 
     const agentName = session.agent_name || session.name
-    const sessionId = session.session_id
     const agentSessionId = session.agent_session_id
 
     if (!agentName || !agentSessionId) {
@@ -30,28 +45,47 @@ export function useFloatingWindow() {
       return
     }
 
-    // 1. Create floating window with session params in URL
+    // 1. Write session to Rust global state
     try {
-      await invoke('create_floating_window', {
-        sessionId,
-        agentName,
-        agentSessionId,
-      })
+      await syncCurrentSession(session)
+    } catch (e) {
+      console.error('Failed to set current session:', e)
+      return
+    }
+
+    // 2. Create floating windows (they read from global state)
+    try {
+      await invoke('create_floating_window')
     } catch (e) {
       console.error('Failed to create floating window:', e)
       return
     }
 
+    // 3. Re-emit session-changed as fallback (Rust already emitted from set_current_session,
+    //    but floating windows may not have been ready at that point)
+    await tauriEmit('session-changed')
+
     isActive.value = true
 
-    // 2. Listen for restore request from floating window
+    // 4. Listen for restore request from floating window
     if (!unlistenRestore) {
       unlistenRestore = await listen('floating:restore', async () => {
         await closeFloating()
       })
     }
 
-    // 3. Minimize main window
+    // 5. Listen for session switch from floating window
+    if (!unlistenSwitchSession) {
+      unlistenSwitchSession = await listen('floating:switch-session', (event) => {
+        const { sessionId } = event.payload
+        const session = sessionStore.sessions.find(s => s.session_id === sessionId)
+        if (session) {
+          sessionStore.selectSession(session)
+        }
+      })
+    }
+
+    // 6. Minimize main window
     try {
       await invoke('minimize_main_window')
     } catch (e) {
@@ -63,7 +97,6 @@ export function useFloatingWindow() {
    * 关闭浮动窗口并恢复主窗口
    */
   async function closeFloating() {
-    // Close input and detail windows if open
     try { await invoke('destroy_input_window') } catch { /* ignore */ }
     try { await invoke('destroy_detail_window') } catch { /* ignore */ }
     try {
@@ -74,7 +107,6 @@ export function useFloatingWindow() {
 
     isActive.value = false
 
-    // Restore main window
     try {
       await invoke('restore_main_window')
     } catch (e) {
@@ -82,9 +114,20 @@ export function useFloatingWindow() {
     }
   }
 
+  // Watch for session changes during floating mode and sync to Rust
+  watch(currentSession, async (newSession) => {
+    if (!isActive.value || !newSession) return
+    try {
+      await syncCurrentSession(newSession)
+    } catch (e) {
+      console.error('Failed to sync session change:', e)
+    }
+  })
+
   return {
     isActive,
     openFloating,
     closeFloating,
+    syncCurrentSession,
   }
 }

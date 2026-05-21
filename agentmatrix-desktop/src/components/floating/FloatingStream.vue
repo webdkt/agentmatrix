@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { emit as tauriEmit } from '@tauri-apps/api/event'
+import { emit as tauriEmit, listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
@@ -8,31 +8,28 @@ import { useKaraokeScroll } from '@/composables/useKaraokeScroll'
 import KaraokeStream from './KaraokeStream.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
-// ---- Parse session info from URL hash ----
-function parseParams() {
-  const hash = window.location.hash.slice(1)
-  const params = {}
-  hash.split('&').forEach(pair => {
-    const [key, val] = pair.split('=')
-    if (key && val) params[decodeURIComponent(key)] = decodeURIComponent(val)
-  })
-  return params
-}
-
-const sessionId = ref(null)
+// ---- Session state: read from Rust global state ----
 const agentName = ref(null)
 const agentSessionId = ref(null)
+const userAgentName = ref(null)
 const agentStatus = ref('IDLE')
 const isLoading = ref(false)
 
-function readParamsFromHash() {
-  const params = parseParams()
-  sessionId.value = params.sessionId || null
-  agentName.value = params.agentName || null
-  agentSessionId.value = params.agentSessionId || null
+async function loadSessionFromGlobal() {
+  try {
+    const ctx = await invoke('get_current_session')
+    agentSessionId.value = ctx.agent_session_id || null
+    agentName.value = ctx.agent_name || null
+  } catch (e) {
+    console.error('[Stream] Failed to load session:', e)
+  }
+  try {
+    const config = await invoke('get_config')
+    userAgentName.value = config.user_agent_name || null
+  } catch (e) {
+    console.error('[Stream] Failed to load config:', e)
+  }
 }
-readParamsFromHash()
-window.addEventListener('hashchange', readParamsFromHash)
 
 const isValidSession = computed(() => !!(agentName.value && agentSessionId.value))
 
@@ -88,13 +85,23 @@ function parseEvent(raw) {
   }
 }
 
+function isPureXml(text) {
+  if (!text) return false
+  const s = text.trim()
+  return s.startsWith('<') && s.endsWith('>') && /<\/\w/.test(s)
+}
+
 function classifyEvent(type, name, detail) {
   if (type === 'email') {
-    if (name === 'received' && detail.sender === 'User') return 'bubble-user'
-    if (name === 'sent') return 'bubble-agent'
+    if (name === 'sent') {
+      return (detail.body_preview && isPureXml(detail.body_preview)) ? 'skip' : 'thought'
+    }
+    if (name === 'received' && detail.sender === userAgentName.value) return 'skip'
     return 'agent-comm'
   }
-  if (type === 'think') return 'thought'
+  if (type === 'think') {
+    return isPureXml(detail.thought) ? 'skip' : 'thought'
+  }
   if (type === 'action') {
     if (name === 'detected') return 'skip'
     if (detail.action_name === 'send_internal_mail') return 'skip'
@@ -132,9 +139,9 @@ async function loadHistory() {
 }
 
 // ---- Broadcast agent status to capsule window ----
-async function broadcastStatus(status) {
+async function broadcastStatus(data) {
   try {
-    await tauriEmit('floating:status-update', { status })
+    await tauriEmit('floating:status-update', data)
   } catch (e) {
     console.error('[Stream] Failed to broadcast status:', e)
   }
@@ -145,6 +152,17 @@ let ws = null
 let wsReconnectTimer = null
 
 function connectWebSocket() {
+  // Clean up existing connection before creating a new one
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer)
+    wsReconnectTimer = null
+  }
+  if (ws) {
+    ws.onclose = null
+    ws.close()
+    ws = null
+  }
+
   invoke('get_backend_port').then(port => {
     if (!port) return
     const wsUrl = `ws://localhost:${port}/ws`
@@ -196,7 +214,7 @@ function handleWsMessage(data) {
     agentStore.updateAgentStatus(agent_name, statusData)
     if (agent_name === agentName.value) {
       agentStatus.value = statusData.status || 'IDLE'
-      broadcastStatus(statusData.status || 'IDLE')
+      broadcastStatus(statusData)
     }
   }
 }
@@ -204,9 +222,22 @@ function handleWsMessage(data) {
 // ---- Lifecycle ----
 let sessionInitialized = false
 let unlistenDetail = null
+let unlistenReloadSession = null
 
-onMounted(() => {
+onMounted(async () => {
   invoke('clip_window_rounded', { label: 'floating-stream', radius: 16 })
+  await loadSessionFromGlobal()
+
+  unlistenReloadSession = await listen('session-changed', async () => {
+    const oldAgentName = agentName.value
+    const oldAgentSessionId = agentSessionId.value
+    await loadSessionFromGlobal()
+    if (agentName.value !== oldAgentName || agentSessionId.value !== oldAgentSessionId) {
+      messages.value = []
+      currentAction.value = null
+      sessionInitialized = false
+    }
+  })
 })
 
 watch(isValidSession, async (valid) => {
@@ -221,8 +252,8 @@ watch(isValidSession, async (valid) => {
 }, { immediate: true })
 
 onUnmounted(() => {
-  window.removeEventListener('hashchange', readParamsFromHash)
   if (unlistenDetail) unlistenDetail()
+  if (unlistenReloadSession) unlistenReloadSession()
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer)
     wsReconnectTimer = null
@@ -233,9 +264,6 @@ onUnmounted(() => {
     ws = null
   }
 })
-
-// Need to import listen for detail:closed
-import { listen } from '@tauri-apps/api/event'
 </script>
 
 <template>
@@ -269,9 +297,15 @@ import { listen } from '@tauri-apps/api/event'
 
 <style scoped>
 .stream-panel {
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
   padding: 0;
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
   display: flex;
@@ -284,10 +318,12 @@ import { listen } from '@tauri-apps/api/event'
 /* ---- Action status bar ---- */
 .action-bar {
   width: 100%;
-  padding: 0 14px 6px;
+  padding: 0 14px 4px;
   box-sizing: border-box;
   overflow: hidden;
   position: relative;
+  margin-top: auto;
+  flex-shrink: 0;
 }
 
 .action-bar__line {

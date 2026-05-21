@@ -259,10 +259,16 @@ class Browser_automationSkillMixin:
     #### 正式脚本 vs 探索脚本
     ~/site_knowledge 下只能存放正式的脚本。探索脚本放在 ~/current_task/tmp 下。
     #### 流程文档 step-{{index}}-{{step_name}}.md
-    - 元素必须有明确、稳定的定位器
+    - 流程文档的final 版本是一个执行手册
+    - 流程文档的基本结构
+        - Part 1（Code): 带有编号的执行步骤。每个步骤要么是（a）自动化脚本，（b）手动执行的具体js or cdp命令,或者是(c) Agent 进行判断的、分支或者循环的说明。 Part 1 的目的是让任何Agent可以按照步骤完成该流程，无需懂的业务。
+        - Part 2 (Doc): 对业务逻辑的补充说明，作为参考供debug, 后续开发和版本review用。
+        - Part 3 (可选）：异常处理说明。执行过程中可能出现的、无法被Part 1吸收覆盖的异常情况的说明和处理建议。
+    ### 其他开发规范
+    - 元素必须使用稳定的、给予语义的定位器
     - 不得进行全局撒网式的探索
     - 必须包含判断所在页面、当前状态的明确规则
-    - 操作元素前等待其可交互
+    - 操作元素前必须等待其可交互
     - 流程知识更新后，执行load_site_knowledge，重新加载知识
   """
 
@@ -886,7 +892,7 @@ class Browser_automationSkillMixin:
                     '  {"method":"Input.dispatchMouseEvent","params":{"type":"mousePressed","x":100,"y":200,"button":"left","clickCount":1}},\n'
                     '  {"method":"Input.dispatchMouseEvent","params":{"type":"mouseReleased","x":100,"y":200,"button":"left","clickCount":1}}\n'
                     ']\n\n'
-                    "路径会自动从容器路径转换为宿主路径。\n"
+                    "路径会自动从 ~ / ~/current_task 转换为宿主路径。\n"
                     "CDP 文档参考 https://chromedevtools.github.io/devtools-protocol/",
         param_infos={
             "file_path": "脚本文件路径，支持 .json / .js / .py（必须是 ~ 或 ~/current_task 及其子目录下）",
@@ -1025,8 +1031,10 @@ class Browser_automationSkillMixin:
                 "SITE_KNOWLEDGE_DIR": str(home_dir / "site_knowledge"),
             })
 
-            # 构建命令
-            cmd = ["python3", str(host_path)]
+            # 构建命令（优先使用共享 venv 的 Python）
+            shared_env_bin = root.runtime.paths.get_shared_env_bin()
+            python_cmd = os.path.join(shared_env_bin, "python3") if shared_env_bin else "python3"
+            cmd = [python_cmd, str(host_path)]
             if str_arg1 is not None:
                 cmd.append(str_arg1)
 
@@ -1067,15 +1075,15 @@ class Browser_automationSkillMixin:
             MAX_INLINE_LINES = 100
 
             def _save_to_tmp(content: str, suffix: str) -> tuple[str, str]:
-                """保存到 ~/current_task/tmp/，返回 (host_path, container_path)。"""
+                """保存到 ~/current_task/tmp/，返回 (host_path, agent_path)。"""
                 import time
                 tmp_host_dir = work_dir / "tmp"
                 tmp_host_dir.mkdir(parents=True, exist_ok=True)
                 filename = f"script_{int(time.time())}_{os.getpid()}{suffix}"
                 host = tmp_host_dir / filename
                 host.write_text(content, encoding="utf-8")
-                container = f"~/current_task/tmp/{filename}"
-                return str(host), container
+                agent_path = f"~/current_task/tmp/{filename}"
+                return str(host), agent_path
 
             # 构建 result
             result = {
@@ -1247,35 +1255,7 @@ class Browser_automationSkillMixin:
             "current_tab": tab.to_dict() if tab else None,
         }, ensure_ascii=False, indent=2)
 
-    @register_action(
-        short_desc="(container_path)，上传文件前必须将容器内路径转换为宿主机路径",
-        description="将容器内路径转换为宿主机真实路径。"
-                    "浏览器 CDP 文件上传在宿主机执行，Agent 拿到的是容器内路径，"
-                    "需要用本 action 转换后才能用于上传。",
-        param_infos={"container_path": "容器内文件路径（如 ~/site_knowledge/xxx/readme.md 或 /data/agents/xxx/...）"},
-    )
-    async def resolve_host_path(self, container_path: str) -> str:
-        """将容器内路径转换为宿主机路径，供 CDP 文件上传等场景使用。"""
-        root = self.root_agent
-        agent_name = root.name
-        task_id = getattr(root, "current_task_id", None) or "default"
-
-        host_path = root.runtime.paths.container_path_to_host(
-            container_path, agent_name, task_id
-        )
-
-        if host_path is None:
-            return json.dumps({
-                "error": f"无法转换路径: {container_path}（不在容器可映射范围内，必须是home目录或者~/current_task目录下的文件）",
-            }, ensure_ascii=False)
-
-        # 检查文件是否存在
-        exists = host_path.exists()
-        return json.dumps({
-            "container_path": container_path,
-            "host_path": str(host_path),
-            "exists": exists,
-        }, ensure_ascii=False)
+    
 
     @register_action(
         short_desc="(mode)切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。必须根据当前情况切换到合适的模式。",

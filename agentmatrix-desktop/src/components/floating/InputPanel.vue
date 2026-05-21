@@ -1,42 +1,44 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { listen, emit as tauriEmit } from '@tauri-apps/api/event'
 import { sessionAPI } from '@/api/session'
 import MIcon from '@/components/icons/MIcon.vue'
 
-const sessionId = ref(null)
+const userSessionId = ref(null)
 const agentName = ref(null)
 const agentSessionId = ref(null)
+const taskId = ref(null)
 const lastEmailId = ref(null)
 const inputText = ref('')
 const isSending = ref(false)
+const hasSession = ref(false)
 
-function readParams() {
-  const hash = window.location.hash.slice(1)
-  const params = {}
-  hash.split('&').forEach(pair => {
-    const [key, val] = pair.split('=')
-    if (key && val) params[decodeURIComponent(key)] = decodeURIComponent(val)
-  })
-  sessionId.value = params.sessionId || null
-  agentName.value = params.agentName || null
-  agentSessionId.value = params.agentSessionId || null
-  lastEmailId.value = params.lastEmailId || null
+async function loadSessionFromGlobal() {
+  try {
+    const ctx = await invoke('get_current_session')
+    userSessionId.value = ctx.user_session_id || null
+    agentName.value = ctx.agent_name || null
+    agentSessionId.value = ctx.agent_session_id || null
+    taskId.value = ctx.task_id || null
+    lastEmailId.value = ctx.last_email_id || null
+    hasSession.value = !!(ctx.user_session_id && ctx.agent_name)
+  } catch (e) {
+    console.error('[Input] Failed to load session:', e)
+  }
 }
-readParams()
 
 async function sendMessage() {
   const body = inputText.value.trim()
-  if (!body || !sessionId.value || !agentName.value || isSending.value) return
+  if (!body || !userSessionId.value || !agentName.value || isSending.value) return
 
   isSending.value = true
   try {
-    await sessionAPI.sendEmail(sessionId.value, {
+    await sessionAPI.sendEmail(userSessionId.value, {
       recipient: agentName.value,
       subject: '',
       body: body,
-      task_id: sessionId.value,
+      task_id: taskId.value || userSessionId.value,
       in_reply_to: lastEmailId.value || undefined,
       recipient_session_id: agentSessionId.value || undefined,
     })
@@ -50,17 +52,37 @@ async function sendMessage() {
 }
 
 async function closeWindow() {
-  const win = getCurrentWebviewWindow()
   await invoke('destroy_input_window')
+  await tauriEmit('input:closed')
 }
 
-onMounted(() => {
+// Read global state when window gains focus
+function onFocus() {
+  loadSessionFromGlobal().then(() => {
+    document.querySelector('textarea')?.focus()
+  })
+}
+
+let unlistenSessionChanged = null
+
+onMounted(async () => {
+  await loadSessionFromGlobal()
   document.querySelector('textarea')?.focus()
+  window.addEventListener('focus', onFocus)
+
+  unlistenSessionChanged = await listen('session-changed', async () => {
+    await loadSessionFromGlobal()
+  })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('focus', onFocus)
+  if (unlistenSessionChanged) unlistenSessionChanged()
 })
 </script>
 
 <template>
-  <div class="input-panel" v-if="sessionId && agentName">
+  <div class="input-panel" v-if="hasSession">
     <div class="input-panel__header">
       <span class="input-panel__title">发送消息给 {{ agentName }}</span>
       <button class="input-panel__close" @click="closeWindow" title="Close">

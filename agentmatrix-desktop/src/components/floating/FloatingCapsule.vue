@@ -1,46 +1,51 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { listen } from '@tauri-apps/api/event'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { listen, emit as tauriEmit } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useAgentStore } from '@/stores/agent'
 import { agentAPI } from '@/api/agent'
 import GlassCard from './GlassCard.vue'
 import FloatingMenu from './FloatingMenu.vue'
 
-// ---- Parse session info from URL hash ----
-function parseParams() {
-  const hash = window.location.hash.slice(1)
-  const params = {}
-  hash.split('&').forEach(pair => {
-    const [key, val] = pair.split('=')
-    if (key && val) params[decodeURIComponent(key)] = decodeURIComponent(val)
-  })
-  return params
-}
-
-const sessionId = ref(null)
+// ---- Session state: read from Rust global state ----
+const userSessionId = ref(null)
 const agentName = ref(null)
 const agentSessionId = ref(null)
+const taskId = ref(null)
+const lastEmailId = ref(null)
 const agentStatus = ref('IDLE')
+const agentStatusData = ref({})
 
-function readParamsFromHash() {
-  const params = parseParams()
-  sessionId.value = params.sessionId || null
-  agentName.value = params.agentName || null
-  agentSessionId.value = params.agentSessionId || null
+async function loadSessionFromGlobal() {
+  try {
+    const ctx = await invoke('get_current_session')
+    userSessionId.value = ctx.user_session_id || null
+    agentSessionId.value = ctx.agent_session_id || null
+    agentName.value = ctx.agent_name || null
+    taskId.value = ctx.task_id || null
+    lastEmailId.value = ctx.last_email_id || null
+  } catch (e) {
+    console.error('[Capsule] Failed to load session:', e)
+  }
 }
-readParamsFromHash()
-window.addEventListener('hashchange', readParamsFromHash)
 
 const isValidSession = computed(() => !!(agentName.value && agentSessionId.value))
 
 // ---- UI state ----
 const showMenu = ref(false)
-const CAPSULE_H = 64
-const CAPSULE_MENU_H = 200
+const CAPSULE_H = 72
 
-watch(showMenu, (open) => {
-  invoke('set_capsule_height', { height: open ? CAPSULE_MENU_H : CAPSULE_H })
+watch(showMenu, async (open) => {
+  if (open) {
+    await nextTick()
+    const menuDiv = document.querySelector('.floating-menu')
+    if (menuDiv) {
+      const h = CAPSULE_H + menuDiv.scrollHeight
+      await invoke('set_capsule_height', { height: h })
+    }
+  } else {
+    await invoke('set_capsule_height', { height: CAPSULE_H })
+  }
 })
 
 // ---- Stores ----
@@ -56,18 +61,13 @@ async function restoreToDesktop() {
 let isInputWindowOpen = false
 
 async function openInputWindow() {
-  if (!sessionId.value || !agentName.value) return
+  if (!userSessionId.value || !agentName.value) return
   try {
     if (isInputWindowOpen) {
       await invoke('destroy_input_window')
       isInputWindowOpen = false
     } else {
-      await invoke('create_input_window', {
-        sessionId: sessionId.value,
-        agentName: agentName.value,
-        agentSessionId: agentSessionId.value,
-        lastEmailId: '',
-      })
+      await invoke('create_input_window')
       isInputWindowOpen = true
     }
   } catch (e) {
@@ -98,34 +98,73 @@ async function loadAgentUISchema() {
 async function invokeUIAction(actionNode) {
   if (!agentName.value) return
   try {
-    const payload = { session_id: sessionId.value }
+    const payload = { session_id: agentSessionId.value }
     await agentAPI.invokeAgentUIAction(agentName.value, actionNode.action, payload)
   } catch (e) {
     console.error('[Capsule] UI action failed:', e)
   }
 }
 
-// ---- Lifecycle: listen for status updates from stream window ----
-let unlistenStatus = null
-let unlistenRestore = null
+// ---- Session-aware agent status ----
+const isOnCurrentSession = computed(() => {
+  const status = agentStatus.value
+  if (status === 'IDLE') return true
+  const activeSessionId = agentStatusData.value?.current_session_id
+  if (!activeSessionId) return true
+  return activeSessionId === agentSessionId.value
+})
 
-onMounted(() => {
+const otherUserSessionId = computed(() => {
+  if (isOnCurrentSession.value) return null
+  return agentStatusData.value?.current_user_session_id || null
+})
+
+async function handleSwitchSession() {
+  const targetSessionId = otherUserSessionId.value
+  if (!targetSessionId) return
+  await tauriEmit('floating:switch-session', {
+    sessionId: targetSessionId,
+    agentName: agentName.value,
+  })
+  const data = agentStatusData.value
+  if (data?.current_session_id) {
+    agentSessionId.value = data.current_session_id
+    userSessionId.value = data.current_user_session_id
+  }
+}
+
+// ---- Lifecycle ----
+let unlistenStatus = null
+let unlistenReloadSession = null
+
+onMounted(async () => {
   invoke('clip_window_rounded', { label: 'floating-capsule', radius: 20 })
+  await loadSessionFromGlobal()
+
+  // Listen for session reload requests
+  unlistenReloadSession = await listen('session-changed', async () => {
+    await loadSessionFromGlobal()
+  })
+
+  // Sync input window state when closed from InputPanel
+  await listen('input:closed', () => {
+    isInputWindowOpen = false
+  })
 })
 
 watch(isValidSession, async (valid) => {
   if (!valid) return
   await loadAgentUISchema()
 
-  // Listen for agent status updates from stream window
   unlistenStatus = await listen('floating:status-update', (event) => {
-    agentStatus.value = event.payload.status || 'IDLE'
+    agentStatusData.value = event.payload || {}
+    agentStatus.value = event.payload?.status || 'IDLE'
   })
 }, { immediate: true })
 
 onUnmounted(() => {
-  window.removeEventListener('hashchange', readParamsFromHash)
   if (unlistenStatus) unlistenStatus()
+  if (unlistenReloadSession) unlistenReloadSession()
 })
 </script>
 
@@ -136,11 +175,14 @@ onUnmounted(() => {
         <GlassCard
           :agent-name="agentName"
           :agent-status="agentStatus"
+          :is-on-current-session="isOnCurrentSession"
           @toggle-menu="showMenu = !showMenu"
           @open-input="openInputWindow"
+          @switch-session="handleSwitchSession"
         />
 
         <FloatingMenu
+          ref="menuRef"
           :visible="showMenu"
           :schema="agentUISchema"
           :agent-name="agentName"
@@ -169,8 +211,14 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
   flex: 1;
 }
 </style>

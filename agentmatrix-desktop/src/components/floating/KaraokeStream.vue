@@ -47,12 +47,8 @@ function formatTimestamp(ts) {
 function eventSummary(event) {
   const { renderType, detail, eventName } = event
   switch (renderType) {
-    case 'bubble-user':
-      return truncate(detail.body_preview || '', 120)
-    case 'bubble-agent':
-      return truncate(detail.body_preview || '', 120)
     case 'thought':
-      return truncate(detail.thought || '', 120)
+      return truncate(detail.thought || detail.body_preview || '', 120)
     case 'agent-comm': {
       if (eventName === 'received') return `收到来自 ${detail.sender || '未知'} 的邮件`
       return ''
@@ -66,9 +62,7 @@ function eventSummary(event) {
 
 function eventIcon(event) {
   switch (event.renderType) {
-    case 'bubble-user': return 'user'
-    case 'bubble-agent': return 'bot'
-    case 'thought': return 'brain'
+    case 'thought': return 'logo'
     case 'agent-comm': return 'mail'
     case 'system': return 'info'
     default: return null
@@ -91,18 +85,11 @@ function onMouseLeave() {
 }
 
 async function handleClick(event) {
-  const hasContent = ['bubble-user', 'bubble-agent', 'thought'].includes(event.renderType)
+  const hasContent = event.renderType === 'thought'
   if (!hasContent) return
 
   try {
-    const eventJson = JSON.stringify({
-      id: event.id,
-      timestamp: event.timestamp,
-      renderType: event.renderType,
-      eventName: event.eventName,
-      detail: event.detail,
-    })
-    await invoke('create_detail_window', { eventJson })
+    await invoke('create_detail_window')
   } catch (e) {
     console.error('[KaraokeStream] Failed to open detail:', e)
   }
@@ -168,7 +155,6 @@ onUnmounted(() => {
             </div>
             <div class="karaoke-msg__body">
               <div class="karaoke-msg__text">
-                <span v-if="event.renderType === 'bubble-user'" class="karaoke-msg__prefix">你:</span>
                 {{ eventSummary(event) }}
               </div>
               <div class="karaoke-msg__ts">{{ formatTimestamp(event.timestamp) }}</div>
@@ -184,9 +170,10 @@ onUnmounted(() => {
 .karaoke-stream {
   position: relative;
   width: 100%;
-  padding: 0 14px 14px;
+  padding: 0 14px;
   overflow: hidden;
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   box-sizing: border-box;
 }
 
@@ -197,12 +184,13 @@ onUnmounted(() => {
 .karaoke-roller {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   position: relative;
   background: transparent;
   border: none;
   border-radius: 16px;
-  padding: 12px 14px;
+  padding: 8px 14px;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .karaoke-empty {
@@ -224,14 +212,27 @@ onUnmounted(() => {
   opacity: 0.35;
   -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
   mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .karaoke-slot--current {
   opacity: 1.0;
+  flex-shrink: 0;
 }
 
 .karaoke-slot--coming {
   opacity: 0.6;
+  flex-shrink: 0;
+  margin-bottom: auto;
+}
+
+.karaoke-slot--previous + .karaoke-slot--current {
+  margin-top: 8px;
+}
+
+.karaoke-slot--current + .karaoke-slot--coming {
+  margin-top: 8px;
 }
 
 /* ---- Coming placeholder ---- */
@@ -331,10 +332,6 @@ onUnmounted(() => {
   margin-top: 1px;
 }
 
-.karaoke-msg__prefix {
-  font-weight: 500;
-  margin-right: 4px;
-}
 
 /* ---- Time ---- */
 .karaoke-time {

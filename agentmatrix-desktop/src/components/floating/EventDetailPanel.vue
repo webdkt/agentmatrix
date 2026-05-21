@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
 import { emit as tauriEmit } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
@@ -64,12 +64,16 @@ function typeLabel(renderType) {
 async function closeWindow() {
   await tauriEmit('detail:closed')
   const win = getCurrentWebviewWindow()
-  await win.close()
+  await win.hide()
 }
 
 onMounted(() => {
-  // Focus for keyboard accessibility
+  window.addEventListener('hashchange', parseEventFromHash)
   document.querySelector('.detail-panel__close')?.focus()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('hashchange', parseEventFromHash)
 })
 </script>
 

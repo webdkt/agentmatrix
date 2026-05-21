@@ -18,6 +18,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from .base_agent import BaseAgent
+from .local_file_agent import LocalFileAgentMixin
 from .signals import BrowserSignal
 
 from ..core.signals import CoreEvent
@@ -186,9 +187,8 @@ class _SiteKnowledgeLoader:
 
     def _build_system_hint(self, current_url: str, matches: list, current_site: str) -> str:
         if not current_url:
-            # 无 tab
-            total = len(self._parse_index())
-            return f"当前无打开的网页。index.txt中共有{total}条站点知识"
+            # 无 tab → 列出 index 内容
+            return self._format_index_listing("当前无打开的网页。index.txt中的站点知识：")
 
         if matches:
             if current_site:
@@ -214,6 +214,26 @@ class _SiteKnowledgeLoader:
                 # (4) 无匹配 + agent 未加载 → 提示
                 total = len(self._parse_index())
                 return f"目前无匹配的站点知识，index.txt中共有{total}条站点知识"
+
+    def _format_index_listing(self, header: str) -> str:
+        """列出 index.txt 内容，最多 50 行。"""
+        index_path = os.path.join(self.home_dir, "site_knowledge", "index.txt")
+        entries = self._parse_index()
+        if not entries:
+            return header + "\n(index.txt 为空或不存在)"
+
+        max_lines = 50
+        lines = [header, ""]
+        shown = entries[:max_lines]
+        for ep, desc, dirname in shown:
+            lines.append(f"- {ep}:{desc}:{dirname}")
+
+        remaining = len(entries) - len(shown)
+        if remaining > 0:
+            lines.append("")
+            lines.append(f"(还有 {remaining} 条未显示)")
+
+        return "\n".join(lines)
 
     def _format_mismatch_warning(self, current_url: str, matches: list) -> str:
         """当前 URL 不匹配已加载的 site，警告并列出实际匹配的站点。"""
@@ -423,7 +443,7 @@ class _SiteKnowledgeLoader:
             return False
 
 
-class BrowserCollabAgent(BaseAgent):
+class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
     """支持浏览器内嵌聊天的 Agent。
 
     在 BaseAgent 基础上，自动将以下信息转发到浏览器前端：
@@ -432,6 +452,8 @@ class BrowserCollabAgent(BaseAgent):
 
     前端通过 __bh_on_event__ 接收这些事件，在聊天组件中展示。
     用户在浏览器中输入的消息通过 __bh_emit__('chat_message') 发回 Agent。
+
+    继承 LocalFileAgentMixin，直接操作宿主机文件（不经过容器）。
     """
 
     # Site knowledge：跨 execute 保持，load_site_knowledge action 设置

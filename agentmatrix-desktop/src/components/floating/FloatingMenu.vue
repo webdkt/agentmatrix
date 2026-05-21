@@ -91,7 +91,7 @@ onUnmounted(() => {
       <div class="floating-menu__divider"></div>
       <button class="floating-menu__item" @click="$emit('close'); $emit('restore')">
         <MIcon name="arrows-maximize" />
-        <span>Back to Desktop</span>
+        <span>Switch to Desktop</span>
       </button>
     </div>
   </Transition>
@@ -103,6 +103,7 @@ onUnmounted(() => {
   padding: 4px 8px 8px;
   border-top: 1px solid rgba(0, 0, 0, 0.04);
 }
+
 
 .floating-menu__group {
   padding: 2px 0;

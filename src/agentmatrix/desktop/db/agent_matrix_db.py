@@ -110,7 +110,9 @@ class AgentMatrixDB(AutoLoggerMixin):
                 is_read INTEGER NOT NULL DEFAULT 0,
                 timestamp TEXT,
                 created_at TEXT,
-                last_email_id TEXT
+                last_email_id TEXT,
+                last_agent_mail_time TEXT,
+                last_check_time TEXT
             )
         """)
         await self.conn.execute("""
@@ -127,6 +129,7 @@ class AgentMatrixDB(AutoLoggerMixin):
         """)
         await self.conn.commit()
         await self._create_indexes()
+        await self._migrate()
 
     async def _create_indexes(self):
         await self.conn.execute("""
@@ -165,6 +168,23 @@ class AgentMatrixDB(AutoLoggerMixin):
             CREATE INDEX IF NOT EXISTS idx_session_events_lookup
             ON session_events(owner, session_id, timestamp)
         """)
+        await self.conn.commit()
+
+    async def _migrate(self):
+        """为已有数据库添加新列（SQLite ALTER TABLE 只能一次加一列）"""
+        # 检查 user_sessions 表是否缺少新列
+        cursor = await self.conn.execute("PRAGMA table_info(user_sessions)")
+        columns = {row[1] for row in await cursor.fetchall()}
+
+        migrations = [
+            ("last_agent_mail_time", "TEXT"),
+            ("last_check_time", "TEXT"),
+        ]
+        for col_name, col_type in migrations:
+            if col_name not in columns:
+                await self.conn.execute(
+                    f"ALTER TABLE user_sessions ADD COLUMN {col_name} {col_type}"
+                )
         await self.conn.commit()
 
     # ===== Email Pipeline =====

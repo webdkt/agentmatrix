@@ -142,6 +142,7 @@ class BaseAgent(BasicAgent):
 
     async def switch_workspace(self, task_id: str) -> bool:
         """切换工作目录（通过 container session 执行命令）"""
+        print("baseagent switch workspace")
         if self.container_session is None:
             raise RuntimeError("Container Session 未初始化")
 
@@ -154,11 +155,20 @@ class BaseAgent(BasicAgent):
         # 先删除旧的 symlink 再创建，避免部分容器环境（如 BusyBox）下 ln -sf 不替换已有 symlink 的问题
         symlink_target = f"/data/agents/{self.name}/work_files/{task_id}"
         cmd = f"rm -f ~/current_task && ln -s {symlink_target} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
-        self.logger.info(f"🔧 switch_workspace 命令: {cmd}")
-        self.logger.info(f"🔧 宿主机目录存在: {task_dir.exists()}")
-        exit_code, stdout, stderr = await asyncio.to_thread(
-            self.container_session.execute, cmd
-        )
+        self.logger.info(f"switch_workspace 命令: {cmd}")
+        self.logger.info(f"宿主机目录: {task_dir} (存在={task_dir.exists()})")
+        self.logger.info(f"container_session alive: {self.container_session.is_alive()}")
+
+        try:
+            exit_code, stdout, stderr = await asyncio.to_thread(
+                self.container_session.execute, cmd
+            )
+        except Exception as e:
+            self.logger.error(f"switch_workspace 执行异常: {e}")
+            return False
+
+        self.logger.info(f"switch_workspace 结果: exit={exit_code}, stdout={stdout}, stderr={stderr}")
+
         if exit_code != 0:
             self.logger.warning(f"switch_workspace 命令失败: exit={exit_code}, stderr={stderr}")
             return False
@@ -986,7 +996,11 @@ Start generating the Working Notes now.
             raise RuntimeError("Container Session 未初始化。")
         if not self.container_session.is_alive():
             self.logger.info(f"重建 container shell: {self.container_session.session_id}")
-            self.container_session.start()
+            try:
+                self.container_session.start()
+            except Exception as e:
+                self.logger.error(f"重建 container shell 失败: {e}")
+                raise RuntimeError(f"Container Session 启动失败: {e}")
         success = await self.switch_workspace(session["task_id"])
         if not success:
             self.logger.error(f"工作区切换失败: task_id={session['task_id']}")

@@ -28,35 +28,15 @@ pub async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// 创建浮动窗口（胶囊 + 信息流）
+/// Session 数据已通过 set_current_session 写入全局状态，窗口自行读取
 #[tauri::command]
 pub async fn create_floating_window(
     app: tauri::AppHandle,
-    session_id: String,
-    agent_name: String,
-    agent_session_id: String,
 ) -> Result<(), String> {
     let capsule = app.get_webview_window("floating-capsule")
         .ok_or("Capsule window not found")?;
     let stream = app.get_webview_window("floating-stream")
         .ok_or("Stream window not found")?;
-
-    let base = if cfg!(dev) {
-        "http://localhost:5173"
-    } else {
-        "https://tauri.localhost"
-    };
-
-    let hash = format!("sessionId={}&agentName={}&agentSessionId={}", session_id, agent_name, agent_session_id);
-
-    // Navigate capsule window
-    let capsule_url = format!("{}/capsule.html#{}", base, hash);
-    capsule.eval(&format!("window.location.href = '{}'", capsule_url))
-        .map_err(|e| format!("Failed to navigate capsule: {}", e))?;
-
-    // Navigate stream window
-    let stream_url = format!("{}/stream.html#{}", base, hash);
-    stream.eval(&format!("window.location.href = '{}'", stream_url))
-        .map_err(|e| format!("Failed to navigate stream: {}", e))?;
 
     // Show capsule, then position stream below it
     capsule.show().map_err(|e| e.to_string())?;
@@ -78,11 +58,9 @@ pub async fn create_floating_window(
 #[tauri::command]
 pub async fn destroy_floating_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("floating-stream") {
-        let _ = window.eval("window.location.href = 'about:blank'");
         window.hide().map_err(|e| e.to_string())?;
     }
     if let Some(window) = app.get_webview_window("floating-capsule") {
-        let _ = window.eval("window.location.href = 'about:blank'");
         window.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -198,11 +176,15 @@ fn sync_stream_position_internal(app: &tauri::AppHandle) -> Result<(), String> {
     };
 
     let capsule_pos = capsule.outer_position().map_err(|e| e.to_string())?;
-    let capsule_size = capsule.outer_size().map_err(|e| e.to_string())?;
+    let scale = capsule.scale_factor().map_err(|e| e.to_string())?;
 
-    let gap: i32 = 6;
+    // Use logical coordinates then convert to physical for the current screen's DPI.
+    // Capsule min height (72 logical) + gap (24 logical) = fixed offset from capsule top,
+    // regardless of menu expand/collapse or screen DPI.
+    let offset_physical = ((72.0_f64 + 24.0_f64) * scale) as i32;
+
     let stream_x = capsule_pos.x;
-    let stream_y = capsule_pos.y + capsule_size.height as i32 + gap;
+    let stream_y = capsule_pos.y + offset_physical;
 
     let _ = stream.set_position(PhysicalPosition::new(stream_x, stream_y));
 
@@ -210,30 +192,13 @@ fn sync_stream_position_internal(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 /// 创建输入窗口（屏幕居中）
+/// Session 数据已通过 set_current_session 写入全局状态，InputPanel 自行读取
 #[tauri::command]
 pub async fn create_input_window(
     app: tauri::AppHandle,
-    session_id: String,
-    agent_name: String,
-    agent_session_id: String,
-    last_email_id: String,
 ) -> Result<(), String> {
     let window = app.get_webview_window("input")
         .ok_or("Input window not found")?;
-
-    let base = if cfg!(dev) {
-        "http://localhost:5173/input.html"
-    } else {
-        "https://tauri.localhost/input.html"
-    };
-
-    let url = format!(
-        "{}#sessionId={}&agentName={}&agentSessionId={}&lastEmailId={}",
-        base, session_id, agent_name, agent_session_id, last_email_id
-    );
-
-    window.eval(&format!("window.location.href = '{}'", url))
-        .map_err(|e| format!("Failed to navigate: {}", e))?;
 
     // Center on screen
     center_window(&window, 480.0, 320.0)?;
@@ -248,18 +213,15 @@ pub async fn create_input_window(
 #[tauri::command]
 pub async fn destroy_input_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("input") {
-        // Reset URL before closing so next open starts fresh
-        let _ = window.eval("window.location.href = 'about:blank'");
         window.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-/// 创建详情窗口（屏幕居中）
+/// 创建详情窗口（屏幕居中，显示完整 session 消息流）
 #[tauri::command]
 pub async fn create_detail_window(
     app: tauri::AppHandle,
-    event_json: String,
 ) -> Result<(), String> {
     let window = app.get_webview_window("detail")
         .ok_or("Detail window not found")?;
@@ -270,16 +232,15 @@ pub async fn create_detail_window(
         "https://tauri.localhost/detail.html"
     };
 
-    let encoded = urlencoding::encode(&event_json);
-    let url = format!("{}#event={}", base, encoded);
-
-    window.eval(&format!("window.location.href = '{}'", url))
-        .map_err(|e| format!("Failed to navigate: {}", e))?;
-
-    center_window(&window, 420.0, 360.0)?;
-
+    // Show first so eval works on the visible webview
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
+
+    center_window(&window, 480.0, 600.0)?;
+
+    // Reload the page to reset state
+    window.eval(&format!("window.location.href = '{}'", base))
+        .map_err(|e| format!("Failed to navigate: {}", e))?;
 
     Ok(())
 }

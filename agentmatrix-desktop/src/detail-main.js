@@ -10,9 +10,9 @@ import './styles/components.css'
 document.documentElement.style.cssText += ';background:transparent!important;background-color:transparent!important'
 document.body.style.cssText += ';background:transparent!important;background-color:transparent!important'
 
-import EventDetailPanel from './components/floating/EventDetailPanel.vue'
+import SessionDetailPanel from './components/floating/SessionDetailPanel.vue'
 
-const app = createApp(EventDetailPanel)
+const app = createApp(SessionDetailPanel)
 const pinia = createPinia()
 app.use(pinia)
 app.mount('#detail-app')

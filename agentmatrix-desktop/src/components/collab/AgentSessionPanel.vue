@@ -498,7 +498,7 @@ const taskFilesWidth = computed(() => {
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
           <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'logo' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-label">
             <template v-if="primaryAgentStatus.isOnCurrentSession">
@@ -528,23 +528,12 @@ const taskFilesWidth = computed(() => {
       <div class="agent-session-panel__toolbar">
         <!-- Floating Mode -->
         <button
-          class="agent-session-panel__toolbar-btn"
+          class="agent-session-panel__toolbar-btn agent-session-panel__toolbar-btn--float"
           @click="floating.openFloating()"
           title="Floating Mode"
         >
           <MIcon name="arrows-maximize" />
           <span class="agent-session-panel__toolbar-btn-text">Float</span>
-        </button>
-
-        <!-- Collab Mode toggle -->
-        <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{ 'agent-session-panel__toolbar-btn--active': isCollabMode }"
-          @click="toggleCollabMode"
-          title="Toggle Collab Mode"
-        >
-          <MIcon name="users" />
-          <span class="agent-session-panel__toolbar-btn-text">Collab</span>
         </button>
 
         <!-- Refresh -->
@@ -616,7 +605,7 @@ const taskFilesWidth = computed(() => {
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
           <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'logo' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-indicator-agent">{{ primaryAgentName }}</span>
           <span v-if="primaryAgentStatus.isOnCurrentSession" class="agent-session-panel__status-indicator-label">
@@ -888,15 +877,16 @@ const taskFilesWidth = computed(() => {
   border: 1px solid var(--surface-hover);
   border-radius: var(--radius-md);
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   animation: fadeIn 200ms var(--ease-out);
+  transition: all 0.3s ease;
 }
 
 .agent-session-panel__status-icon {
   display: flex;
   align-items: center;
   font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__status-icon--spinning {
@@ -904,7 +894,7 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -989,6 +979,25 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__toolbar-btn:disabled:hover {
   background: transparent;
+}
+
+.agent-session-panel__toolbar-btn--float {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+  border-radius: 8px;
+  padding: 0 14px;
+}
+
+.agent-session-panel__toolbar-btn--float .agent-session-panel__toolbar-btn-text {
+  color: #fff;
+  font-weight: 600;
+}
+
+.agent-session-panel__toolbar-btn--float:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
+  transform: translateY(-1px);
 }
 
 .agent-session-panel__indicator-dot {
@@ -1108,17 +1117,23 @@ const taskFilesWidth = computed(() => {
   border: 1px solid var(--surface-hover);
   border-radius: var(--radius-md);
   font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   animation: fadeIn 200ms var(--ease-out);
   flex-shrink: 0;
   align-self: flex-start;
+  transition: all 0.3s ease;
+}
+
+.agent-session-panel__status-indicator:not(.agent-session-panel__status-indicator--idle) {
+  background: rgba(184, 169, 201, 0.08);
+  border-color: rgba(184, 169, 201, 0.15);
 }
 
 .agent-session-panel__status-indicator-icon {
   display: flex;
   align-items: center;
   font-size: var(--font-sm);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__status-indicator-icon--spinning {
@@ -1127,11 +1142,11 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__status-indicator-agent {
   font-weight: var(--font-semibold);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__status-indicator-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 3px;
