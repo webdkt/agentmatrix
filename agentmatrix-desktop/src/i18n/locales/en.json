@@ -214,7 +214,8 @@
     "groups": {
       "control": "Control",
       "mode": "Mode",
-      "debug": "Debug"
+      "debug": "Debug",
+      "browser": "Browser"
     },
     "actions": {
       "pause_agent": "Pause",
@@ -222,7 +223,9 @@
       "stop_agent": "Stop",
       "view_current_prompt": "System Prompt",
       "set_develop_mode": "Develop Mode",
-      "set_execute_mode": "Execute Mode"
+      "set_execute_mode": "Execute Mode",
+      "show_indicator": "Point to Agent",
+      "show_range_selector": "Select Range for Agent"
     }
   }
 }

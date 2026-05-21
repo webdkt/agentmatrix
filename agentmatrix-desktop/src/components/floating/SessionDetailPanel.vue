@@ -17,6 +17,7 @@ const taskId = ref(null)
 const lastEmailId = ref(null)
 const userAgentName = ref(null)
 const agentStatus = ref('IDLE')
+const agentStatusData = ref({})
 const isLoading = ref(false)
 
 async function loadSessionFromGlobal() {
@@ -249,6 +250,14 @@ const agentInitial = computed(() => {
   return agentName.value ? agentName.value.charAt(0).toUpperCase() : '?'
 })
 
+const isOnCurrentSession = computed(() => {
+  const status = agentStatus.value
+  if (status === 'IDLE') return true
+  const activeSessionId = agentStatusData.value?.current_session_id
+  if (!activeSessionId) return true
+  return activeSessionId === agentSessionId.value
+})
+
 const statusLabel = computed(() => {
   switch (agentStatus.value) {
     case 'THINKING': return 'thinking'
@@ -262,10 +271,22 @@ const statusLabel = computed(() => {
 })
 
 const isActive = computed(() => {
+  if (!isOnCurrentSession.value && agentStatus.value !== 'IDLE') return true
   return ['THINKING', 'WORKING', 'RECOVERING'].includes(agentStatus.value)
 })
 
+const statusType = computed(() => {
+  if (!isOnCurrentSession.value && agentStatus.value !== 'IDLE') return 'working'
+  switch (agentStatus.value) {
+    case 'THINKING': return 'thinking'
+    case 'WORKING': return 'working'
+    case 'RECOVERING': return 'recovering'
+    default: return null
+  }
+})
+
 const activeIcon = computed(() => {
+  if (!isOnCurrentSession.value && agentStatus.value !== 'IDLE') return 'loader'
   switch (agentStatus.value) {
     case 'THINKING': return 'logo'
     case 'WORKING': return 'settings'
@@ -382,6 +403,7 @@ async function closeWindow() {
 // ---- Lifecycle ----
 let sessionInitialized = false
 let unlistenReloadSession = null
+let unlistenStatus = null
 
 onMounted(async () => {
   await loadSessionFromGlobal()
@@ -403,6 +425,11 @@ onMounted(async () => {
       }
     }
   })
+
+  unlistenStatus = await listen('floating:status-update', (event) => {
+    agentStatusData.value = event.payload || {}
+    agentStatus.value = event.payload?.status || 'IDLE'
+  })
 })
 
 watch(isValidSession, async (valid) => {
@@ -414,6 +441,7 @@ watch(isValidSession, async (valid) => {
 
 onUnmounted(() => {
   if (unlistenReloadSession) unlistenReloadSession()
+  if (unlistenStatus) unlistenStatus()
   if (unlistenDragDrop) unlistenDragDrop()
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer)
@@ -437,15 +465,21 @@ onUnmounted(() => {
         </span>
         <span v-else class="session-detail-panel__avatar-letter">{{ agentInitial }}</span>
       </div>
-      <div class="session-detail-panel__info">
-        <span class="session-detail-panel__name">{{ agentName }}</span>
-        <span class="session-detail-panel__status" :class="{
-          'session-detail-panel__status--idle': agentStatus === 'IDLE',
-          'session-detail-panel__status--active': isActive,
-        }">
-          {{ statusLabel }}
-        </span>
-      </div>
+<div class="session-detail-panel__info">
+         <span class="session-detail-panel__name">{{ agentName }}</span>
+         <template v-if="isOnCurrentSession">
+           <span class="session-detail-panel__status" :class="{
+             'session-detail-panel__status--idle': agentStatus === 'IDLE',
+             'session-detail-panel__status--active': isActive,
+             [`session-detail-panel__status--${statusType}`]: statusType,
+           }">
+             {{ statusLabel }}
+           </span>
+         </template>
+         <template v-else>
+           <span class="session-detail-panel__other-task">ON OTHER TASK</span>
+         </template>
+       </div>
       <button class="session-detail-panel__close" @mousedown.stop @click="closeWindow" title="Close">
         <MIcon name="x" />
       </button>
@@ -614,7 +648,7 @@ onUnmounted(() => {
 }
 
 .session-detail-panel__status {
-  padding: 2px 8px;
+  padding: 3px 10px;
   background: rgba(0, 0, 0, 0.04);
   border-radius: 12px;
   font-size: 13px;
@@ -622,6 +656,8 @@ onUnmounted(() => {
   color: var(--text-secondary, #52525b);
   white-space: nowrap;
   transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 
 .session-detail-panel__status--idle {
@@ -632,7 +668,110 @@ onUnmounted(() => {
 .session-detail-panel__status--active {
   background: rgba(184, 169, 201, 0.12);
   color: var(--morandi-mauve, #8B7BA5);
-  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/* Thinking state */
+.session-detail-panel__status--thinking {
+  background: linear-gradient(90deg,
+    rgba(124, 58, 237, 0.08) 0%,
+    rgba(124, 58, 237, 0.18) 50%,
+    rgba(124, 58, 237, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  color: #7C3AED;
+  font-weight: 600;
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  animation: thinking-shimmer 2s ease-in-out infinite;
+  text-shadow: 0 0 8px rgba(124, 58, 237, 0.3);
+}
+
+.session-detail-panel__status--thinking::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  animation: thinking-light 2s ease-in-out infinite;
+}
+
+/* Working state */
+.session-detail-panel__status--working {
+  background: linear-gradient(90deg,
+    rgba(13, 148, 136, 0.08) 0%,
+    rgba(13, 148, 136, 0.2) 50%,
+    rgba(13, 148, 136, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  color: #0D9488;
+  font-weight: 600;
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  animation: working-pulse 1.5s ease-in-out infinite;
+  text-shadow: 0 0 8px rgba(13, 148, 136, 0.3);
+}
+
+.session-detail-panel__status--working::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 120%;
+  height: 120%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(13, 148, 136, 0.15) 0%, transparent 70%);
+  animation: working-glow 1.5s ease-in-out infinite;
+}
+
+/* Recovering state */
+.session-detail-panel__status--recovering {
+  background: linear-gradient(90deg,
+    rgba(217, 119, 6, 0.08) 0%,
+    rgba(217, 119, 6, 0.2) 50%,
+    rgba(217, 119, 6, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  color: #D97706;
+  font-weight: 600;
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  animation: recovering-flash 1.2s ease-in-out infinite;
+  text-shadow: 0 0 8px rgba(217, 119, 6, 0.3);
+}
+
+.session-detail-panel__status--recovering::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(217, 119, 6, 0.1) 25%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(217, 119, 6, 0.1) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: recovering-light 1.2s linear infinite;
+}
+
+.session-detail-panel__other-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  background: rgba(180, 140, 80, 0.08);
+  border: 1px solid rgba(180, 140, 80, 0.15);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(160, 120, 60, 0.85);
+  white-space: nowrap;
 }
 
 .session-detail-panel__close {
@@ -829,8 +968,58 @@ onUnmounted(() => {
   to { transform: rotate(360deg) }
 }
 
-@keyframes status-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+@keyframes thinking-shimmer {
+  0%, 100% {
+    background-position: 0% 50%;
+    box-shadow: 0 0 8px rgba(124, 58, 237, 0.15);
+  }
+  50% {
+    background-position: 100% 50%;
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.3);
+  }
+}
+
+@keyframes thinking-light {
+  0% { left: -100%; }
+  50% { left: 100%; }
+  100% { left: 100%; }
+}
+
+@keyframes working-pulse {
+  0%, 100% {
+    background-position: 0% 50%;
+    transform: scale(1);
+  }
+  50% {
+    background-position: 100% 50%;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes working-glow {
+  0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes recovering-flash {
+  0%, 100% {
+    background-position: 0% 50%;
+    box-shadow: 0 0 8px rgba(217, 119, 6, 0.2);
+  }
+  25% {
+    box-shadow: 0 0 16px rgba(217, 119, 6, 0.4);
+  }
+  50% {
+    background-position: 100% 50%;
+    box-shadow: 0 0 8px rgba(217, 119, 6, 0.2);
+  }
+  75% {
+    box-shadow: 0 0 20px rgba(217, 119, 6, 0.5);
+  }
+}
+
+@keyframes recovering-light {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 </style>
