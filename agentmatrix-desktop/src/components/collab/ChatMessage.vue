@@ -53,6 +53,12 @@ function renderMarkdownWithPaths(text) {
     }
     return `<code>${escapeHtml(raw)}</code>`
   }
+  renderer.code = function (token) {
+    const raw = token.text || token
+    const lang = token.lang || ''
+    const langAttr = lang ? ` data-lang="${escapeAttr(lang)}"` : ''
+    return `<pre class="code-block"${langAttr}><button class="code-block__copy" title="Copy">Copy</button><code>${escapeHtml(raw)}</code></pre>`
+  }
   try {
     return marked.parse(String(text), { renderer }).trim()
   } catch {
@@ -77,6 +83,28 @@ const handlePathClick = async (e) => {
     await invoke('reveal_in_folder', { path: hostPath })
   } catch (err) {
     console.error('Failed to open path:', err)
+  }
+}
+
+// ---- Code block copy handler ----
+
+const handleContentClick = async (e) => {
+  const copyBtn = e.target.closest('.code-block__copy')
+  if (!copyBtn) {
+    handlePathClick(e)
+    return
+  }
+  const pre = copyBtn.closest('pre.code-block')
+  if (!pre) return
+  const codeEl = pre.querySelector('code')
+  if (!codeEl) return
+  try {
+    await navigator.clipboard.writeText(codeEl.textContent || '')
+    copyBtn.textContent = 'Copied'
+    setTimeout(() => { copyBtn.textContent = 'Copy' }, 1500)
+  } catch {
+    copyBtn.textContent = 'Failed'
+    setTimeout(() => { copyBtn.textContent = 'Copy' }, 1500)
   }
 }
 
@@ -216,7 +244,7 @@ const handleAttachmentClick = async (attachment) => {
   <!-- User chat bubble (right-aligned, green) -->
   <div v-if="message.type === 'bubble-user'" class="chat-msg chat-msg--user">
     <div class="chat-msg__bubble">
-      <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handlePathClick"></div>
+      <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handleContentClick"></div>
       <div v-if="attachments.length > 0" class="chat-msg__attachments">
         <div
           v-for="(attachment, index) in attachments"
@@ -237,7 +265,7 @@ const handleAttachmentClick = async (attachment) => {
   <!-- Agent chat bubble (left-aligned, parchment) -->
   <div v-else-if="message.type === 'bubble-agent'" class="chat-msg">
     <div class="chat-msg__bubble">
-      <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handlePathClick"></div>
+      <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handleContentClick"></div>
       <div v-if="attachments.length > 0" class="chat-msg__attachments">
         <div
           v-for="(attachment, index) in attachments"
@@ -274,7 +302,7 @@ const handleAttachmentClick = async (attachment) => {
     </div>
     <Transition name="comm-expand">
       <div v-if="expanded" class="chat-agent-comm__body" @click.stop>
-        <div v-if="agentCommBody" class="chat-agent-comm__body-content markdown-content" v-html="agentCommBody" @click="handlePathClick"></div>
+        <div v-if="agentCommBody" class="chat-agent-comm__body-content markdown-content" v-html="agentCommBody" @click="handleContentClick"></div>
         <div v-if="attachments.length > 0" class="chat-msg__attachments">
           <div
             v-for="(attachment, index) in attachments"
@@ -625,16 +653,39 @@ const handleAttachmentClick = async (attachment) => {
   text-decoration: underline;
 }
 
-.markdown-content :deep(pre) {
-  background: var(--text-primary);
-  color: var(--surface-base);
+.markdown-content :deep(pre.code-block) {
+  position: relative;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
   padding: var(--spacing-2);
+  padding-top: 28px;
   border-radius: var(--radius-md);
   overflow-x: auto;
   margin-bottom: var(--spacing-1);
 }
 
-.markdown-content :deep(pre code) {
+.markdown-content :deep(.code-block__copy) {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-quaternary);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.markdown-content :deep(.code-block__copy:hover) {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.markdown-content :deep(pre.code-block code) {
   background: transparent;
   color: inherit;
   padding: 0;

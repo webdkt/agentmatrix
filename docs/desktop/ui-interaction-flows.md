@@ -137,230 +137,6 @@
 
 ---
 
-## Agent问答流程
-
-这是AgentMatrix Desktop最核心的交互流程之一，涉及多个组件和Store的协同工作。
-
-### 流程图
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Agent 问答流程                            │
-└─────────────────────────────────────────────────────────────┘
-
-1. Agent发送ASK_USER消息
-   ↓
-2. WebSocket推送 ASK_USER 消息到前端
-   ↓
-3. WebSocketStore.handle_message() 处理
-   ↓
-4. WebSocketStore.handleRuntimeEvent() 识别 ASK_USER 类型
-   ↓
-5. WebSocketStore.handleAskUserEvent() 处理问答事件
-   ↓
-6. SessionStore.setPendingQuestion() 记录问题
-   ├─ pendingQuestions[sessionId] = {
-   │    agent_name: "AgentName",
-   │    question: "What is your name?",
-   │    task_id: "task_001",
-   │    timestamp: "2026-03-18T10:00:00Z"
-   │  }
-   ↓
-7. EmailList 检测到 pendingQuestion
-   ↓
-8. 两种UI模式（二选一）:
-   ├─ 模式A: AskUserDialog 弹出（模态框）
-   │  └─ 条件: shouldShowAskUserDialog(sessionId) === true
-   │     └─ 只有当尚未弹过对话框时才显示
-   │
-   └─ 模式B: EmailList 底部替换为问答表单（Inline）
-      └─ 始终显示在底部，替换 EmailReply 组件
-   ↓
-9. 用户填写答案
-   ↓
-10. 用户点击"提交回答"按钮
-    ↓
-11. SessionStore.submitAskUserAnswer(sessionId, answer)
-    ↓
-12. agentAPI.submitUserInput() 发送到后端
-    ↓
-13. 后端处理答案
-    ↓
-14. WebSocket推送 AGENT_STATUS_UPDATE 消息
-    ↓
-15. SessionStore.clearPendingQuestion(sessionId)
-    ↓
-16. UI恢复正常状态
-```
-
-### 触发条件
-
-- Agent调用 `ask_user()` 方法
-- 后端通过WebSocket推送 `ASK_USER` 事件
-
-### 消息格式
-
-**WebSocket消息（ASK_USER）**:
-```javascript
-{
-  type: 'runtime_event',
-  data: {
-    type: 'ASK_USER',
-    source: 'AgentName',           // 发问的Agent名称
-    content: 'What is your name?',  // 问题内容
-    payload: {
-      session_id: 'session_001',    // 当前会话ID
-      task_id: 'task_001'          // 当前任务ID
-    }
-  }
-}
-```
-
-### 状态管理
-
-#### pendingQuestions 状态
-
-**位置**: `sessionStore.pendingQuestions`
-
-**数据结构**:
-```javascript
-{
-  "session_001": {
-    agent_name: "Planner",
-    question: "What is your preference?",
-    task_id: "task_001",
-    timestamp: "2026-03-18T10:00:00Z"
-  },
-  "session_002": {
-    agent_name: "Coder",
-    question: "Which framework?",
-    task_id: "task_002",
-    timestamp: "2026-03-18T10:05:00Z"
-  }
-}
-```
-
-**操作方法**:
-- `setPendingQuestion(sessionId, questionData)`: 设置问题
-- `getPendingQuestion(sessionId)`: 获取问题
-- `clearPendingQuestion(sessionId)`: 清除问题
-- `hasPendingQuestion(sessionId)`: 检查是否有问题
-
-#### askUserDialogShownFor 状态
-
-**位置**: `sessionStore.askUserDialogShownFor`
-
-**作用**: 防止重复弹窗
-
-**逻辑**:
-```javascript
-shouldShowAskUserDialog(sessionId) {
-  const question = state.pendingQuestions[sessionId]
-  // 只有当有待处理问题且尚未弹出过对话框时才显示
-  return question && state.askUserDialogShownFor !== sessionId
-}
-```
-
-**重置时机**:
-- 用户切换会话时（`selectSession`）
-- 用户提交答案后（不立即重置，等待WebSocket确认）
-
-### UI模式对比
-
-| 模式 | 组件 | 显示位置 | 优点 | 缺点 |
-|------|------|---------|------|------|
-| **Dialog** | AskUserDialog.vue | 模态弹出 | 醒目、强制用户回答 | 阻断其他操作 |
-| **Inline** | EmailList.vue 问答表单 | 底部替换回复 | 非阻断、上下文清晰 | 可能被忽略 |
-
-**当前实现**: Inline模式为主，Dialog模式为辅
-
-### UI约束
-
-**问答期间禁止的操作**:
-- ❌ 发送新邮件
-- ❌ 回复其他邮件
-- ❌ 切换会话（虽然可以切换，但问题仍然保留）
-
-**允许的操作**:
-- ✅ 查看邮件历史
-- ✅ 查看Agent状态
-- ✅ 提交答案
-
-### 临时问答显示
-
-**目的**: 在邮件列表中临时显示问答记录
-
-**实现**:
-```vue
-<!-- EmailList.vue -->
-<div v-if="pendingQuestion" class="qa-temp-display">
-  <!-- 问题卡片 -->
-  <div class="email-card email-card--question">
-    <div class="email-card__header">
-      <span class="email-card__label">Question</span>
-      <span class="email-card__name">{{ pendingQuestion.agent_name }}</span>
-    </div>
-    <div class="email-card__content">
-      <div class="email-card__body">{{ pendingQuestion.question }}</div>
-    </div>
-  </div>
-
-  <!-- 答案卡片（提交后显示） -->
-  <div v-if="submittedAnswer" class="email-card email-card--answer">
-    <div class="email-card__header">
-      <span class="email-card__label">Answer</span>
-      <span class="email-card__name">{{ user_agent_name }}</span>
-    </div>
-    <div class="email-card__content">
-      <div class="email-card__body">{{ submittedAnswer.answer }}</div>
-    </div>
-  </div>
-</div>
-```
-
-**特点**:
-- ✅ 临时显示在DOM中
-- ✅ 刷新会话后消失
-- ✅ 后端会将问答作为邮件存入数据库
-
-### 后端持久化
-
-**实现方式**: 用户提交答案后，后端直接插入数据库
-
-**数据库操作**:
-1. 插入Agent问题邮件:
-```sql
-INSERT INTO emails (
-  sender, recipient, subject, body,
-  sender_session_id, recipient_session_id,
-  task_id
-) VALUES (
-  'AgentName', 'User', 'Question', 'What is your name?',
-  'agent_session_id', 'user_session_id',
-  'task_001'
-)
-```
-
-2. 插入用户回答邮件:
-```sql
-INSERT INTO emails (
-  sender, recipient, subject, body,
-  sender_session_id, recipient_session_id,
-  task_id
-) VALUES (
-  'User', 'AgentName', 'Answer', 'My name is John',
-  'user_session_id', 'agent_session_id',
-  'task_001'
-)
-```
-
-**好处**:
-- 刷新后能看到问答历史
-- 不触发post office流程
-- 作为邮件的一部分显示
-
----
-
 ## WebSocket实时更新流程
 
 ### 连接建立
@@ -396,20 +172,10 @@ WebSocketStore.handle_message(data)
    │
    ├─ type === 'runtime_event'
    │  └→ handleRuntimeEvent(eventData)
-   │     ├─ eventType === 'ASK_USER'
-   │     │  └→ handleAskUserEvent()
-   │     │     └→ SessionStore.setPendingQuestion()
-   │     │
-   │     └─ 其他运行时事件...
    │
    ├─ type === 'SYSTEM_STATUS'
    │  └→ handleSystemStatus(statusData)
    │     └→ 遍历所有Agent状态
-   │        ├─ 有pending_question
-   │        │  └→ SessionStore.setPendingQuestion()
-   │        │
-   │        └─ 无pending_question
-   │           └→ SessionStore.clearPendingQuestion()
    │
    └─ type === 'AGENT_STATUS_UPDATE'
       └→ handleAgentStatusUpdate(message)
@@ -449,40 +215,7 @@ handleNewEmail(emailData) {
 }
 ```
 
-#### 2. RUNTIME_EVENT (ASK_USER)
-
-**用途**: Agent请求用户输入
-
-**数据格式**:
-```javascript
-{
-  type: 'runtime_event',
-  data: {
-    type: 'ASK_USER',
-    source: 'Planner',
-    content: 'What is your name?',
-    payload: {
-      session_id: 'session_001',
-      task_id: 'task_001'
-    }
-  }
-}
-```
-
-**处理逻辑**:
-```javascript
-handleAskUserEvent(eventData) {
-  const { source: agentName, content: question, payload } = eventData
-  sessionStore.setPendingQuestion(payload.session_id, {
-    agent_name: agentName,
-    question: question,
-    task_id: payload.task_id,
-    timestamp: new Date().toISOString()
-  })
-}
-```
-
-#### 3. SYSTEM_STATUS
+#### 2. SYSTEM_STATUS
 
 **用途**: 系统状态推送（包含所有Agent状态）
 
@@ -495,13 +228,11 @@ handleAskUserEvent(eventData) {
     agents: {
       'Planner': {
         status: 'THINKING',
-        pending_question: null,
         current_user_session_id: 'session_001',
         current_task_id: 'task_001'
       },
       'Coder': {
-        status: 'WAITING_FOR_USER',
-        pending_question: 'Which framework?',
+        status: 'WORKING',
         current_user_session_id: 'session_002',
         current_task_id: 'task_002'
       }
@@ -514,26 +245,12 @@ handleAskUserEvent(eventData) {
 ```javascript
 handleSystemStatus(statusData) {
   Object.entries(statusData.agents).forEach(([agentName, agentInfo]) => {
-    if (agentInfo.pending_question) {
-      sessionStore.setPendingQuestion(
-        agentInfo.current_user_session_id,
-        {
-          agent_name: agentName,
-          question: agentInfo.pending_question,
-          task_id: agentInfo.current_task_id,
-          timestamp: new Date().toISOString()
-        }
-      )
-    } else {
-      sessionStore.clearPendingQuestion(
-        agentInfo.current_user_session_id
-      )
-    }
+    agentStore.updateAgentStatus(agentName, agentInfo)
   })
 }
 ```
 
-#### 4. AGENT_STATUS_UPDATE
+#### 3. AGENT_STATUS_UPDATE
 
 **用途**: Agent状态增量更新
 
@@ -544,7 +261,6 @@ handleSystemStatus(statusData) {
   agent_name: 'Planner',
   data: {
     status: 'WORKING',
-    pending_question: null,
     current_user_session_id: 'session_001',
     current_task_id: 'task_001'
   }
@@ -555,24 +271,7 @@ handleSystemStatus(statusData) {
 ```javascript
 handleAgentStatusUpdate(message) {
   const { agent_name, data } = message
-
-  // 更新 agent store
   agentStore.updateAgentStatus(agent_name, data)
-
-  // 如果有 pending_question，设置到 session store
-  if (data.pending_question && data.current_user_session_id) {
-    sessionStore.setPendingQuestion(
-      data.current_user_session_id,
-      {
-        agent_name: agent_name,
-        question: data.pending_question,
-        task_id: data.current_task_id,
-        timestamp: new Date().toISOString()
-      }
-    )
-  } else {
-    sessionStore.clearPendingQuestion(data.current_user_session_id)
-  }
 }
 ```
 
@@ -640,19 +339,6 @@ sessionStore.selectSession(currentSession, true)  // force = true
 - 用户点击"刷新"按钮
 - 邮件发送后重新加载
 - 需要清除缓存数据
-
-### 对话框标记重置
-
-**时机**: 切换到不同会话时
-
-**代码**:
-```javascript
-if (this.currentSession?.session_id !== session.session_id) {
-  this.resetDialogShown()
-}
-```
-
-**目的**: 新会话可以正常弹出对话框
 
 ---
 
@@ -725,40 +411,6 @@ cancelInlineReply() {
   showInlineReply.value = false
   // 底部回复自动显示
 }
-```
-
-### 3. Agent问答回答
-
-**触发**: Agent发送ASK_USER消息
-
-**显示位置**: 替换底部回复控件
-
-**组件**: 自定义问答表单（在EmailList.vue中）
-
-**特点**:
-- 醒目的警告色背景
-- 显示Agent问题
-- 禁用其他操作
-
-**样式**:
-```css
-.email-list__question-form-wrapper {
-  background: var(--warning-50);
-  border-top: 1px solid var(--warning-200);
-  padding: var(--spacing-md);
-}
-```
-
-**互斥关系**:
-```
-三种模式同时只能显示一种：
-
-pendingQuestion存在
-├─ 是 → 显示Agent问答表单
-└─ 否 →
-    showInlineReply
-    ├─ true → 显示Inline回复
-    └─ false → 显示底部回复
 ```
 
 ---

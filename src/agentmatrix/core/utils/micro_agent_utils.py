@@ -13,9 +13,9 @@ from typing import Dict, List, Optional, Any, Tuple
 # ==================== Parsers ====================
 
 
-def parse_simple_yes_no(raw_reply: str) -> dict:
+def parse_exit_verification_json(raw_reply: str) -> dict:
     """
-    解析退出验证的三分类响应：code / intent / other
+    解析退出验证的 JSON 响应。
 
     Parser Contract for think_with_retry:
     - Returns {"status": "success", "content": dict} on success
@@ -25,25 +25,31 @@ def parse_simple_yes_no(raw_reply: str) -> dict:
         raw_reply: LLM 的原始输出
 
     Returns:
-        dict: {"result": "code"|"intent"|"other"}
-              - code: LLM 输出了调用工具的代码，格式可能有误
-              - intent: LLM 表达了操作意图但没有给出具体命令
-              - other: 都不是，确认可以退出
+        dict: {"result": "question"|"statement"|"intent"|"code"|"other"}
     """
+    import json
     cleaned = raw_reply.strip()
 
-    has_1 = bool(re.search(r'\b1\b', cleaned))
-    has_2 = bool(re.search(r'\b2\b', cleaned))
-    has_3 = bool(re.search(r'\b3\b', cleaned))
+    # 尝试直接解析
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        # 尝试提取 JSON 块（可能被 markdown 代码块包裹）
+        json_match = re.search(r'\{[^{}]*"category"\s*:\s*"[^"]+?"[^{}]*\}', cleaned, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group())
+            except json.JSONDecodeError:
+                return {"status": "error", "feedback": "请输出合法的 JSON 格式: {\"category\": \"...\"}"}
+        else:
+            return {"status": "error", "feedback": "请输出 JSON 格式: {\"category\": \"question|statement|intent|code|other\"}"}
 
-    if has_1 and not has_2 and not has_3:
-        return {"status": "success", "content": {"result": "code"}}
-    elif has_2 and not has_1 and not has_3:
-        return {"status": "success", "content": {"result": "intent"}}
-    elif has_3 and not has_1 and not has_2:
-        return {"status": "success", "content": {"result": "other"}}
-    else:
-        return {"status": "error", "feedback": "请只回答 1、2 或 3"}
+    category = data.get("category", "").strip().lower()
+    valid_categories = {"question", "statement", "intent", "code", "other"}
+    if category not in valid_categories:
+        return {"status": "error", "feedback": f"无效的 category '{category}'，请使用: question, statement, intent, code, other"}
+
+    return {"status": "success", "content": {"result": category}}
 
 
 def parse_actions_from_thought(raw_reply: str) -> dict:
@@ -472,19 +478,22 @@ def validate_params(
 
 
 def build_exit_verification_prompt(raw_reply: str) -> str:
-    """构建退出验证 prompt：判断 LLM 输出是否包含未正确格式化的工具调用意图"""
+    """构建退出验证 prompt：判断 LLM 输出属于哪个类别"""
     return f"""以下是 Agent 的一段输出文本, 请判断它属于哪种情况:
 
-1. 试图调用工具操作的代码
-2. 准备做某个操作但没有给出具体命令: 文本表达了要做某事的意图, 但没有给出具体的工具调用代码(比如"我来查一下"、"让我执行xx"、"接下来我会..."等)
-3. 其他: 以上都不是, 比如纯文字回答、总结、询问用户、解释说明、确认完成等。如果文本是问一个问题，就肯定属于这个类别
+1. question: 询问、问题、征求意见，期待得到回答回应
+2. statement: 一般陈述或某种总结，你感觉话暂时说完了
+3. action_intent: 声称立刻要执行某个动作（不是陈述计划，而是声称要做某个动作），但是没有给出具体动作代码，就像话没说完一样。
+4. code: 完全是某种形式的代码，例如xml、函数调用等(不只是包含代码内容)
+5. other: 其他
 
 文本:
 ```
 {raw_reply}
 ```
 
-只回答 1、2 或 3。"""
+请严格按以下 JSON 格式输出，不要输出任何其他内容:
+{{"category": "question|statement|action_intent|code|other"}}"""
 
 
 def build_no_action_reflect_message(

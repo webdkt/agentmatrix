@@ -105,10 +105,12 @@ pub fn save_env_file(matrix_world_path: String, env_vars: JsonValue) -> Result<(
     Ok(())
 }
 
-/// 获取应用配置
+/// 获取应用配置（展开 ~ 为实际 home 目录）
 #[tauri::command]
 pub async fn get_config() -> Result<AppConfig, String> {
-    let config = AppConfig::load()?;
+    let mut config = AppConfig::load()?;
+    // 展开 ~ 为绝对路径，前端和文件操作都需要真实路径
+    config.matrix_world_path = config.get_matrix_world_path().to_string_lossy().to_string();
     Ok(config)
 }
 

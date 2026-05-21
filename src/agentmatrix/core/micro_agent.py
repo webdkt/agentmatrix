@@ -1196,29 +1196,28 @@ class MicroAgent(AutoLoggerMixin):
     def _parse_actions_from_thought(self, raw_reply: str) -> dict:
         return _utils.parse_actions_from_thought(raw_reply)
 
-    def _parse_simple_yes_no(self, raw_reply: str) -> dict:
-        return _utils.parse_simple_yes_no(raw_reply)
 
     async def _run_exit_verification(self, raw_reply: str):
-        """异步退出验证：判断 LLM 是否在试图调用工具但格式错误，或表达了操作意图但没给命令。
+        """异步退出验证：判断 LLM 输出是否包含未格式化的代码或执行意图。
 
         循环退出后启动，有新 signal 时由 _start_session_task 取消。
-        - 验证结果 "other" → 确认该退出，不做任何事
-        - 验证结果 "code" → LLM 试图调工具但格式错误，投递格式提示
-        - 验证结果 "intent" → LLM 表达了意图但没给命令，投递操作提示
+        使用 cerebellum（小脑）进行轻量分类判断，输出 JSON。
+        - question/statement/other → 确认该退出，不做任何事
+        - code → LLM 试图调工具但格式错误，投递格式提示
+        - intent → LLM 表达了意图但没给命令，投递操作提示
         """
         try:
             verification_prompt = _utils.build_exit_verification_prompt(raw_reply)
-            verification_result = await self.brain.think_with_retry(
+            verification_result = await self.cerebellum.backend.think_with_retry(
                 initial_messages=[{"role": "user", "content": verification_prompt}],
-                parser=self._parse_simple_yes_no,
+                parser=_utils.parse_exit_verification_json,
                 max_retries=3,
             )
 
             result = verification_result.get("result", "other")
             self.logger.info(f"Exit verification result: {result}")
 
-            if result == "other":
+            if result in ("question", "statement", "other"):
                 return  # 确认该退出，循环已经退了，什么都不做
 
             # 不该退出 — 检查是否已有新工作在进行
@@ -1230,11 +1229,11 @@ class MicroAgent(AutoLoggerMixin):
             if result == "code":
                 self.logger.info("Exit verification: LLM tried to call tools but format wrong")
                 self.signal_queue.put_nowait(TextSignal(
-                    text="如果要执行action，请使用 <action_script> 块来包裹你的工具调用命令。",
+                    text="请使用 <action_script> 块来包裹你的工具调用命令。",
                     type_name="format_hint",
                 ))
-            elif result == "intent":
-                self.logger.info("Exit verification: LLM expressed intent but no commands")
+            elif result == "action_intent":
+                self.logger.info("Exit verification: LLM expressed action intent but no commands")
                 self.signal_queue.put_nowait(TextSignal(
                     text="如果要执行操作，请使用 <action_script> 块格式输出。确认没什么要执行的可以回复'确定'。",
                     type_name="intent_hint",
@@ -1615,20 +1614,7 @@ class MicroAgent(AutoLoggerMixin):
         result = ""
 
         try:
-            # 💬 特殊处理：ask_user action
-            if action_name == "ask_user":
-                if not hasattr(self, "root_agent") or not self.root_agent:
-                    raise RuntimeError("ask_user requires root_agent")
-
-                question = params.get("question", "")
-                if not question:
-                    raise ValueError("ask_user requires 'question' parameter")
-
-                # 调用 root_agent.ask_user（会挂起等待用户输入）
-                result = await self.root_agent.ask_user(question)
-            else:
-                # 普通 action：正常调用
-                result = await method(**params)
+            result = await method(**params)
         finally:
             # 记录最后执行的 action 名字
             self.last_action_name = action_name

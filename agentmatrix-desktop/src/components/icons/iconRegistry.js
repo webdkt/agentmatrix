@@ -9,7 +9,7 @@ import {
   // Core UI
   Send, Plus, X, Check, RefreshCw,
   ArrowLeft, ArrowRight,
-  Search, ChevronRight, ChevronDown,
+  Search, ChevronRight, ChevronDown, ChevronUp,
   Mail, MailX, MessageCircle, MessagesSquare,
   Brain,
   Settings, SlidersHorizontal,
@@ -49,6 +49,7 @@ export const iconMap = {
   search: Search,
   'chevron-right': ChevronRight,
   'chevron-down': ChevronDown,
+  'chevron-up': ChevronUp,
   mail: Mail,
   'mail-off': MailX,
   'message-circle': MessageCircle,

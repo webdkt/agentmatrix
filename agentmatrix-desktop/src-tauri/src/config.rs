@@ -16,6 +16,10 @@ pub struct AppConfig {
     pub log_level: String,
     #[serde(default)]
     pub container_packages_initialized: bool,
+    #[serde(default)]
+    pub python_env_ready: bool,
+    #[serde(default)]
+    pub python_env_path: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -26,6 +30,8 @@ impl Default for AppConfig {
             enable_notifications: true,
             log_level: "INFO".to_string(),
             container_packages_initialized: false,
+            python_env_ready: false,
+            python_env_path: None,
         }
     }
 }

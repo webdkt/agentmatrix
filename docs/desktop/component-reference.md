@@ -91,8 +91,6 @@ App.vue
 │       │   ├── EmailReply.vue
 │       │   ├── AgentStatusIndicator.vue
 │       │   └── useSessionStore, useAgentStore
-│       └── AskUserDialog.vue
-│           └── useSessionStore
 └── SettingsView (动态组件)
     └── SettingsPanel.vue
         └── useSettingsStore
@@ -188,12 +186,7 @@ App.vue
 - `useAgentStore`: Agent状态
 
 **特殊逻辑**:
-1. **Agent问答处理**:
-   - 检测 `pendingQuestion` computed属性
-   - 显示问答表单（替换底部回复控件）
-   - 临时显示问答记录在邮件列表中
-
-2. **三种回复模式**:
+1. **回复模式**:
    - 底部悬浮回复（默认）
    - Inline回复（点击邮件卡片）
    - Agent问答回答（替换底部回复）
@@ -458,46 +451,6 @@ const lightness = 52 + (sessionHash % 8)        // 52-62%
 
 ## Dialog组件
 
-### AskUserDialog.vue
-
-**位置**: `src/components/dialog/AskUserDialog.vue`
-
-**描述**: Agent问答对话框
-
-**Props**:
-```javascript
-{
-  show: {
-    type: Boolean,
-    default: false
-  }
-}
-```
-
-**Emits**:
-```javascript
-{
-  'close': () => void,      // 关闭对话框
-  'submitted': () => void   // 提交回答
-}
-```
-
-**关键功能**:
-- 显示Agent问题
-- 用户输入回答
-- 提交到后端
-- 防止重复弹窗
-
-**使用的Store**:
-- `useSessionStore`: 获取和提交待处理问题
-
-**样式特点**:
-- 模态框: `max-width: 540px`
-- 背景: `var(--warning-50)`
-- 图标: `var(--warning-600)`
-
----
-
 ### NewEmailModal.vue
 
 **位置**: `src/components/dialog/NewEmailModal.vue`
@@ -544,8 +497,7 @@ const lightness = 52 + (sessionHash % 8)        // 52-62%
   totalSessions: 0,          // 总会话数
   isLoading: false,          // 加载状态
   error: null,               // 错误信息
-  pendingQuestions: {},      // { session_id: { agent_name, question, task_id, timestamp } }
-  askUserDialogShownFor: null // 记录已弹出对话框的session_id
+  agentToUserSessionMap: {},   // { "agentName:agentSessionId": "userSessionId" }
 }
 ```
 
@@ -555,9 +507,7 @@ const lightness = 52 + (sessionHash % 8)        // 52-62%
   hasMoreSessions: Boolean,        // 是否有更多会话
   currentParticipants: Array,      // 当前会话参与者
   hasSelectedSession: Boolean,     // 是否已选择会话
-  hasPendingQuestion: (sessionId) => Boolean,    // 是否有待处理问题
-  getPendingQuestion: (sessionId) => Object,     // 获取待处理问题
-  shouldShowAskUserDialog: (sessionId) => Boolean  // 是否应该显示对话框
+  hasSelectedSession: Boolean,     // 是否已选择会话
 }
 ```
 
@@ -569,17 +519,12 @@ const lightness = 52 + (sessionHash % 8)        // 52-62%
   createSession(data),                   // 创建新会话
   searchSessions(query),                 // 搜索会话
   clearCurrentSession(),                 // 清除当前会话
-  setPendingQuestion(sessionId, questionData),    // 设置待处理问题
-  clearPendingQuestion(sessionId),               // 清除待处理问题
-  submitAskUserAnswer(sessionId, answer),        // 提交ask_user回答
-  markDialogShown(sessionId),                    // 标记对话框已显示
-  resetDialogShown(),                            // 重置对话框标记
-  closeAskUserDialog(sessionId)                  // 关闭对话框
+  selectSession(session, force = false), // 选择会话
+  clearCurrentSession(),                 // 清除当前会话
 }
 ```
 
 **特殊逻辑**:
-- **防止重复弹窗**: 使用 `askUserDialogShownFor` 跟踪已显示对话框的会话
 - **强制刷新**: `selectSession(session, force=true)` 强制重新加载邮件
 
 ---
@@ -646,7 +591,6 @@ const lightness = 52 + (sessionHash % 8)        // 52-62%
   handle_message(data),                 // 处理WebSocket消息
   handleNewEmail(emailData),            // 处理新邮件事件
   handleRuntimeEvent(eventData),        // 处理运行时事件
-  handleAskUserEvent(eventData),        // 处理ASK_USER事件
   handleSystemStatus(statusData),       // 处理系统状态事件
   handleAgentStatusUpdate(message),     // 处理Agent状态增量更新
   onNewEmail(callback),                 // 注册新邮件回调

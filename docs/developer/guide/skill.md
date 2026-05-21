@@ -128,7 +128,7 @@ class AdvancedSkillMixin:
 
 | Skill | 功能 | Actions |
 |-------|------|---------|
-| `base` | 基础功能 | `get_current_datetime`, `ask_user` |
+| `base` | 基础功能 | `get_current_datetime` |
 | `browser` | 浏览器控制 | `browser_navigate`, `browser_click` |
 | `file` | 文件操作 | `file_read`, `file_write` |
 | `email` | 邮件发送 | `send_email` |

@@ -194,7 +194,6 @@ agentmatrix-desktop/src/components/
 ├── agent/              # Agent 相关组件
 │   └── AgentStatusIndicator.vue
 └── dialog/             # 对话框组件
-    ├── AskUserDialog.vue
     └── NewEmailModal.vue
 ```
 
@@ -354,7 +353,7 @@ const email = {
 | 邮件组件 | Email*.vue | EmailList.vue, EmailItem.vue, EmailReply.vue |
 | 会话组件 | Session*.vue | SessionList.vue, SessionItem.vue |
 | Agent 组件 | Agent*.vue | AgentStatusIndicator.vue |
-| 对话框组件 | *Dialog.vue | AskUserDialog.vue, NewEmailModal.vue |
+| 对话框组件 | *Dialog.vue | NewEmailModal.vue |
 
 ### 4. API 命名规范
 

@@ -261,6 +261,22 @@ class MatrixPaths:
     def __repr__(self) -> str:
         return f"MatrixPaths(matrix_root='{self.matrix_root}')"
 
+    def get_shared_env_bin(self) -> Optional[str]:
+        """
+        获取共享 Python 环境的 bin 目录
+
+        由 Rust 侧的 ensure_python_env 创建在 matrix_root/.shared_env/，
+        所有 LocalFileAgent 共用。返回 bin 目录路径，如果环境不存在则返回 None。
+        """
+        bin_dir = self.matrix_root / ".shared_env" / "bin"
+        if bin_dir.exists():
+            return str(bin_dir)
+        # Windows uses Scripts/ instead of bin/
+        scripts_dir = self.matrix_root / ".shared_env" / "Scripts"
+        if scripts_dir.exists():
+            return str(scripts_dir)
+        return None
+
     def container_path_to_host(
         self, container_path: str, agent_name: str, task_id: str
     ) -> Optional[Path]:

@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "splash",
@@ -41,6 +42,60 @@
         "minHeight": 600,
         "resizable": true,
         "visible": false
+      },
+      {
+        "label": "floating-capsule",
+        "url": "capsule.html",
+        "width": 300,
+        "height": 72,
+        "transparent": true,
+        "decorations": false,
+        "shadow": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false
+      },
+      {
+        "label": "floating-stream",
+        "url": "stream.html",
+        "width": 453,
+        "height": 224,
+        "transparent": true,
+        "decorations": false,
+        "shadow": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false
+      },
+      {
+        "label": "input",
+        "url": "input.html",
+        "width": 480,
+        "height": 320,
+        "transparent": true,
+        "decorations": false,
+        "shadow": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "backgroundColor": "#00000000"
+      },
+      {
+        "label": "detail",
+        "url": "detail.html",
+        "width": 480,
+        "height": 600,
+        "transparent": true,
+        "decorations": false,
+        "shadow": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "visible": false,
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {

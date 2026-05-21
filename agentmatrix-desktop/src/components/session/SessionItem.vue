@@ -92,12 +92,6 @@ const subjectInitial = computed(() => {
   return subject.charAt(0).toUpperCase()
 })
 
-// 检查是否有待处理问题
-const hasPending = computed(() => {
-  const sessionId = props.session.session_id
-  return sessionStore.hasPendingQuestion(sessionId)
-})
-
 // 检查是否有未读邮件
 const isUnread = computed(() => {
   return sessionStore.isSessionUnread(props.session.session_id)
@@ -118,13 +112,6 @@ const isUnread = computed(() => {
         <span class="session-item__initial">{{ subjectInitial }}</span>
       </div>
 
-      <!-- Pending indicator -->
-      <div
-        v-if="hasPending"
-        class="session-item__pending"
-      >
-        <span class="session-item__pending-count">1</span>
-      </div>
     </div>
 
     <!-- Info -->

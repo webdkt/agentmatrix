@@ -432,7 +432,10 @@ async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) 
     // 函数内部会检查 container_packages_initialized 标志
     commands::container::initialize_container_packages(app.clone()).await?;
 
-    // 3. 启动 backend
+    // 3. 确保 Python 环境（仅在首次执行一次，供 LocalFileAgent 使用）
+    commands::python_env::ensure_python_env(app.clone()).await?;
+
+    // 4. 启动 backend
     start_backend_logic(app, state).await?;
 
     Ok(())
@@ -495,6 +498,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(BackendState { child: Mutex::new(None), port: AtomicU16::new(0) })
+        .manage(commands::state::AppState { current_session: std::sync::Mutex::new(commands::state::CurrentSession::default()) })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
@@ -628,6 +632,127 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Floating windows: transparent + vibrancy
+            #[cfg(target_os = "macos")]
+            {
+                use std::ffi::c_void;
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
+                extern "C" {
+                    fn objc_msgSend() -> c_void;
+                    fn sel_registerName(name: *const i8) -> *const c_void;
+                    fn objc_getClass(name: *const i8) -> *mut c_void;
+                }
+
+                // Capsule: vibrancy with rounded corners
+                if let Some(w) = app.get_webview_window("floating-capsule") {
+                    let ns = w.ns_window().unwrap() as *mut c_void;
+                    unsafe {
+                        let sel_opaque = sel_registerName(b"setOpaque:\0".as_ptr().cast());
+                        let f_bool: unsafe extern "C" fn(*mut c_void, *const c_void, i8) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_bool(ns, sel_opaque, 0);
+                        let cls = objc_getClass(b"NSColor\0".as_ptr().cast());
+                        let sel_clear = sel_registerName(b"clearColor\0".as_ptr().cast());
+                        let f_ret: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        let clear = f_ret(cls, sel_clear);
+                        let sel_bg = sel_registerName(b"setBackgroundColor:\0".as_ptr().cast());
+                        let f_void: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_void(ns, sel_bg, clear);
+                    }
+                    apply_vibrancy(
+                        &w,
+                        NSVisualEffectMaterial::Popover,
+                        Some(NSVisualEffectState::Active),
+                        Some(20.0),
+                    ).unwrap();
+                    w.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
+                }
+
+                // Stream: vibrancy with rounded corners
+                if let Some(w) = app.get_webview_window("floating-stream") {
+                    let ns = w.ns_window().unwrap() as *mut c_void;
+                    unsafe {
+                        let sel_opaque = sel_registerName(b"setOpaque:\0".as_ptr().cast());
+                        let f_bool: unsafe extern "C" fn(*mut c_void, *const c_void, i8) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_bool(ns, sel_opaque, 0);
+                        let cls = objc_getClass(b"NSColor\0".as_ptr().cast());
+                        let sel_clear = sel_registerName(b"clearColor\0".as_ptr().cast());
+                        let f_ret: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        let clear = f_ret(cls, sel_clear);
+                        let sel_bg = sel_registerName(b"setBackgroundColor:\0".as_ptr().cast());
+                        let f_void: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_void(ns, sel_bg, clear);
+                    }
+                    apply_vibrancy(
+                        &w,
+                        NSVisualEffectMaterial::Popover,
+                        Some(NSVisualEffectState::Active),
+                        Some(16.0),
+                    ).unwrap();
+                    w.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
+                }
+
+                // Input: transparent background (no vibrancy, just clear)
+                if let Some(w) = app.get_webview_window("input") {
+                    let ns = w.ns_window().unwrap() as *mut c_void;
+                    unsafe {
+                        let sel_opaque = sel_registerName(b"setOpaque:\0".as_ptr().cast());
+                        let f_bool: unsafe extern "C" fn(*mut c_void, *const c_void, i8) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_bool(ns, sel_opaque, 0);
+                        let cls = objc_getClass(b"NSColor\0".as_ptr().cast());
+                        let sel_clear = sel_registerName(b"clearColor\0".as_ptr().cast());
+                        let f_ret: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        let clear = f_ret(cls, sel_clear);
+                        let sel_bg = sel_registerName(b"setBackgroundColor:\0".as_ptr().cast());
+                        let f_void: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_void(ns, sel_bg, clear);
+                    }
+                    w.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
+                }
+
+                // Detail: transparent background (no vibrancy, just clear)
+                if let Some(w) = app.get_webview_window("detail") {
+                    let ns = w.ns_window().unwrap() as *mut c_void;
+                    unsafe {
+                        let sel_opaque = sel_registerName(b"setOpaque:\0".as_ptr().cast());
+                        let f_bool: unsafe extern "C" fn(*mut c_void, *const c_void, i8) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_bool(ns, sel_opaque, 0);
+                        let cls = objc_getClass(b"NSColor\0".as_ptr().cast());
+                        let sel_clear = sel_registerName(b"clearColor\0".as_ptr().cast());
+                        let f_ret: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        let clear = f_ret(cls, sel_clear);
+                        let sel_bg = sel_registerName(b"setBackgroundColor:\0".as_ptr().cast());
+                        let f_void: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_void(ns, sel_bg, clear);
+                    }
+                    w.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
+                }
+            }
+
+            // Reposition stream window when capsule is moved
+            {
+                let app_handle = app.handle().clone();
+                if let Some(capsule) = app.get_webview_window("floating-capsule") {
+                    capsule.on_window_event(move |event| {
+                        if let tauri::WindowEvent::Moved(_) = event {
+                            let _ = commands::ui::sync_stream_position(app_handle.clone());
+                        }
+                    });
+                }
+            }
+
             // Check if cold start wizard is needed
             let needs_cold_start = AppConfig::load()
                 .map(|config| config.is_first_run())
@@ -715,6 +840,21 @@ fn main() {
             wizard_complete,
             commands::ui::is_window_focused,
             commands::ui::show_window,
+            commands::ui::create_floating_window,
+            commands::ui::destroy_floating_window,
+            commands::ui::sync_stream_position,
+            commands::ui::clip_window_rounded,
+            commands::ui::set_capsule_height,
+            commands::ui::create_input_window,
+            commands::ui::destroy_input_window,
+            commands::ui::create_detail_window,
+            commands::ui::destroy_detail_window,
+            commands::ui::minimize_main_window,
+            commands::ui::restore_main_window,
+            commands::state::get_current_session,
+            commands::state::set_current_session,
+            commands::python_env::ensure_python_env,
+            commands::python_env::check_python_env,
         ])
         .build(tauri::generate_context!())
         .expect("error with building tauri application")

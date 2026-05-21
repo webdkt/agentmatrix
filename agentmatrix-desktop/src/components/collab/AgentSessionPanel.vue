@@ -20,6 +20,7 @@ import TaskSendingOverlay from './TaskSendingOverlay.vue'
 import AgentTerminal from './AgentTerminal.vue'
 import TaskFilesPanel from './TaskFilesPanel.vue'
 import MIcon from '@/components/icons/MIcon.vue'
+import { useFloatingWindow } from '@/composables/useFloatingWindow'
 
 const props = defineProps({
   userAgentName: {
@@ -47,14 +48,12 @@ const {
   currentSession,
   chatTimeline,
   hasContent,
-  pendingQuestion,
   primaryAgentName,
   loadEvents,
   onScroll,
   handleEmailSendStarted,
   handleEmailSendFailed,
   handleEmailSent,
-  handleAgentQuestionSubmit,
 } = useChatTimeline({ userAgentName: () => props.userAgentName })
 
 // ---- Agent name derived from session ----
@@ -167,36 +166,58 @@ const taskFiles = useTaskFiles({
   sessionId: () => currentSessionId.value,
 })
 
-// ---- UI Actions (动态工具条按钮) ----
-const agentUIActions = ref([])
+// ---- UI Schema (动态工具条) ----
+const agentUISchema = ref([])
+const openGroup = ref(null)
 
-const loadAgentUIActions = async () => {
+const loadAgentUISchema = async () => {
   if (!currentAgentName.value) {
-    agentUIActions.value = []
+    agentUISchema.value = []
     return
   }
-  // 先查缓存
-  const cached = agentStore.getAgentUIActions(currentAgentName.value)
+  const cached = agentStore.getAgentUISchema(currentAgentName.value)
   if (cached.length > 0) {
-    agentUIActions.value = cached
+    agentUISchema.value = cached
     return
   }
   try {
     const result = await agentAPI.getAgentUIActions(currentAgentName.value)
-    agentUIActions.value = result.actions || []
-    agentStore.setAgentUIActions(currentAgentName.value, result.actions || [])
+    agentUISchema.value = result.schema || []
+    agentStore.setAgentUISchema(currentAgentName.value, result.schema || [])
   } catch (e) {
-    console.error('Failed to load UI actions:', e)
-    agentUIActions.value = []
+    console.error('Failed to load UI schema:', e)
+    agentUISchema.value = []
   }
 }
 
 watch(currentAgentName, () => {
-  loadAgentUIActions()
+  loadAgentUISchema()
 }, { immediate: true })
+
+// 目录节点（有 children）
+const floatingGroups = computed(() =>
+  agentUISchema.value.filter(n => n.children)
+)
+
+// 顶层 action 节点（无 children）
+const floatingTopActions = computed(() =>
+  agentUISchema.value.filter(n => n.action)
+)
+
+const isActionDisabled = (actionNode) => {
+  if (!actionNode.requires_idle) return false
+  return agentStore.getAgentStatus(currentAgentName.value) !== 'IDLE'
+}
+
+const toggleGroup = (name) => {
+  openGroup.value = openGroup.value === name ? null : name
+}
 
 // ---- UI Action 弹窗 ----
 const wsStore = useWebSocketStore()
+
+// ---- Floating Window ----
+const floating = useFloatingWindow()
 const showUIActionModal = ref(false)
 const uiActionResult = ref(null)
 
@@ -208,19 +229,16 @@ watch(() => wsStore.lastUIActionResult, (result) => {
   }
 })
 
-const invokeUIAction = async (action) => {
+const invokeUIAction = async (actionNode) => {
   if (!currentAgentName.value) return
   try {
     const payload = { session_id: currentSessionId.value }
-    console.log('[UI Action]', action.name, payload)
-    const resp = await agentAPI.invokeAgentUIAction(currentAgentName.value, action.name, payload)
-    // 结果通过 UI_ACTION_RESULT WebSocket 推送 → 弹窗展示
-    // 如果 WebSocket 未连接（无 session），直接用 HTTP 响应弹窗
+    console.log('[UI Action]', actionNode.action, payload)
+    const resp = await agentAPI.invokeAgentUIAction(currentAgentName.value, actionNode.action, payload)
     if (resp.success && resp.result != null && !showUIActionModal.value) {
       uiActionResult.value = {
         agent_name: currentAgentName.value,
-        action_name: action.name,
-        label: action.label,
+        action_name: actionNode.action,
         result: resp.result,
         display_mode: resp.display_mode,
       }
@@ -241,10 +259,6 @@ const renderMarkdown = (text) => {
   return marked.parse(String(text))
 }
 
-const floatingUIActions = computed(() =>
-  agentUIActions.value.filter(a => a.placement === 'floating')
-)
-
 // ---- Drag-drop file upload (single global listener) ----
 const isDragging = ref(false)
 const dropZone = ref(null) // 'task-files' | null
@@ -263,6 +277,9 @@ function getDropZone(position) {
 onMounted(async () => {
   updateMiddleSize()
   window.addEventListener('resize', updateMiddleSize)
+
+  // Click outside to close group dropdown
+  document.addEventListener('click', () => { openGroup.value = null })
 
   setupDragDrop()
 })
@@ -481,7 +498,7 @@ const taskFilesWidth = computed(() => {
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
           <span :class="['agent-session-panel__status-icon', { 'agent-session-panel__status-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'logo' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-label">
             <template v-if="primaryAgentStatus.isOnCurrentSession">
@@ -509,15 +526,14 @@ const taskFilesWidth = computed(() => {
       </div>
 
       <div class="agent-session-panel__toolbar">
-        <!-- Collab Mode toggle -->
+        <!-- Floating Mode -->
         <button
-          class="agent-session-panel__toolbar-btn"
-          :class="{ 'agent-session-panel__toolbar-btn--active': isCollabMode }"
-          @click="toggleCollabMode"
-          title="Toggle Collab Mode"
+          class="agent-session-panel__toolbar-btn agent-session-panel__toolbar-btn--float"
+          @click="floating.openFloating()"
+          title="Floating Mode"
         >
-          <MIcon name="users" />
-          <span class="agent-session-panel__toolbar-btn-text">Collab</span>
+          <MIcon name="arrows-maximize" />
+          <span class="agent-session-panel__toolbar-btn-text">Float</span>
         </button>
 
         <!-- Refresh -->
@@ -589,7 +605,7 @@ const taskFilesWidth = computed(() => {
           @click="navigateToAgentSession(primaryAgentStatus.otherSessionId)"
         >
           <span :class="['agent-session-panel__status-indicator-icon', { 'agent-session-panel__status-indicator-icon--spinning': primaryAgentStatus.status === 'THINKING' || primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' }]">
-            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'brain' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
+            <MIcon :name="primaryAgentStatus.status === 'THINKING' ? 'logo' : primaryAgentStatus.status === 'WORKING' || primaryAgentStatus.status === 'RECOVERING' ? 'loader' : primaryAgentStatus.status === 'WAITING_FOR_USER' ? 'message-circle' : primaryAgentStatus.status === 'PAUSED' ? 'player-pause' : primaryAgentStatus.status === 'ERROR' ? 'alert-circle' : 'circle-check'" />
           </span>
           <span class="agent-session-panel__status-indicator-agent">{{ primaryAgentName }}</span>
           <span v-if="primaryAgentStatus.isOnCurrentSession" class="agent-session-panel__status-indicator-label">
@@ -685,51 +701,47 @@ const taskFilesWidth = computed(() => {
           <span class="floating-toolbar-btn__tooltip">Terminal</span>
         </button>
 
-        <!-- Dynamic UI Action buttons -->
-        <button
-          v-for="action in floatingUIActions"
-          :key="action.name"
-          class="floating-toolbar-btn floating-toolbar-btn--ui-action"
-          :class="{
-            'floating-toolbar-btn--disabled': !action.available,
-          }"
-          :disabled="!action.available"
-          @click="invokeUIAction(action)"
-        >
-          <MIcon :name="action.icon || 'zap'" />
-          <span class="floating-toolbar-btn__tooltip">{{ action.tooltip || action.label }}</span>
-        </button>
-      </div>
-
-      <!-- Ask User Question form -->
-      <div v-if="pendingQuestion" class="agent-session-panel__ask-user">
-        <div class="agent-session-panel__ask-user-form">
-          <div class="agent-session-panel__ask-user-header">
-            <MIcon name="message-circle" />
-            <span class="agent-session-panel__ask-user-title">{{ pendingQuestion.agent_name }} {{ t('emails.hasQuestion') }}</span>
-          </div>
-          <p class="agent-session-panel__ask-user-text">{{ pendingQuestion.question }}</p>
-          <textarea
-            v-model="answer"
-            rows="2"
-            :placeholder="t('emails.questionPlaceholder')"
-            class="agent-session-panel__ask-user-input"
-          />
-          <div class="agent-session-panel__ask-user-actions">
+        <!-- Dynamic UI Schema: group dropdowns -->
+        <div v-for="group in floatingGroups" :key="group.name" class="floating-toolbar-group">
+          <button
+            class="floating-toolbar-btn floating-toolbar-btn--ui-action"
+            :class="{ 'floating-toolbar-btn--active': openGroup === group.name }"
+            @click.stop="toggleGroup(group.name)"
+          >
+            <MIcon :name="group.icon || 'menu'" />
+            <span class="floating-toolbar-btn__tooltip">{{ $t(`ui_actions.groups.${group.name}`, group.name) }}</span>
+          </button>
+          <div v-if="openGroup === group.name" class="floating-toolbar-dropdown">
             <button
-              @click="handleAgentQuestionSubmit"
-              :disabled="!answer.trim()"
-              class="agent-session-panel__ask-user-btn"
+              v-for="child in group.children"
+              :key="child.action"
+              class="floating-toolbar-dropdown__item"
+              :class="{ 'floating-toolbar-dropdown__item--disabled': isActionDisabled(child) }"
+              :disabled="isActionDisabled(child)"
+              @click="invokeUIAction(child); openGroup = null"
             >
-              {{ t('common.submit') }}
+              <MIcon :name="child.icon || 'zap'" />
+              <span>{{ $t(`ui_actions.actions.${child.action}`, child.action) }}</span>
             </button>
           </div>
         </div>
+
+        <!-- Dynamic UI Schema: top-level action buttons -->
+        <button
+          v-for="action in floatingTopActions"
+          :key="action.action"
+          class="floating-toolbar-btn floating-toolbar-btn--ui-action"
+          :class="{ 'floating-toolbar-btn--disabled': isActionDisabled(action) }"
+          :disabled="isActionDisabled(action)"
+          @click="invokeUIAction(action)"
+        >
+          <MIcon :name="action.icon || 'zap'" />
+          <span class="floating-toolbar-btn__tooltip">{{ $t(`ui_actions.actions.${action.action}`, action.action) }}</span>
+        </button>
       </div>
 
-      <!-- Normal Input -->
+      <!-- Input -->
       <CollabInput
-        v-else
         :current-session="currentSession"
         :emails="events"
         @send-started="handleEmailSendStarted"
@@ -746,7 +758,7 @@ const taskFilesWidth = computed(() => {
           <div class="ui-action-modal__overlay" @click="closeUIActionModal"></div>
           <div class="ui-action-modal__content">
             <div class="ui-action-modal__header">
-              <h2 class="ui-action-modal__title">{{ uiActionResult.label || uiActionResult.action_name }}</h2>
+              <h2 class="ui-action-modal__title">{{ $t(`ui_actions.actions.${uiActionResult.action_name}`, uiActionResult.action_name) }}</h2>
               <button @click="closeUIActionModal" class="ui-action-modal__close">
                 <MIcon name="x" />
               </button>
@@ -865,15 +877,16 @@ const taskFilesWidth = computed(() => {
   border: 1px solid var(--surface-hover);
   border-radius: var(--radius-md);
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   animation: fadeIn 200ms var(--ease-out);
+  transition: all 0.3s ease;
 }
 
 .agent-session-panel__status-icon {
   display: flex;
   align-items: center;
   font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__status-icon--spinning {
@@ -881,7 +894,7 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__status-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -966,6 +979,25 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__toolbar-btn:disabled:hover {
   background: transparent;
+}
+
+.agent-session-panel__toolbar-btn--float {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+  border-radius: 8px;
+  padding: 0 14px;
+}
+
+.agent-session-panel__toolbar-btn--float .agent-session-panel__toolbar-btn-text {
+  color: #fff;
+  font-weight: 600;
+}
+
+.agent-session-panel__toolbar-btn--float:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
+  transform: translateY(-1px);
 }
 
 .agent-session-panel__indicator-dot {
@@ -1085,17 +1117,23 @@ const taskFilesWidth = computed(() => {
   border: 1px solid var(--surface-hover);
   border-radius: var(--radius-md);
   font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   animation: fadeIn 200ms var(--ease-out);
   flex-shrink: 0;
   align-self: flex-start;
+  transition: all 0.3s ease;
+}
+
+.agent-session-panel__status-indicator:not(.agent-session-panel__status-indicator--idle) {
+  background: rgba(184, 169, 201, 0.08);
+  border-color: rgba(184, 169, 201, 0.15);
 }
 
 .agent-session-panel__status-indicator-icon {
   display: flex;
   align-items: center;
   font-size: var(--font-sm);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__status-indicator-icon--spinning {
@@ -1104,11 +1142,11 @@ const taskFilesWidth = computed(() => {
 
 .agent-session-panel__status-indicator-agent {
   font-weight: var(--font-semibold);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .agent-session-panel__status-indicator-label {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -1132,88 +1170,6 @@ const taskFilesWidth = computed(() => {
   position: relative;
   flex-shrink: 0;
   background: var(--surface-base);
-}
-
-/* ---- Ask User Question ---- */
-.agent-session-panel__ask-user-form {
-  padding: 18px;
-  background: var(--warning-soft);
-  border: 1px solid rgba(196,162,101,0.15);
-  border-radius: var(--radius-lg);
-}
-
-.agent-session-panel__ask-user-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.agent-session-panel__ask-user-header .m-icon {
-  font-size: 13px;
-  color: var(--warning);
-}
-
-.agent-session-panel__ask-user-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--warning);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.agent-session-panel__ask-user-text {
-  font-size: 14px;
-  color: var(--text-primary);
-  font-weight: 500;
-  margin: 0 0 14px 0;
-  line-height: var(--leading-relaxed);
-}
-
-.agent-session-panel__ask-user-input {
-  width: 100%;
-  padding: var(--spacing-2);
-  background: var(--surface-base);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  color: var(--text-primary);
-  resize: none;
-  margin-bottom: 10px;
-  transition: all 0.15s ease;
-}
-
-.agent-session-panel__ask-user-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.agent-session-panel__ask-user-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.agent-session-panel__ask-user-btn {
-  padding: 8px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  background: white;
-  color: var(--text-primary);
-  transition: all 0.12s ease;
-}
-
-.agent-session-panel__ask-user-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.agent-session-panel__ask-user-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
 }
 
 /* ---- Floating Toolbar ---- */
@@ -1287,6 +1243,50 @@ const taskFilesWidth = computed(() => {
 .floating-toolbar-btn--ui-action {
   border-color: #8B7AAF;
   color: #8B7AAF;
+}
+
+/* Group dropdown container */
+.floating-toolbar-group {
+  position: relative;
+}
+
+.floating-toolbar-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  min-width: 140px;
+  z-index: 100;
+  padding: 4px 0;
+}
+
+.floating-toolbar-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: #333;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.floating-toolbar-dropdown__item:hover:not(:disabled) {
+  background: rgba(139, 122, 175, 0.08);
+}
+
+.floating-toolbar-dropdown__item--disabled,
+.floating-toolbar-dropdown__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .floating-toolbar-btn:hover {

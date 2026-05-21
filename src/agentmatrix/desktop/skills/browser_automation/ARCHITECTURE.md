@@ -239,7 +239,6 @@ _ensure_browser()
 | `close_tab(target_id)` | 关闭指定 tab |
 | `switch_to_tab(target_id)` | 切换到指定 tab |
 | `show_interface(name)` | 注入前端 Interface 到当前页面 |
-| `ask_user_and_wait(question, options)` | 在浏览器弹出对话框向用户提问 |
 | `find_selector(instruction_text, tab_id)` | 启动 MicroAgent 探索 DOM，找到目标元素的稳定 selector |
 | `find_unique_selector_by_xy(additional_info, tab_id, x, y)` | 启动 MicroAgent 从坐标出发，找到用户指向元素的唯一 selector |
 | `confirm_element(selector, tab_id)` | 高亮元素并弹出确认对话框（支持 CSS selector 和 XPath） |

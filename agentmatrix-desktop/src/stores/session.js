@@ -13,10 +13,6 @@ export const useSessionStore = defineStore('session', {
     totalSessions: 0,
     isLoading: false,
     error: null,
-    pendingQuestions: {},        // { session_id: { agent_name, question, task_id, timestamp } }
-    globalPendingQuestion: null, // 全局待处理问题（无 user session id）
-    globalDialogShown: false,    // 全局对话框是否已显示
-    askUserDialogShownFor: null, // 记录已弹出对话框的 session_id
     agentToUserSessionMap: {},   // { "agentName:agentSessionId": "userSessionId" }
     lastSessionEvent: null,      // 最新的 SESSION_EVENT { agent_name, session_id, data }
   }),
@@ -56,43 +52,6 @@ export const useSessionStore = defineStore('session', {
      */
     hasSelectedSession: (state) => {
       return !!state.currentSession
-    },
-
-    /**
-     * 检查 session 是否有待处理问题
-     */
-    hasPendingQuestion: (state) => (sessionId) => {
-      return !!state.pendingQuestions[sessionId]
-    },
-
-    /**
-     * 获取待处理问题详情
-     */
-    getPendingQuestion: (state) => (sessionId) => {
-      return state.pendingQuestions[sessionId] || null
-    },
-
-    /**
-     * 检查是否应该显示对话框
-     */
-    shouldShowAskUserDialog: (state) => (sessionId) => {
-      const question = state.pendingQuestions[sessionId]
-      // 只有当有待处理问题且尚未弹出过对话框时才显示
-      return question && state.askUserDialogShownFor !== sessionId
-    },
-
-    /**
-     * 获取全局待处理问题
-     */
-    getGlobalPendingQuestion: (state) => () => {
-      return state.globalPendingQuestion
-    },
-
-    /**
-     * 检查是否应该显示全局对话框
-     */
-    shouldShowGlobalAskUserDialog: (state) => () => {
-      return !!state.globalPendingQuestion && !state.globalDialogShown
     },
 
     /**
@@ -168,11 +127,6 @@ export const useSessionStore = defineStore('session', {
       if (!force && this.currentSession?.session_id === session.session_id) {
         console.log('⏭️ Same session selected, skipping (use force=true to refresh)')
         return
-      }
-
-      // 如果切换到不同的 session，重置对话框标记
-      if (this.currentSession?.session_id !== session.session_id) {
-        this.resetDialogShown()
       }
 
       // force=true 时创建新对象引用，触发 Vue watch 重新加载邮件
@@ -282,142 +236,6 @@ export const useSessionStore = defineStore('session', {
      */
     clearCurrentSession() {
       this.currentSession = null
-    },
-
-    /**
-     * 设置待处理问题
-     */
-    setPendingQuestion(sessionId, questionData) {
-      // 使用 Vue.reactive 确保响应式
-      this.pendingQuestions = {
-        ...this.pendingQuestions,
-        [sessionId]: questionData
-      }
-      console.log('📝 Pending question set for session:', sessionId)
-      console.log('📝 Current pendingQuestions:', this.pendingQuestions)
-      console.log('📝 Current sessions:', this.sessions.map(s => ({ id: s.session_id, subject: s.subject })))
-    },
-
-    /**
-     * 清除待处理问题
-     */
-    clearPendingQuestion(sessionId) {
-      if (this.pendingQuestions[sessionId]) {
-        delete this.pendingQuestions[sessionId]
-        console.log('✅ Pending question cleared for session:', sessionId)
-      }
-    },
-
-    /**
-     * 设置全局待处理问题
-     */
-    setGlobalPendingQuestion(questionData) {
-      this.globalPendingQuestion = questionData
-      this.globalDialogShown = false // 重置对话框显示状态
-      console.log('📝 Global pending question set:', questionData)
-    },
-
-    /**
-     * 清除全局待处理问题
-     */
-    clearGlobalPendingQuestion() {
-      this.globalPendingQuestion = null
-      console.log('✅ Global pending question cleared')
-    },
-
-    /**
-     * 标记全局对话框已显示
-     */
-    markGlobalDialogShown() {
-      this.globalDialogShown = true
-    },
-
-    /**
-     * 重置全局对话框显示状态
-     */
-    resetGlobalDialogShown() {
-      this.globalDialogShown = false
-    },
-
-    /**
-     * 提交 ask_user 回答
-     */
-    async submitAskUserAnswer(sessionId, answer) {
-      const question = this.pendingQuestions[sessionId]
-      if (!question) {
-        throw new Error('No pending question for this session')
-      }
-
-      try {
-        // 调用 API 提交回答（传递 agent_session_id）
-        const { agentAPI } = await import('@/api/agent')
-        await agentAPI.submitUserInput(
-          question.agent_name,
-          question.agent_session_id,
-          question.question,
-          answer
-        )
-
-        console.log('✅ Answer submitted for', question.agent_name)
-
-        // 提交成功后不立即清除状态
-        // 等待 WebSocket 推送状态更新后再清除
-      } catch (error) {
-        console.error('❌ Failed to submit answer:', error)
-        throw error
-      }
-    },
-
-    /**
-     * 提交全局 ask_user 回答
-     */
-    async submitGlobalAskUserAnswer(answer) {
-      const question = this.globalPendingQuestion
-      if (!question) {
-        throw new Error('No global pending question')
-      }
-
-      try {
-        // 调用 API 提交回答（传递 agent_session_id）
-        const { agentAPI } = await import('@/api/agent')
-        await agentAPI.submitUserInput(
-          question.agent_name,
-          question.agent_session_id,
-          question.question,
-          answer
-        )
-
-        console.log('✅ Global answer submitted for', question.agent_name)
-
-        // 提交成功后立即清除全局问题
-        this.clearGlobalPendingQuestion()
-      } catch (error) {
-        console.error('❌ Failed to submit global answer:', error)
-        throw error
-      }
-    },
-
-    /**
-     * 标记对话框已显示
-     */
-    markDialogShown(sessionId) {
-      this.askUserDialogShownFor = sessionId
-    },
-
-    /**
-     * 重置对话框标记
-     */
-    resetDialogShown() {
-      this.askUserDialogShownFor = null
-    },
-
-    /**
-     * 关闭对话框（标记为已显示，防止再次弹出）
-     */
-    closeAskUserDialog(sessionId) {
-      if (sessionId) {
-        this.markDialogShown(sessionId)
-      }
     },
 
     /**

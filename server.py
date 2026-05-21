@@ -1542,7 +1542,7 @@ async def get_agent_ui_actions(agent_name: str):
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
 
-    return {"actions": agent.get_ui_actions()}
+    return {"schema": agent.get_ui_schema()}
 
 
 @app.post("/api/agents/{agent_name}/ui_actions/{action_name}")
@@ -2428,113 +2428,6 @@ async def get_pending_user_input(agent_name: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/agents/{agent_name}/submit_user_input")
-async def submit_user_input(agent_name: str, request: Request):
-    """提交用户输入，唤醒正在等待的 Agent"""
-    global matrix_runtime
-
-    if not matrix_runtime:
-        raise HTTPException(status_code=503, detail="Runtime not available")
-
-    if agent_name not in matrix_runtime.agents:
-        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-
-    # 获取用户输入
-    request_data = await request.json()
-    answer = request_data.get("answer")
-    session_id = request_data.get("session_id")  # 获取 agent 的 session_id
-    if not answer:
-        raise HTTPException(status_code=400, detail="Missing 'answer' field")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="Missing 'session_id' field")
-
-    try:
-        agent = matrix_runtime.agents[agent_name]
-        # 传递 session_id 给 submit_user_input（位置参数）
-        await agent.submit_user_input(answer, session_id)
-
-        return {
-            "success": True,
-            "message": f"User input submitted to agent '{agent_name}'",
-            "agent_name": agent_name,
-        }
-    except RuntimeError as e:
-        # Agent 没有在等待用户输入
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/agents/{agent_name}/question_image")
-async def get_question_image(
-    agent_name: str,
-    session_id: str,
-    filename: str
-):
-    """
-    获取 ask_user 问题的图片
-
-    Args:
-        agent_name: Agent 名称
-        session_id: Agent 的 session_id（必须匹配 Agent 的当前 session）
-        filename: 图片文件名
-
-    安全说明：
-    - 验证 session_id 是否匹配 Agent 的当前 session
-    - 防止跨 session 访问图片
-    - 如果 Agent 已经切换到其他 session，拒绝访问
-    """
-    global matrix_runtime
-
-    if not matrix_runtime:
-        raise HTTPException(status_code=503, detail="Runtime not available")
-
-    if agent_name not in matrix_runtime.agents:
-        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-
-    agent = matrix_runtime.agents[agent_name]
-
-    # 🔒 验证 session_id（关键安全检查）
-    if not agent.current_session:
-        raise HTTPException(status_code=400, detail="Agent has no active session")
-
-    current_session_id = agent.current_session.get("session_id")
-    if session_id != current_session_id:
-        # Agent 已经切换到其他 session，拒绝访问
-        raise HTTPException(
-            status_code=409,  # Conflict
-            detail=f"Session mismatch: requested {session_id}, current {current_session_id}. "
-                   f"Agent may have moved to a different session."
-        )
-
-    # 🔒 验证是否有 pending_question（防止滥用）
-    if not hasattr(agent, '_pending_user_question') or not agent._pending_user_question:
-        raise HTTPException(
-            status_code=404,
-            detail="No pending question found for this agent"
-        )
-
-    # 构建图片路径
-    image_dir = agent.runtime.paths.get_agent_attachments_dir(
-        agent_name, session_id
-    )
-    image_path = image_dir / filename
-
-    if not image_path.exists():
-        raise HTTPException(status_code=404, detail="Image not found")
-
-    # 判断 media type
-    import mimetypes
-    media_type = mimetypes.guess_type(filename)[0] or "image/png"
-
-    # 返回文件
-    return FileResponse(
-        path=str(image_path),
-        media_type=media_type,
-        filename=filename,
-    )
 
 
 # === Main Entry Point ===

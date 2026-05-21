@@ -5,7 +5,7 @@ from dataclasses import dataclass, asdict, field
 from ..core.message import Email
 from ..core.events import AgentEvent
 from ..core.action import register_action
-from .ui_actions import ui_action
+
 from .session_manager import SessionManager, AgentSessionStore
 import traceback
 import inspect
@@ -23,46 +23,12 @@ class AgentStatus:
     IDLE = "IDLE"
     THINKING = "THINKING"
     WORKING = "WORKING"
-    WAITING_FOR_USER = "WAITING_FOR_USER"
+
     RECOVERING = "RECOVERING"
     PAUSED = "PAUSED"
     STOPPED = "STOPPED"
     ERROR = "ERROR"
 
-
-@dataclass
-class AskUserQuestion:
-    """ask_user 问题数据结构（增强版）
-
-    支持图片附件、选项按钮（单选/多选）、自定义输入
-    """
-    question: str                        # 问题文本
-    options: Optional[List[str]] = None  # 选项列表（单选/多选）
-    multiple: bool = False               # 是否多选（False=单选，True=多选）
-    image_path: Optional[str] = None     # 图片路径（容器内路径，复制后会更新为文件名）
-
-    def to_dict(self) -> dict:
-        """转换为字典（用于 WebSocket 传输）"""
-        return {
-            "question": self.question,
-            "options": self.options,
-            "multiple": self.multiple,
-            "image_path": self.image_path
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'AskUserQuestion':
-        """从字典创建实例"""
-        # 兼容旧格式：如果 data 是字符串，直接作为 question
-        if isinstance(data, str):
-            return cls(question=data)
-        # 新格式：包含 question 字段的对象
-        return cls(
-            question=data.get("question", ""),
-            options=data.get("options"),
-            multiple=data.get("multiple", False),
-            image_path=data.get("image_path")
-        )
 
 
 class BaseAgent(BasicAgent):
@@ -117,7 +83,7 @@ class BaseAgent(BasicAgent):
         # action_registry 代替 actions_map
         self.action_registry = {}
         self.actions_meta = {}
-        self.ui_actions_meta = {}
+
         self.current_task_id = None
         self.current_user_session_id = None
 
@@ -126,11 +92,7 @@ class BaseAgent(BasicAgent):
 
         # 扫描 BaseAgent 自身的 actions（不包含 skills）
         self._scan_all_actions()
-        self._scan_ui_actions()
 
-        # ask_user 机制（等待用户输入）
-        self._pending_user_question = None
-        self._user_input_future = None
 
         # 双 Worker 模型（history_worker）
         self.pending_summaries_queue = []
@@ -180,6 +142,7 @@ class BaseAgent(BasicAgent):
 
     async def switch_workspace(self, task_id: str) -> bool:
         """切换工作目录（通过 container session 执行命令）"""
+        print("baseagent switch workspace")
         if self.container_session is None:
             raise RuntimeError("Container Session 未初始化")
 
@@ -192,11 +155,20 @@ class BaseAgent(BasicAgent):
         # 先删除旧的 symlink 再创建，避免部分容器环境（如 BusyBox）下 ln -sf 不替换已有 symlink 的问题
         symlink_target = f"/data/agents/{self.name}/work_files/{task_id}"
         cmd = f"rm -f ~/current_task && ln -s {symlink_target} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
-        self.logger.info(f"🔧 switch_workspace 命令: {cmd}")
-        self.logger.info(f"🔧 宿主机目录存在: {task_dir.exists()}")
-        exit_code, stdout, stderr = await asyncio.to_thread(
-            self.container_session.execute, cmd
-        )
+        self.logger.info(f"switch_workspace 命令: {cmd}")
+        self.logger.info(f"宿主机目录: {task_dir} (存在={task_dir.exists()})")
+        self.logger.info(f"container_session alive: {self.container_session.is_alive()}")
+
+        try:
+            exit_code, stdout, stderr = await asyncio.to_thread(
+                self.container_session.execute, cmd
+            )
+        except Exception as e:
+            self.logger.error(f"switch_workspace 执行异常: {e}")
+            return False
+
+        self.logger.info(f"switch_workspace 结果: exit={exit_code}, stdout={stdout}, stderr={stderr}")
+
         if exit_code != 0:
             self.logger.warning(f"switch_workspace 命令失败: exit={exit_code}, stderr={stderr}")
             return False
@@ -584,261 +556,20 @@ Start generating the Working Notes now.
             self._session_task.cancel()
             self.logger.info(f"Agent {self.name} 已停止当前 session")
 
-    # ========== ask_user 机制 ==========
-
-    async def ask_user(
-        self,
-        question: Union[str, AskUserQuestion],
-        **kwargs
-    ) -> str:
-        """
-        等待用户输入（增强版）
-
-        此方法会挂起当前 MicroAgent 的执行，等待用户通过 submit_user_input 提供答案。
-        同时支持全局暂停机制。
-
-        Args:
-            question: 向用户提出的问题（str）或 AskUserQuestion 对象
-            **kwargs: 可选参数（用于扩展）
-                - options: List[str] - 选项列表（单选/多选）
-                - multiple: bool - 是否多选（默认 False）
-                - image_path: str - 图片路径（容器内路径）
-
-        Returns:
-            str: 用户的回答（单选值、多选值逗号分隔、或自定义文本）
-
-        Example:
-            # 简单文本问题
-            answer = await self.ask_user("请确认预算范围")
-            # 返回: "5万-10万"
-
-            # 单选问题
-            answer = await self.ask_user(
-                question="请选择预算范围",
-                options=["5万以下", "5-10万", "10万以上"],
-                multiple=False
-            )
-            # 返回: "5-10万"
-
-            # 多选问题
-            answer = await self.ask_user(
-                question="请选择功能模块",
-                options=["用户管理", "数据分析", "报表生成"],
-                multiple=True
-            )
-            # 返回: "用户管理,数据分析"
-
-            # 带图片的问题
-            answer = await self.ask_user(
-                question="请分析图表",
-                image_path=str(self.private_workspace / "chart.png")
-            )
-            # 返回: "呈现上升趋势"
-        """
-        from datetime import datetime
-        import shutil
-
-        # 🔧 参数标准化（统一转换为 AskUserQuestion 对象）
-        if isinstance(question, str):
-            # 简单格式：纯文本问题
-            question_obj = AskUserQuestion(
-                question=question,
-                options=kwargs.get('options'),
-                multiple=kwargs.get('multiple', False),
-                image_path=kwargs.get('image_path')
-            )
-        elif isinstance(question, AskUserQuestion):
-            # 已是 AskUserQuestion 对象
-            question_obj = question
-        else:
-            raise TypeError(f"question 必须是 str 或 AskUserQuestion，当前类型: {type(question)}")
-
-        # 🔧 记录旧状态并设置新状态
-        old_status = self._status  # 保存旧状态
-
-        # ✅ 处理图片文件（复制到 attachments 目录）
-        session_id = (
-            self.current_session.get("session_id")
-            if self.current_session
-            else self.current_task_id
-        )
-
-        if question_obj.image_path:
-            source_path = Path(question_obj.image_path)
-            if source_path.exists():
-                try:
-                    # 复制到当前 session 的 attachments 目录
-                    att_dir = self.runtime.paths.get_agent_attachments_dir(
-                        self.name, session_id
-                    )
-                    att_dir.mkdir(parents=True, exist_ok=True)
-
-                    filename = source_path.name
-                    dest_path = att_dir / filename
-
-                    # 复制文件
-                    shutil.copy2(source_path, dest_path)
-
-                    # 更新为文件名（供前端 API 使用）
-                    question_obj.image_path = filename
-
-                    self.logger.info(f"✅ 图片已复制到 attachments: {filename}")
-                except Exception as e:
-                    self.logger.warning(f"⚠️ 复制图片失败: {e}，将忽略图片")
-                    question_obj.image_path = None
-            else:
-                self.logger.warning(f"⚠️ 图片不存在: {source_path}，将忽略图片")
-                question_obj.image_path = None
-
-        # 3. 记录问题（给 API 查询）
-        self._pending_user_question = question_obj
-
-        # 确保 current_user_session_id 不为 None（用于前端匹配会话）
-        if not self.current_user_session_id and self.current_task_id:
-            self.current_user_session_id = self.current_task_id
-
-        # 🔧 更新状态会触发 AGENT_STATUS_UPDATE 增量推送（包含 pending_question）
-        self.update_status(new_status=AgentStatus.WAITING_FOR_USER)
-
-        # ✅ 发送邮件通知（如果 runtime 可用）
-        task_id = self.current_task_id
-        await self._send_ask_user_email(question_obj, task_id, session_id)
-
-        # 4. 创建 Future 并挂起
-        self._user_input_future = asyncio.Future()
-
-        question_preview = question_obj.question[:50]
-        if len(question_obj.question) > 50:
-            question_preview += "..."
-
-        self.logger.info(f"💬 向用户提问: {question_preview}")
-
-        try:
-            # 发起提问前，先确保当前没有被暂停
-            await self.checkpoint()
-
-            # 🔧 修复：直接 await Future，不使用 wait_for（避免 Future 被取消）
-            # 无限期挂起，直到前端调用 submit_user_input(answer) 触发 set_result(answer)
-            answer = await self._user_input_future
-
-            # 拿到答案后，再次检查是否在等待期间系统被暂停了
-            await self.checkpoint()
-
-            answer_preview = answer[:50] if len(answer) > 50 else answer
-            self.logger.info(f"✅ 收到用户回答: {answer_preview}")
-            return answer
-
-        finally:
-            # 🔧 恢复状态
-            self.update_status(new_status=old_status)
-            self._pending_user_question = None
-            self._user_input_future = None
-            # 🔧 移除：状态清理（避免内存泄漏）
-            # 注：不再需要显式清理，因为 finally 已经处理
-
-    async def _send_ask_user_email(self, question: AskUserQuestion, task_id: str, session_id: str):
-        """
-        发送 ask_user 邮件通知
-
-        当 Agent 调用 ask_user 时，发送一封特殊邮件给用户，
-        用户可以直接回复邮件来回答问题。
-
-        Subject 格式：请回答问题 #ASK_USER#{agent_name}#{agent_session_id}#
-
-        Args:
-            question: AskUserQuestion 对象（包含问题、选项、图片等信息）
-            task_id: 任务ID
-            session_id: Agent session ID
-        """
-        if not self.runtime:
-            self.logger.warning("⚠️ runtime 未注入，跳过 ask_user 邮件发送")
-            return
-
-        try:
-            # 获取 Email Proxy Service
-            email_proxy = self.runtime.email_proxy
-            if not email_proxy:
-                self.logger.warning(
-                    "⚠️ Email Proxy Service 未找到，跳过 ask_user 邮件发送"
-                )
-                return
-
-            # 直接调用 EmailProxyService 的专用方法
-            await email_proxy.send_ask_user_email(
-                agent_name=self.name,
-                agent_session_id=session_id,
-                question=question
-            )
-
-            self.logger.info(f"✅ 已发送 ask_user 邮件通知: {question[:50]}...")
-        except Exception as e:
-            self.logger.error(f"❌ 发送 ask_user 邮件失败: {e}", exc_info=True)
-
-    async def submit_user_input(self, answer: str, session_id: str):
-        """
-        提交用户输入（由 Server API 调用）
-
-        此方法会唤醒正在等待的 ask_user 调用，并传入用户的回答。
-
-        Args:
-            answer: 用户的回答
-
-        Raises:
-            RuntimeError: 如果 Agent 当前没有在等待用户输入
-
-        Example:
-            # 在 Server API 中
-            await agent.submit_user_input("5万-10万")
-        """
-        if (
-            not self.current_session
-            or self.current_session.get("session_id") != session_id
-        ):
-            # not for this session
-            return
-        if not self._user_input_future or self._user_input_future.done():
-            return
-
-        self.logger.debug(
-            f"📥 提交用户回答: {answer[:50]}{'...' if len(answer) > 50 else ''}"
-        )
-
-        # 设置结果，唤醒 Future
-        self._user_input_future.set_result(answer)
 
     def get_status_snapshot(self) -> dict:
         """
         获取当前 Agent 的完整状态快照
 
         Returns:
-            dict: Agent 完整状态，包含：
-                - status: Agent 状态
-                - pending_question: 等待中的用户问题（AskUserQuestion 对象或 None）
-                - current_session_id: 当前会话 ID
-                - current_task_id: 当前任务 ID
-                - current_user_session_id: 当前用户会话 ID
-                - status_history: 状态历史（最近 10 条）
+            dict: Agent 完整状态
         """
         user_session_id = self.current_user_session_id
         if not user_session_id and self.current_task_id:
             user_session_id = self.current_task_id
 
-        # 🔧 处理 pending_question 的序列化
-        pending_question = None
-        if hasattr(self, "_pending_user_question") and self._pending_user_question:
-            if isinstance(self._pending_user_question, AskUserQuestion):
-                # 新格式：AskUserQuestion 对象
-                pending_question = self._pending_user_question.to_dict()
-            elif isinstance(self._pending_user_question, str):
-                # 兼容旧格式：纯文本
-                pending_question = self._pending_user_question
-            else:
-                # 其他情况（不应该发生）
-                pending_question = str(self._pending_user_question)
-
         return {
             "status": self._status,
-            "pending_question": pending_question,
             "current_session_id": self.current_session.get("session_id")
             if self.current_session
             else None,
@@ -944,59 +675,63 @@ Start generating the Working Notes now.
                             "params": param_infos,
                         }
 
-    def _scan_ui_actions(self):
-        """扫描当前类及 MRO 上所有标记为 @ui_action 的方法。"""
-        for cls in self.__class__.__mro__:
-            for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
-                if not hasattr(method, '_is_ui_action'):
-                    continue
-                meta = method._ui_action_meta
-                if meta.name not in self.ui_actions_meta:
-                    self.ui_actions_meta[meta.name] = {
-                        "name": meta.name,
-                        "label": meta.label,
-                        "icon": meta.icon,
-                        "tooltip": meta.tooltip,
-                        "placement": meta.placement,
-                        "requires_idle": meta.requires_idle,
-                        "display_mode": meta.display_mode,
-                        "_handler_name": name,
-                    }
+    # ---- UI Schema（前端控制结构树）----
 
-    def get_ui_actions(self) -> list:
-        """返回前端渲染工具条所需的 UI action 元数据列表。"""
+    def get_ui_schema(self):
+        """返回 UI action 的 schema 树，供前端渲染工具条/菜单。
+
+        Override 在子类中扩展（调用 super().get_ui_schema() 并追加/插入节点）。
+
+        目录节点: {"name": "...", "icon": "...", "children": [...]}
+        Action 节点: {"action": "方法名", "icon": "...", "display_mode": "...", ...}
+        """
         return [
             {
-                "name": meta["name"],
-                "label": meta["label"],
-                "icon": meta["icon"],
-                "tooltip": meta["tooltip"],
-                "placement": meta["placement"],
-                "requires_idle": meta["requires_idle"],
-                "display_mode": meta["display_mode"],
-                "available": not meta["requires_idle"] or self._status == AgentStatus.IDLE,
-            }
-            for meta in self.ui_actions_meta.values()
+                "name": "control",
+                "icon": "settings",
+                "children": [
+                    {"action": "pause_agent", "icon": "pause", "display_mode": "toast"},
+                    {"action": "continue_agent", "icon": "play", "display_mode": "toast"},
+                    {"action": "stop_agent", "icon": "square", "display_mode": "toast"},
+                ]
+            },
+            {
+                "name": "debug",
+                "icon": "flask",
+                "children": [
+                    {"action": "view_current_prompt", "icon": "file-text", "display_mode": "markdown"},
+                ]
+            },
         ]
+
+    @staticmethod
+    def _find_action_in_schema(schema, action_name):
+        """递归查找 schema 树中匹配 action_name 的叶子节点。"""
+        for node in schema:
+            if "children" in node:
+                found = BaseAgent._find_action_in_schema(node["children"], action_name)
+                if found:
+                    return found
+            elif node.get("action") == action_name:
+                return node
+        return None
 
     async def execute_ui_action(self, action_name: str, payload: dict = None) -> dict:
         """执行 UI action，将结果通过 UI_ACTION_RESULT 推送到前端弹窗展示（不写入 session event）。"""
-        meta = self.ui_actions_meta.get(action_name)
-        if not meta:
+        action_node = self._find_action_in_schema(self.get_ui_schema(), action_name)
+        if not action_node:
             raise ValueError(f"UI action '{action_name}' not found")
 
-        if meta["requires_idle"] and self._status != AgentStatus.IDLE:
+        if action_node.get("requires_idle", False) and self._status != AgentStatus.IDLE:
             raise RuntimeError(f"Action '{action_name}' requires IDLE status")
 
-        handler = getattr(self, meta["_handler_name"], None)
+        handler = getattr(self, action_name, None)
         if handler is None:
-            raise RuntimeError(f"Handler '{meta['_handler_name']}' not found on {self.name}")
+            raise RuntimeError(f"Handler '{action_name}' not found on {self.name}")
 
         # 只传 handler 接受的参数，过滤掉多余的（如 session_id）
-        import inspect
         sig = inspect.signature(handler)
         if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            # handler 有 **kwargs，全传
             filtered_payload = payload or {}
         else:
             accepted = set(sig.parameters.keys()) - {"self"}
@@ -1016,24 +751,16 @@ Start generating the Working Notes now.
                 "agent_name": self.name,
                 "data": {
                     "action_name": action_name,
-                    "label": meta["label"],
                     "result": serializable,
-                    "display_mode": meta["display_mode"],
+                    "display_mode": action_node.get("display_mode", "text"),
                     "timestamp": datetime.now().isoformat(),
                 },
             }))
 
-        return {"result": serializable, "display_mode": meta["display_mode"]}
+        return {"result": serializable, "display_mode": action_node.get("display_mode", "text")}
 
-    # ---- UI Actions（前端可调用）----
+    # ---- UI Action 方法（前端可调用）----
 
-    @ui_action(
-        name="pause_agent",
-        label="Pause",
-        icon="pause",
-        tooltip="暂停 Agent",
-        display_mode="toast",
-    )
     async def pause_agent(self, session_id: str = ""):
         if self.active_session_id != session_id:
             return "Session mismatch"
@@ -1042,13 +769,6 @@ Start generating the Working Notes now.
         await self.pause()
         return "Agent paused"
 
-    @ui_action(
-        name="continue_agent",
-        label="Continue",
-        icon="play",
-        tooltip="恢复或继续 Agent",
-        display_mode="toast",
-    )
     async def continue_agent(self, session_id: str = ""):
         if self.is_paused:
             if self.active_session_id != session_id:
@@ -1066,34 +786,18 @@ Start generating the Working Notes now.
             return "Continue signal sent"
         return "Nothing to continue"
 
-    @ui_action(
-        name="stop_agent",
-        label="Stop",
-        icon="square",
-        tooltip="停止当前 session",
-        display_mode="toast",
-    )
     async def stop_agent(self, session_id: str = ""):
         if self.active_session_id != session_id:
             return "Session mismatch"
         self.stop()
         return "Agent stopped"
 
-    @ui_action(
-        name="view_current_prompt",
-        label="System Prompt",
-        icon="file-text",
-        tooltip="查看当前 system prompt",
-        display_mode="markdown",
-    )
     async def view_current_prompt(self):
         """返回当前 system prompt，用于调试。"""
-        # 优先从活跃 MicroAgent 的 messages 中取真正的 system prompt
         if self.active_micro_agent and self.active_micro_agent.messages:
             msg = self.active_micro_agent.messages[0]
             if msg.get("role") == "system":
                 return msg["content"]
-        # fallback: 动态生成预览
         try:
             return self.preview_system_prompt()
         except Exception as e:
@@ -1292,7 +996,11 @@ Start generating the Working Notes now.
             raise RuntimeError("Container Session 未初始化。")
         if not self.container_session.is_alive():
             self.logger.info(f"重建 container shell: {self.container_session.session_id}")
-            self.container_session.start()
+            try:
+                self.container_session.start()
+            except Exception as e:
+                self.logger.error(f"重建 container shell 失败: {e}")
+                raise RuntimeError(f"Container Session 启动失败: {e}")
         success = await self.switch_workspace(session["task_id"])
         if not success:
             self.logger.error(f"工作区切换失败: task_id={session['task_id']}")

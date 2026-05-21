@@ -209,5 +209,20 @@
     "reload": "重新加载",
     "viewPrompt": "查看提示词",
     "newMessage": "发送新消息"
+  },
+  "ui_actions": {
+    "groups": {
+      "control": "控制",
+      "mode": "切换模式",
+      "debug": "调试"
+    },
+    "actions": {
+      "pause_agent": "暂停",
+      "continue_agent": "继续",
+      "stop_agent": "停止",
+      "view_current_prompt": "系统提示词",
+      "set_develop_mode": "开发模式",
+      "set_execute_mode": "执行模式"
+    }
   }
 }

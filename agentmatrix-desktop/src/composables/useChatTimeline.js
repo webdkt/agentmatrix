@@ -36,11 +36,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
 
   const hasContent = computed(() => chatTimeline.value.length > 0)
 
-  const pendingQuestion = computed(() => {
-    if (!currentSession.value) return null
-    return sessionStore.getPendingQuestion(currentSession.value.session_id)
-  })
-
   const primaryAgentName = computed(() => {
     if (!currentSession.value) return null
     return currentSession.value.agent_name || currentSession.value.name || null
@@ -262,20 +257,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     // no-op — placeholder stays until backend replaces it
   }
 
-  // ---- Ask user ----
-
-  const handleAgentQuestionSubmit = async () => {
-    if (!answer.value.trim() || !currentSession.value) return
-    const sessionId = currentSession.value.session_id
-    try {
-      await sessionStore.submitAskUserAnswer(sessionId, answer.value)
-      answer.value = ''
-    } catch (err) {
-      console.error('Failed to submit answer:', err)
-      alert('Failed to submit answer: ' + err.message)
-    }
-  }
-
   return {
     // State
     events,
@@ -290,7 +271,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     currentSession,
     chatTimeline,
     hasContent,
-    pendingQuestion,
     primaryAgentName,
     // Actions
     loadEvents,
@@ -300,6 +280,5 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     handleEmailSendStarted,
     handleEmailSendFailed,
     handleEmailSent,
-    handleAgentQuestionSubmit,
   }
 }

@@ -4,7 +4,6 @@ Base Skill - 所有 MicroAgent 必备的基础 Actions
 包含基础 actions：
 - get_current_datetime: 获取当前时间
 - take_a_break: 60秒休息
-- ask_user: 向用户提问并等待回答
 
 注意：
 - send_email 已移到 email skill 中
@@ -24,7 +23,8 @@ class BaseSkillMixin:
     提供通用的基础功能，如获取时间、用户交互等。
     """
 
-    _skill_description = "基础技能"
+    _skill_description = """基础技能。利用好whiteboard来记录工作要点，whiteboard是你和用户进行项目协作时的实时协作工具，也是你自己备忘、记录、规划的工具。
+    whiteboard的内容要分section 组织。同一个section内，每一条内容要有一个key来标识。更新和删除，要指定section和key. key的内容是容易记忆和理解的简短文本"""
 
     @register_action(
         short_desc="",
