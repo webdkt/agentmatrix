@@ -1,6 +1,9 @@
 <script setup>
 import { onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import MIcon from '@/components/icons/MIcon.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   visible: {
@@ -58,7 +61,7 @@ onUnmounted(() => {
         <template v-if="item.children">
           <div class="floating-menu__group">
             <div class="floating-menu__group-label">
-              {{ item.name }}
+              {{ t(`ui_actions.groups.${item.name}`, item.name) }}
             </div>
             <button
               v-for="child in item.children"
@@ -69,7 +72,7 @@ onUnmounted(() => {
               @click="handleAction(child)"
             >
               <MIcon :name="child.icon || 'bolt'" />
-              <span>{{ child.label || child.action }}</span>
+              <span>{{ t(`ui_actions.actions.${child.action}`, child.action) }}</span>
             </button>
           </div>
         </template>
@@ -83,7 +86,7 @@ onUnmounted(() => {
           @click="handleAction(item)"
         >
           <MIcon :name="item.icon || 'bolt'" />
-          <span>{{ item.label || item.action }}</span>
+          <span>{{ t(`ui_actions.actions.${item.action}`, item.action) }}</span>
         </button>
       </template>
 

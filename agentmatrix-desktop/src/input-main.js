@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import i18n from './i18n'
 import './styles/fonts.css'
 import './styles/tokens.css'
 import './styles/global.css'
@@ -15,4 +16,5 @@ import InputPanel from './components/floating/InputPanel.vue'
 const app = createApp(InputPanel)
 const pinia = createPinia()
 app.use(pinia)
+app.use(i18n)
 app.mount('#input-app')

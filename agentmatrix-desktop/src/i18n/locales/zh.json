@@ -214,7 +214,8 @@
     "groups": {
       "control": "控制",
       "mode": "切换模式",
-      "debug": "调试"
+      "debug": "调试",
+      "browser": "浏览器"
     },
     "actions": {
       "pause_agent": "暂停",
@@ -222,7 +223,9 @@
       "stop_agent": "停止",
       "view_current_prompt": "系统提示词",
       "set_develop_mode": "开发模式",
-      "set_execute_mode": "执行模式"
+      "set_execute_mode": "执行模式",
+      "show_indicator": "指给Agent看",
+      "show_range_selector": "选择范围给Agent"
     }
   }
 }

@@ -34,6 +34,9 @@ import {
 
   // Brand icon replacements
   Sparkles, Radio, Bot, Atom, Braces,
+
+  // Floating menu icons
+  Crosshair, SquareDashed, Globe,
 } from 'lucide-vue-next'
 
 export const iconMap = {
@@ -127,4 +130,9 @@ export const iconMap = {
   'file-zip': FileArchive,
   'file-video': FileVideo2,
   'file-music': FileAudio2,
+
+  // ─── Floating menu actions ───
+  crosshair: Crosshair,
+  'square-dashed': SquareDashed,
+  globe: Globe,
 }
