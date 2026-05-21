@@ -702,6 +702,7 @@ fn main() {
             commands::matrix::init_matrix_world,
             commands::filesystem::copy_file,
             commands::filesystem::file_exists,
+            commands::config::read_llm_config,
             commands::config::save_llm_config,
             commands::config::save_email_proxy_config_cmd,
             commands::config::save_env_file,

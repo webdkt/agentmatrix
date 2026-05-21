@@ -3,8 +3,7 @@ import { ref, computed, watch } from 'vue'
 import MIcon from '@/components/icons/MIcon.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
-
-const REQUIRED_LLM_CONFIGS = ['default_llm', 'default_slm', 'browser-use-llm']
+import { isSystemConfig, isRequiredConfig, getSystemDisplayName } from '@/utils/llmConfigFs'
 
 const props = defineProps({
   config: {
@@ -22,7 +21,6 @@ const emit = defineEmits(['close', 'saved'])
 const settingsStore = useSettingsStore()
 const uiStore = useUIStore()
 
-// Form state
 const formData = ref({
   name: '',
   description: '',
@@ -34,12 +32,52 @@ const formData = ref({
 const isSubmitting = ref(false)
 const showApiKey = ref(false)
 
-// Check if current config is required
-const isRequiredConfig = computed(() => {
-  return props.mode === 'edit' && REQUIRED_LLM_CONFIGS.includes(props.config?.name)
+const isSystemConfigEdit = computed(() => {
+  return props.mode === 'edit' && props.config && isSystemConfig(props.config.name)
 })
 
-// Initialize form data
+const isRequiredConfigEdit = computed(() => {
+  return props.mode === 'edit' && props.config && isRequiredConfig(props.config.name)
+})
+
+const isVisionConfig = computed(() => {
+  return props.config && props.config.name === 'default_vision'
+})
+
+const displayName = computed(() => {
+  if (isSystemConfigEdit.value) {
+    return getSystemDisplayName(props.config.name)
+  }
+  return formData.value.name || 'New Config'
+})
+
+const formTitle = computed(() => {
+  if (isSystemConfigEdit.value) {
+    return `Edit ${getSystemDisplayName(props.config.name)}`
+  }
+  if (props.mode === 'edit') {
+    return `Edit Config: ${props.config?.name}`
+  }
+  return 'Create New LLM Config'
+})
+
+const canSubmit = computed(() => {
+  const hasName = formData.value.name.trim()
+  const hasModel = formData.value.model_name.trim()
+  const hasApiKey = formData.value.api_key.trim()
+  const hasUrl = formData.value.url.trim()
+
+  if (isRequiredConfigEdit.value) {
+    return hasModel && hasApiKey && hasUrl && !isSubmitting.value
+  }
+
+  if (isVisionConfig.value && !hasModel && !hasApiKey && !hasUrl) {
+    return true
+  }
+
+  return hasName && hasModel && hasApiKey && hasUrl && !isSubmitting.value
+})
+
 const initializeForm = () => {
   if (props.config && props.mode === 'edit') {
     formData.value = {
@@ -60,37 +98,21 @@ const initializeForm = () => {
   }
 }
 
-// Watch props.config changes
 watch(() => props.config, () => {
   initializeForm()
 }, { immediate: true })
 
-// Computed
-const isEditMode = computed(() => props.mode === 'edit')
-
-const formTitle = computed(() => {
-  return isEditMode.value ? `Edit LLM Config: ${props.config?.name}` : 'Create New LLM Config'
-})
-
-const canSubmit = computed(() => {
-  return formData.value.name.trim() &&
-         formData.value.model_name.trim() &&
-         formData.value.api_key.trim() &&
-         !isSubmitting.value
-})
-
-// Methods
 const handleSubmit = async () => {
   if (!canSubmit.value) return
 
   isSubmitting.value = true
   try {
-    if (isEditMode.value) {
+    if (props.mode === 'edit') {
       await settingsStore.saveLLMConfig(props.config.name, formData.value)
-      uiStore.showNotification(`LLM config "${formData.value.name}" updated successfully`, 'success')
+      uiStore.showNotification(`Config "${displayName.value}" updated`, 'success')
     } else {
       await settingsStore.createLLMConfig(formData.value)
-      uiStore.showNotification(`LLM config "${formData.value.name}" created successfully`, 'success')
+      uiStore.showNotification(`Config "${formData.value.name}" created`, 'success')
     }
 
     emit('saved')
@@ -111,17 +133,17 @@ const toggleApiKeyVisibility = () => {
   showApiKey.value = !showApiKey.value
 }
 
-// Common models for quick selection
 const commonModels = [
-  { name: 'GPT-4', url: 'https://api.openai.com/v1' },
-  { name: 'GPT-3.5 Turbo', url: 'https://api.openai.com/v1' },
-  { name: 'Claude 3 Opus', url: 'https://api.anthropic.com/v1' },
-  { name: 'Claude 3 Sonnet', url: 'https://api.anthropic.com/v1' },
-  { name: 'Gemini Pro', url: 'https://generativelanguage.googleapis.com/v1' },
+  { name: 'GPT-4o', model: 'gpt-4o', url: 'https://api.openai.com/v1/chat/completions' },
+  { name: 'GPT-4', model: 'gpt-4', url: 'https://api.openai.com/v1/chat/completions' },
+  { name: 'GPT-3.5 Turbo', model: 'gpt-3.5-turbo', url: 'https://api.openai.com/v1/chat/completions' },
+  { name: 'Claude 3.5 Sonnet', model: 'claude-3-5-sonnet-20241022', url: 'https://api.anthropic.com/v1/messages' },
+  { name: 'Gemini Pro', model: 'gemini-pro', url: 'https://generativelanguage.googleapis.com/v1beta' },
+  { name: 'DeepSeek Chat', model: 'deepseek-chat', url: 'https://api.deepseek.com/v1/chat/completions' },
 ]
 
 const selectModel = (model) => {
-  formData.value.model_name = model.name
+  formData.value.model_name = model.model
   formData.value.url = model.url
 }
 </script>
@@ -134,19 +156,28 @@ const selectModel = (model) => {
         <div class="header-info">
           <div class="header-title-section">
             <h3 class="modal-title">{{ formTitle }}</h3>
-            <div v-if="isRequiredConfig" class="required-badge-inline">
+            <div v-if="isRequiredConfigEdit" class="config-badge required">
               <MIcon name="shield" />
-              <span>Required Configuration</span>
+              <span>Required</span>
+            </div>
+            <div v-else-if="isSystemConfigEdit" class="config-badge system">
+              <MIcon name="shield-check" />
+              <span>System</span>
             </div>
           </div>
           <p class="modal-subtitle">
-            {{ isEditMode ? 'Update your LLM configuration' : 'Add a new language model provider' }}
+            <template v-if="isVisionConfig">
+              Optional vision model. Leave all fields empty to disable.
+            </template>
+            <template v-else-if="isSystemConfigEdit">
+              {{ getSystemDisplayName(props.config.name) }} is a core system model
+            </template>
+            <template v-else>
+              Add a new language model provider
+            </template>
           </p>
         </div>
-        <button
-          @click="handleCancel"
-          class="btn-close"
-        >
+        <button @click="handleCancel" class="btn-close">
           <MIcon name="x" />
         </button>
       </div>
@@ -154,7 +185,7 @@ const selectModel = (model) => {
       <!-- Form Content -->
       <div class="modal-content">
         <!-- Quick Select Models (create mode only) -->
-        <div v-if="!isEditMode" class="form-section">
+        <div v-if="!isSystemConfigEdit" class="form-section">
           <label class="section-label">Quick Select Common Models</label>
           <div class="model-grid">
             <button
@@ -177,22 +208,22 @@ const selectModel = (model) => {
             Basic Settings
           </h4>
 
-          <div class="form-group">
+          <div v-if="!isSystemConfigEdit" class="form-group">
             <label class="form-label">
               Config Name <span class="required">*</span>
             </label>
             <input
               v-model="formData.name"
               type="text"
-              :disabled="isEditMode"
+              :disabled="mode === 'edit'"
               class="form-input"
-              placeholder="e.g., openai, anthropic, custom_llm"
+              placeholder="e.g., my_custom_llm, analysis_model"
             />
-            <p v-if="isEditMode" class="form-hint">
+            <p v-if="mode === 'edit'" class="form-hint">
               Config name cannot be changed after creation
             </p>
             <p v-else class="form-hint">
-              Use default_llm, default_slm, or browser-use-llm for required system configs
+              Choose a unique name for this configuration
             </p>
           </div>
 
@@ -222,13 +253,13 @@ const selectModel = (model) => {
               v-model="formData.model_name"
               type="text"
               class="form-input"
-              placeholder="e.g., gpt-4, claude-3-opus-20240229"
+              placeholder="e.g., gpt-4, claude-3-5-sonnet-20241022"
             />
           </div>
 
           <div class="form-group">
             <label class="form-label">
-              API Key <span class="required">*</span>
+              API Key <span v-if="!isVisionConfig" class="required">*</span>
             </label>
             <div class="password-input">
               <input
@@ -248,15 +279,20 @@ const selectModel = (model) => {
           </div>
 
           <div class="form-group">
-            <label class="form-label">API Base URL</label>
+            <label class="form-label">
+              API Base URL <span v-if="!isVisionConfig" class="required">*</span>
+            </label>
             <input
               v-model="formData.url"
               type="url"
               class="form-input"
-              placeholder="https://api.example.com/v1"
+              placeholder="https://api.openai.com/v1/chat/completions"
             />
-            <p class="form-hint">
-              Leave empty to use model's default endpoint
+            <p v-if="isVisionConfig" class="form-hint">
+              Leave empty to disable vision model
+            </p>
+            <p v-else class="form-hint">
+              Full endpoint URL for the model API
             </p>
           </div>
         </div>
@@ -279,7 +315,7 @@ const selectModel = (model) => {
         >
           <MIcon v-if="isSubmitting" name="loader" class="spinner" />
           <MIcon v-else name="check" />
-          <span>{{ isEditMode ? 'Save Changes' : 'Create Config' }}</span>
+          <span>{{ isVisionConfig && !formData.model_name.trim() ? 'Disable Vision' : (mode === 'edit' ? 'Save Changes' : 'Create Config') }}</span>
         </button>
       </div>
     </div>
@@ -302,7 +338,7 @@ const selectModel = (model) => {
   background: white;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  max-width: 600px;
+  max-width: 560px;
   width: 100%;
   max-height: 90vh;
   overflow: hidden;
@@ -314,19 +350,21 @@ const selectModel = (model) => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: var(--spacing-6);
+  padding: var(--spacing-5) var(--spacing-6);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .header-info {
   flex: 1;
+  min-width: 0;
 }
 
 .header-title-section {
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
+  flex-wrap: wrap;
 }
 
 .modal-title {
@@ -337,26 +375,35 @@ const selectModel = (model) => {
   line-height: var(--leading-tight);
 }
 
-.required-badge-inline {
-  display: flex;
+.config-badge {
+  display: inline-flex;
   align-items: center;
   gap: var(--spacing-1);
-  padding: var(--spacing-1) var(--spacing-3);
-  background: transparent;
-  color: var(--accent);
-  border-radius: var(--radius-md);
+  padding: 2px var(--spacing-2);
+  border-radius: var(--radius-sm);
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
+  line-height: 1.4;
 }
 
-.required-badge-inline i {
-  font-size: var(--icon-sm);
+.config-badge i {
+  font-size: 12px;
+}
+
+.config-badge.required {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.config-badge.system {
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
 }
 
 .modal-subtitle {
   font-size: var(--font-sm);
   color: var(--text-tertiary);
-  margin: var(--spacing-2) 0 0 0;
+  margin: var(--spacing-1) 0 0 0;
 }
 
 .btn-close {
@@ -386,13 +433,13 @@ const selectModel = (model) => {
   padding: var(--spacing-6);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-6);
+  gap: var(--spacing-5);
 }
 
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-4);
+  gap: var(--spacing-3);
 }
 
 .section-label {
@@ -419,12 +466,12 @@ const selectModel = (model) => {
 
 .model-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: var(--spacing-2);
 }
 
 .model-card {
-  padding: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
   background: white;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
@@ -435,14 +482,14 @@ const selectModel = (model) => {
 
 .model-card:hover {
   background: var(--surface-base);
-  border-color: var(--text-tertiary);
+  border-color: var(--accent);
 }
 
 .model-name {
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   color: var(--text-primary);
-  margin-bottom: var(--spacing-1);
+  margin-bottom: 2px;
 }
 
 .model-url {
@@ -473,19 +520,20 @@ const selectModel = (model) => {
 .form-input,
 .form-textarea {
   width: 100%;
-  padding: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
   background: white;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   font-size: var(--font-sm);
   color: var(--text-primary);
-  transition: all var(--duration-base) var(--ease-out);
+  transition: border-color var(--duration-base) var(--ease-out);
 }
 
 .form-input:focus,
 .form-textarea:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .form-input:disabled {
@@ -534,13 +582,13 @@ const selectModel = (model) => {
   align-items: center;
   justify-content: flex-end;
   gap: var(--spacing-3);
-  padding: var(--spacing-6);
+  padding: var(--spacing-5) var(--spacing-6);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .btn-secondary {
-  padding: var(--spacing-3) var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-4);
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border-strong);
@@ -559,7 +607,7 @@ const selectModel = (model) => {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
-  padding: var(--spacing-3) var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-4);
   background: var(--accent);
   color: white;
   border: none;
