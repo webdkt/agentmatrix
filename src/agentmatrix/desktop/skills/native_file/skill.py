@@ -139,7 +139,7 @@ class Native_fileSkillMixin:
         allow_overwrite: bool = False,
     ) -> str:
         # 宿主机直接写入，不需要路径转换
-        host_path = Path(file_path).expanduser()
+        host_path = self._resolve_path(file_path)
 
         if host_path.exists() and mode == "overwrite" and not allow_overwrite:
             return f"错误：文件已存在，如果要覆盖请设置 allow_overwrite=True\n  文件: {file_path}"
@@ -203,6 +203,17 @@ class Native_fileSkillMixin:
             return "未找到匹配结果"
 
         return stdout or "未找到匹配结果"
+    
+    def _resolve_path(self, file_path: str) -> Path:
+        """Resolve ~ to agent's home dir via runtime.paths."""
+        if file_path.startswith("~"):
+            agent = self.root_agent
+            resolved = agent.runtime.paths.container_path_to_host(
+                file_path, agent.name, agent.current_session_id
+            )
+            if resolved:
+                return resolved
+        return Path(file_path)
 
     @register_action(
         short_desc=(
@@ -252,7 +263,7 @@ class Native_fileSkillMixin:
     async def replace_string_in_file(
         self, file_path: str, old_pattern: str, new_string: str, use_regex: bool = False
     ) -> str:
-        host_path = Path(file_path).expanduser()
+        host_path = self._resolve_path(file_path)
 
         if not host_path.exists():
             return f"错误：文件不存在 {file_path}"
