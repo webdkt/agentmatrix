@@ -68,8 +68,9 @@ const primaryAgentStatus = computed(() => {
   const agent = agentStore.agents[primaryAgentName.value]
   if (!agent) return { status: 'IDLE', isOnCurrentSession: true, otherSessionId: null }
   const status = agent.status || 'IDLE'
-  // 只有非 IDLE 状态才判断是否在处理其他工作
-  const isActive = status !== 'IDLE'
+  // 只有真正在工作的状态才判断是否在处理其他工作
+  // STOPPED 也是非活跃状态，不应显示"正在处理其他工作"
+  const isActive = status !== 'IDLE' && status !== 'STOPPED'
   const isOnCurrentSession = !isActive || !currentSession.value || agent.current_session_id === currentSession.value.session_id
   return {
     status,

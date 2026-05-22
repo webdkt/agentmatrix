@@ -222,6 +222,12 @@ class ContainerSession:
         # 清空队列中的残留数据
         self._drain_queues()
 
+        # 语法检查（不通过则直接返回，避免卡住 session）
+        valid, syntax_err = self._check_syntax(command)
+        if not valid:
+            self.logger.warning(f"命令语法错误，跳过执行: {syntax_err}")
+            return 1, "", syntax_err
+
         # 构造命令 - 先 cd 到当前工作目录确保位置正确
         # 使用唯一标记来捕获输出和退出码
         wrapped_cmd = (
@@ -303,6 +309,20 @@ class ContainerSession:
         if code == 0:
             return out.strip()
         return self.initial_workdir
+
+    def _check_syntax(self, command: str) -> Tuple[bool, str]:
+        """用 bash -n 检查命令语法，返回 (is_valid, error_message)"""
+        try:
+            result = subprocess.run(
+                ["bash", "-n", "-c", command],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return False, result.stderr.strip()
+            return True, ""
+        except Exception:
+            # 校验本身失败（不应该阻止执行）
+            return True, ""
 
     def _send_raw(self, data: str) -> None:
         """发送原始数据到 stdin"""

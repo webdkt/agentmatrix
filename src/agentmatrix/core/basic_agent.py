@@ -140,7 +140,7 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
 
         else:
             # 情况 3：不同 session
-            if self._session_task and self._session_task.done():
+            if self._session_task is None or self._session_task.done():
                 # execute 已结束 → 安全切换
                 await self._deactivate_session(self.current_session)
                 await self._activate_session(session, signal)
