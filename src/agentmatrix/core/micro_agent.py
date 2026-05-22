@@ -283,7 +283,8 @@ class MicroAgent(AutoLoggerMixin):
                 name = info.get("action_name", "?")
                 label = info.get("label", "")
                 parts.append(f"#{idx}-{name}-{label}" if label else f"#{idx}-{name}")
-            text += f"\n\n**Still running: {', '.join(parts)}**"
+
+            text += f"\n\n**还有这{len(parts)}个action没有完成，等待结果中: {', '.join(parts)}**"
 
         self._add_message("user", text)
 
