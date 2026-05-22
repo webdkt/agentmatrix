@@ -38,6 +38,8 @@ export default defineConfig({
         main: path.resolve(__dirname, 'index.html'),
         input: path.resolve(__dirname, 'input.html'),
         detail: path.resolve(__dirname, 'detail.html'),
+        capsule: path.resolve(__dirname, 'capsule.html'),
+        stream: path.resolve(__dirname, 'stream.html'),
       },
     },
   },

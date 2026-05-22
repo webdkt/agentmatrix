@@ -1,8 +1,8 @@
 """
 Readable ID Generator - 生成可读的 session_id 和 task_id
 
-格式: {subject关键词}-{YYMMDDHHMM}-{4位随机码}
-例如: write-report-2503261430-a3f2
+格式: {YYMMDDHHMM}-{subject关键词}-{4位随机码}
+例如: 2503261430-write-report-a3f2
 """
 
 import re
@@ -51,13 +51,13 @@ def generate_readable_id(subject: str = "") -> str:
     """
     生成可读的 ID
 
-    格式: {subject关键词}-{YYMMDDHHMM}-{4位随机码}
+    格式: {YYMMDDHHMM}-{subject关键词}-{4位随机码}
 
     Args:
         subject: 邮件主题（可能为空）
 
     Returns:
-        可读 ID，例如: "write-report-2503261430-a3f2"
+        可读 ID，例如: "2503261430-write-report-a3f2"
     """
     # 1. 清理 subject
     clean_subject = sanitize(subject)
@@ -75,6 +75,6 @@ def generate_readable_id(subject: str = "") -> str:
     random_str = ''.join(random.choices(chars, k=4))
 
     # 4. 组合
-    readable_id = f"{clean_subject}-{time_str}-{random_str}"
+    readable_id = f"{time_str}-{clean_subject}-{random_str}"
 
     return readable_id
