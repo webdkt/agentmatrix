@@ -1,38 +1,28 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { emit as tauriEmit, listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useAgentStore } from '@/stores/agent'
 import { sessionAPI } from '@/api/session'
-import { configAPI } from '@/api/config'
 import { useKaraokeScroll } from '@/composables/useKaraokeScroll'
 import KaraokeStream from './KaraokeStream.vue'
-import MIcon from '@/components/icons/MIcon.vue'
 
 // ---- Session state: read from Rust global state ----
 const agentName = ref(null)
 const agentSessionId = ref(null)
 const userAgentName = ref(null)
 const agentStatus = ref('IDLE')
-const isLoading = ref(false)
 
 async function loadSessionFromGlobal() {
-  try {
-    const config = await configAPI.getFullConfig()
-    userAgentName.value = config?.user_agent_name || null
-  } catch (e) {
-    console.error('[Stream] Failed to load backend config:', e)
-  }
   try {
     const ctx = await invoke('get_current_session')
     agentSessionId.value = ctx.agent_session_id || null
     agentName.value = ctx.agent_name || null
+    userAgentName.value = ctx.user_agent_name || null
   } catch (e) {
     console.error('[Stream] Failed to load session:', e)
   }
 }
-
-const isValidSession = computed(() => !!(agentName.value && agentSessionId.value))
 
 // ---- Stores ----
 const agentStore = useAgentStore()
@@ -84,6 +74,7 @@ const {
   karaokeTriple,
   isTyping,
   enqueueTypewriter,
+  reset,
   onDetailOpen,
   onDetailClose,
 } = useKaraokeScroll(messages, eventSummary)
@@ -135,27 +126,18 @@ function classifyEvent(type, name, detail) {
   return 'system'
 }
 
-// ---- Load history from backend ----
+// ---- History (loaded on init, cancelled if typewriter starts) ----
+let historyAborted = false
+
 async function loadHistory() {
   if (!agentName.value || !agentSessionId.value) return
-  isLoading.value = true
   try {
     const result = await sessionAPI.getSessionEvents(agentName.value, agentSessionId.value, 200)
+    if (historyAborted) return
     const events = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
-    let lastAction = null
-    for (const e of events) {
-      if (e.renderType === 'pill') {
-        lastAction = formatAction(e)
-      } else {
-        lastAction = null
-      }
-    }
-    currentAction.value = lastAction
     messages.value = events.filter(e => e.renderType !== 'pill')
   } catch (err) {
     console.error('[Stream] Failed to load history:', err)
-  } finally {
-    isLoading.value = false
   }
 }
 
@@ -229,6 +211,10 @@ function handleWsMessage(data) {
     }
 
     currentAction.value = null
+    if (!historyAborted) {
+      historyAborted = true
+      reset()
+    }
     enqueueTypewriter(parsed)
   } else if (data.type === 'AGENT_STATUS_UPDATE') {
     const { agent_name, data: statusData } = data
@@ -241,36 +227,30 @@ function handleWsMessage(data) {
 }
 
 // ---- Lifecycle ----
-let sessionInitialized = false
 let unlistenDetail = null
 let unlistenReloadSession = null
 
 onMounted(async () => {
   invoke('clip_window_rounded', { label: 'floating-stream', radius: 16 })
   await loadSessionFromGlobal()
+  connectWebSocket()
 
   unlistenReloadSession = await listen('session-changed', async () => {
-    const oldAgentName = agentName.value
-    const oldAgentSessionId = agentSessionId.value
     await loadSessionFromGlobal()
-    if (agentName.value !== oldAgentName || agentSessionId.value !== oldAgentSessionId) {
-      messages.value = []
-      currentAction.value = null
-      sessionInitialized = false
+    historyAborted = false
+    reset()
+    currentAction.value = null
+    loadHistory()
+    // Re-request agent status after session update
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'REQUEST_SYSTEM_STATUS' }))
     }
   })
-})
-
-watch(isValidSession, async (valid) => {
-  if (!valid || sessionInitialized) return
-  sessionInitialized = true
-  await loadHistory()
-  connectWebSocket()
 
   unlistenDetail = await listen('detail:closed', () => {
     onDetailClose()
   })
-}, { immediate: true })
+})
 
 onUnmounted(() => {
   if (unlistenDetail) unlistenDetail()
@@ -289,14 +269,8 @@ onUnmounted(() => {
 
 <template>
   <div class="stream-panel">
-    <!-- Loading state -->
-    <div v-if="isLoading" class="stream-loading">
-      <span class="stream-loading__spinner"><MIcon name="loader" /></span>
-    </div>
-
     <!-- Stream -->
     <KaraokeStream
-      v-if="!isLoading"
       :karaoke-triple="karaokeTriple"
     />
 
@@ -385,21 +359,4 @@ onUnmounted(() => {
   transform: translateY(-100%);
 }
 
-.stream-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px;
-}
-
-.stream-loading__spinner {
-  font-size: 16px;
-  color: var(--text-quaternary, #d4d4d8);
-  animation: spin 1s linear infinite;
-  display: flex;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg) }
-}
 </style>

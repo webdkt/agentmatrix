@@ -172,6 +172,7 @@ onUnmounted(() => {
 .karaoke-roller {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   position: relative;
   background: transparent;
   border: none;
@@ -201,7 +202,6 @@ onUnmounted(() => {
   -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
   mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
   flex-shrink: 0;
-  margin-top: auto;
 }
 
 .karaoke-slot--current {
@@ -212,7 +212,6 @@ onUnmounted(() => {
 .karaoke-slot--coming {
   opacity: 0.6;
   flex-shrink: 0;
-  margin-bottom: auto;
 }
 
 .karaoke-slot--previous + .karaoke-slot--current {

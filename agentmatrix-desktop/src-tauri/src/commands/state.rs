@@ -10,6 +10,7 @@ pub struct CurrentSession {
     pub agent_name: Option<String>,
     pub task_id: Option<String>,
     pub last_email_id: Option<String>,
+    pub user_agent_name: Option<String>,
 }
 
 pub struct AppState {

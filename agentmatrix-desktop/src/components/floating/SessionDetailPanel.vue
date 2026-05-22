@@ -799,7 +799,7 @@ onUnmounted(() => {
 .session-detail-panel__messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 16px 16px 44px;
   display: flex;
   flex-direction: column;
   gap: 24px;

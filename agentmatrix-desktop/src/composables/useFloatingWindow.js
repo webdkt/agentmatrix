@@ -2,6 +2,7 @@ import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, emit as tauriEmit } from '@tauri-apps/api/event'
 import { useSessionStore } from '@/stores/session'
+import { useConfigStore } from '@/stores/config'
 
 /**
  * Floating Window 管理器
@@ -13,6 +14,7 @@ let unlistenSwitchSession = null
 
 export function useFloatingWindow() {
   const sessionStore = useSessionStore()
+  const configStore = useConfigStore()
   const currentSession = computed(() => sessionStore.currentSession)
 
   /**
@@ -26,6 +28,7 @@ export function useFloatingWindow() {
         agent_name: session.agent_name || session.name || null,
         task_id: session.task_id || session.session_id || null,
         last_email_id: session.last_email_id || null,
+        user_agent_name: configStore.config?.user_agent_name || null,
       },
     })
   }
