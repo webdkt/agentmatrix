@@ -37,11 +37,11 @@
     // ==========================================
     // 暴露 indicator / range 触发函数（供后端 CDP 调用）
     // ==========================================
-    window.__bh_show_indicator__ = function() {
-        _showIndicator(Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2), '拖动准心到目标位置');
+    window.__bh_show_indicator__ = function(agentName, sessionId) {
+        _showIndicator(Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2), '拖动准心到目标位置', agentName, sessionId);
     };
-    window.__bh_show_range__ = function() {
-        _showRangeSelector();
+    window.__bh_show_range__ = function(agentName, sessionId) {
+        _showRangeSelector(agentName, sessionId);
     };
 
     // ==========================================

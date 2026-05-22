@@ -1,7 +1,7 @@
     // ==========================================
     // Indicator（十字准心）
     // ==========================================
-    function _showIndicator(initX, initY, infoText) {
+    function _showIndicator(initX, initY, infoText, agentName, sessionId) {
         _showOverlay('indicator');
 
         var crosshair = document.createElement('div');
@@ -56,7 +56,7 @@
             var el = document.elementFromPoint(x, y);
             if (h) h.style.display = '';
             if (el) el.setAttribute('__bh_marked__', '1');
-            window.__bh_emit__('indicator_result', {x: x, y: y, text: inp.value});
+            window.__bh_emit__('indicator_result', {x: x, y: y, text: inp.value, agent_name: agentName, agent_session_id: sessionId});
             inp.value = '';
             _showSplash({atSpeech: true});
         }

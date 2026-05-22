@@ -1254,6 +1254,8 @@ Start generating the Working Notes now.
         self._is_stopping = False
         self.current_user_session_id = None
         self._session_task = None
+        self.active_session_id = None
+        self.current_session = None
         self.update_status(new_status=AgentStatus.IDLE)
 
     async def _handle_session_error(
