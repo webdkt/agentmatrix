@@ -622,7 +622,9 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
         if not tab or not tab.session_id:
             return {"error": "No active browser tab"}
 
-        js = "window.__bh_show_indicator__ ? window.__bh_show_indicator__() : null"
+        agent_name = json.dumps(self.name)
+        session_id = json.dumps(self.active_session_id or "")
+        js = f"window.__bh_show_indicator__ ? window.__bh_show_indicator__({agent_name}, {session_id}) : null"
         await _cdp_client.send(
             "Runtime.evaluate", {"expression": js},
             session_id=tab.session_id, timeout=5,
@@ -636,7 +638,9 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
         if not tab or not tab.session_id:
             return {"error": "No active browser tab"}
 
-        js = "window.__bh_show_range__ ? window.__bh_show_range__() : null"
+        agent_name = json.dumps(self.name)
+        session_id = json.dumps(self.active_session_id or "")
+        js = f"window.__bh_show_range__ ? window.__bh_show_range__({agent_name}, {session_id}) : null"
         await _cdp_client.send(
             "Runtime.evaluate", {"expression": js},
             session_id=tab.session_id, timeout=5,

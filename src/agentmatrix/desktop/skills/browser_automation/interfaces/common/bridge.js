@@ -24,7 +24,7 @@
      * 自动附带 agent 元数据（agent_name, agent_session_id）。
      *
      * @param {string} eventType - 事件类型（如 'click', 'indicator_result', 'user_input'）
-     * @param {object} data - 事件数据
+     * @param {object} data - 事件数据（可包含 agent_name, agent_session_id 覆盖全局元数据）
      */
     window.__bh_emit__ = function(eventType, data) {
         var payload = {
@@ -33,14 +33,22 @@
             url: location.href,
             title: document.title
         };
-        // 附带 agent 元数据
-        if (window.__bh_agent_meta__) {
+        // 附带 agent 元数据（优先使用 data 中的参数，否则使用全局 __bh_agent_meta__）
+        if (data && data.agent_name) {
+            payload.agent_name = data.agent_name;
+        } else if (window.__bh_agent_meta__) {
             payload.agent_name = window.__bh_agent_meta__.agent_name || '';
+        }
+        if (data && data.agent_session_id) {
+            payload.agent_session_id = data.agent_session_id;
+        } else if (window.__bh_agent_meta__) {
             payload.agent_session_id = window.__bh_agent_meta__.agent_session_id || '';
         }
         if (data && typeof data === 'object') {
             for (var k in data) {
-                if (data.hasOwnProperty(k)) payload[k] = data[k];
+                if (data.hasOwnProperty(k) && k !== 'agent_name' && k !== 'agent_session_id') {
+                    payload[k] = data[k];
+                }
             }
         }
         console.log('__BH_EVENT__ ' + JSON.stringify(payload));

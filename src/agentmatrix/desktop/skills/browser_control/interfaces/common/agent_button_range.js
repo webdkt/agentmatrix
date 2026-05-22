@@ -1,7 +1,7 @@
     // ==========================================
     // Range Selector
     // ==========================================
-    function _showRangeSelector() {
+    function _showRangeSelector(agentName, sessionId) {
         _showOverlay('range');
 
         var INIT_W = 300, INIT_H = 200;
@@ -98,7 +98,9 @@
                 y: Math.round(parseFloat(rect.style.top)),
                 width: Math.round(parseFloat(rect.style.width)),
                 height: Math.round(parseFloat(rect.style.height)),
-                text: inp.value
+                text: inp.value,
+                agent_name: agentName,
+                agent_session_id: sessionId
             });
             inp.value = '';
             _showSplash({atSpeech: true});

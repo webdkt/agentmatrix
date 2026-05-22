@@ -241,10 +241,8 @@ onMounted(async () => {
     reset()
     currentAction.value = null
     loadHistory()
-    // Re-request agent status after session update
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'REQUEST_SYSTEM_STATUS' }))
-    }
+    // Reconnect WebSocket to ensure connection (onMounted may have run before backend was ready)
+    connectWebSocket()
   })
 
   unlistenDetail = await listen('detail:closed', () => {

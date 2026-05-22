@@ -150,16 +150,17 @@ onMounted(async () => {
   await listen('input:closed', () => {
     isInputWindowOpen = false
   })
+
+  // Listen for agent status updates from the stream window
+  unlistenStatus = await listen('floating:status-update', (event) => {
+    agentStatusData.value = event.payload || {}
+    agentStatus.value = event.payload?.status || 'IDLE'
+  })
 })
 
 watch(isValidSession, async (valid) => {
   if (!valid) return
   await loadAgentUISchema()
-
-  unlistenStatus = await listen('floating:status-update', (event) => {
-    agentStatusData.value = event.payload || {}
-    agentStatus.value = event.payload?.status || 'IDLE'
-  })
 }, { immediate: true })
 
 onUnmounted(() => {
