@@ -206,7 +206,7 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
 
 # ── Skill Mixin ───────────────────────────────────────────
 
-class Browser_automationSkillMixin:
+class Browser_controlSkillMixin:
     """
     Browser Automation Skill — 浏览器自动化 
 
@@ -216,9 +216,9 @@ class Browser_automationSkillMixin:
     - 浏览器事件按 tab 归属路由到正确的 agent signal_queue
     """
 
-    _skill_description = """浏览器自动化开发：浏览器自动化流程和自动化脚本的生成、管理和运行
-    `~/site_knowledge`目录就是你的代码仓库。
-    ### ~/site_knowledge 的结构
+    _skill_description = """浏览器控制操作和自动化
+    `~/site_knowledge`目录是你的网站自动化流程代码仓库。对于经常操作的网站，可以形成自动化脚本来反复使用
+    ### `~/site_knowledge` 的结构
     - 根目录（~/site_knowledge)
         - index.txt: 网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
             - url_prefix 可以是域名（如 `www.example.com`）或域名+路径前缀（如 `www.example.com/shop`）
@@ -227,16 +227,15 @@ class Browser_automationSkillMixin:
             - 使用 load_site_knowledge(site_key, process_dir_name?) 来加载对应的知识。仅提供 site_key 加载站点概览和流程列表；同时提供 process_dir_name 加载具体流程的详细步骤
     - 根目录下每个网站(site key)一个子目录，内含：
         - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
-        - shared_elements.md:  站内公用元素的定位说明，所有流程共享
         - 流程子目录，每个自动化流程一个子目录，内含流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
     - 每个流程子目录的结构
         - readme.md: 业务流程和规则的简要说明
         - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
-        - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
+        - scripts/ 目录：存放针对该流程的python自动化脚本。
         
     ### site_knowledge 文件规范
     #### Python自动化脚本
-    Python 脚本应该通过 CDP_PORT, CDP_HTTP_ENDPOINT, CDP_CURRENT_TAB_ID 等环境变量获取连接信息和路径，不要硬编码。
+    Python 脚本应该通过 CDP_PORT, CDP_HTTP_ENDPOINT, CDP_CURRENT_TAB_ID 等环境变量获取连接信息和路径，不要硬编码。这些环境变量会自动设置到你的bash session 中
     连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
     
     #### Javascript: No Console Output
@@ -722,7 +721,7 @@ class Browser_automationSkillMixin:
         micro = MicroAgent(
             parent=self.root_agent,
             name=f"{self.root_agent.name}_dom_explorer",
-            available_skills=["browser_automation.dom_explorer"],
+            available_skills=["browser_control.dom_explorer"],
             system_prompt=prompt,
         )
         micro._pinned_tab_id = tab_id
@@ -837,15 +836,15 @@ class Browser_automationSkillMixin:
                 "error": str(e),
             }, ensure_ascii=False)
 
-    @register_action(
-        short_desc="confirm_element(selector, tab_id?) 在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",
-        description="在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。"
-                    "立即返回，用户确认结果通过 element_confirmed 信号异步返回。",
-        param_infos={
-            "selector": "要确认的 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）",
-            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
-        },
-    )
+    #@register_action(
+    #    short_desc="confirm_element(selector, tab_id?) 在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",
+    #    description="在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。"
+    #                "立即返回，用户确认结果通过 element_confirmed 信号异步返回。",
+    #    param_infos={
+    #        "selector": "要确认的 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）",
+    #        "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
+    #    },
+    #)
     async def confirm_element(self, selector: str, tab_id: str = None) -> str:
         await self._ensure_browser()
 
@@ -880,244 +879,7 @@ class Browser_automationSkillMixin:
                 "error": str(e),
             }, ensure_ascii=False)
         
-    """@register_action(
-        short_desc="(file_path, str_arg1?) 按扩展名执行自动化脚本，str_arg1可选仅对 .py 有效。自动化工作必须通过此方法进行"
-                    "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
-                    "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
-                    "- .py：在宿主机执行 Python 脚本，自动注入 CDP 连接环境变量，str_arg1 通过 sys.argv[1] 传入\n\n"
-                    ,
-        description="读取脚本文件并按扩展名执行。\n"
-                    "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
-                    "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
-                    "- .py：在宿主机执行 Python 脚本，自动注入 CDP 连接环境变量，str_arg1 通过 sys.argv[1] 传入\n\n"
-                    ".json 示例（鼠标点击）：\n"
-                    '[\n'
-                    '  {"method":"Input.dispatchMouseEvent","params":{"type":"mousePressed","x":100,"y":200,"button":"left","clickCount":1}},\n'
-                    '  {"method":"Input.dispatchMouseEvent","params":{"type":"mouseReleased","x":100,"y":200,"button":"left","clickCount":1}}\n'
-                    ']\n\n'
-                    "路径会自动从 ~ / ~/current_task 转换为宿主路径。\n"
-                    "CDP 文档参考 https://chromedevtools.github.io/devtools-protocol/",
-        param_infos={
-            "file_path": "脚本文件路径，支持 .json / .js / .py（必须是 ~ 或 ~/current_task 及其子目录下）",
-            "str_arg1": "可选，仅对 .py 有效，传递给脚本的字符串参数（脚本通过 sys.argv[1] 读取）",
-        },
-    )"""
-    async def run_automation_script(self, file_path: str, str_arg1: str = None) -> str:
-        await self._ensure_browser()
-
-        # 容器路径 → 宿主路径
-        root = self.root_agent
-        agent_name = root.name
-        task_id = getattr(root, "current_task_id", None) or "default"
-        host_path = root.runtime.paths.container_path_to_host(
-            file_path, agent_name, task_id
-        )
-        if host_path is None or not host_path.exists():
-            return json.dumps({
-                "error": "文件必须在 ~ 或 ~/current_task 及其子目录下",
-            }, ensure_ascii=False)
-
-        # 读取文件
-        try:
-            content = host_path.read_text(encoding="utf-8")
-        except Exception as e:
-            return json.dumps({"error": f"读取文件失败: {e}"}, ensure_ascii=False)
-
-        ext = host_path.suffix.lower()
-
-        # ── .js → Runtime.evaluate ──
-        if ext == ".js":
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
-
-            try:
-                result = await _cdp_send_with_recovery(
-                    "Runtime.evaluate",
-                    {"expression": content, "returnByValue": True, "awaitPromise": True},
-                    tab=tab,
-                    timeout=15,
-                )
-                res = result.get("result", {})
-
-                if res.get("subtype") == "error":
-                    desc = res.get("description", "unknown JS error")
-                    logger.warning(f"[run_script] JS exception: {desc}")
-                    return json.dumps({"error": desc})
-
-                value = res.get("value")
-                type_name = res.get("type", "undefined")
-
-                if type_name == "undefined":
-                    return json.dumps({"type": "undefined", "value": None})
-                if value is None:
-                    return json.dumps({"type": type_name, "value": None})
-                if isinstance(value, (dict, list)):
-                    return json.dumps(value, ensure_ascii=False)
-                return str(value)
-            except Exception as e:
-                logger.warning(f"[run_script] JS error: {e}")
-                return json.dumps({"error": str(e)})
-
-        # ── .json → CDP 指令序列 ──
-        if ext == ".json":
-            try:
-                cmd = json.loads(content)
-            except json.JSONDecodeError as e:
-                return json.dumps({"error": f"JSON 解析失败: {e}"}, ensure_ascii=False)
-
-            if isinstance(cmd, dict):
-                commands = [cmd]
-            elif isinstance(cmd, list):
-                commands = cmd
-            else:
-                return json.dumps({"error": f"JSON 必须是对象或数组，实际: {type(cmd).__name__}"}, ensure_ascii=False)
-
-            results = []
-            for i, item in enumerate(commands):
-                method = item.get("method")
-                if not method:
-                    results.append({"index": i, "error": "缺少 'method' 字段"})
-                    continue
-
-                params = item.get("params", {})
-                timeout = item.get("timeout", 30)
-                cmd_tab_id = item.get("tab_id")
-
-                if cmd_tab_id:
-                    tab = _tab_manager._tabs.get(cmd_tab_id) if _tab_manager else None
-                    if not tab:
-                        results.append({"index": i, "method": method, "error": _tab_not_found_msg(cmd_tab_id)})
-                        continue
-                else:
-                    tab = self._get_current_tab()
-                    if not tab:
-                        results.append({"index": i, "method": method, "error": "没有活动的 tab"})
-                        continue
-
-                _is_input = method.startswith("Input.")
-                if _is_input:
-                    await _auto_yield_ui(tab)
-                try:
-                    result = await _cdp_send_with_recovery(
-                        method, params, tab=tab, timeout=timeout,
-                    )
-                    results.append({"index": i, "method": method, "result": result})
-                except Exception as e:
-                    logger.warning(f"[run_script] {method} error: {e}")
-                    results.append({"index": i, "method": method, "error": str(e)})
-                finally:
-                    if _is_input:
-                        await _auto_restore_ui(tab)
-
-            if len(commands) == 1:
-                return json.dumps(results[0], ensure_ascii=False, default=str)
-            return json.dumps({"status": "ok", "total": len(commands), "results": results}, ensure_ascii=False, default=str)
-
-        # ── .py → 宿主机 Python 脚本 ──
-        if ext == ".py":
-            # 收集 CDP 信息
-            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
-            http_endpoint = f"http://127.0.0.1:{port}"
-            tab = self._get_current_tab()
-
-            # 构建环境变量
-            work_dir = root.runtime.paths.get_agent_work_files_dir(agent_name, task_id)
-            home_dir = root.runtime.paths.get_agent_home_dir(agent_name)
-            env = os.environ.copy()
-            env.update({
-                "CDP_PORT": str(port),
-                "CDP_HTTP_ENDPOINT": http_endpoint,
-                "CDP_CURRENT_TAB_ID": tab.target_id if tab else "",
-                "CURRENT_TASK_DIR": str(work_dir),
-                "HOME_DIR": str(home_dir),
-                "SITE_KNOWLEDGE_DIR": str(home_dir / "site_knowledge"),
-            })
-
-            # 构建命令（优先使用共享 venv 的 Python）
-            shared_env_bin = root.runtime.paths.get_shared_env_bin()
-            python_cmd = os.path.join(shared_env_bin, "python3") if shared_env_bin else "python3"
-            cmd = [python_cmd, str(host_path)]
-            if str_arg1 is not None:
-                cmd.append(str_arg1)
-
-            # 整个 .py 脚本期间 UI 避让（脚本可能做 CDP 操作）
-            if tab:
-                await _auto_yield_ui(tab)
-            try:
-                # 执行
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=env,
-                    )
-                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                        proc.communicate(), timeout=300
-                    )
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    return json.dumps({
-                        "status": "timeout",
-                        "error": "脚本执行超时（300秒）",
-                    }, ensure_ascii=False)
-                except Exception as e:
-                    return json.dumps({
-                        "status": "error",
-                        "error": f"脚本执行失败: {e}",
-                    }, ensure_ascii=False)
-            finally:
-                if tab:
-                    await _auto_restore_ui(tab)
-
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-            stdout_lines = stdout.count("\n") + (1 if stdout and not stdout.endswith("\n") else 0)
-            MAX_INLINE_LINES = 100
-
-            def _save_to_tmp(content: str, suffix: str) -> tuple[str, str]:
-                """保存到 ~/current_task/tmp/，返回 (host_path, agent_path)。"""
-                import time
-                tmp_host_dir = work_dir / "tmp"
-                tmp_host_dir.mkdir(parents=True, exist_ok=True)
-                filename = f"script_{int(time.time())}_{os.getpid()}{suffix}"
-                host = tmp_host_dir / filename
-                host.write_text(content, encoding="utf-8")
-                agent_path = f"~/current_task/tmp/{filename}"
-                return str(host), agent_path
-
-            # 构建 result
-            result = {
-                "status": "ok" if proc.returncode == 0 else "error",
-                "exit_code": proc.returncode,
-            }
-
-            # stdout: 短输出直接返回，长输出存文件
-            if stdout_lines <= MAX_INLINE_LINES:
-                result["stdout"] = stdout
-            else:
-                _, container_path = _save_to_tmp(stdout, ".out")
-                result["stdout_file"] = container_path
-                result["stdout_lines"] = stdout_lines
-
-            # stderr: 同样处理
-            if stderr:
-                stderr_lines = stderr.count("\n") + (1 if not stderr.endswith("\n") else 0)
-                if stderr_lines <= MAX_INLINE_LINES:
-                    result["stderr"] = stderr
-                else:
-                    _, container_path = _save_to_tmp(stderr, ".err")
-                    result["stderr_file"] = container_path
-                    result["stderr_lines"] = stderr_lines
-
-            if proc.returncode != 0:
-                result["error"] = f"脚本退出码: {proc.returncode}"
-
-            return json.dumps(result, ensure_ascii=False)
-
-        return json.dumps({"error": f"不支持的文件类型 '{ext}'，支持 .json / .js / .py"}, ensure_ascii=False)
+    
     
 
     @register_action(
@@ -1261,12 +1023,12 @@ class Browser_automationSkillMixin:
 
     
 
-    @register_action(
-        short_desc="(mode)切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。必须根据当前情况切换到合适的模式。",
-        description="切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。"
-                    "会重建 system prompt（使用 profile 中对应的模式 persona）。",
-        param_infos={"mode": "工作模式：'develop' 或 'execute'"},
-    )
+    #@register_action(
+    #    short_desc="(mode)切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。必须根据当前情况切换到合适的模式。",
+    #    description="切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。"
+    #                "会重建 system prompt（使用 profile 中对应的模式 persona）。",
+    #    param_infos={"mode": "工作模式：'develop' 或 'execute'"},
+    #)
     async def set_work_mode(self, mode: str) -> str:
         """切换工作模式，用新 persona 重建 system prompt。"""
         root = self.root_agent

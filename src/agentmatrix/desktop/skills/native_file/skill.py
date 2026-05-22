@@ -220,13 +220,6 @@ class Native_fileSkillMixin:
     async def bash(self, command: str, timeout: int = 3600) -> str:
         local_session = self.root_agent.local_session
 
-        # 自动补齐未闭合的双引号，防止 bash 卡死等待输入
-        import re
-        stripped = re.sub(r"'[^']*'", '', command)
-        if stripped.count('"') % 2 == 1:
-            self.logger.debug(f"[bash] 检测到未闭合双引号，自动补齐")
-            command += '"'
-
         await asyncio.to_thread(local_session.ensure_responsive)
 
         exit_code, stdout, stderr = await asyncio.to_thread(

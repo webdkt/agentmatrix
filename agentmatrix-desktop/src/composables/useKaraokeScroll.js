@@ -104,6 +104,19 @@ export function useKaraokeScroll(events, getEventText) {
     return result
   })
 
+  // ---- Reset (clear typewriter queue + messages) ----
+  function reset() {
+    if (typewriterTimer) {
+      clearInterval(typewriterTimer)
+      typewriterTimer = null
+    }
+    typewriterQueue.value = []
+    typewriterEvent.value = null
+    isTyping.value = false
+    displayedText.value = ''
+    events.value.splice(0)
+  }
+
   // ---- Detail window sync ----
   function onDetailOpen() {
     isDetailOpen.value = true
@@ -125,6 +138,7 @@ export function useKaraokeScroll(events, getEventText) {
     karaokeTriple,
     isTyping,
     enqueueTypewriter,
+    reset,
     onDetailOpen,
     onDetailClose,
   }

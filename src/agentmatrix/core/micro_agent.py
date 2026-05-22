@@ -785,10 +785,15 @@ class MicroAgent(AutoLoggerMixin):
                 # 等待一小段时间，让其他可能的异步保存任务完成
                 await asyncio.sleep(0.1)
 
+    def update_system_message(self, new_content: str):
+        """Shell 层调用：更新 messages[0] 的 system prompt 内容。"""
+        if self.messages and self.messages[0]["role"] == "system":
+            self.messages[0]["content"] = new_content
+
     def _initialize_session(self):
         """初始化对话历史"""
-        # 1. System Prompt
-        system_prompt = self._build_system_prompt()
+        # 1. System Prompt（Shell 已设置 self.system_prompt，MicroAgent 负责最后一道：注入 action list）
+        system_prompt = self._finalize_system_prompt()
         self.messages.append({"role": "system", "content": system_prompt})
 
         # 2. 任务描述（空 task 跳过，邮件通过 signal 进入）
@@ -796,17 +801,20 @@ class MicroAgent(AutoLoggerMixin):
             task_message = self._format_task_message()
             self.messages.append({"role": "user", "content": task_message})
 
-    def _build_system_prompt(self) -> str:
-        """渲染 system prompt：注入 core_prompt 到模板（不修改 self.system_prompt）"""
-        core = self.get_core_prompt()
+    def _finalize_system_prompt(self) -> str:
+        """流水线最后一道工序：将 $core_prompt（工具箱）注入到 Shell 给的模板中。
+
+        self.system_prompt 由 Shell 设置（含 $core_prompt 占位符），
+        本方法用 MicroAgent 自身的 action_registry 解析占位符。
+        """
+        core = self._build_core_prompt()
         if "$core_prompt" in self.system_prompt:
             return self.system_prompt.replace("$core_prompt", core)
         return self.system_prompt + "\n\n" + core
 
-    def get_core_prompt(self) -> str:
-        """Core 层 prompt：从 Core 内置模板加载，注入 actions list 和 md skills"""
-        from .prompt_templates import CORE_PROMPT
-        template = CORE_PROMPT
+    def _build_core_prompt(self) -> str:
+        """从 action_registry 构建工具箱描述（MicroAgent 自身能力的文档化）。"""
+        template = self.root_agent.get_prompt_template("CORE_PROMPT")
 
         actions_list = self._format_skills_overview()
 

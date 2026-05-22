@@ -570,7 +570,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
     # ==========================================
     # UI Actions — 工作模式切换
     # ==========================================
-
+    '''
     async def _switch_work_mode(self, mode: str) -> dict:
         """通用模式切换。如果有活跃 MicroAgent 则立即生效，否则在下次创建时生效。"""
         # 始终存储模式（供 _create_micro_agent 使用）
@@ -612,6 +612,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
             ]
         }
         return [browser_group, mode_group] + base
+    
 
     # ---- UI Action 方法 ----
 
@@ -648,3 +649,4 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
 
     async def set_execute_mode(self):
         return await self._switch_work_mode("execute")
+    '''

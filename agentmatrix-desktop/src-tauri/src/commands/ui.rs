@@ -73,8 +73,11 @@ pub async fn set_capsule_height(
     height: f64,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("floating-capsule") {
+        let current_size = window.inner_size().map_err(|e| e.to_string())?;
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let logical_width = current_size.width as f64 / scale;
         use tauri::LogicalSize;
-        window.set_size(LogicalSize::new(260.0, height))
+        window.set_size(LogicalSize::new(logical_width, height))
             .map_err(|e| e.to_string())?;
         clip_window_internal(&app, "floating-capsule", 20.0);
     }
