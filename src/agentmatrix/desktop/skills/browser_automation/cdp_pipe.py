@@ -67,6 +67,10 @@ class CDPPipeConnection:
             n = os.write(self._wfd, data)
             data = data[n:]
 
+    def write_raw(self, data: bytes):
+        """Synchronous write to pipe — for relay threads (non-async context)."""
+        self._blocking_write(data)
+
     def __aiter__(self):
         return self
 

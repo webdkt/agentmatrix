@@ -31,7 +31,7 @@ from pathlib import Path
 from agentmatrix.core.action import register_action
 
 from .cdp_client import CDPClient
-from .chrome_manager import ChromeManager
+from .chrome_manager import ChromeManager, DEFAULT_CDP_SOCKET
 from .tab_manager import TabManager, TabInfo
 from .browser_events import BrowserEventListener
 from .interfaces import load_interface, list_interfaces
@@ -236,8 +236,54 @@ class Browser_automationSkillMixin:
         
     ### site_knowledge 文件规范
     #### Python自动化脚本
-    Python 脚本应该通过 CDP_PORT, CDP_HTTP_ENDPOINT, CDP_CURRENT_TAB_ID 等环境变量获取连接信息和路径，不要硬编码。
-    连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
+    Python 脚本通过 Unix Domain Socket 与 Chrome 通信，协议为 null-terminated JSON（JSON + b'\\0'）。
+    环境变量：CDP_SOCKET_PATH（socket路径）、CDP_CURRENT_TAB_ID（当前tab的target_id）。
+    脚本示例：
+
+    ```python
+    import socket, json, os
+
+    SOCK = os.environ.get("CDP_SOCKET_PATH", "/tmp/agentmatrix_chrome_cdp.sock")
+    TAB_ID = os.environ.get("CDP_CURRENT_TAB_ID", "")
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(SOCK)
+
+    _msg_id = 0
+    def cdp(method, params=None, session_id=None):
+        '''发送 CDP 命令并等待响应'''
+        global _msg_id; _msg_id += 1
+        msg = {"id": _msg_id, "method": method, "params": params or {}}
+        if session_id: msg["sessionId"] = session_id
+        s.sendall(json.dumps(msg).encode() + b'\\x00')
+        buf = b''
+        while b'\\x00' not in buf:
+            chunk = s.recv(4096)
+            if not chunk: raise ConnectionError("socket closed")
+            buf += chunk
+        resp = json.loads(buf.split(b'\\x00', 1)[0])
+        if "error" in resp: raise RuntimeError(resp["error"])
+        return resp.get("result", {})
+
+    # 操作 tab 需先 attach
+    r = cdp("Target.attachToTarget", {"targetId": TAB_ID, "flatten": True})
+    sid = r.get("sessionId", "")
+    cdp("Page.enable", session_id=sid)
+
+    # 导航
+    cdp("Page.navigate", {"url": "https://example.com"}, session_id=sid)
+
+    # 执行 JS
+    r = cdp("Runtime.evaluate", {"expression": "document.title"}, session_id=sid)
+    print(r.get("result", {}).get("value"))
+
+    s.close()
+    ```
+
+    注意事项：
+    - 一个 socket 连接同一时间只能有一个未完成的请求（发一个，等响应，再发下一个），多脚本需串行执行
+    - 操作 tab 需要先 Target.attachToTarget，拿到 sessionId 后传入后续命令
+    - Chrome 重启后 socket 会重建，脚本重连即可
     
     #### Javascript: No Console Output
     eval_js 不会返回console的输出。只会返回脚本 return的结果。
@@ -326,23 +372,29 @@ class Browser_automationSkillMixin:
                 )
                 listener.start()
 
-        # Session 切换检测：关闭旧 session 的 tab
+        # Session 切换检测：关闭旧 session 的 tab，清理旧 relay
         agent_name = self._agent_name()
         current_sid = self._agent_session_id()
         last_sid = _agent_last_session.get(agent_name, "")
 
         if current_sid and current_sid != last_sid:
+            # 停止旧 session 的 relay
+            if last_sid and _chrome_manager:
+                _chrome_manager.stop_session_relay(last_sid)
             await self._cleanup_old_session_tabs(agent_name, current_sid)
             _agent_last_session[agent_name] = current_sid
 
+        # 启动当前 session 的 UDS relay（如果还没有的话）
+        sock_path = None
+        if current_sid and _chrome_manager and _cdp_client:
+            sock_path = _chrome_manager.start_session_relay(current_sid, _cdp_client)
+
         # 自动设置 CDP 环境变量到 Agent 的 bash session
         local_session = getattr(self.root_agent, 'local_session', None)
-        if local_session:
-            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
+        if local_session and sock_path:
             tab = self._get_current_tab()
             env_cmds = (
-                f'export CDP_PORT={port}\n'
-                f'export CDP_HTTP_ENDPOINT="http://127.0.0.1:{port}"\n'
+                f'export CDP_SOCKET_PATH="{sock_path}"\n'
                 f'export CDP_CURRENT_TAB_ID="{tab.target_id if tab else ""}"\n'
             )
             local_session.execute(env_cmds)
@@ -1016,9 +1068,11 @@ class Browser_automationSkillMixin:
 
         # ── .py → 宿主机 Python 脚本 ──
         if ext == ".py":
-            # 收集 CDP 信息
-            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
-            http_endpoint = f"http://127.0.0.1:{port}"
+            # 收集 CDP 信息 — 使用当前 session 的 socket
+            session_id = self._agent_session_id()
+            sock_path = DEFAULT_CDP_SOCKET
+            if session_id and _chrome_manager:
+                sock_path = _chrome_manager.start_session_relay(session_id, _cdp_client)
             tab = self._get_current_tab()
 
             # 构建环境变量
@@ -1026,8 +1080,7 @@ class Browser_automationSkillMixin:
             home_dir = root.runtime.paths.get_agent_home_dir(agent_name)
             env = os.environ.copy()
             env.update({
-                "CDP_PORT": str(port),
-                "CDP_HTTP_ENDPOINT": http_endpoint,
+                "CDP_SOCKET_PATH": sock_path,
                 "CDP_CURRENT_TAB_ID": tab.target_id if tab else "",
                 "CURRENT_TASK_DIR": str(work_dir),
                 "HOME_DIR": str(home_dir),
@@ -1241,22 +1294,55 @@ class Browser_automationSkillMixin:
     @register_action(
         short_desc="get_cdp_info()",
         description="获取当前 CDP 浏览器连接信息，供外部脚本连接浏览器做自动化。"
-                    "返回调试端口、当前 tab 的 target_id 等。"
-                    "注意：内部使用 pipe 模式连接 Chrome，如需外部连接可使用 --remote-debugging-port 参数手动启动 Chrome。",
+                    "返回 socket 路径、当前 tab 的 target_id、示例代码等。",
     )
     async def get_cdp_info(self) -> str:
         """返回 CDP 连接信息，供 Agent 编写 Python 代码直接连接浏览器。"""
         await self._ensure_browser()
 
-        port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
+        session_id = self._agent_session_id()
+        sock_path = DEFAULT_CDP_SOCKET
+        if session_id and _chrome_manager:
+            sock_path = _chrome_manager.start_session_relay(session_id, _cdp_client)
         tab = self._get_current_tab()
+        tab_id = tab.target_id if tab else ""
+
+        example_code = (
+            "import socket, json, os\n"
+            f"SOCK = os.environ.get('CDP_SOCKET_PATH', '{sock_path}')\n"
+            "TAB_ID = os.environ.get('CDP_CURRENT_TAB_ID', '')\n"
+            "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
+            "s.connect(SOCK)\n"
+            "_msg_id = 0\n"
+            "def cdp(method, params=None, session_id=None):\n"
+            "    global _msg_id; _msg_id += 1\n"
+            "    msg = {'id': _msg_id, 'method': method, 'params': params or {}}\n"
+            "    if session_id: msg['sessionId'] = session_id\n"
+            "    s.sendall(json.dumps(msg).encode() + b'\\x00')\n"
+            "    buf = b''\n"
+            "    while b'\\x00' not in buf:\n"
+            "        chunk = s.recv(4096)\n"
+            "        if not chunk: raise ConnectionError('socket closed')\n"
+            "        buf += chunk\n"
+            "    resp = json.loads(buf.split(b'\\x00', 1)[0])\n"
+            "    if 'error' in resp: raise RuntimeError(resp['error'])\n"
+            "    return resp.get('result', {})\n"
+            "\n"
+            "# attach tab, then send commands\n"
+            "r = cdp('Target.attachToTarget', {'targetId': TAB_ID, 'flatten': True})\n"
+            "sid = r.get('sessionId', '')\n"
+            "cdp('Page.enable', session_id=sid)\n"
+            "cdp('Page.navigate', {'url': 'https://example.com'}, session_id=sid)\n"
+            "r = cdp('Runtime.evaluate', {'expression': 'document.title'}, session_id=sid)\n"
+            "print(r.get('result', {}).get('value'))\n"
+            "s.close()\n"
+        )
 
         return json.dumps({
             "status": "ok",
-            "port": port,
-            "transport": "pipe",
-            "http_endpoint": f"http://127.0.0.1:{port}",
+            "socket_path": sock_path,
             "current_tab": tab.to_dict() if tab else None,
+            "example_code": example_code,
         }, ensure_ascii=False, indent=2)
 
     

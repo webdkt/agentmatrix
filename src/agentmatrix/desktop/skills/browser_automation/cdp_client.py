@@ -8,6 +8,7 @@ No network involved, immune to proxies/firewalls.
 import asyncio
 import json
 import logging
+import socket
 from collections import deque
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 
@@ -32,6 +33,7 @@ class CDPClient:
         self._connected = False
         self._reconnecting = False
         self._status_callbacks: List[Callable] = []
+        self._relay_sessions: Dict[str, dict] = {}  # session_id → {"id_offset": int, "conn": socket}
 
     async def connect(self):
         """Connect to Chrome's CDP pipe and start listening."""
@@ -177,6 +179,46 @@ class CDPClient:
             events = [e for e in events if e.get("method") == method_filter]
         return events
 
+    # --- Relay Management (per-session UDS sockets) ---
+
+    def register_relay(self, session_id: str, conn: socket.socket, id_offset: int):
+        """Register a session relay. CDP responses with IDs in [id_offset+1, id_offset+9999] will be forwarded to conn."""
+        self._relay_sessions[session_id] = {"id_offset": id_offset, "conn": conn}
+        logger.debug(f"Relay registered: session={session_id}, id_offset={id_offset}")
+
+    def unregister_relay(self, session_id: str):
+        """Unregister a session relay."""
+        self._relay_sessions.pop(session_id, None)
+        logger.debug(f"Relay unregistered: session={session_id}")
+
+    def write_from_relay(self, session_id: str, data: bytes):
+        """Forward raw CDP data from a UDS client to Chrome pipe, rewriting the message ID.
+
+        Parses the JSON, rewrites 'id' by adding the session's id_offset,
+        then writes to the pipe.
+        """
+        relay_info = self._relay_sessions.get(session_id)
+        if not relay_info:
+            return
+
+        offset = relay_info["id_offset"]
+
+        # Data may contain multiple null-terminated messages
+        for part in data.split(b"\0"):
+            if not part:
+                continue
+            try:
+                msg = json.loads(part.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            # Rewrite id
+            original_id = msg.get("id")
+            if isinstance(original_id, int):
+                msg["id"] = original_id + offset
+
+            self._pipe.write_raw(json.dumps(msg).encode("utf-8") + b"\0")
+
     # --- Internal ---
 
     async def _listen_loop(self):
@@ -195,6 +237,19 @@ class CDPClient:
                     fut = self._pending.pop(msg_id, None)
                     if fut and not fut.done():
                         fut.set_result(msg)
+                    else:
+                        # Check relay sessions — route by ID range
+                        for sid, relay_info in self._relay_sessions.items():
+                            offset = relay_info["id_offset"]
+                            if offset < msg_id < offset + 10000:
+                                original_id = msg_id - offset
+                                msg["id"] = original_id
+                                try:
+                                    conn = relay_info["conn"]
+                                    conn.sendall(json.dumps(msg).encode() + b"\0")
+                                except (OSError, BrokenPipeError):
+                                    pass
+                                break
                     continue
 
                 # Event

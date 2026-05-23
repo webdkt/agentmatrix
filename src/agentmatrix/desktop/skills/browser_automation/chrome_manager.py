@@ -9,15 +9,21 @@ import asyncio
 import logging
 import os
 import platform
+import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 if sys.platform == "win32":
     import msvcrt
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_CDP_SOCKET = "/tmp/agentmatrix_chrome_cdp.sock"
+_SOCKET_DIR = "/tmp"
+_ID_OFFSET_STEP = 10000
 
 
 def _find_chrome_executable() -> str:
@@ -89,6 +95,8 @@ class ChromeManager:
         )
         self.process: Optional[subprocess.Popen] = None
         self._pipe_fds: Optional[Tuple[int, int]] = None  # (read_fd, write_fd)
+        self._session_relays: Dict[str, dict] = {}  # session_id → {server, thread, socket_path, ...}
+        self._next_id_offset: int = _ID_OFFSET_STEP + 1  # 10001, 20001, 30001...
 
     async def ensure_started(self) -> Tuple[int, int]:
         """
@@ -102,6 +110,139 @@ class ChromeManager:
 
         self._pipe_fds = await self._launch_chrome()
         return self._pipe_fds
+
+    def start_session_relay(self, session_id: str, cdp_client) -> str:
+        """Start a per-session UDS relay. Returns the socket path.
+
+        Each session gets its own socket and ID range so scripts from
+        different sessions can run concurrently without ID conflicts.
+        """
+        # Already have a relay for this session? Return existing socket path.
+        if session_id in self._session_relays:
+            existing = self._session_relays[session_id]
+            if existing["server"].fileno() >= 0:
+                return existing["socket_path"]
+            # Stale entry, clean up
+            self.stop_session_relay(session_id)
+
+        # Assign ID range
+        id_offset = self._next_id_offset
+        self._next_id_offset += _ID_OFFSET_STEP
+
+        # Socket path: use last 8 chars of session_id to keep it short
+        short_id = session_id[-8:] if len(session_id) > 8 else session_id
+        sock_path = f"{_SOCKET_DIR}/agentmatrix_cdp_{short_id}.sock"
+
+        # Clean stale socket file
+        if os.path.exists(sock_path):
+            os.remove(sock_path)
+
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(sock_path)
+        server.listen(1)  # backlog 1 — one client at a time per session
+
+        relay_info = {
+            "server": server,
+            "socket_path": sock_path,
+            "id_offset": id_offset,
+            "cdp_client": cdp_client,
+            "client_conn": None,
+            "thread": None,
+        }
+        self._session_relays[session_id] = relay_info
+
+        def _accept_loop():
+            logger.info(f"CDP relay for session {session_id[-8:]} listening on {sock_path}")
+            while True:
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    break
+                # One client per session
+                if relay_info["client_conn"] is not None:
+                    try:
+                        conn.sendall(b'{"error":"session relay busy"}\0')
+                        conn.close()
+                    except OSError:
+                        pass
+                    continue
+                relay_info["client_conn"] = conn
+                cdp_client.register_relay(session_id, conn, id_offset)
+                threading.Thread(
+                    target=self._handle_session_client,
+                    args=(session_id, conn, cdp_client),
+                    daemon=True,
+                    name=f"cdp-relay-{short_id}",
+                ).start()
+
+        t = threading.Thread(target=_accept_loop, daemon=True, name=f"cdp-accept-{short_id}")
+        t.start()
+        relay_info["thread"] = t
+
+        logger.info(f"Session relay started: {session_id[-8:]} → {sock_path} (id_offset={id_offset})")
+        return sock_path
+
+    def _handle_session_client(self, session_id: str, conn: socket.socket, cdp_client):
+        """Handle one UDS client for a session. Data flows through CDPClient (not directly to pipe)."""
+        try:
+            while True:
+                data = conn.recv(65536)
+                if not data:
+                    break
+                cdp_client.write_from_relay(session_id, data)
+        except (OSError, BrokenPipeError):
+            pass
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
+            cdp_client.unregister_relay(session_id)
+            relay_info = self._session_relays.get(session_id)
+            if relay_info:
+                relay_info["client_conn"] = None
+
+    def stop_session_relay(self, session_id: str):
+        """Stop and clean up a session's relay."""
+        relay_info = self._session_relays.pop(session_id, None)
+        if not relay_info:
+            return
+
+        # Close client connection
+        conn = relay_info.get("client_conn")
+        if conn:
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+        # Close server socket
+        server = relay_info.get("server")
+        if server:
+            try:
+                server.close()
+            except OSError:
+                pass
+
+        # Remove socket file
+        sock_path = relay_info.get("socket_path")
+        if sock_path and os.path.exists(sock_path):
+            try:
+                os.remove(sock_path)
+            except OSError:
+                pass
+
+        # Unregister from CDPClient
+        cdp_client = relay_info.get("cdp_client")
+        if cdp_client:
+            cdp_client.unregister_relay(session_id)
+
+        logger.debug(f"Session relay stopped: {session_id[-8:]}")
+
+    def stop_all_relays(self):
+        """Stop all session relays."""
+        for sid in list(self._session_relays):
+            self.stop_session_relay(sid)
 
     async def _launch_chrome(self) -> Tuple[int, int]:
         """Launch Chrome with remote debugging pipes, return (read_fd, write_fd)."""
@@ -186,7 +327,8 @@ class ChromeManager:
         return self.process is not None and self.process.poll() is None
 
     async def stop(self):
-        """Stop Chrome process and close pipe fds."""
+        """Stop Chrome process, close pipe fds, and stop all session relays."""
+        self.stop_all_relays()
         if self._pipe_fds:
             for fd in self._pipe_fds:
                 try:
