@@ -209,7 +209,7 @@ class Native_fileSkillMixin:
         if file_path.startswith("~"):
             agent = self.root_agent
             resolved = agent.runtime.paths.container_path_to_host(
-                file_path, agent.name, agent.current_session_id
+                file_path, agent.name, agent.active_session_id
             )
             if resolved:
                 return resolved
