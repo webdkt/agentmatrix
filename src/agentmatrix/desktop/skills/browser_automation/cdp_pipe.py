@@ -5,14 +5,13 @@ Uses Chrome's --remote-debugging-pipe which communicates over file descriptors,
 completely bypassing network. This avoids enterprise proxies that may block
 WebSocket connections to localhost.
 
-Protocol: each message is [4-byte little-endian length][JSON payload].
+Protocol: each message is null-terminated JSON (payload + b'\\0').
 """
 
 import asyncio
 import fcntl
 import logging
 import os
-import struct
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -56,13 +55,11 @@ class CDPPipeConnection:
         self._rfd = self._wfd = -1
 
     async def send(self, data: str):
-        """Send a CDP message (length-prefixed JSON)."""
-        encoded = data.encode("utf-8")
-        header = struct.pack("<I", len(encoded))
-        payload = header + encoded
+        """Send a CDP message (null-terminated JSON)."""
+        encoded = data.encode("utf-8") + b"\0"
         # Use run_in_executor to avoid blocking the event loop on write
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._blocking_write, payload)
+        await loop.run_in_executor(None, self._blocking_write, encoded)
 
     def _blocking_write(self, data: bytes):
         """Write all bytes to the pipe (blocking, runs in executor)."""
@@ -80,23 +77,19 @@ class CDPPipeConnection:
         return msg
 
     async def _read_loop(self):
-        """Continuously read length-prefixed CDP messages from the pipe."""
+        """Continuously read null-terminated CDP messages from the pipe."""
         loop = asyncio.get_event_loop()
+        buffer = bytearray()
         try:
             while not self._closed:
-                header = await self._async_read(loop, 4)
-                if not header:
+                chunk = await self._async_read(loop, 4096)
+                if not chunk:
                     break
-                length = struct.unpack("<I", header)[0]
-                if length == 0:
-                    continue
-                if length > 50 * 1024 * 1024:  # sanity check: 50MB
-                    logger.error(f"Pipe message too large: {length}")
-                    break
-                body = await self._async_read(loop, length)
-                if not body:
-                    break
-                await self._queue.put(body.decode("utf-8"))
+                buffer.extend(chunk)
+                while b"\0" in buffer:
+                    msg_bytes, buffer = buffer.split(b"\0", 1)
+                    if msg_bytes:
+                        await self._queue.put(msg_bytes.decode("utf-8"))
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -106,16 +99,14 @@ class CDPPipeConnection:
             await self._queue.put(None)
 
     async def _async_read(self, loop, n: int) -> bytes:
-        """Read exactly n bytes from pipe asynchronously using add_reader."""
-        result = b""
-        while len(result) < n and not self._closed:
+        """Read up to n bytes from pipe asynchronously using add_reader."""
+        while not self._closed:
             # Try non-blocking read first (data might already be buffered)
             try:
-                chunk = os.read(self._rfd, n - len(result))
-                if not chunk:
-                    return b""
-                result += chunk
-                continue
+                chunk = os.read(self._rfd, n)
+                if chunk:
+                    return chunk
+                return b""
             except BlockingIOError:
                 pass
 
@@ -127,4 +118,4 @@ class CDPPipeConnection:
             finally:
                 loop.remove_reader(self._rfd)
 
-        return result
+        return b""

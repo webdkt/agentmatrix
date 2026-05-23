@@ -30,6 +30,7 @@ class CDPClient:
         self._event_buffer: Deque = deque(maxlen=event_buffer_size)
         self._listen_task: Optional[asyncio.Task] = None
         self._connected = False
+        self._reconnecting = False
         self._status_callbacks: List[Callable] = []
 
     async def connect(self):

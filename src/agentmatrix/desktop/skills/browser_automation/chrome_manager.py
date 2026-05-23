@@ -10,8 +10,12 @@ import logging
 import os
 import platform
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional, Tuple
+
+if sys.platform == "win32":
+    import msvcrt
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +50,17 @@ def _find_chrome_executable() -> str:
     for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
-        # Try finding in PATH (Linux)
-        result = subprocess.run(
-            ["which", candidate],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
+        # Try finding in PATH (macOS/Linux only)
+        if system != "Windows":
+            try:
+                result = subprocess.run(
+                    ["which", candidate],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()
+            except FileNotFoundError:
+                pass
 
     raise RuntimeError(
         "Chrome/Chromium not found. Install Chrome or set CHROME_PATH env var."
@@ -96,18 +104,16 @@ class ChromeManager:
         return self._pipe_fds
 
     async def _launch_chrome(self) -> Tuple[int, int]:
-        """Launch Chrome with --remote-debugging-pipe, return (read_fd, write_fd)."""
+        """Launch Chrome with remote debugging pipes, return (read_fd, write_fd)."""
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
         # Create two pipe pairs:
-        #   parent_read, child_write  →  Chrome writes CDP responses to child_write (fd 3)
-        #   child_read, parent_write  →  Chrome reads CDP commands from child_read (fd 4)
+        #   parent_read, child_write  →  Chrome writes CDP responses to child_write
+        #   child_read, parent_write  →  Chrome reads CDP commands from child_read
         parent_read, child_write = os.pipe()
         child_read, parent_write = os.pipe()
 
-        cmd = [
-            self.chrome_path,
-            "--remote-debugging-pipe",
+        common_args = [
             f"--user-data-dir={self.profile_dir}",
             "--no-first-run",
             "--no-default-browser-check",
@@ -120,30 +126,42 @@ class ChromeManager:
 
         logger.info(f"Launching Chrome (pipe mode), profile={self.profile_dir}")
 
-        # Chrome expects: fd 3 = write pipe (Chrome → us), fd 4 = read pipe (us → Chrome)
-        _fd_map = {3: child_write, 4: child_read}
+        if sys.platform == "win32":
+            # Windows: --remote-debugging-io-pipes takes OS handles directly.
+            # Convert Python FDs to inheritable Windows handles.
+            cr_handle = msvcrt.get_osfhandle(child_read)
+            cw_handle = msvcrt.get_osfhandle(child_write)
+            os.set_handle_inheritable(cr_handle, True)
+            os.set_handle_inheritable(cw_handle, True)
 
-        def _preexec():
-            for target_fd, source_fd in _fd_map.items():
-                os.dup2(source_fd, target_fd)
-            for fd in (child_write, child_read):
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+            cmd = [self.chrome_path,
+                   f"--remote-debugging-io-pipes={cr_handle},{cw_handle}"] + common_args
 
-        self.process = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            pass_fds=(3, 4),
-            preexec_fn=_preexec,
-            start_new_session=True,
-        )
+            self.process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=False,  # must be False for handle inheritance
+            )
+        else:
+            # macOS/Linux: Chrome hardcodes fd 3 = read, fd 4 = write.
+            # Use shell redirection to set up FDs, bypassing Python close_fds issues.
+            shell_script = f'exec "$0" "$@" 3<&{child_read} 4>&{child_write}'
 
-        # Close child-side fds in parent (they've been dup'd in child)
-        for fd in (child_write, child_read):
+            cmd = [self.chrome_path, "--remote-debugging-pipe"] + common_args
+
+            self.process = subprocess.Popen(
+                ["sh", "-c", shell_script] + cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                pass_fds=(child_read, child_write),
+                start_new_session=True,
+            )
+
+        # Close child-side fds in parent (they belong to Chrome now)
+        for fd in (child_read, child_write):
             try:
                 os.close(fd)
             except OSError:
