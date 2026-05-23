@@ -99,7 +99,7 @@ onUnmounted(() => {
     <TransitionGroup name="karaoke-roll" tag="div" class="karaoke-roller">
       <div
         v-for="event in karaokeTriple"
-        :key="event.id"
+        :key="event._receivedAt"
         class="karaoke-slot"
         :class="`karaoke-slot--${event._slot}`"
       >
