@@ -100,30 +100,6 @@ def _short_url(url: str) -> str:
         return url[:50] + "..." if len(url) > 50 else url
 
 
-async def _auto_yield_ui(tab: TabInfo):
-    """让前端 UI 进入避让模式（半透明 + 穿透 + 冻结）。"""
-    js = "(window.__bh_set_automation_mode__ || function(){})(true)"
-    try:
-        await _cdp_client.send(
-            "Runtime.evaluate", {"expression": js},
-            session_id=tab.session_id, timeout=3,
-        )
-    except Exception:
-        pass
-
-
-async def _auto_restore_ui(tab: TabInfo):
-    """通知前端 UI 可以恢复（1秒延迟防抖）。"""
-    js = "(window.__bh_set_automation_mode__ || function(){})(false)"
-    try:
-        await _cdp_client.send(
-            "Runtime.evaluate", {"expression": js},
-            session_id=tab.session_id, timeout=3,
-        )
-    except Exception:
-        pass
-
-
 async def _cdp_send_with_recovery(method: str, params: dict = None,
                                    tab: TabInfo = None,
                                    timeout: float = 30) -> dict:
@@ -192,12 +168,10 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
             on_current_tab_change=_update_current_tab,
             on_tab_removed=_on_tab_removed,
         )
-        # 注册连接状态回调：断线时通知前端，重连时先 resubscribe 再通知前端
+        # 注册连接状态回调：重连时 resubscribe
         async def _on_cdp_status(connected):
             if connected:
                 await _event_listener._on_reconnected()
-            else:
-                await _event_listener.notify_connection_status(False)
         _cdp_client.on_status_change(_on_cdp_status)
         await _event_listener.start_target_discovery()
 
@@ -980,18 +954,10 @@ class Browser_controlSkillMixin:
                 return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
 
         try:
-            # Input.* 事件可能被 UI 拦截，自动进入避让模式
-            _is_input = method.startswith("Input.")
-            if _is_input:
-                await _auto_yield_ui(tab)
-            try:
-                result = await _cdp_send_with_recovery(
-                    method, params or {}, tab=tab, timeout=30,
-                )
-                return json.dumps(result, ensure_ascii=False, default=str)
-            finally:
-                if _is_input:
-                    await _auto_restore_ui(tab)
+            result = await _cdp_send_with_recovery(
+                method, params or {}, tab=tab, timeout=30,
+            )
+            return json.dumps(result, ensure_ascii=False, default=str)
         except Exception as e:
             logger.warning(f"[cdp_command] {method} error: {e}")
             return json.dumps({"error": str(e)})

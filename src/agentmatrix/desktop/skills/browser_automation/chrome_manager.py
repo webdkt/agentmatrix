@@ -1,21 +1,17 @@
 """
 Chrome Process Lifecycle Manager
 
-Starts a Chrome instance with remote debugging enabled,
-or connects to an already-running one.
+Starts a Chrome instance with remote debugging via pipes (--remote-debugging-pipe).
+Uses file descriptors for CDP communication, bypassing the network stack entirely.
 """
 
 import asyncio
-import json
 import logging
 import os
 import platform
-import socket
 import subprocess
-import time
-import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -63,47 +59,13 @@ def _find_chrome_executable() -> str:
     )
 
 
-def _is_port_open(port: int, host: str = "127.0.0.1", timeout: float = 1) -> bool:
-    """Check if a TCP port is accepting connections."""
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except (ConnectionRefusedError, socket.timeout, OSError):
-        return False
-
-
-def _get_ws_url_from_port(port: int, timeout: float = 30) -> str:
-    """
-    Get the WebSocket debugger URL from Chrome's /json/version endpoint.
-    Retries until Chrome is ready or timeout is reached.
-    """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            url = f"http://127.0.0.1:{port}/json/version"
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read())
-                ws_url = data.get("webSocketDebuggerUrl")
-                if ws_url:
-                    return ws_url
-        except (urllib.error.URLError, ConnectionRefusedError, socket.timeout):
-            pass
-        time.sleep(0.5)
-
-    raise RuntimeError(
-        f"Chrome did not expose WebSocket URL on port {port} within {timeout}s"
-    )
-
-
 class ChromeManager:
     """
-    Manages a shared Chrome instance with remote debugging.
+    Manages a shared Chrome instance with remote debugging via pipes.
 
     Usage:
         manager = ChromeManager(profile_dir="/path/to/profile")
-        ws_url = await manager.ensure_started()
-        # Use ws_url to connect CDPClient
+        read_fd, write_fd = await manager.ensure_started()
     """
 
     def __init__(
@@ -113,41 +75,39 @@ class ChromeManager:
         chrome_path: Optional[str] = None,
     ):
         self.profile_dir = Path(profile_dir)
-        self.port = port
+        self.port = port  # kept for API compat, not used in pipe mode
         self.chrome_path = chrome_path or os.environ.get(
             "CHROME_PATH", _find_chrome_executable()
         )
         self.process: Optional[subprocess.Popen] = None
-        self._ws_url: Optional[str] = None
+        self._pipe_fds: Optional[Tuple[int, int]] = None  # (read_fd, write_fd)
 
-    async def ensure_started(self) -> str:
+    async def ensure_started(self) -> Tuple[int, int]:
         """
-        Ensure Chrome is running with remote debugging.
+        Ensure Chrome is running with pipe-based CDP transport.
 
         Returns:
-            WebSocket debugger URL (e.g. "ws://127.0.0.1:9222/devtools/browser/...")
+            (read_fd, write_fd) for pipe transport.
         """
-        # Case 1: Already have a ws_url and Chrome is still alive
-        if self._ws_url and self.process and self.process.poll() is None:
-            return self._ws_url
+        if self._pipe_fds and self.process and self.process.poll() is None:
+            return self._pipe_fds
 
-        # Case 2: Chrome is already running on this port (externally started)
-        if _is_port_open(self.port):
-            logger.info(f"Chrome already running on port {self.port}")
-            self._ws_url = _get_ws_url_from_port(self.port)
-            return self._ws_url
+        self._pipe_fds = await self._launch_chrome()
+        return self._pipe_fds
 
-        # Case 3: Need to launch Chrome
-        self._ws_url = await self._launch_chrome()
-        return self._ws_url
-
-    async def _launch_chrome(self) -> str:
-        """Launch Chrome with remote debugging."""
+    async def _launch_chrome(self) -> Tuple[int, int]:
+        """Launch Chrome with --remote-debugging-pipe, return (read_fd, write_fd)."""
         self.profile_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create two pipe pairs:
+        #   parent_read, child_write  →  Chrome writes CDP responses to child_write (fd 3)
+        #   child_read, parent_write  →  Chrome reads CDP commands from child_read (fd 4)
+        parent_read, child_write = os.pipe()
+        child_read, parent_write = os.pipe()
 
         cmd = [
             self.chrome_path,
-            f"--remote-debugging-port={self.port}",
+            "--remote-debugging-pipe",
             f"--user-data-dir={self.profile_dir}",
             "--no-first-run",
             "--no-default-browser-check",
@@ -158,32 +118,64 @@ class ChromeManager:
             "--safebrowsing-disable-auto-update",
         ]
 
-        logger.info(f"Launching Chrome: port={self.port}, profile={self.profile_dir}")
+        logger.info(f"Launching Chrome (pipe mode), profile={self.profile_dir}")
+
+        # Chrome expects: fd 3 = write pipe (Chrome → us), fd 4 = read pipe (us → Chrome)
+        _fd_map = {3: child_write, 4: child_read}
+
+        def _preexec():
+            for target_fd, source_fd in _fd_map.items():
+                os.dup2(source_fd, target_fd)
+            for fd in (child_write, child_read):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
         self.process = subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            pass_fds=(3, 4),
+            preexec_fn=_preexec,
             start_new_session=True,
         )
 
-        # Wait for Chrome to be ready
-        ws_url = _get_ws_url_from_port(self.port, timeout=30)
-        logger.info(f"Chrome started, WebSocket: {ws_url}")
-        return ws_url
+        # Close child-side fds in parent (they've been dup'd in child)
+        for fd in (child_write, child_read):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
-    def get_ws_url(self) -> Optional[str]:
-        """Get the cached WebSocket URL (may be None if not started)."""
-        return self._ws_url
+        # Give Chrome a moment to start up
+        await asyncio.sleep(1.0)
+
+        if self.process.poll() is not None:
+            raise RuntimeError(
+                f"Chrome exited immediately with code {self.process.returncode}"
+            )
+
+        logger.info(
+            f"Chrome started (pid={self.process.pid}, "
+            f"read_fd={parent_read}, write_fd={parent_write})"
+        )
+        return (parent_read, parent_write)
 
     def is_running(self) -> bool:
         """Check if Chrome process is alive."""
-        if self.process is None:
-            return _is_port_open(self.port)
-        return self.process.poll() is None
+        return self.process is not None and self.process.poll() is None
 
     async def stop(self):
-        """Stop Chrome process if we launched it."""
+        """Stop Chrome process and close pipe fds."""
+        if self._pipe_fds:
+            for fd in self._pipe_fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            self._pipe_fds = None
         if self.process:
             self.process.terminate()
             try:
@@ -191,7 +183,6 @@ class ChromeManager:
             except subprocess.TimeoutExpired:
                 self.process.kill()
             self.process = None
-        self._ws_url = None
         logger.info("Chrome stopped")
 
     def __del__(self):

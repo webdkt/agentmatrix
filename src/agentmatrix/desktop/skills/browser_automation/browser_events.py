@@ -1,13 +1,9 @@
 """
-BrowserEventListener — 双向事件引擎（多 Agent 支持）。
+BrowserEventListener — 前端→后端事件引擎（多 Agent 支持）。
 
 前端→后端：
-    监听 CDP console 事件，解析 __BH_EVENT__ 前缀，
+    监听 CDP bindingCalled 事件，解析 __bhSendEvent 传递的事件数据，
     根据 tab 归属路由到对应 agent 的 signal_queue。
-
-后端→前端：
-    通过 emit_to_browser() 向前端推送事件，
-    调用 window.__bh_on_event__(type, data)。
 
 自动行为：
     页面加载完成时自动注入 bridge.js（通信协议）+ agent_button.js（前端 UI）。
@@ -53,9 +49,8 @@ def _load_bridge_js() -> str:
     window.__bh_emit__=function(t,d){
         var p={type:t,ts:Date.now(),url:location.href,title:document.title};
         if(d)for(var k in d)p[k]=d[k];
-        console.log('__BH_EVENT__ '+JSON.stringify(p));
+        window.__bhSendEvent(JSON.stringify(p));
     };
-    window.__bh_on_event__=null;
 })();
 """
 
@@ -219,25 +214,6 @@ class BrowserEventListener:
         logger.info("BrowserEventListener stopped")
 
     # ==========================================
-    # 后端 → 前端
-    # ==========================================
-
-    async def emit_to_browser(self, session_id: str, event_type: str, data: dict = None):
-        """向前端推送事件，调用 window.__bh_on_event__(type, data)。"""
-        js = (
-            f"if(window.__bh_on_event__)"
-            f"window.__bh_on_event__({json.dumps(event_type)},{json.dumps(data or {})})"
-        )
-        try:
-            await self.cdp.send(
-                "Runtime.evaluate",
-                {"expression": js},
-                session_id=session_id,
-            )
-        except Exception as e:
-            logger.debug(f"emit_to_browser failed: {e}")
-
-    # ==========================================
     # Bridge 注入
     # ==========================================
 
@@ -245,18 +221,28 @@ class BrowserEventListener:
         """确保指定 session 已注入 bridge.js + agent_button.js。
 
         双重注入策略：
-        1. Page.addScriptToEvaluateOnNewDocument — 注册自动注入，每次新文档加载时 Chrome 自动执行
-        2. Runtime.evaluate — 立即注入当前页面（fallback）
+        1. Runtime.addBinding — 注册 CDP Binding，前端通过 __bhSendEvent 直接传递事件
+        2. Page.addScriptToEvaluateOnNewDocument — 注册自动注入，每次新文档加载时 Chrome 自动执行
+        3. Runtime.evaluate — 立即注入当前页面（fallback）
 
         bridge.js 和 agent_button.js 自身都有幂等检查，不会重复执行。
         """
         bridge_js = _get_bridge_js()
         agent_btn_js = _get_agent_button_js()
 
-        # 注册自动注入（每个 session 只注册一次）
+        # 注册 Binding + 自动注入（每个 session 只注册一次）
         if session_id not in self._auto_inject_sessions:
             try:
-                # bridge.js + agent_button.js 合并为一个脚本注册
+                # 1. 注册 CDP Binding（必须在 JS 执行之前）
+                await self.cdp.send(
+                    "Runtime.addBinding",
+                    {"name": "__bhSendEvent"},
+                    session_id=session_id,
+                )
+            except Exception as e:
+                logger.debug(f"Runtime.addBinding failed: {e}")
+            try:
+                # 2. bridge.js + agent_button.js 合并为一个脚本注册
                 combined = bridge_js + "\n" + agent_btn_js if agent_btn_js else bridge_js
                 await self.cdp.send(
                     "Page.addScriptToEvaluateOnNewDocument",
@@ -326,28 +312,28 @@ class BrowserEventListener:
         """注册 CDP 事件处理器。"""
         if self._handlers_registered:
             return
-        self.cdp.on_event("Runtime.consoleAPICalled", self._on_console)
+        self.cdp.on_event("Runtime.bindingCalled", self._on_binding_called)
         self.cdp.on_event("Page.loadEventFired", self._on_page_loaded)
         self.cdp.on_event("Target.targetDestroyed", self._on_target_destroyed)
         self.cdp.on_event("Target.targetCreated", self._on_target_created)
         self.cdp.on_event("Target.targetInfoChanged", self._on_target_info_changed)
         self._handlers_registered = True
 
-    def _on_console(self, params):
-        """处理 console 事件，解析 __BH_EVENT__ → 路由 BrowserSignal 到 agent input_queue。"""
+    def _on_binding_called(self, params):
+        """处理 CDP bindingCalled 事件，解析 __bhSendEvent 传递的事件数据。"""
         if not self.active:
             return
 
-        args = params.get("args", [])
-        if not args:
+        name = params.get("name", "")
+        if name != "__bhSendEvent":
             return
 
-        val = args[0].get("value", "")
-        if not isinstance(val, str) or not val.startswith("__BH_EVENT__ "):
+        payload_str = params.get("payload", "")
+        if not payload_str:
             return
 
         try:
-            payload = json.loads(val[len("__BH_EVENT__ "):])
+            payload = json.loads(payload_str)
         except (json.JSONDecodeError, KeyError):
             return
 
@@ -372,8 +358,7 @@ class BrowserEventListener:
                 target_id = tab.target_id
 
         # 去重：同一 event_type + ts 只处理一次
-        # ts 来自前端 Date.now()，同一用户的同一次操作 ts 相同
-        # Chrome 同一 tab 多个 session 会重复投递 console 事件
+        # 降级场景（binding 不可用时走 console.log）可能重复投递
         if ts:
             dedup_key = (event_type, ts)
             now = time.monotonic()
@@ -674,13 +659,13 @@ class BrowserEventListener:
         # 2. 构造 agent 列表 JS 变量 + 最小 bridge + 对话框
         agents_json = json.dumps([{"name": name} for name in agents])
 
-        # 最小 bridge（只有 emit 能力）
+        # 最小 bridge（只有 emit 能力，优先使用 CDP Binding）
         minimal_bridge = (
             "if(!window.__bh_emit__){"
             "window.__bh_emit__=function(t,d){"
             "var p={type:t,ts:Date.now()};"
             "if(d)for(var k in d)p[k]=d[k];"
-            "console.log('__BH_EVENT__ '+JSON.stringify(p));"
+            "window.__bhSendEvent(JSON.stringify(p));"
             "};}"
         )
 
@@ -758,7 +743,7 @@ class BrowserEventListener:
         logger.info(f"Orphan assign dialog injected for {target_id}")
 
     def _handle_orphan_choice(self, target_id: str, chosen_agent: str):
-        """处理用户对 orphan tab 的分配选择（由 _on_console 调用）。"""
+        """处理用户对 orphan tab 的分配选择（由 _on_binding_called 调用）。"""
         if not chosen_agent:
             logger.info(f"User cancelled orphan tab assignment for {target_id}")
             # 清理 orphan_sessions 中对应的条目
@@ -914,20 +899,5 @@ class BrowserEventListener:
         logger.info(f"Resubscribed {len(self.tab_mgr._tabs)} tabs")
 
     async def _on_reconnected(self):
-        """CDP 重连成功后的恢复流程：先 resubscribe 获取新 session_id，再通知前端。"""
+        """CDP 重连成功后的恢复流程：resubscribe 获取新 session_id。"""
         await self.resubscribe_all()
-        await self.notify_connection_status(True)
-
-    async def notify_connection_status(self, connected: bool):
-        """向所有 tab 前端推送连接状态。"""
-        status = "connected" if connected else "disconnected"
-        for tab in list(self.tab_mgr._tabs.values()):
-            if tab.session_id:
-                try:
-                    await self.emit_to_browser(
-                        tab.session_id,
-                        "connection_status",
-                        {"connected": connected},
-                    )
-                except Exception:
-                    pass  # 发送失败不影响重连流程

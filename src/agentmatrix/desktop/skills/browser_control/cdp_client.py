@@ -191,7 +191,7 @@ class CDPClient:
                              domains: List[str] = None):
         """Enable CDP domains for a session."""
         if domains is None:
-            domains = ["Page", "DOM", "Runtime", "Network"]
+            domains = ["Page", "DOM", "Runtime"]
         for domain in domains:
             try:
                 await self.send(f"{domain}.enable", session_id=session_id,

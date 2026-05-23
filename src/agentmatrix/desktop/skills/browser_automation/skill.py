@@ -159,7 +159,11 @@ def _tab_not_found_msg(invalid_id: str) -> str:
 
 
 async def _get_shared_infra(profile_dir: str, port: int = 9222):
-    """获取或创建共享的 Chrome + CDP + TabManager 基础设施。"""
+    """获取或创建共享的 Chrome + CDP + TabManager 基础设施。
+
+    通过 --remote-debugging-pipe 用文件描述符与 Chrome 通信，
+    不经过网络，不受代理/防火墙影响。
+    """
     global _chrome_manager, _cdp_client, _tab_manager, _event_listener
 
     async with _init_lock:
@@ -176,13 +180,11 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
             except Exception as e:
                 logger.warning(f"CDP reconnect failed, reinitializing: {e}")
 
-        # 首次初始化
+        # 首次初始化：启动 Chrome + pipe 连接
         _chrome_manager = ChromeManager(profile_dir=profile_dir, port=port)
-        ws_url = await _chrome_manager.ensure_started()
+        pipe_fds = await _chrome_manager.ensure_started()
 
-        _cdp_client = CDPClient(ws_url)
-        # 设置 WS URL 解析器（Chrome 重启后 URL 可能变化）
-        _cdp_client.set_ws_url_resolver(_chrome_manager.ensure_started)
+        _cdp_client = CDPClient(pipe_fds=pipe_fds)
         await _cdp_client.connect()
 
         _tab_manager = TabManager(_cdp_client)
@@ -192,12 +194,10 @@ async def _get_shared_infra(profile_dir: str, port: int = 9222):
             on_current_tab_change=_update_current_tab,
             on_tab_removed=_on_tab_removed,
         )
-        # 注册连接状态回调：断线时通知前端，重连时先 resubscribe 再通知前端
+        # 注册连接状态回调：重连时 resubscribe
         async def _on_cdp_status(connected):
             if connected:
                 await _event_listener._on_reconnected()
-            else:
-                await _event_listener.notify_connection_status(False)
         _cdp_client.on_status_change(_on_cdp_status)
         await _event_listener.start_target_discovery()
 
@@ -1241,20 +1241,20 @@ class Browser_automationSkillMixin:
     @register_action(
         short_desc="get_cdp_info()",
         description="获取当前 CDP 浏览器连接信息，供外部脚本连接浏览器做自动化。"
-                    "返回 WebSocket URL、调试端口、当前 tab 的 target_id 等。",
+                    "返回调试端口、当前 tab 的 target_id 等。"
+                    "注意：内部使用 pipe 模式连接 Chrome，如需外部连接可使用 --remote-debugging-port 参数手动启动 Chrome。",
     )
     async def get_cdp_info(self) -> str:
         """返回 CDP 连接信息，供 Agent 编写 Python 代码直接连接浏览器。"""
         await self._ensure_browser()
 
         port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
-        ws_url = _chrome_manager.get_ws_url() if _chrome_manager else None
         tab = self._get_current_tab()
 
         return json.dumps({
             "status": "ok",
             "port": port,
-            "ws_url": ws_url,
+            "transport": "pipe",
             "http_endpoint": f"http://127.0.0.1:{port}",
             "current_tab": tab.to_dict() if tab else None,
         }, ensure_ascii=False, indent=2)

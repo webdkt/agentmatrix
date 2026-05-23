@@ -6,6 +6,7 @@ Container Session - 持久容器内 Shell 会话
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import threading
@@ -319,10 +320,34 @@ class ContainerSession:
             )
             if result.returncode != 0:
                 return False, result.stderr.strip()
-            return True, ""
         except Exception:
             # 校验本身失败（不应该阻止执行）
-            return True, ""
+            pass
+
+        # bash -n 对未闭合 heredoc 返回 0，需额外检查
+        closed, err = self._check_heredoc_closed(command)
+        if not closed:
+            return False, err
+
+        return True, ""
+
+    @staticmethod
+    def _check_heredoc_closed(command: str) -> Tuple[bool, str]:
+        """检查所有 heredoc 是否已闭合"""
+        heredoc_re = re.compile(r'<<-?\s*[\'"]?(\w+)[\'"]?')
+        lines = command.split('\n')
+
+        for match in heredoc_re.finditer(command):
+            delimiter = match.group(1)
+            line_num = command[:match.start()].count('\n')
+
+            if not any(
+                line.strip() == delimiter
+                for line in lines[line_num + 1:]
+            ):
+                return False, f"heredoc '{delimiter}' 未闭合，缺少结束标记"
+
+        return True, ""
 
     def _send_raw(self, data: str) -> None:
         """发送原始数据到 stdin"""

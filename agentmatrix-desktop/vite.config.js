@@ -12,7 +12,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true, // Tauri requires a fixed port
+    strictPort: true,
+    watch: {
+      ignored: ['**/src-tauri/target/**', '**/src-tauri/binaries/**', '**/build-cache/**'],
+    },
     proxy: {
       // 🔑 关键：代理后端 API
       '/api': {
