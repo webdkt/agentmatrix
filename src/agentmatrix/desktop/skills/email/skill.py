@@ -204,7 +204,7 @@ class EmailSkillMixin:
             target_file = target_attachments_dir / filename
 
             # 先尝试将容器内路径转换为宿主机路径
-            host_path = self._resolve_path_to_host(container_path, task_id)
+            host_path = self.root_agent.resolve_path_to_host(container_path)
 
             if host_path and Path(host_path).exists():
                 # 宿主机路径可以直接访问
@@ -278,39 +278,4 @@ class EmailSkillMixin:
             return False, "从容器提取文件超时"
         except Exception as e:
             return False, f"提取失败：{e}"
-
-    def _resolve_path_to_host(self, container_path: str, task_id: str) -> str:
-        """
-        将容器内路径转换为宿主机路径（使用公共方法）
-
-        Args:
-            container_path: 容器内路径或宿主机路径
-            task_id: 用户会话 ID
-
-        Returns:
-            宿主机路径字符串，如果路径无法转换则返回原路径
-        """
-        runtime = self.root_agent.runtime
-        if not runtime:
-            return container_path
-
-        agent_name = self.root_agent.name
-        path_obj = Path(container_path)
-
-        # 1. 使用公共方法处理 ~、~/current_task、/data/agents 等路径
-        if container_path.startswith("~") or container_path.startswith("/data/agents/"):
-            host_path = runtime.paths.resolve_path_to_host(
-                container_path, agent_name, task_id
-            )
-            return str(host_path) if host_path else container_path
-
-        # 2. 相对路径 → 基于当前任务目录 (work_files/{task_id}/)
-        if not path_obj.is_absolute():
-            return str(
-                runtime.paths.get_agent_work_files_dir(agent_name, task_id)
-                / container_path
-            )
-
-        # 3. 其他绝对路径（可能是宿主机路径，直接返回）
-        return container_path
 

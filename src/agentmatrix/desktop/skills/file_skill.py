@@ -92,20 +92,7 @@ class FileSkillMixin:
     _BLOCKED_PATHS = ("/dev/", "/proc/", "/sys/")
 
     def _resolve_path_to_host(self, file_path: str) -> Optional[Path]:
-        """
-        将 ~ 路径解析为宿主路径（LocalSession 和 ContainerSession 均适用）
-
-        Args:
-            file_path: 文件路径（如 ~/current_task/data.txt）
-
-        Returns:
-            宿主路径对象，如果路径无法转换则返回 None
-        """
-        agent_name = self.root_agent.name
-        task_id = self.root_agent.current_task_id
-        paths = self.root_agent.runtime.paths
-
-        return paths.resolve_path_to_host(file_path, agent_name, task_id)
+        return self.root_agent.resolve_path_to_host(file_path)
 
     @register_action(
         short_desc="读取文本文件内容[file_path, start_line=1,end_line=200]",

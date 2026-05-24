@@ -861,6 +861,22 @@ Start generating the Working Notes now.
 
         return workspace
 
+    def resolve_path_to_host(self, file_path: str):
+        """
+        将容器内路径（~/xxx, /data/agents/xxx, 相对路径）转换为宿主机路径
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            Path 或 None: 宿主机路径，无法转换时返回 None
+        """
+        if self.runtime is None:
+            return None
+        return self.runtime.paths.resolve_path_to_host(
+            file_path, self.name, self.current_task_id
+        )
+
     @property
     def current_workspace(self) -> Path:
         """
@@ -990,7 +1006,7 @@ Start generating the Working Notes now.
             )
 
         # 写入 session event: email.received
-        body_preview = email.body[:200] if email.body else ""
+        body_preview = email.body or ""
         await self._log_session_event(
             session_id=session_id,
             event_type="email",
