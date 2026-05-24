@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
-use commands::container::{check_container_runtime, init_podman_vm, ensure_container_image};
+use commands::container::{check_container_runtime, init_podman_vm, ensure_container_image, RuntimeInfo};
 
 use std::process::{Command, Child};
 use std::sync::Mutex;
@@ -417,25 +417,29 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 // ─── Ensure Environment (unified startup: container runtime + backend) ───
 
 async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
-    let runtime_info = check_container_runtime().await?;
-    if runtime_info.runtime == "none" {
-        return Err("No container runtime found. Please install Docker or Podman.".to_string());
+    // 1. 容器运行时：可选（仅 container agent 需要）
+    let runtime_info = check_container_runtime().await.unwrap_or(RuntimeInfo {
+        runtime: "none".to_string(),
+        version: None,
+        path: None,
+        install_guide: None,
+    });
+
+    if runtime_info.runtime != "none" {
+        // 有容器运行时才执行容器相关步骤
+        if runtime_info.runtime == "podman" {
+            init_podman_vm().await.ok();
+        }
+        ensure_container_image(app.clone()).await.ok();
+        commands::container::initialize_container_packages(app.clone()).await.ok();
+    } else {
+        println!("⚠️ 未检测到容器运行时，跳过容器初始化");
     }
-    if runtime_info.runtime == "podman" {
-        init_podman_vm().await?;
-    }
 
-    // 1. 确保容器镜像存在
-    ensure_container_image(app.clone()).await?;
-
-    // 2. 初始化容器包（仅在 cold start 时执行一次）
-    // 函数内部会检查 container_packages_initialized 标志
-    commands::container::initialize_container_packages(app.clone()).await?;
-
-    // 3. 确保 Python 环境（仅在首次执行一次，供 LocalFileAgent 使用）
+    // 2. 确保 Python 环境（供 LocalFileAgent 使用）
     commands::python_env::ensure_python_env(app.clone()).await?;
 
-    // 4. 启动 backend
+    // 3. 启动 backend
     start_backend_logic(app, state).await?;
 
     Ok(())

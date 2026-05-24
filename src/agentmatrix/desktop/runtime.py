@@ -105,8 +105,8 @@ class AgentMatrix(AutoLoggerMixin):
         self.echo(">>> 初始化系统配置...")
         self._init_system_config()
 
-        # 🆕 初始化单容器管理器
-        self.echo(">>> 初始化单容器管理器...")
+        # 检查容器配置
+        self.echo(">>> 检查容器配置...")
         self._init_container_manager()
 
         self.echo(">>> 广播回调接口已初始化（事件驱动模式）")
@@ -152,15 +152,8 @@ class AgentMatrix(AutoLoggerMixin):
     # 准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
 
-        # 🐳 容器运行时：可选（仅 session_type='container' 的 Agent 需要）
-        self.echo(">>> 检查容器运行时状态...")
-        from .container.runtime_factory import ContainerRuntimeFactory
-
-        self._container_adapter = ContainerRuntimeFactory.ensure_running(logger=self.logger)
-        if not self._container_adapter:
-            self.echo(">>> ⚠️ 未检测到容器运行时，session_type='container' 的 Agent 将不可用")
-        else:
-            self.echo(">>> ✅ 容器运行时已就绪")
+        # 容器运行时：延迟检测，仅在有 agent 需要时才初始化
+        self._container_adapter = None
 
         # 初始化 PostOffice（DB 连接需要在 async 上下文中调用 init_db()）
         self.post_office = PostOffice(self.paths, self.user_agent_name)
@@ -285,10 +278,25 @@ class AgentMatrix(AutoLoggerMixin):
             self.echo(">>> EmailProxy未启用")
 
     def _init_container_manager(self):
-        """初始化单容器管理器（共享容器架构）— 仅在容器运行时可用时创建"""
-        if self._container_adapter is None:
+        """初始化单容器管理器 — 仅在有 agent 需要 container 时才检测运行时"""
+        # 先看有没有 agent 需要 container
+        needs_container = any(
+            a.profile.get("session_type", "local") == "container"
+            for a in self.agents.values()
+        )
+        if not needs_container:
             self.container_manager = None
-            self.echo(">>> 无容器运行时，跳过容器管理器初始化")
+            self.echo(">>> 无 container 类型 Agent，跳过容器管理器")
+            return
+
+        # 有 agent 需要容器，才检测运行时
+        self.echo(">>> 检测容器运行时...")
+        from .container.runtime_factory import ContainerRuntimeFactory
+
+        self._container_adapter = ContainerRuntimeFactory.ensure_running(logger=self.logger)
+        if not self._container_adapter:
+            self.container_manager = None
+            self.echo(">>> ⚠️ 容器运行时不可用，container Agent 将无法工作")
             return
 
         from .container.single_container_manager import SingleContainerManager
