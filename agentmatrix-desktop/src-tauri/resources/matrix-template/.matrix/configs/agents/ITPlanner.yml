@@ -1,5 +1,7 @@
 name: IT_Planner
 description: IT建设规划专家
+class_name: agentmatrix.desktop.base_agent.BaseAgent
+session_type: local
 skills:
   - base
   - email

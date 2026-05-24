@@ -152,16 +152,15 @@ class AgentMatrix(AutoLoggerMixin):
     # 准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
 
-        # 🐳 确保容器运行时已启动（全局资源初始化）
+        # 🐳 容器运行时：可选（仅 session_type='container' 的 Agent 需要）
         self.echo(">>> 检查容器运行时状态...")
         from .container.runtime_factory import ContainerRuntimeFactory
 
         self._container_adapter = ContainerRuntimeFactory.ensure_running(logger=self.logger)
         if not self._container_adapter:
-            raise RuntimeError(
-                "容器运行时启动失败。AgentMatrix 依赖 Docker 或 Podman 运行，请确保已安装并启动。\n"
-                "下载地址: https://www.docker.com/products/docker-desktop/"
-            )
+            self.echo(">>> ⚠️ 未检测到容器运行时，session_type='container' 的 Agent 将不可用")
+        else:
+            self.echo(">>> ✅ 容器运行时已就绪")
 
         # 初始化 PostOffice（DB 连接需要在 async 上下文中调用 init_db()）
         self.post_office = PostOffice(self.paths, self.user_agent_name)
@@ -286,7 +285,12 @@ class AgentMatrix(AutoLoggerMixin):
             self.echo(">>> EmailProxy未启用")
 
     def _init_container_manager(self):
-        """初始化单容器管理器（共享容器架构）"""
+        """初始化单容器管理器（共享容器架构）— 仅在容器运行时可用时创建"""
+        if self._container_adapter is None:
+            self.container_manager = None
+            self.echo(">>> 无容器运行时，跳过容器管理器初始化")
+            return
+
         from .container.single_container_manager import SingleContainerManager
 
         self.container_manager = SingleContainerManager(

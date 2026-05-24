@@ -18,7 +18,6 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from .base_agent import BaseAgent
-from .local_file_agent import LocalFileAgentMixin
 from .signals import BrowserSignal
 
 from ..core.signals import CoreEvent
@@ -443,7 +442,7 @@ class _SiteKnowledgeLoader:
             return False
 
 
-class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
+class BrowserCollabAgent(BaseAgent):
     """支持浏览器协作的 Agent。
 
     在 BaseAgent 基础上，提供：
@@ -455,7 +454,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
     浏览器端通过 __bh_emit__ 发送事件（indicator_result, range_result 等），
     Agent 通过 CDP 调用 __bh_show_indicator__ / __bh_show_range__ 触发交互。
 
-    继承 LocalFileAgentMixin，直接操作宿主机文件（不经过容器）。
+    使用 BaseAgent 的 session_type='local'（默认）直接操作宿主机文件。
     """
 
     # Site knowledge：跨 execute 保持，load_site_knowledge action 设置

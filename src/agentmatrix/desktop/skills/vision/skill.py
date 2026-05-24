@@ -25,12 +25,12 @@ class VisionSkillMixin:
     # 文件大小限制（10MB）
     _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10,485,760 bytes
 
-    def _container_path_to_host(self, container_path: str) -> Optional[Path]:
+    def _resolve_path_to_host(self, container_path: str) -> Optional[Path]:
         """将容器内路径转换为宿主路径"""
         agent_name = self.root_agent.name
         task_id = self.root_agent.current_task_id
         paths = self.root_agent.runtime.paths
-        return paths.container_path_to_host(container_path, agent_name, task_id)
+        return paths.resolve_path_to_host(container_path, agent_name, task_id)
 
     @register_action(
         short_desc="[file_path, instruction_or_question?]，用视觉大模型分析图片内容返回文本描述,文件大小限制10MB",
@@ -55,7 +55,7 @@ class VisionSkillMixin:
             str: 视觉大模型对图片的理解文本
         """
         # 优先尝试宿主路径直接读取
-        host_path = self._container_path_to_host(file_path)
+        host_path = self._resolve_path_to_host(file_path)
 
         if host_path and host_path.exists() and host_path.is_file():
             base64_data, mime_type, file_size = self._read_image_from_host(host_path)

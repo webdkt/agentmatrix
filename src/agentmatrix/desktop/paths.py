@@ -277,7 +277,7 @@ class MatrixPaths:
             return str(scripts_dir)
         return None
 
-    def container_path_to_host(
+    def resolve_path_to_host(
         self, container_path: str, agent_name: str, task_id: str
     ) -> Optional[Path]:
         """

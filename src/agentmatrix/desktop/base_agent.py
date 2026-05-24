@@ -100,6 +100,7 @@ class BaseAgent(BasicAgent):
 
         # Container Session（延迟初始化）
         self.container_session = None
+        self.local_session = None
 
         # 浏览器适配器（懒启动，Agent 级共享资源）
         self._browser_adapter = None
@@ -116,65 +117,91 @@ class BaseAgent(BasicAgent):
         self.logger.info(f"Agent {self.name} 初始化完成")
 
     def _init_container_session(self):
-        """初始化 Container Session"""
-        if self.runtime is None:
-            raise RuntimeError("runtime 未注入，无法初始化 Container Session")
+        """根据 session_type 配置初始化对应的 Session"""
+        session_type = self.profile.get("session_type", "local")
+        if session_type == "local":
+            self._init_local_session()
+        elif session_type == "container":
+            self._init_container_session_impl()
+        else:
+            raise ValueError(f"Unknown session_type: '{session_type}'")
 
+    def _init_local_session(self):
+        """初始化本地持久 bash 会话（直接在宿主机执行）"""
+        from .container.local_session import LocalSession
+
+        home_dir = str(self.runtime.paths.get_agent_home_dir(self.name))
+        env_bin = self.runtime.paths.get_shared_env_bin()
+
+        session = LocalSession(
+            home_dir=home_dir,
+            logger=logging.getLogger(f"local_session.{self.name}"),
+            env_bin_path=env_bin,
+        )
+        session.start()
+
+        self.container_session = session
+        self.local_session = session
+        self.logger.info(f"Local Session 初始化成功 (HOME={home_dir})")
+
+        self._setup_output_mirror()
+
+    def _init_container_session_impl(self):
+        """初始化容器内 Session（通过 Docker/Podman exec）"""
         if (
             not hasattr(self.runtime, "container_manager")
             or not self.runtime.container_manager
         ):
-            raise RuntimeError("container_manager 未初始化，无法获取 Container Session")
+            raise RuntimeError(
+                f"Agent '{self.name}' 配置为 session_type='container'，"
+                "但容器运行时不可用。请安装 Docker/Podman，或将 session_type 改为 local。"
+            )
 
         cm = self.runtime.container_manager
-
-        # 确保用户存在（创建 Linux 用户和目录）
         cm.ensure_user(self.name)
 
-        # 获取或创建 container session
         self.container_session = cm.get_container_session(self.name)
+        self.local_session = None
         self.logger.info(
             f"Container Session 初始化成功 (session_id: {self.container_session.session_id})"
         )
 
-        # 始终挂载 output mirror，让终端输出持续广播
         self._setup_output_mirror()
 
     async def switch_workspace(self, task_id: str) -> bool:
-        """切换工作目录（通过 container session 执行命令）"""
-        print("baseagent switch workspace")
+        """切换工作目录（根据 session 类型选择路径策略）"""
         if self.container_session is None:
-            raise RuntimeError("Container Session 未初始化")
+            raise RuntimeError("Session 未初始化")
 
-        # 1. 在宿主机创建目录（使用 runtime.paths）
+        # 1. 在宿主机创建目录（两种模式都需要）
         task_dir = self.runtime.paths.get_agent_work_files_dir(self.name, task_id)
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2. 在容器内更新软链接（Agent 用户可以操作自己的软链接，不需要 root）
-        # ~/current_task 是固定的软链接，指向当前任务目录
-        # 先删除旧的 symlink 再创建，避免部分容器环境（如 BusyBox）下 ln -sf 不替换已有 symlink 的问题
-        symlink_target = f"/data/agents/{self.name}/work_files/{task_id}"
-        cmd = f"rm -f ~/current_task && ln -s {symlink_target} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
-        self.logger.info(f"switch_workspace 命令: {cmd}")
-        self.logger.info(f"宿主机目录: {task_dir} (存在={task_dir.exists()})")
-        self.logger.info(f"container_session alive: {self.container_session.is_alive()}")
-
-        try:
+        # 2. 根据 session 类型选择 symlink 策略
+        from .container.local_session import LocalSession
+        if isinstance(self.container_session, LocalSession):
+            # Local: 宿主机直接建 symlink
+            home_dir = self.runtime.paths.get_agent_home_dir(self.name)
+            symlink_path = home_dir / "current_task"
+            if symlink_path.is_symlink() or symlink_path.exists():
+                symlink_path.unlink()
+            symlink_path.symlink_to(str(task_dir))
+            exit_code, stdout, stderr = await asyncio.to_thread(
+                self.container_session.execute, "cd ~/current_task && pwd"
+            )
+        else:
+            # Container: 容器内建 symlink
+            symlink_target = f"/data/agents/{self.name}/work_files/{task_id}"
+            cmd = f"rm -f ~/current_task && ln -s {symlink_target} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
             exit_code, stdout, stderr = await asyncio.to_thread(
                 self.container_session.execute, cmd
             )
-        except Exception as e:
-            self.logger.error(f"switch_workspace 执行异常: {e}")
-            return False
-
-        self.logger.info(f"switch_workspace 结果: exit={exit_code}, stdout={stdout}, stderr={stderr}")
 
         if exit_code != 0:
-            self.logger.warning(f"switch_workspace 命令失败: exit={exit_code}, stderr={stderr}")
+            self.logger.warning(f"switch_workspace 失败: stderr={stderr}")
             return False
 
         self.logger.info(f"工作目录已切换: {self.name} -> {task_id}")
-        self.logger.info(f"🔍 symlink 实际指向: {stdout.strip() if stdout else 'unknown'}")
         return True
 
     # ==================== 浏览器管理 ====================

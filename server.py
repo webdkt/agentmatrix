@@ -305,7 +305,7 @@ async def graceful_shutdown():
             # Prevent __del__ from trying to re-clean after module teardown
             # (critical for PyInstaller onefile where __del__ runs after cleanup)
             try:
-                if hasattr(matrix_runtime, "container_manager"):
+                if hasattr(matrix_runtime, "container_manager") and matrix_runtime.container_manager:
                     cm = matrix_runtime.container_manager
                     if hasattr(cm, "_container_sessions"):
                         for session in cm._container_sessions.values():
@@ -1457,7 +1457,7 @@ async def toggle_collab_mode(agent_name: str, request: Request):
 
 @app.post("/api/agents/{agent_name}/terminal/exec")
 async def terminal_exec(agent_name: str, request: Request):
-    """在 Agent 的 container session 中执行用户命令"""
+    """在 Agent 的 session 中执行用户命令"""
     global matrix_runtime
 
     if not matrix_runtime:

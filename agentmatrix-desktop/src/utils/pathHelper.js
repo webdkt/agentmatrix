@@ -1,6 +1,6 @@
 /**
  * 容器路径 → 宿主机路径转换工具
- * 复刻后端 paths.py container_path_to_host 的映射规则
+ * 复刻后端 paths.py resolve_path_to_host 的映射规则
  */
 
 /**

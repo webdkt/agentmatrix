@@ -1,10 +1,9 @@
 """
-File Operation Skill - 容器内执行版本
+File Operation Skill - 统一版本
 
-核心设计：
-- 所有文件操作在共享容器内以 Agent 用户身份执行
-- 写入文件时，优先尝试将容器路径转换为宿主路径，直接在宿主上写入
-- 这样可以避免管道操作导致的 broken pipe 问题
+支持 LocalSession（宿主机直接执行）和 ContainerSession（容器内执行）。
+- 写入文件时，优先将路径解析为宿主路径，直接用 Python I/O 写入
+- 避免管道操作导致的 broken pipe 问题
 - Agent 在自己的工作目录中有完全权限（无白名单限制）
 """
 
@@ -18,9 +17,9 @@ from agentmatrix.core.action import register_action
 
 class FileSkillMixin:
     """
-    File Operation Skill Mixin (容器内执行版本)
+    File Operation Skill Mixin (统一版本)
 
-    所有文件操作在共享容器内以 Agent 用户身份执行：
+    通过 container_session 执行文件操作（LocalSession 和 ContainerSession 均适用）：
     - list_dir: 列出目录内容
     - read: 读取文件
     - write: 写入文件
@@ -49,7 +48,7 @@ class FileSkillMixin:
         self, directory: Optional[str] = None, recursive: bool = False
     ) -> str:
         """
-        列出目录内容（容器内执行）
+        列出目录内容
 
         Args:
             directory: 目录路径（默认当前目录）
@@ -92,12 +91,12 @@ class FileSkillMixin:
     # 不可读取的路径（设备文件、伪文件系统等会阻塞或无意义）
     _BLOCKED_PATHS = ("/dev/", "/proc/", "/sys/")
 
-    def _container_path_to_host(self, container_path: str) -> Optional[Path]:
+    def _resolve_path_to_host(self, file_path: str) -> Optional[Path]:
         """
-        将容器内路径转换为宿主路径（使用公共方法）
+        将 ~ 路径解析为宿主路径（LocalSession 和 ContainerSession 均适用）
 
         Args:
-            container_path: 容器内路径（如 ~/current_task/data.txt）
+            file_path: 文件路径（如 ~/current_task/data.txt）
 
         Returns:
             宿主路径对象，如果路径无法转换则返回 None
@@ -106,7 +105,7 @@ class FileSkillMixin:
         task_id = self.root_agent.current_task_id
         paths = self.root_agent.runtime.paths
 
-        return paths.container_path_to_host(container_path, agent_name, task_id)
+        return paths.resolve_path_to_host(file_path, agent_name, task_id)
 
     @register_action(
         short_desc="读取文本文件内容[file_path, start_line=1,end_line=200]",
@@ -124,7 +123,7 @@ class FileSkillMixin:
         end_line: Optional[int] = 200,
     ) -> str:
         """
-        读取文本文件内容（容器内执行）
+        读取文本文件内容
 
         Args:
             file_path: 文本文件路径
@@ -198,11 +197,11 @@ class FileSkillMixin:
             mode: 写入模式，'overwrite' 覆盖或 'append' 追加（默认 overwrite）
             allow_overwrite: 是否允许覆盖已存在文件（默认 False）
         """
-        # 优先尝试将容器路径转换为宿主路径
-        host_path = self._container_path_to_host(file_path)
+        # 优先将路径解析为宿主路径（避免 broken pipe）
+        host_path = self._resolve_path_to_host(file_path)
 
         if host_path:
-            # 可以直接在宿主上写入（避免 broken pipe）
+            # 宿主路径可用，直接用 Python I/O 写入
             host_path_str = str(host_path)
 
             # 检查文件是否存在
@@ -212,7 +211,7 @@ class FileSkillMixin:
             # 创建目录
             host_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # 直接写入（使用 Python，不需要通过容器）
+            # 直接写入（使用 Python I/O）
             try:
                 if mode == "append":
                     with open(host_path_str, "a", encoding="utf-8") as f:
@@ -228,7 +227,7 @@ class FileSkillMixin:
                 self.logger.error(f"[write] 宿主写入失败: {e}")
                 return f"写入文件失败\n- 文件: {file_path}\n- 错误: {str(e)}"
 
-        # 路径无法转换，回退到容器内写入（原来的逻辑）
+        # 路径无法转换，回退到通过 session 写入
         container_session = self.root_agent.container_session
 
         # 检查文件是否存在
@@ -289,7 +288,7 @@ class FileSkillMixin:
         recursive: bool = True,
     ) -> str:
         """
-        搜索文件或内容（容器内执行）
+        搜索文件或内容
 
         Args:
             pattern: 搜索模式
@@ -330,7 +329,7 @@ class FileSkillMixin:
 
     @register_action(
         short_desc=(
-            "执行bash命令或脚本（容器内执行）。"
+            "执行bash命令或脚本。"
             "单行命令用普通引号: file.bash(command=\"ls -la\")。"
             "多行脚本或 heredoc 必须用 r\"\"\"...\"\"\" 包裹，内容用真实换行，不要用 \\n：\n"
             "file.bash(command=r\"\"\"python3 << 'EOF'\nprint('hello')\nEOF\"\"\")"
@@ -343,7 +342,7 @@ class FileSkillMixin:
     )
     async def bash(self, command: str, timeout: int = 3600) -> str:
         """
-        执行 bash 命令或脚本（容器内执行）
+        执行 bash 命令或脚本
 
         Args:
             command: bash 命令或脚本
@@ -364,7 +363,7 @@ class FileSkillMixin:
         # 执行前检查 shell 是否可响应，不可响应则自动重启
         await asyncio.to_thread(container_session.ensure_responsive)
 
-        # 直接在容器内执行命令（无白名单限制）
+        # 执行命令
         exit_code, stdout, stderr = await asyncio.to_thread(
             container_session.execute, command, timeout
         )
@@ -405,10 +404,10 @@ class FileSkillMixin:
             new_string: 新字符串
             use_regex: 是否使用正则表达式（默认false）
         """
-        host_path = self._container_path_to_host(file_path)
+        host_path = self._resolve_path_to_host(file_path)
 
         if host_path:
-            # 宿主路径可用，直接用 Python 替换
+            # 宿主路径可用，直接用 Python I/O 替换
             host_path_str = str(host_path)
             if not host_path.exists():
                 return f"错误：文件不存在 {file_path}"
@@ -438,7 +437,7 @@ class FileSkillMixin:
                 self.logger.error(f"[replace] 宿主替换失败: {e}")
                 return f"替换失败\n- 文件: {file_path}\n- 错误: {str(e)}"
 
-        # 回退到容器内执行 Python 脚本
+        # 回退到通过 session 执行 Python 脚本
         container_session = self.root_agent.container_session
         import json
 

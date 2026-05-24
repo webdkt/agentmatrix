@@ -1,10 +1,11 @@
 name: Frank
 description: 自动化工程师
 class_name: agentmatrix.desktop.browser_collab_agent.BrowserCollabAgent
+session_type: local
 
 # Skills 配置（🆕 新架构）
 skills:
-  - native_file  # 本地文件操作技能（直接操作宿主机文件）
+  - file  # 文件操作技能
   - browser_automation
   - vision
 

@@ -204,7 +204,7 @@ class EmailSkillMixin:
             target_file = target_attachments_dir / filename
 
             # 先尝试将容器内路径转换为宿主机路径
-            host_path = self._resolve_container_path_to_host(container_path, task_id)
+            host_path = self._resolve_path_to_host(container_path, task_id)
 
             if host_path and Path(host_path).exists():
                 # 宿主机路径可以直接访问
@@ -279,7 +279,7 @@ class EmailSkillMixin:
         except Exception as e:
             return False, f"提取失败：{e}"
 
-    def _resolve_container_path_to_host(self, container_path: str, task_id: str) -> str:
+    def _resolve_path_to_host(self, container_path: str, task_id: str) -> str:
         """
         将容器内路径转换为宿主机路径（使用公共方法）
 
@@ -299,7 +299,7 @@ class EmailSkillMixin:
 
         # 1. 使用公共方法处理 ~、~/current_task、/data/agents 等路径
         if container_path.startswith("~") or container_path.startswith("/data/agents/"):
-            host_path = runtime.paths.container_path_to_host(
+            host_path = runtime.paths.resolve_path_to_host(
                 container_path, agent_name, task_id
             )
             return str(host_path) if host_path else container_path
