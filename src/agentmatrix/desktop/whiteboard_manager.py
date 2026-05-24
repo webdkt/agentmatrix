@@ -53,6 +53,8 @@ class WhiteboardManager:
 
     def set_file_path(self, path: Path):
         self._file_path = path
+        self._sections = {}
+        self._change_counter = 0
         self._load_initial()
 
     def _load_initial(self):
