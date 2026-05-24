@@ -809,6 +809,8 @@ fn main() {
             commands::matrix::init_matrix_world,
             commands::filesystem::copy_file,
             commands::filesystem::file_exists,
+            commands::filesystem::read_text_file,
+            commands::filesystem::write_text_file,
             commands::config::read_llm_config,
             commands::config::save_llm_config,
             commands::config::save_email_proxy_config_cmd,

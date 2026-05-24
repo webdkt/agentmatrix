@@ -102,6 +102,14 @@ class BaseAgent(BasicAgent):
         self.container_session = None
         self.local_session = None
 
+        # Whiteboard Manager（白板持久化 + 协同编辑）
+        from .whiteboard_manager import WhiteboardManager
+        self.whiteboard_manager = WhiteboardManager(self)
+
+        # Todo Manager（任务清单持久化）
+        from .todo_manager import TodoManager
+        self.todo_manager = TodoManager(self)
+
         # 浏览器适配器（懒启动，Agent 级共享资源）
         self._browser_adapter = None
 
@@ -466,8 +474,11 @@ Start generating the Working Notes now.
             self.current_session["history"] = agent.messages
             await self.session_manager.save_session(self.current_session)
 
-        # 清空 whiteboard
-        agent.whiteboard.clear()
+        # 重置变更计数器（不清空数据）
+        self.whiteboard_manager.reset_change_counter()
+        self.todo_manager.reset_change_counter()
+        # 同步到 MicroAgent 属性
+        agent.whiteboard = self.whiteboard_manager.data_as_legacy_format()
 
     def is_llm_available(self) -> bool:
         """检查 LLM 服务是否可用。"""
@@ -1033,6 +1044,12 @@ Start generating the Working Notes now.
             self.logger.error(f"工作区切换失败: task_id={session['task_id']}")
             raise RuntimeError(f"工作区切换失败: {session['task_id']}")
 
+        # 设置 whiteboard 文件路径
+        wb_dir = self.private_workspace / ".matrix"
+        wb_dir.mkdir(parents=True, exist_ok=True)
+        self.whiteboard_manager.set_file_path(wb_dir / "whiteboard.json")
+        self.todo_manager.set_file_path(wb_dir / "todo.json")
+
         # 写入 session event: session.activated
         await self._log_session_event(
             session_id=session_id,
@@ -1071,7 +1088,7 @@ Start generating the Working Notes now.
     def _create_micro_agent(self) -> MicroAgent:
         """Desktop: 带有 base/email skills + md skills + custom prompt 的 MicroAgent。"""
         available_skills = list(self.profile.get("skills", []))
-        for required in ["base", "email"]:
+        for required in ["base", "email", "basic_planning"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 
@@ -1092,12 +1109,29 @@ Start generating the Working Notes now.
             md_skill_names=md_skill_names,
         )
 
-        # 注册 system prompt 热刷新 hook：每轮 think 前重新拼装
-        async def _refresh_system_prompt():
+        # 注册 system prompt 热刷新 + whiteboard/todo 管理 hook：每轮 think 前执行
+        async def _before_think_hook():
+            # 1. 同步 whiteboard 文件（用户协同编辑检测）
+            self.whiteboard_manager.sync_from_file(micro)
+            # 2. 更新第一条 user message 中的 whiteboard
+            self.whiteboard_manager.update_first_user_message(micro)
+            # 3. 同步 todo 文件
+            self.todo_manager.sync_from_file(micro)
+            # 4. 更新第一条 user message 中的 todo
+            self.todo_manager.update_first_user_message(micro)
+            # 5. 更新 task reminder（注入最后一条 user message）
+            self.todo_manager.update_task_reminder(micro)
+            # 6. 检查变更计数 → 触发压缩
+            if self.whiteboard_manager.should_compress or self.todo_manager.should_compress:
+                await self.compress_messages(micro)
+                self.whiteboard_manager.reset_change_counter()
+                self.todo_manager.reset_change_counter()
+            # 7. 刷新 system prompt
             new_prompt = self._assemble_system_prompt(micro)
             micro.update_system_message(new_prompt)
 
-        micro._before_think_hook = _refresh_system_prompt
+        micro._before_think_hook = _before_think_hook
+
         return micro
 
     def _assemble_system_prompt(self, micro_agent: MicroAgent) -> str:
@@ -1438,7 +1472,7 @@ Start generating the Working Notes now.
         if available_skills is None:
             available_skills = self.profile.get("skills", [])
 
-        for required in ["base", "email"]:
+        for required in ["base", "email", "basic_planning"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 
