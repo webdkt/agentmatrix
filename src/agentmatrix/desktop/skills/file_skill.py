@@ -92,7 +92,7 @@ class FileSkillMixin:
     # 不可读取的路径（设备文件、伪文件系统等会阻塞或无意义）
     _BLOCKED_PATHS = ("/dev/", "/proc/", "/sys/")
 
-    def _container_path_to_host(self, container_path: str) -> Optional[Path]:
+    def _resolve_path_to_host(self, container_path: str) -> Optional[Path]:
         """
         将容器内路径转换为宿主路径（使用公共方法）
 
@@ -106,7 +106,7 @@ class FileSkillMixin:
         task_id = self.root_agent.current_task_id
         paths = self.root_agent.runtime.paths
 
-        return paths.container_path_to_host(container_path, agent_name, task_id)
+        return paths.resolve_path_to_host(container_path, agent_name, task_id)
 
     @register_action(
         short_desc="读取文本文件内容[file_path, start_line=1,end_line=200]",
@@ -199,7 +199,7 @@ class FileSkillMixin:
             allow_overwrite: 是否允许覆盖已存在文件（默认 False）
         """
         # 优先尝试将容器路径转换为宿主路径
-        host_path = self._container_path_to_host(file_path)
+        host_path = self._resolve_path_to_host(file_path)
 
         if host_path:
             # 可以直接在宿主上写入（避免 broken pipe）
@@ -405,7 +405,7 @@ class FileSkillMixin:
             new_string: 新字符串
             use_regex: 是否使用正则表达式（默认false）
         """
-        host_path = self._container_path_to_host(file_path)
+        host_path = self._resolve_path_to_host(file_path)
 
         if host_path:
             # 宿主路径可用，直接用 Python 替换

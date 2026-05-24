@@ -10,7 +10,6 @@ Base Skill - 所有 MicroAgent 必备的基础 Actions
 """
 
 import asyncio
-import time
 from pathlib import Path
 from typing import Any
 from agentmatrix.core.action import register_action
@@ -51,28 +50,16 @@ class BaseSkillMixin:
     
 
     @register_action(
-        short_desc="(key,content) 设置/删除whiteboard内容：提供 key+content 写入，content 为空则删除该条目",
-        description="操作草稿纸（whiteboard）。提供 key 和 content 时写入或更新条目；content 为空时删除该 key。草稿纸用于随手记录工作要点，压缩时辅助生成 Working Notes，压缩后自动清空。",
-        param_infos={"key": "条目标识（必填）", "content": "要记录的内容，留空则删除该条目"},
+        short_desc="(section, key, content) 设置/删除whiteboard条目",
+        description="操作白板（whiteboard）。按 section 分组，每条有 key 和 content。"
+        "section+key+content 写入；section+key+空content 删除该条目；"
+        "section+空key+空content 删除整个 section。白板持久化到文件，压缩后不清空。",
+        param_infos={
+            "section": "分组名称（必填）",
+            "key": "条目标识（更新/删除时必填）",
+            "content": "要记录的内容，留空则删除",
+        },
     )
-    async def set_whiteboard(self, key: str, content: str = "") -> str:
-        """
-        设置或删除草稿纸条目
-
-        Args:
-            key: 条目标识
-            content: 要记录的内容，为空则删除该 key
-
-        Returns:
-            str: 操作结果及当前条数
-        """
-        if not content:
-            if key in self.whiteboard:
-                del self.whiteboard[key]
-                return f"Deleted '{key}'"
-            return f"Key '{key}' not found"
-        if len(self.whiteboard) >= 20 and key not in self.whiteboard:
-            return "Whiteboard is full. Delete some first."
-        self.whiteboard[key] = {"content": content, "ts": time.time()}
-        return f"Set '{key}'"
+    async def set_whiteboard(self, section: str, key: str = "", content: str = "") -> str:
+        return self._on_whiteboard_changed(section, key, content)
 

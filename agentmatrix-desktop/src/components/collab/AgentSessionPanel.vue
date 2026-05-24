@@ -19,6 +19,7 @@ import NewTaskPanel from './NewTaskPanel.vue'
 import TaskSendingOverlay from './TaskSendingOverlay.vue'
 import AgentTerminal from './AgentTerminal.vue'
 import TaskFilesPanel from './TaskFilesPanel.vue'
+import TaskInfoPanel from './TaskInfoPanel.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 import { useFloatingWindow } from '@/composables/useFloatingWindow'
 
@@ -451,6 +452,54 @@ const toggleCollabMode = async () => {
 const taskFilesWidth = computed(() => {
   return Math.round(middleSize.value.width * 0.5)
 })
+
+// ---- TaskInfo Panel resizable ----
+const taskInfoWidth = ref(null) // null = 50% default, number = fixed px
+const isDraggingDivider = ref(false)
+
+const taskInfoStyle = computed(() => {
+  if (taskInfoWidth.value != null) {
+    return { flex: '0 0 auto', width: `${taskInfoWidth.value}px` }
+  }
+  return { flex: '3 1 0%' } // default: 5:3 ratio
+})
+
+const messagesStyle = computed(() => {
+  if (taskInfoWidth.value != null) {
+    return { flex: '1 1 0%', minWidth: '0' }
+  }
+  return { flex: '5 1 0%', minWidth: '0' } // default: 5:3 ratio
+})
+
+function onDividerMouseDown(e) {
+  e.preventDefault()
+  isDraggingDivider.value = true
+  // If still in default 50/50 mode, initialize from actual widths
+  if (taskInfoWidth.value == null && middleArea.value) {
+    const total = middleArea.value.clientWidth
+    taskInfoWidth.value = Math.round(total / 2)
+  }
+  document.addEventListener('mousemove', onDividerMouseMove)
+  document.addEventListener('mouseup', onDividerMouseUp)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function onDividerMouseMove(e) {
+  if (!isDraggingDivider.value || !middleArea.value) return
+  const total = middleArea.value.clientWidth
+  const newWidth = total - e.clientX + middleArea.value.getBoundingClientRect().left
+  const clamped = Math.max(200, Math.min(total - 300, newWidth))
+  taskInfoWidth.value = Math.round(clamped)
+}
+
+function onDividerMouseUp() {
+  isDraggingDivider.value = false
+  document.removeEventListener('mousemove', onDividerMouseMove)
+  document.removeEventListener('mouseup', onDividerMouseUp)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
 </script>
 
 <template>
@@ -552,7 +601,7 @@ const taskFilesWidth = computed(() => {
     <!-- Middle Area -->
     <div ref="middleArea" class="agent-session-panel__middle">
       <!-- Chat messages -->
-      <div ref="messagesContainer" data-drop-zone="chat" class="agent-session-panel__messages" @scroll="onScroll">
+      <div ref="messagesContainer" data-drop-zone="chat" class="agent-session-panel__messages" :style="messagesStyle" @scroll="onScroll">
         <!-- Loading older events indicator -->
         <div v-if="isLoadingMore" class="agent-session-panel__loading-more">
           <MIcon name="loader" class="spin" /> 加载更早的消息...
@@ -618,6 +667,23 @@ const taskFilesWidth = computed(() => {
           </span>
         </div>
       </div>
+
+      <!-- Resizable Divider -->
+      <div
+        v-if="currentAgentName && currentSessionId"
+        class="agent-session-panel__divider"
+        :class="{ 'agent-session-panel__divider--active': isDraggingDivider }"
+        @mousedown="onDividerMouseDown"
+      />
+
+      <!-- TaskInfo Panel (resizable right panel, default 50%) -->
+      <TaskInfoPanel
+        v-if="currentAgentName && currentSessionId"
+        :agent-name="currentAgentName"
+        :session-id="currentSessionId"
+        class="agent-session-panel__task-info"
+        :style="taskInfoStyle"
+      />
 
       <!-- Task Files Slide-Out (from right edge) -->
       <Transition name="slide-right">
@@ -1022,13 +1088,39 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__messages {
-  flex: 1;
+  flex: 5 1 0%;
   overflow-y: auto;
   padding: 32px 36px 16px 36px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   min-width: 0;
+}
+
+/* ---- Resizable Divider ---- */
+.agent-session-panel__divider {
+  width: 7px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 3;
+  transition: background 0.15s ease;
+  margin: 0 -1px;
+}
+
+.agent-session-panel__divider:hover,
+.agent-session-panel__divider--active {
+  background: var(--accent);
+}
+
+/* ---- TaskInfo Panel (default 5:3, resizable) ---- */
+.agent-session-panel__task-info {
+  flex: 3 1 0%;
+  overflow: hidden;
+  background: var(--surface-base);
+  z-index: 2;
+  min-width: 200px;
 }
 
 .agent-session-panel__loading-more {

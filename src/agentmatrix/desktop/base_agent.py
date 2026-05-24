@@ -101,6 +101,10 @@ class BaseAgent(BasicAgent):
         # Container Session（延迟初始化）
         self.container_session = None
 
+        # Whiteboard Manager（白板持久化 + 协同编辑）
+        from .whiteboard_manager import WhiteboardManager
+        self.whiteboard_manager = WhiteboardManager(self)
+
         # 浏览器适配器（懒启动，Agent 级共享资源）
         self._browser_adapter = None
 
@@ -439,8 +443,10 @@ Start generating the Working Notes now.
             self.current_session["history"] = agent.messages
             await self.session_manager.save_session(self.current_session)
 
-        # 清空 whiteboard
-        agent.whiteboard.clear()
+        # 重置 whiteboard 变更计数器（不清空数据）
+        self.whiteboard_manager.reset_change_counter()
+        # 同步到 MicroAgent 属性
+        agent.whiteboard = self.whiteboard_manager.data_as_legacy_format()
 
     def is_llm_available(self) -> bool:
         """检查 LLM 服务是否可用。"""
@@ -1006,6 +1012,11 @@ Start generating the Working Notes now.
             self.logger.error(f"工作区切换失败: task_id={session['task_id']}")
             raise RuntimeError(f"工作区切换失败: {session['task_id']}")
 
+        # 设置 whiteboard 文件路径
+        wb_dir = self.private_workspace / ".matrix"
+        wb_dir.mkdir(parents=True, exist_ok=True)
+        self.whiteboard_manager.set_file_path(wb_dir / "whiteboard.json")
+
         # 写入 session event: session.activated
         await self._log_session_event(
             session_id=session_id,
@@ -1065,12 +1076,25 @@ Start generating the Working Notes now.
             md_skill_names=md_skill_names,
         )
 
-        # 注册 system prompt 热刷新 hook：每轮 think 前重新拼装
-        async def _refresh_system_prompt():
+        # 注册 system prompt 热刷新 + whiteboard 管理 hook：每轮 think 前执行
+        async def _before_think_with_whiteboard():
+            # 1. 同步文件（用户协同编辑检测）
+            self.whiteboard_manager.sync_from_file(micro)
+            # 2. 更新第一条 user message 中的 whiteboard
+            self.whiteboard_manager.update_first_user_message(micro)
+            # 3. 检查 whiteboard 变更计数 → 触发压缩
+            if self.whiteboard_manager.should_compress:
+                await self.compress_messages(micro)
+                self.whiteboard_manager.reset_change_counter()
+            # 4. 刷新 system prompt（原有逻辑）
             new_prompt = self._assemble_system_prompt(micro)
             micro.update_system_message(new_prompt)
 
-        micro._before_think_hook = _refresh_system_prompt
+        micro._before_think_hook = _before_think_with_whiteboard
+
+        # 白板变更回调（set_whiteboard action 使用）
+        micro._on_whiteboard_changed = lambda section, key="", content="": self.whiteboard_manager.handle_action(micro, section, key, content)
+
         return micro
 
     def _assemble_system_prompt(self, micro_agent: MicroAgent) -> str:

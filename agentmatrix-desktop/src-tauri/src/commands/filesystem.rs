@@ -211,3 +211,21 @@ pub async fn open_attachment_path(path: String) -> Result<(), String> {
     println!("✅ Opened: {}", expanded_path);
     Ok(())
 }
+
+/// 读取文本文件内容
+#[tauri::command]
+pub fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read file {}: {}", path, e))
+}
+
+/// 写入文本文件（自动创建父目录）
+#[tauri::command]
+pub fn write_text_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    std::fs::write(&path, content)
+        .map_err(|e| format!("Failed to write file {}: {}", path, e))
+}

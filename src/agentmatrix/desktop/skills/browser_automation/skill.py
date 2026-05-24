@@ -909,7 +909,7 @@ class Browser_automationSkillMixin:
         root = self.root_agent
         agent_name = root.name
         task_id = getattr(root, "current_task_id", None) or "default"
-        host_path = root.runtime.paths.container_path_to_host(
+        host_path = root.runtime.paths.resolve_path_to_host(
             file_path, agent_name, task_id
         )
         if host_path is None or not host_path.exists():

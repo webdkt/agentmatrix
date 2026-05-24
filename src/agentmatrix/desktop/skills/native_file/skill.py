@@ -208,7 +208,7 @@ class Native_fileSkillMixin:
         """Resolve ~ to agent's home dir via runtime.paths."""
         if file_path.startswith("~"):
             agent = self.root_agent
-            resolved = agent.runtime.paths.container_path_to_host(
+            resolved = agent.runtime.paths.resolve_path_to_host(
                 file_path, agent.name, agent.active_session_id
             )
             if resolved:
