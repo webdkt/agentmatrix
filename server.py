@@ -302,6 +302,12 @@ async def graceful_shutdown():
             traceback.print_exc()
         finally:
             print("🧹 Cleaning up runtime resources...")
+            # Stop Chrome and browser automation infrastructure
+            try:
+                from agentmatrix.desktop.skills.browser_automation.skill import shutdown_browser_infra
+                await asyncio.wait_for(shutdown_browser_infra(), timeout=10.0)
+            except Exception as e:
+                print(f"⚠️  Browser shutdown error: {e}")
             # Prevent __del__ from trying to re-clean after module teardown
             # (critical for PyInstaller onefile where __del__ runs after cleanup)
             try:
@@ -340,6 +346,15 @@ async def init_runtime(matrix_world_dir: Path):
     print(f"✅ Loaded user agent name: {user_agent_name}")
 
     print("🔧 Initializing AgentMatrix runtime...")
+
+    # Kill orphaned Chrome from previous crash/force-quit
+    try:
+        from agentmatrix.desktop.runtime import kill_orphan_chrome
+        killed = kill_orphan_chrome()
+        if killed:
+            print(f"🧹 Killed {killed} orphaned Chrome process(es)")
+    except Exception as e:
+        print(f"⚠️  Orphan Chrome cleanup failed: {e}")
 
     # Create event callback for WebSocket broadcasting
     async def event_callback(event):

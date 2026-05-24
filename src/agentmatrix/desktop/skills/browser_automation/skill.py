@@ -64,6 +64,30 @@ def _trigger_sk_callback(agent_name: str):
             logger.debug(f"Site knowledge callback failed for '{agent_name}': {e}")
 
 
+async def shutdown_browser_infra():
+    """Stop Chrome and clean up all browser automation resources.
+
+    Called during graceful shutdown to ensure Chrome is terminated.
+    """
+    global _chrome_manager, _cdp_client
+
+    if _cdp_client:
+        try:
+            await _cdp_client.close()
+        except Exception as e:
+            logger.debug(f"CDP client close error: {e}")
+        _cdp_client = None
+
+    if _chrome_manager:
+        try:
+            await _chrome_manager.stop()
+        except Exception as e:
+            logger.debug(f"Chrome manager stop error: {e}")
+        _chrome_manager = None
+
+    logger.info("Browser infrastructure shut down")
+
+
 def _update_current_tab(agent_name: str, target_id: str):
     """更新 agent 的当前活动 tab（由 BrowserEventListener 调用）。"""
     if not _tab_manager or not target_id or not agent_name:

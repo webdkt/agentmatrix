@@ -1,7 +1,12 @@
 # runtime.py
+import glob
 import json
+import logging
+import os
+import signal
 
 from datetime import datetime
+from pathlib import Path
 from ..core.message import Email
 from .loader import AgentLoader
 import asyncio
@@ -10,6 +15,66 @@ import asyncio
 from .post_office import PostOffice
 from ..core.log_util import LogFactory, AutoLoggerMixin
 from .system_status_collector import SystemStatusCollector
+
+logger = logging.getLogger(__name__)
+
+
+def kill_orphan_chrome():
+    """Kill orphaned Chrome processes from previous crash/force-quit.
+
+    Called at app startup before agents load. Any Chrome using our
+    profile directory at this point must be an orphan.
+    """
+    profile_dir = Path.home() / ".agentmatrix" / "cdp_browser_profile"
+    if not profile_dir.exists():
+        return 0
+
+    profile_marker = f"user-data-dir={profile_dir}"
+    killed = 0
+
+    import subprocess as _sp
+    try:
+        result = _sp.run(
+            ["pgrep", "-f", profile_marker],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pids = [int(p) for p in result.stdout.strip().split("\n") if p.strip()]
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    killed += 1
+                    logger.info(f"Killed orphan Chrome: PID {pid}")
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    logger.warning(f"Permission denied killing Chrome PID {pid}")
+
+            # Wait then force-kill survivors
+            import time
+            time.sleep(1)
+            for pid in pids:
+                try:
+                    os.kill(pid, 0)
+                    os.kill(pid, signal.SIGKILL)
+                    logger.warning(f"Force killed Chrome: PID {pid}")
+                except ProcessLookupError:
+                    pass
+    except FileNotFoundError:
+        pass  # pgrep not available (Windows)
+    except Exception as e:
+        logger.warning(f"Error killing orphan Chrome: {e}")
+
+    # Clean up stale UDS sockets
+    for sock_file in glob.glob("/tmp/agentmatrix_cdp_*.sock"):
+        try:
+            os.remove(sock_file)
+        except OSError:
+            pass
+
+    if killed > 0:
+        logger.info(f"Killed {killed} orphan Chrome process(es)")
+    return killed
 
 
 # all event format:
