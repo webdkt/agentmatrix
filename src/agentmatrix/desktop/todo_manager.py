@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
 # 匹配 <Todo List>...</Todo List> 块
 _TODO_RE = re.compile(r'\s*<Todo List>.*?</Todo List>', re.DOTALL)
+# 匹配 <system task reminder>...</system task reminder> 块
+_TASK_REMINDER_RE = re.compile(r'\s*<system task reminder>.*?</system task reminder>', re.DOTALL)
 
 _VALID_STATUSES = {"planned", "working", "canceled", "done"}
 _VALID_MODES = {"replace", "insert_after", "insert_before"}
@@ -228,6 +230,60 @@ class TodoManager:
             c = msg["content"]
             if isinstance(c, str) and "<Todo List>" in c:
                 msg["content"] = _TODO_RE.sub('', c).rstrip()
+
+    # ==================== Task Reminder（注入最后一条 user message）====================
+
+    def update_task_reminder(self, micro: "MicroAgent"):
+        """在有 working/planned 条目时，在最后一条 user message 注入 task reminder。"""
+        self._remove_all_task_reminders(micro)
+
+        working_items = []
+        planned_items = []
+        for idx in sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x):
+            entry = self._todos[idx]
+            if entry["status"] == "working":
+                working_items.append(entry["item"])
+            elif entry["status"] == "planned":
+                planned_items.append(entry["item"])
+
+        if not working_items and not planned_items:
+            return
+
+        lines = []
+        if working_items:
+            lines.append(f"当前正在处理：{working_items[0]}")
+        if planned_items:
+            n = len(planned_items)
+            hint = f"还有{n}项计划的Todo，下一项是{planned_items[0]}" if n > 0 else ""
+            if hint:
+                lines.append(hint)
+
+        if not lines:
+            return
+
+        reminder = "<system task reminder>\n" + "\n".join(lines) + "\n</system task reminder>"
+
+        # 注入到最后一条 user message
+        last_user_idx = None
+        for i in range(len(micro.messages) - 1, -1, -1):
+            if micro.messages[i]["role"] == "user":
+                last_user_idx = i
+                break
+        if last_user_idx is None:
+            return
+
+        content = micro.messages[last_user_idx]["content"]
+        if isinstance(content, str):
+            content += "\n\n" + reminder
+            micro.messages[last_user_idx]["content"] = content
+
+    def _remove_all_task_reminders(self, micro: "MicroAgent"):
+        for msg in micro.messages:
+            if msg["role"] != "user":
+                continue
+            c = msg["content"]
+            if isinstance(c, str) and "<system task reminder>" in c:
+                msg["content"] = _TASK_REMINDER_RE.sub('', c).rstrip()
 
     # ==================== 格式化输出 ====================
 

@@ -1092,12 +1092,14 @@ Start generating the Working Notes now.
             self.todo_manager.sync_from_file(micro)
             # 4. 更新第一条 user message 中的 todo
             self.todo_manager.update_first_user_message(micro)
-            # 5. 检查变更计数 → 触发压缩
+            # 5. 更新 task reminder（注入最后一条 user message）
+            self.todo_manager.update_task_reminder(micro)
+            # 6. 检查变更计数 → 触发压缩
             if self.whiteboard_manager.should_compress or self.todo_manager.should_compress:
                 await self.compress_messages(micro)
                 self.whiteboard_manager.reset_change_counter()
                 self.todo_manager.reset_change_counter()
-            # 6. 刷新 system prompt
+            # 7. 刷新 system prompt
             new_prompt = self._assemble_system_prompt(micro)
             micro.update_system_message(new_prompt)
 
