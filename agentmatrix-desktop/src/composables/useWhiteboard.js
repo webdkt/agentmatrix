@@ -11,6 +11,7 @@ export function useWhiteboard({ agentName, sessionId }) {
   const sections = ref({})     // {section: {key: {content, last_modified}}}
   const filePath = ref('')
   const isLoaded = ref(false)
+  const version = ref(0)
 
   let _lastRaw = ''
   let _pollTimer = null
@@ -83,6 +84,7 @@ export function useWhiteboard({ agentName, sessionId }) {
             }
           }
           sections.value = newSections
+          version.value++
         }
       } catch { /* ignore */ }
     }, 1000)
@@ -124,5 +126,5 @@ export function useWhiteboard({ agentName, sessionId }) {
 
   onUnmounted(() => stopWatching())
 
-  return { sections, isLoaded, filePath, setEntry, deleteEntry, deleteSection, replaceAll }
+  return { sections, isLoaded, filePath, version, setEntry, deleteEntry, deleteSection, replaceAll }
 }

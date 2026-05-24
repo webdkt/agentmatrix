@@ -37,6 +37,9 @@ import {
 
   // Floating menu icons
   Crosshair, SquareDashed, Globe,
+
+  // Planning icons
+  ClipboardList, ListChecks,
 } from 'lucide-vue-next'
 
 export const iconMap = {
@@ -135,4 +138,8 @@ export const iconMap = {
   crosshair: Crosshair,
   'square-dashed': SquareDashed,
   globe: Globe,
+
+  // ─── Planning ───
+  clipboard: ClipboardList,
+  'list-checks': ListChecks,
 }

@@ -105,6 +105,10 @@ class BaseAgent(BasicAgent):
         from .whiteboard_manager import WhiteboardManager
         self.whiteboard_manager = WhiteboardManager(self)
 
+        # Todo Manager（任务清单持久化）
+        from .todo_manager import TodoManager
+        self.todo_manager = TodoManager(self)
+
         # 浏览器适配器（懒启动，Agent 级共享资源）
         self._browser_adapter = None
 
@@ -443,8 +447,9 @@ Start generating the Working Notes now.
             self.current_session["history"] = agent.messages
             await self.session_manager.save_session(self.current_session)
 
-        # 重置 whiteboard 变更计数器（不清空数据）
+        # 重置变更计数器（不清空数据）
         self.whiteboard_manager.reset_change_counter()
+        self.todo_manager.reset_change_counter()
         # 同步到 MicroAgent 属性
         agent.whiteboard = self.whiteboard_manager.data_as_legacy_format()
 
@@ -1016,6 +1021,7 @@ Start generating the Working Notes now.
         wb_dir = self.private_workspace / ".matrix"
         wb_dir.mkdir(parents=True, exist_ok=True)
         self.whiteboard_manager.set_file_path(wb_dir / "whiteboard.json")
+        self.todo_manager.set_file_path(wb_dir / "todo.json")
 
         # 写入 session event: session.activated
         await self._log_session_event(
@@ -1055,7 +1061,7 @@ Start generating the Working Notes now.
     def _create_micro_agent(self) -> MicroAgent:
         """Desktop: 带有 base/email skills + md skills + custom prompt 的 MicroAgent。"""
         available_skills = list(self.profile.get("skills", []))
-        for required in ["base", "email"]:
+        for required in ["base", "email", "basic_planning"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 
@@ -1076,24 +1082,26 @@ Start generating the Working Notes now.
             md_skill_names=md_skill_names,
         )
 
-        # 注册 system prompt 热刷新 + whiteboard 管理 hook：每轮 think 前执行
-        async def _before_think_with_whiteboard():
-            # 1. 同步文件（用户协同编辑检测）
+        # 注册 system prompt 热刷新 + whiteboard/todo 管理 hook：每轮 think 前执行
+        async def _before_think_hook():
+            # 1. 同步 whiteboard 文件（用户协同编辑检测）
             self.whiteboard_manager.sync_from_file(micro)
             # 2. 更新第一条 user message 中的 whiteboard
             self.whiteboard_manager.update_first_user_message(micro)
-            # 3. 检查 whiteboard 变更计数 → 触发压缩
-            if self.whiteboard_manager.should_compress:
+            # 3. 同步 todo 文件
+            self.todo_manager.sync_from_file(micro)
+            # 4. 更新第一条 user message 中的 todo
+            self.todo_manager.update_first_user_message(micro)
+            # 5. 检查变更计数 → 触发压缩
+            if self.whiteboard_manager.should_compress or self.todo_manager.should_compress:
                 await self.compress_messages(micro)
                 self.whiteboard_manager.reset_change_counter()
-            # 4. 刷新 system prompt（原有逻辑）
+                self.todo_manager.reset_change_counter()
+            # 6. 刷新 system prompt
             new_prompt = self._assemble_system_prompt(micro)
             micro.update_system_message(new_prompt)
 
-        micro._before_think_hook = _before_think_with_whiteboard
-
-        # 白板变更回调（set_whiteboard action 使用）
-        micro._on_whiteboard_changed = lambda section, key="", content="": self.whiteboard_manager.handle_action(micro, section, key, content)
+        micro._before_think_hook = _before_think_hook
 
         return micro
 
@@ -1435,7 +1443,7 @@ Start generating the Working Notes now.
         if available_skills is None:
             available_skills = self.profile.get("skills", [])
 
-        for required in ["base", "email"]:
+        for required in ["base", "email", "basic_planning"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 

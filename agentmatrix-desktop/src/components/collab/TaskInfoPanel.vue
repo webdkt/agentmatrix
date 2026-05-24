@@ -1,7 +1,9 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useWhiteboard } from '@/composables/useWhiteboard'
+import { useTodo } from '@/composables/useTodo'
 import WhiteboardView from './WhiteboardView.vue'
+import TodoView from './TodoView.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
@@ -14,6 +16,11 @@ const whiteboard = useWhiteboard({
   sessionId: () => props.sessionId,
 })
 
+const todo = useTodo({
+  agentName: () => props.agentName,
+  sessionId: () => props.sessionId,
+})
+
 // ---- Accordion ----
 const expandedSection = ref('whiteboard')
 
@@ -21,11 +28,21 @@ function toggleSection(name) {
   expandedSection.value = expandedSection.value === name ? null : name
 }
 
+// ---- Auto-switch tab on file change ----
+watch(() => whiteboard.version.value, (v) => {
+  if (v > 0 && expandedSection.value !== 'whiteboard') expandedSection.value = 'whiteboard'
+})
+watch(() => todo.version.value, (v) => {
+  if (v > 0 && expandedSection.value !== 'todo') expandedSection.value = 'todo'
+})
+
 const entryCount = computed(() => {
   let n = 0
   for (const entries of Object.values(whiteboard.sections.value)) n += Object.keys(entries).length
   return n
 })
+
+const todoCount = computed(() => Object.keys(todo.todos.value).length)
 </script>
 
 <template>
@@ -53,10 +70,14 @@ const entryCount = computed(() => {
       <button class="tip-section__header tip-section__header--todo" @click="toggleSection('todo')">
         <span class="tip-section__header-icon"><MIcon name="list-checks" /></span>
         <span class="tip-section__header-label">Todo</span>
+        <span v-if="todoCount" class="tip-section__header-count tip-section__header-count--todo">{{ todoCount }}</span>
         <MIcon name="chevron-down" class="tip-section__chevron" />
       </button>
       <div v-if="expandedSection === 'todo'" class="tip-section__body">
-        <div class="tip-section__placeholder">Coming soon</div>
+        <TodoView
+          :todos="todo.todos.value"
+          :is-loaded="todo.isLoaded.value"
+        />
       </div>
     </div>
   </div>
@@ -69,6 +90,7 @@ const entryCount = computed(() => {
   height: 100%;
   overflow: hidden;
   font-size: 12px;
+  padding-bottom: 42px;
 }
 
 .tip-section {
@@ -112,6 +134,10 @@ const entryCount = computed(() => {
   padding: 1px 6px; border-radius: 9px;
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
+}
+.tip-section__header-count--todo {
+  background: color-mix(in srgb, var(--success, #10b981) 20%, transparent);
+  color: var(--success, #10b981);
 }
 .tip-section__chevron {
   font-size: 13px;

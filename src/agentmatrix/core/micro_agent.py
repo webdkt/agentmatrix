@@ -132,9 +132,6 @@ class MicroAgent(AutoLoggerMixin):
         # skill 按名字空间存取: self.skill_context.setdefault("skill_name", {})["key"] = value
         self.skill_context: dict = {}
 
-        # ========== 白板回调（由 BaseAgent 设置）==========
-        self._on_whiteboard_changed = None
-
         # ========== 信号驱动架构 ==========
         self.signal_queue: asyncio.Queue = asyncio.Queue()  # Shell → Core，每层独立
         # Core → Shell，所有 MicroAgent（含嵌套）共享 root_agent 的 event_queue
