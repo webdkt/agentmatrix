@@ -2,7 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
-use commands::container::{check_container_runtime, init_podman_vm, ensure_container_image, RuntimeInfo};
 
 use std::process::{Command, Child};
 use std::sync::Mutex;
@@ -412,34 +411,13 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-// ─── Container Runtime Detection ─── (migrated to commands/container.rs)
-
-// ─── Ensure Environment (unified startup: container runtime + backend) ───
+// ─── Ensure Environment (Python env + backend) ───
 
 async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
-    // 1. 容器运行时：可选（仅 container agent 需要）
-    let runtime_info = check_container_runtime().await.unwrap_or(RuntimeInfo {
-        runtime: "none".to_string(),
-        version: None,
-        path: None,
-        install_guide: None,
-    });
-
-    if runtime_info.runtime != "none" {
-        // 有容器运行时才执行容器相关步骤
-        if runtime_info.runtime == "podman" {
-            init_podman_vm().await.ok();
-        }
-        ensure_container_image(app.clone()).await.ok();
-        commands::container::initialize_container_packages(app.clone()).await.ok();
-    } else {
-        println!("⚠️ 未检测到容器运行时，跳过容器初始化");
-    }
-
-    // 2. 确保 Python 环境（供 LocalFileAgent 使用）
+    // 1. 确保 Python 环境（供 Agent 使用）
     commands::python_env::ensure_python_env(app.clone()).await?;
 
-    // 3. 启动 backend
+    // 2. 启动 backend
     start_backend_logic(app, state).await?;
 
     Ok(())
@@ -835,12 +813,6 @@ fn main() {
             commands::config::save_llm_config,
             commands::config::save_email_proxy_config_cmd,
             commands::config::save_env_file,
-            commands::container::check_container_runtime,
-            commands::container::install_podman,
-            commands::container::check_image,
-            commands::container::load_image,
-            commands::container::init_podman_vm,
-            commands::container::ensure_container_image,
             wizard_complete,
             commands::ui::is_window_focused,
             commands::ui::show_window,
