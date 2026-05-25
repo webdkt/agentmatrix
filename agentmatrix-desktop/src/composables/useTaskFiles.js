@@ -41,17 +41,36 @@ export function useTaskFiles({ agentName, sessionId } = {}) {
     return config.matrix_world_path
   }
 
+  /**
+   * Shallow-compare two file arrays by key fields.
+   * Returns true if they are effectively identical (no real change).
+   */
+  const shallowEqualFiles = (a, b) => {
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) {
+      const fa = a[i], fb = b[i]
+      if (fa.path !== fb.path || fa.name !== fb.name ||
+          fa.is_dir !== fb.is_dir || fa.size !== fb.size) return false
+    }
+    return true
+  }
+
   const loadFiles = async () => {
     if (!currentDir.value) return
-    filesLoading.value = true
+    // Only show loading state on initial load (no files yet)
+    const isInitial = files.value.length === 0
+    if (isInitial) filesLoading.value = true
     try {
       const entries = await invoke('read_directory', { path: currentDir.value })
-      files.value = entries || []
+      const newFiles = entries || []
+      if (!shallowEqualFiles(files.value, newFiles)) {
+        files.value = newFiles
+      }
     } catch (err) {
       console.error('Failed to load directory:', err)
       files.value = []
     } finally {
-      filesLoading.value = false
+      if (isInitial) filesLoading.value = false
     }
   }
 

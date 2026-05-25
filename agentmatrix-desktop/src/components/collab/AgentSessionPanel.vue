@@ -18,7 +18,6 @@ import EmptySessionPanel from './EmptySessionPanel.vue'
 import NewTaskPanel from './NewTaskPanel.vue'
 import TaskSendingOverlay from './TaskSendingOverlay.vue'
 import AgentTerminal from './AgentTerminal.vue'
-import TaskFilesPanel from './TaskFilesPanel.vue'
 import TaskInfoPanel from './TaskInfoPanel.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 import { useFloatingWindow } from '@/composables/useFloatingWindow'
@@ -101,7 +100,7 @@ const collabDraftMessage = ref('')
 provide('collabDraftMessage', collabDraftMessage)
 
 // ---- UI State ----
-const showTaskFiles = ref(false)
+const taskInfoRef = ref(null)
 const showTerminal = ref(false)
 const terminalFullscreen = ref(false)
 const isCollabMode = ref(false)
@@ -110,17 +109,9 @@ const subjectInput = ref(null)
 // ---- Close panels when switching sessions ----
 watch(currentSessionId, (newId, oldId) => {
   if (newId && oldId && newId !== oldId) {
-    // Close terminal and files panel when switching to a different session
+    // Close terminal when switching to a different session
     showTerminal.value = false
     terminalFullscreen.value = false
-    showTaskFiles.value = false
-  }
-})
-
-// ---- Auto-load files when TaskFiles panel opens ----
-watch(showTaskFiles, (visible) => {
-  if (visible && currentAgentName.value && currentSessionId.value) {
-    taskFiles.loadFiles()
   }
 })
 
@@ -162,7 +153,7 @@ async function updateSubject(event) {
   }
 }
 
-// ---- Task files (single instance shared with TaskFilesPanel) ----
+// ---- Task files ----
 const taskFiles = useTaskFiles({
   agentName: () => currentAgentName.value,
   sessionId: () => currentSessionId.value,
@@ -340,7 +331,7 @@ async function setupDragDrop() {
         const { fileNames: copied } = await taskFiles.copyFiles(paths)
         fileNames.push(...copied)
         if (fileNames.length > 0) {
-          showTaskFiles.value = true
+          taskInfoRef.value?.switchTab('files')
           const fileList = fileNames.map(n => `- ${n}`).join('\n')
           const draftLine = `已复制以下文件到 \`~/current_task\` 目录，你看一下：\n${fileList}\n`
           collabDraftMessage.value = collabDraftMessage.value
@@ -447,11 +438,6 @@ const toggleCollabMode = async () => {
     isCollabMode.value = !isCollabMode.value
   }
 }
-
-// ---- Task files panel width ----
-const taskFilesWidth = computed(() => {
-  return Math.round(middleSize.value.width * 0.5)
-})
 
 // ---- TaskInfo Panel resizable ----
 const taskInfoWidth = ref(null) // null = 50% default, number = fixed px
@@ -679,36 +665,28 @@ function onDividerMouseUp() {
       <!-- TaskInfo Panel (resizable right panel, default 50%) -->
       <TaskInfoPanel
         v-if="currentAgentName && currentSessionId"
+        ref="taskInfoRef"
         :agent-name="currentAgentName"
         :session-id="currentSessionId"
+        :files="taskFiles.files.value"
+        :files-loading="taskFiles.filesLoading.value"
+        :current-dir="taskFiles.currentDir.value"
+        :root-dir="taskFiles.rootDir.value"
+        :is-at-root="taskFiles.isAtRoot.value"
+        :relative-path="taskFiles.relativePath.value"
+        :selected-files="taskFiles.selectedFiles.value"
+        :context-menu="taskFiles.contextMenu.value"
         class="agent-session-panel__task-info"
         :style="taskInfoStyle"
+        @load-files="taskFiles.loadFiles()"
+        @open-entry="(entry) => taskFiles.openEntry(entry)"
+        @go-up="taskFiles.goUp()"
+        @go-root="taskFiles.goRoot()"
+        @select-file="(entry, event) => taskFiles.toggleFileSelection(entry, event)"
+        @contextmenu="(entry, event) => taskFiles.showContextMenu(entry, event)"
+        @hide-context-menu="taskFiles.hideContextMenu()"
+        @menu-action="(action) => taskFiles.handleMenuAction(action)"
       />
-
-      <!-- Task Files Slide-Out (from right edge) -->
-      <Transition name="slide-right">
-        <TaskFilesPanel
-          v-if="showTaskFiles && currentAgentName && currentSessionId"
-          :width="taskFilesWidth"
-          :files="taskFiles.files.value"
-          :files-loading="taskFiles.filesLoading.value"
-          :current-dir="taskFiles.currentDir.value"
-          :root-dir="taskFiles.rootDir.value"
-          :is-at-root="taskFiles.isAtRoot.value"
-          :relative-path="taskFiles.relativePath.value"
-          :selected-files="taskFiles.selectedFiles.value"
-          :context-menu="taskFiles.contextMenu.value"
-          @load-files="taskFiles.loadFiles()"
-          @open-entry="(entry) => taskFiles.openEntry(entry)"
-          @go-up="taskFiles.goUp()"
-          @go-root="taskFiles.goRoot()"
-          @select-file="(entry, event) => taskFiles.toggleFileSelection(entry, event)"
-          @contextmenu="(entry, event) => taskFiles.showContextMenu(entry, event)"
-          @hide-context-menu="taskFiles.hideContextMenu()"
-          @menu-action="(action) => taskFiles.handleMenuAction(action)"
-          @close="showTaskFiles = false"
-        />
-      </Transition>
 
       <!-- Floating Terminal -->
       <AgentTerminal
@@ -746,16 +724,6 @@ function onDividerMouseUp() {
           <MIcon name="file" />
           <span class="floating-toolbar-btn__dot" v-if="collabFile"></span>
           <span class="floating-toolbar-btn__tooltip">{{ collabFileName || 'No collab file' }}</span>
-        </button>
-
-        <!-- Task Files toggle -->
-        <button
-          class="floating-toolbar-btn"
-          :class="{ 'floating-toolbar-btn--active': showTaskFiles }"
-          @click="showTaskFiles = !showTaskFiles"
-        >
-          <MIcon name="folder" />
-          <span class="floating-toolbar-btn__tooltip">Task Files</span>
         </button>
 
         <!-- Terminal toggle -->
@@ -1320,14 +1288,8 @@ function onDividerMouseUp() {
   color: #5A7A9A;
 }
 
-/* Task Files: amber */
-.floating-toolbar-btn:nth-child(2) {
-  border-color: #A08050;
-  color: #A08050;
-}
-
 /* Terminal: sage green */
-.floating-toolbar-btn:nth-child(3) {
+.floating-toolbar-btn:nth-child(2) {
   border-color: #5A8A52;
   color: #5A8A52;
 }
@@ -1400,12 +1362,6 @@ function onDividerMouseUp() {
 }
 
 .floating-toolbar-btn:nth-child(2).floating-toolbar-btn--active {
-  border-color: #7A5A20;
-  color: #7A5A20;
-  background: rgba(160, 128, 80, 0.12);
-}
-
-.floating-toolbar-btn:nth-child(3).floating-toolbar-btn--active {
   border-color: #3A6A32;
   color: #3A6A32;
   background: rgba(90, 138, 82, 0.12);
@@ -1485,18 +1441,6 @@ function onDividerMouseUp() {
   border-radius: var(--radius-md);
   z-index: 20;
   pointer-events: none;
-}
-
-/* ---- Slide-out transition for TaskFilesPanel ---- */
-.slide-right-enter-active,
-.slide-right-leave-active {
-  transition: transform 0.25s var(--ease-out);
-  will-change: transform;
-}
-
-.slide-right-enter-from,
-.slide-right-leave-to {
-  transform: translateX(100%);
 }
 
 /* ---- Animations ---- */
