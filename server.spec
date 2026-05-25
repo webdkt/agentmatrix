@@ -118,6 +118,25 @@ a = Analysis(
         'aiosqlite',
         'pathlib',
 
+        # === server_handlers modules (refactored from server.py) ===
+        'server_handlers',
+        'server_handlers.state',
+        'server_handlers.models',
+        'server_handlers.lifecycle',
+        'server_handlers.utils',
+        'server_handlers.app_factory',
+        'server_handlers.routes',
+        'server_handlers.routes.system',
+        'server_handlers.routes.websocket',
+        'server_handlers.routes.config',
+        'server_handlers.routes.sessions',
+        'server_handlers.routes.agents',
+        'server_handlers.routes.agent_profiles',
+        'server_handlers.routes.skills',
+        'server_handlers.routes.llm_configs',
+        'server_handlers.routes.email_proxy',
+        'server_handlers.routes.proxy',
+
         # === agentmatrix modules (auto-collected from src/agentmatrix/) ===
         # These are dynamically collected above to stay in sync with package restructuring.
         # Skills use dynamic loading (importlib.util.spec_from_file_location),
