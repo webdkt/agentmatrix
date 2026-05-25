@@ -66,14 +66,15 @@ class LocalSession(ContainerSession):
         # 确保 home 目录存在
         os.makedirs(self.home_dir, exist_ok=True)
 
-        # 继承当前环境，覆盖 HOME
-        env = os.environ.copy()
-        env["HOME"] = self.home_dir
-
-        # 如果指定了共享 Python 环境，前置到 PATH
+        # 干净环境：不继承 app 进程的 conda/tauri 等变量
+        env = {
+            "HOME": self.home_dir,
+            "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "TERM": "xterm-256color",
+            "LANG": "en_US.UTF-8",
+        }
         if self.env_bin_path:
-            current_path = env.get("PATH", "")
-            env["PATH"] = f"{self.env_bin_path}:{current_path}"
+            env["PATH"] = f"{self.env_bin_path}:{env['PATH']}"
 
         self.logger.info(
             f"启动本地会话: HOME={self.home_dir}, workdir={self.initial_workdir}"

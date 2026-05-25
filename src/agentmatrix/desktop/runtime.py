@@ -510,7 +510,15 @@ class AgentMatrix(AutoLoggerMixin):
             except Exception as e:
                 self.echo(f">>> 单容器管理器停止失败: {e}")
 
-        # 6. 清理资源
+        # 6. 停止浏览器基础设施（Chrome 进程 + CDP 连接）
+        try:
+            from agentmatrix.desktop.skills.browser_automation._shared import shutdown_browser_infra
+            await shutdown_browser_infra()
+            self.echo(">>> Browser infrastructure stopped")
+        except Exception as e:
+            self.echo(f">>> Browser infrastructure stop error: {e}")
+
+        # 7. 清理资源
         self.running = False
 
         # 7. 取消未完成的任务（避免hang）
@@ -545,6 +553,11 @@ class AgentMatrix(AutoLoggerMixin):
     async def startup(self):
         """启动系统 - 注册Agent、启动服务、恢复未投递邮件"""
         self.echo(">>> 正在启动系统...")
+
+        # 清理上次遗留的 Chrome 进程（profile 被占用会导致新 Chrome 启动失败）
+        killed = kill_orphan_chrome()
+        if killed:
+            self.echo(f">>> 已清理 {killed} 个遗留 Chrome 进程")
 
         # 启动电源管理（防止系统休眠）
         self.power_manager.start_sync()

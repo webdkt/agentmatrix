@@ -616,7 +616,7 @@ class BrowserCollabAgent(BaseAgent):
 
     async def show_indicator(self):
         """触发浏览器内的indicator（十字准星）"""
-        from .skills.browser_automation.skill import _cdp_client, _agent_current_tab
+        from .skills.browser_automation._shared import infra, _agent_current_tab
         tab = _agent_current_tab.get(self.name)
         if not tab or not tab.session_id:
             return {"error": "No active browser tab"}
@@ -624,7 +624,7 @@ class BrowserCollabAgent(BaseAgent):
         agent_name = json.dumps(self.name)
         session_id = json.dumps(self.active_session_id or "")
         js = f"window.__bh_show_indicator__ ? window.__bh_show_indicator__({agent_name}, {session_id}) : null"
-        await _cdp_client.send(
+        await infra["cdp_client"].send(
             "Runtime.evaluate", {"expression": js},
             session_id=tab.session_id, timeout=5,
         )
@@ -632,7 +632,7 @@ class BrowserCollabAgent(BaseAgent):
 
     async def show_range_selector(self):
         """触发浏览器内的range selector"""
-        from .skills.browser_automation.skill import _cdp_client, _agent_current_tab
+        from .skills.browser_automation._shared import infra, _agent_current_tab
         tab = _agent_current_tab.get(self.name)
         if not tab or not tab.session_id:
             return {"error": "No active browser tab"}
@@ -640,7 +640,7 @@ class BrowserCollabAgent(BaseAgent):
         agent_name = json.dumps(self.name)
         session_id = json.dumps(self.active_session_id or "")
         js = f"window.__bh_show_range__ ? window.__bh_show_range__({agent_name}, {session_id}) : null"
-        await _cdp_client.send(
+        await infra["cdp_client"].send(
             "Runtime.evaluate", {"expression": js},
             session_id=tab.session_id, timeout=5,
         )

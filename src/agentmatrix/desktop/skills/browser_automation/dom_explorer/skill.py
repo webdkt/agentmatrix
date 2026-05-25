@@ -35,20 +35,20 @@ class Dom_explorerSkillMixin:
         },
     )
     async def eval_js(self, code: str, tab_id: str = None) -> str:
-        from ..skill import _cdp_client, _tab_manager, _tab_not_found_msg, _cdp_send_with_recovery
+        from .._shared import infra, _tab_not_found_msg, _cdp_send_with_recovery
 
-        if not _cdp_client or not _cdp_client._connected:
+        if not infra["cdp_client"] or not infra["cdp_client"]._connected:
             return json.dumps({"error": "CDP client not connected"})
 
         if tab_id:
-            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"error": _tab_not_found_msg(tab_id)})
         else:
             pinned_id = getattr(self, '_pinned_tab_id', None)
             if not pinned_id:
                 return json.dumps({"error": "未绑定 tab，请指定 tab_id"})
-            tab = _tab_manager._tabs.get(pinned_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(pinned_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"error": f"绑定的 tab 已关闭 (tab_id={pinned_id})"})
 
