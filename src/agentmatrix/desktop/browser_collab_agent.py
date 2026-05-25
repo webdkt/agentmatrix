@@ -466,6 +466,17 @@ class BrowserCollabAgent(BaseAgent):
     # BaseAgent overrides
     # ==========================================
 
+    async def _route_signal(self, signal):
+        """BrowserSignal 无 session 时静默丢弃，不报错。"""
+        if isinstance(signal, BrowserSignal):
+            session_id = signal.agent_session_id
+            if not session_id:
+                if self.current_session:
+                    signal.agent_session_id = self.current_session["session_id"]
+                else:
+                    return  # 无 session context，丢弃 orphan 信号
+        await super()._route_signal(signal)
+
     async def _resolve_session(self, signal) -> dict:
         """BrowserSignal 由本类处理，其余委托 BaseAgent。"""
         if isinstance(signal, BrowserSignal):

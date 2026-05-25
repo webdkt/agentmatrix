@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # ── Skill Mixin ───────────────────────────────────────────
 
-class Browser_automationSkillMixin:
+class Browser_controlSkillMixin:
     """
     Browser Control Skill — 浏览器控制操作和自动化（精简版）
 
