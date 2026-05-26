@@ -133,10 +133,14 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
 
         elif self.active_session_id == session_id:
             # 情况 2：同 session → 投递
-            self.active_micro_agent.signal_queue.put_nowait(signal)
-            if self._session_task and self._session_task.done():
-                # execute 已结束 → 重新跑一次（不做 deactivate）
-                self._start_session_task(session)
+            if self.active_micro_agent is not None:
+                self.active_micro_agent.signal_queue.put_nowait(signal)
+                if self._session_task and self._session_task.done():
+                    # execute 已结束 → 重新跑一次（不做 deactivate）
+                    self._start_session_task(session)
+            else:
+                # active_micro_agent 已被清理（session task 异常退出等）→ 重新激活
+                await self._activate_session(session, signal)
 
         else:
             # 情况 3：不同 session

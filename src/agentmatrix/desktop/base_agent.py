@@ -955,6 +955,15 @@ Start generating the Working Notes now.
                         self.last_received_email = signal
 
                     await self._route_signal(signal)
+
+                    # 更新 per-participant reply tracker
+                    if isinstance(signal, Email) and self.current_session is not None:
+                        tracker = self.current_session.setdefault("reply_tracker", {})
+                        tracker[signal.sender] = {
+                            "last_email_id": signal.id,
+                            "sender_session_id": signal.sender_session_id,
+                            "replied": False,
+                        }
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
@@ -1195,22 +1204,17 @@ Start generating the Working Notes now.
 
         elif event.event_type == "think" and event.event_name == "brain":
             detail = event.detail or {}
-            if self._is_agent_speaking(detail):
-                # Agent 在说话 → 自动投递为 Email
-                await self._auto_dispatch_agent_message(session_id, detail)
-            else:
-                # Agent 在做事或格式异常 → 仅展示（strip action_script 后写 session_event）
-                display_text = self._strip_action_script(detail.get("raw_reply", ""))
-                if display_text:
-                    await self._log_session_event(
-                        session_id=session_id,
-                        event_type="think",
-                        event_name="brain",
-                        event_detail={
-                            "step_count": detail.get("step_count"),
-                            "thought": display_text,
-                        },
-                    )
+            display_text = self._strip_action_script(detail.get("raw_reply", ""))
+            if display_text:
+                await self._log_session_event(
+                    session_id=session_id,
+                    event_type="think",
+                    event_name="brain",
+                    event_detail={
+                        "step_count": detail.get("step_count"),
+                        "thought": display_text,
+                    },
+                )
 
         else:
             await self._log_session_event(
@@ -1220,77 +1224,10 @@ Start generating the Working Notes now.
                 event_detail=event.detail or None,
             )
 
-    # ==================== Agent 自动消息投递 ====================
-
-    def _is_agent_speaking(self, detail: dict) -> bool:
-        """
-        三层判断：LLM 输出是否是"自然语言对话"。
-
-        1. 有 <action_script> → 做动作 → False
-        2. 无 <action_script>，但整体是 XML/JSON → False
-        3. 其他 → 在说话 → True
-        """
-        raw = detail.get("raw_reply", "")
-        if not raw or not raw.strip():
-            return False
-        # 1. 有 <action_script> → 做动作
-        if '<action_script>' in raw:
-            return False
-        # 2. 整体是结构化文本 → 不算说话
-        text = raw.strip()
-        if (text.startswith('<') and text.endswith('>')) or \
-           (text.startswith('{') and text.endswith('}')) or \
-           (text.startswith('[') and text.endswith(']')):
-            return False
-        # 3. 其他 → 在说话
-        return True
-
     @staticmethod
     def _strip_action_script(text: str) -> str:
         """去掉 <action_script> 块，用于前端展示。"""
         return re.sub(r'<action_script>.*?</action_script>', '', text, flags=re.DOTALL).strip()
-
-    async def _auto_dispatch_agent_message(self, session_id: str, detail: dict):
-        """当 LLM 输出是自然语言对话时，自动包装为 Email 投递。"""
-        from ..core.message import Email
-
-        session = self.current_session
-        last_email = self.last_received_email
-        body = detail.get("raw_reply", "")
-
-        if not body.strip() or not session:
-            return
-
-        recipient = last_email.sender if last_email else session.get("original_sender", "User")
-
-        msg = Email(
-            sender=self.name,
-            recipient=recipient,
-            subject="",
-            body=body,
-            in_reply_to=last_email.id if last_email else None,
-            task_id=session["task_id"],
-            sender_session_id=session["session_id"],
-            recipient_session_id=last_email.sender_session_id if last_email else None,
-        )
-
-        await self.post_office.dispatch(msg)
-
-        await self._log_session_event(session_id, "email", "sent", {
-            "email_id": msg.id,
-            "subject": "",
-            "body_preview": body,
-            "sender": self.name,
-            "recipient": recipient,
-            "has_more": len(body) > 200,
-            "task_id": session["task_id"],
-        })
-
-        await self.session_manager.update_reply_mapping(
-            msg_id=msg.id,
-            session_id=session["session_id"],
-            task_id=session["task_id"],
-        )
 
     def _handle_session_cancelled(self, session: dict):
         """Desktop: session 被取消时的处理（stop 中断）。"""
@@ -1356,6 +1293,47 @@ Start generating the Working Notes now.
         """Desktop: execute 结束后更新状态为 IDLE。"""
         if not self._is_stopping:
             self.update_status(new_status=AgentStatus.IDLE)
+
+    def _create_micro_agent(self) -> MicroAgent:
+        """Desktop: 创建持久 MicroAgent，绑定 _before_exit_hook。"""
+        agent = MicroAgent(
+            parent=self,
+            name=self.name,
+            available_skills=self.skills if self.skills else None,
+            system_prompt=self._get_system_prompt(),
+        )
+        agent._before_exit_hook = self._on_before_exit
+        return agent
+
+    async def _on_before_exit(self) -> bool:
+        """MicroAgent _run_loop 退出前的 hook。返回 True 允许退出，False 阻止退出。"""
+        from ..core.signals import TextSignal
+
+        session = self.current_session
+        if not session:
+            return True
+
+        tracker = session.get("reply_tracker", {})
+        unreplied = [
+            (p, info) for p, info in tracker.items()
+            if not info.get("replied", True)
+        ]
+
+        if not unreplied:
+            return True  # 没有未回复，允许退出
+
+        names = "、".join(p for p, _ in unreplied)
+        reminder = TextSignal(
+            text=f"你还没有回复 {names} 的邮件。如需回复请使用 send_internal_mail，如无需回复请忽略本消息。",
+            type_name="reply_reminder",
+        )
+        # 先标记为已提醒，防止无限循环
+        for _, info in unreplied:
+            info["replied"] = True
+
+        self.active_micro_agent.signal_queue.put_nowait(reminder)
+        self.logger.info(f"Injected reply reminder for: {names}")
+        return False  # 注入了信号，阻止退出，让 loop 继续
 
     # _run_session, _deactivate_session — 由 BasicAgent 提供
 

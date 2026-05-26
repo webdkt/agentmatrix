@@ -84,14 +84,18 @@ class EmailSkillMixin:
         # 导入 Email 类（避免循环导入）
         from agentmatrix.core.message import Email
 
-        # 获取当前 session 和最后收到的邮件（从 root_agent 获取）
-        # 注意：MicroAgent 自身不发送邮件，只有 BaseAgent 发送
+        # 获取当前 session 和 reply tracker
         session = self.root_agent.current_session
-        last_email = self.root_agent.last_received_email
+        tracker = session.get("reply_tracker", {}) if session else {}
 
-        # 确定 in_reply_to
-        # 使用 last_email.id 关联回话线程；如果没有上一封邮件则为 None（新会话）
-        in_reply_to = last_email.id if last_email else None
+        # 从 reply tracker 确定 in_reply_to 和 recipient_session_id
+        recipient_info = tracker.get(to)
+        if recipient_info:
+            in_reply_to = recipient_info.get("last_email_id")
+            recipient_session_id = recipient_info.get("sender_session_id")
+        else:
+            in_reply_to = None
+            recipient_session_id = None
 
         # 自动生成 subject（如果未提供）
         if not subject:
@@ -120,8 +124,8 @@ class EmailSkillMixin:
             body=body,
             in_reply_to=in_reply_to,
             task_id=session["task_id"],
-            sender_session_id=session["session_id"],  # 🆕 发件人的 session
-            recipient_session_id=last_email.sender_session_id if last_email else None,
+            sender_session_id=session["session_id"],
+            recipient_session_id=recipient_session_id,
             metadata={"attachments": attachment_metadata}
             if attachment_metadata
             else {},
@@ -149,6 +153,15 @@ class EmailSkillMixin:
             session_id=session["session_id"],  # 使用已获取的 session 变量
             task_id=session["task_id"],
         )
+
+        # 更新 reply tracker：记录发出的邮件，标记为已回复
+        if session:
+            tracker = session.setdefault("reply_tracker", {})
+            tracker[to] = {
+                "last_email_id": msg.id,
+                "sender_session_id": None,  # 对方还没回信，没有对方的 session_id
+                "replied": True,
+            }
 
         # 返回成功信息
         result_parts = []

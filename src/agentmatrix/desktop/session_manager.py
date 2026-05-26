@@ -225,7 +225,8 @@ class SessionManager(AutoLoggerMixin):
             "created_at": now,
             "last_modified": now,
             "history": [],
-            "context": {}  # Session级别的变量存储
+            "context": {},  # Session级别的变量存储
+            "reply_tracker": {},  # Per-participant 回复追踪
         }
 
         # 创建 session 目录并保存初始文件
@@ -328,6 +329,7 @@ class SessionManager(AutoLoggerMixin):
             "last_modified": session["last_modified"],
             "history": session["history"],
             "metadata": session.get("metadata", {}),
+            "reply_tracker": session.get("reply_tracker", {}),
         }
 
         # 原子写入：先写入临时文件，然后重命名

@@ -139,6 +139,8 @@ class MicroAgent(AutoLoggerMixin):
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
         self._action_counter: int = 0
         self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
+        self._before_think_hook = None  # Shell 层注入的 think 前回调
+        self._before_exit_hook = None  # Shell 层注入的退出前回调
 
         # 日志
         self.logger.info(
@@ -1142,6 +1144,12 @@ class MicroAgent(AutoLoggerMixin):
                         self._exit_verification_task = asyncio.create_task(
                             self._run_exit_verification(raw_reply or "")
                         )
+
+                    # before-exit hook（Shell 层注入业务逻辑，如 reply reminder）
+                    if hasattr(self, '_before_exit_hook') and self._before_exit_hook:
+                        should_exit = await self._before_exit_hook()
+                        if not should_exit:
+                            continue  # hook 注入了信号，继续下一轮
 
                     self.logger.info("Loop exit: no actions detected, no running actions")
                     break
