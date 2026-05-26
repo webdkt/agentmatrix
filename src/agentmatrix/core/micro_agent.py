@@ -266,8 +266,13 @@ class MicroAgent(AutoLoggerMixin):
         else:
             return "当前没有正在运行的操作"
 
+    # pending-actions tag，用于包裹和清理历史中的未完成 action 消息
+    _PENDING_ACTIONS_TAG = "system-auto-pending-actions"
+
     async def inject_signals(self, signals):
         """Pre-think: 生成完整文本并注入 messages"""
+        import re
+
         if not signals:
             return
 
@@ -287,9 +292,40 @@ class MicroAgent(AutoLoggerMixin):
                 label = info.get("label", "")
                 parts.append(f"#{idx}-{name}-{label}" if label else f"#{idx}-{name}")
 
-            text += f"\n\n**还有这{len(parts)}个action没有完成，等待结果中: {', '.join(parts)}**"
+            tag = self._PENDING_ACTIONS_TAG
+            pending_text = f"还有这{len(parts)}个action没有完成，等待结果中: {', '.join(parts)}"
+            text += f"\n\n<{tag}>\n{pending_text}\n</{tag}>"
+
+        # 清理上一条 user message 中的旧 pending-actions 块
+        self._purge_pending_actions_from_last_user_msg()
 
         self._add_message("user", text)
+
+    def _purge_pending_actions_from_last_user_msg(self):
+        """从最后一条 user message 中移除旧的 <system-auto-pending-actions> 块。"""
+        import re
+
+        tag = self._PENDING_ACTIONS_TAG
+        pattern = re.compile(
+            rf'\n*<{tag}>.*?</{tag}>\n*',
+            re.DOTALL,
+        )
+
+        # 逆序找最后一条 user message
+        for msg in reversed(self.messages):
+            if msg.get("role") != "user":
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, str):
+                cleaned = pattern.sub('\n', content).strip()
+                msg["content"] = cleaned if cleaned else "continue"
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        cleaned = pattern.sub('\n', item["text"]).strip()
+                        item["text"] = cleaned if cleaned else "continue"
+            break  # 只处理最后一条
 
 
     def _on_actions_done(self, action_ids, task):
