@@ -1227,7 +1227,7 @@ Start generating the Working Notes now.
     @staticmethod
     def _strip_action_script(text: str) -> str:
         """去掉 <action_script> 块，用于前端展示。"""
-        return re.sub(r'<action_script>.*?</action_script>', '', text, flags=re.DOTALL).strip()
+        return re.sub(r'<action_script[^>]*>.*?</action_script>', '', text, flags=re.DOTALL).strip()
 
     def _handle_session_cancelled(self, session: dict):
         """Desktop: session 被取消时的处理（stop 中断）。"""
