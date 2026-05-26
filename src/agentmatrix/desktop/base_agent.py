@@ -1305,8 +1305,12 @@ Start generating the Working Notes now.
         agent._before_exit_hook = self._on_before_exit
         return agent
 
+    # reply reminder tag，用于包裹和清理历史中的提醒消息
+    _REPLY_REMINDER_TAG = "system-auto-reply-reminder"
+
     async def _on_before_exit(self) -> bool:
         """MicroAgent _run_loop 退出前的 hook。返回 True 允许退出，False 阻止退出。"""
+        import re
         from ..core.signals import TextSignal
 
         session = self.current_session
@@ -1322,9 +1326,17 @@ Start generating the Working Notes now.
         if not unreplied:
             return True  # 没有未回复，允许退出
 
+        # 清理历史中已有的 reply-reminder 消息块
+        self._purge_reply_reminders()
+
         names = "、".join(p for p, _ in unreplied)
+        reminder_text = (
+            f"你还没有回复 {names} 的邮件。"
+            f"如需回复请使用 send_internal_mail，如无需回复请忽略本消息。"
+        )
+        wrapped = f"<{self._REPLY_REMINDER_TAG}>\n{reminder_text}\n</{self._REPLY_REMINDER_TAG}>"
         reminder = TextSignal(
-            text=f"你还没有回复 {names} 的邮件。如需回复请使用 send_internal_mail，如无需回复请忽略本消息。",
+            text=wrapped,
             type_name="reply_reminder",
         )
         # 先标记为已提醒，防止无限循环
@@ -1334,6 +1346,33 @@ Start generating the Working Notes now.
         self.active_micro_agent.signal_queue.put_nowait(reminder)
         self.logger.info(f"Injected reply reminder for: {names}")
         return False  # 注入了信号，阻止退出，让 loop 继续
+
+    def _purge_reply_reminders(self):
+        """从 user messages 中移除所有 <system-auto-reply-reminder> 块。
+
+        如果移除后 content 变空，设为 "continue"。
+        """
+        import re
+
+        tag = self._REPLY_REMINDER_TAG
+        pattern = re.compile(
+            rf'\n*<{tag}>.*?</{tag}>\n*',
+            re.DOTALL,
+        )
+
+        for msg in self.active_micro_agent.messages:
+            if msg.get("role") != "user":
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, str):
+                cleaned = pattern.sub('\n', content).strip()
+                msg["content"] = cleaned if cleaned else "continue"
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        cleaned = pattern.sub('\n', item["text"]).strip()
+                        item["text"] = cleaned if cleaned else "continue"
 
     # _run_session, _deactivate_session — 由 BasicAgent 提供
 

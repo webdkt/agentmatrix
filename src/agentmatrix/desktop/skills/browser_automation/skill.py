@@ -57,22 +57,22 @@ class Browser_automationSkillMixin:
     """
 
     _skill_description = """浏览器自动化开发：浏览器自动化流程和自动化脚本的生成、管理和运行
-    `~/site_knowledge`目录就是你的代码仓库。
+    `~/site_knowledge`目录是网站自动化代码仓库。
     ### ~/site_knowledge 的结构
     - 根目录（~/site_knowledge)
-        - index.txt: 网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
-            - url_prefix 可以是域名（如 `www.example.com`）或域名+路径前缀（如 `www.example.com/shop`）
+        - index.txt: 
+            - 网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
             - url_prefix 可能重复，但说明和子目录名必须不同（因为有些单体站点可能包含多个不同的子系统，结构和元素差异较大）
-            - 匹配规则：系统会自动根据hostname 来推荐匹配。但你必须显示的选择正确的site key 来加载对应的知识。系统不会自动加载，除非你明确的选择了一个site key。
-            - 使用 load_site_knowledge(site_key, process_dir_name?) 来加载对应的知识。仅提供 site_key 加载站点概览和流程列表；同时提供 process_dir_name 加载具体流程的详细步骤
-    - 根目录下每个网站(site key)一个子目录，内含：
-        - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
-        - shared_elements.md:  站内公用元素的定位说明，所有流程共享
-        - 流程子目录，每个自动化流程一个子目录，内含流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
-    - 每个流程子目录的结构
-        - readme.md: 业务流程和规则的简要说明
-        - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
-        - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
+            - 使用 load_site_knowledge(site_key) 来加载对应站点的概览和流程列表
+        - 子目录（site 目录）
+            - 每个site_key对应一个子目录(site 目录），存放该站点的所有自动化知识和脚本，site目录内有：
+            - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
+            - 流程子目录（process 目录），针对特定工作流程的子目录，内含该流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
+            - 使用 load_site_knowledge(site_key, process_dir_name) 来加载对应流程的自动化步骤和脚本列表
+            - 每个流程子目录的结构
+                - readme.md: 业务流程和规则的简要说明
+                - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
+                - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
         
     ### site_knowledge 文件规范
     #### Python自动化脚本
@@ -119,7 +119,6 @@ class Browser_automationSkillMixin:
 
     s.close()
     ```
-
     注意事项：
     - 一个 socket 连接同一时间只能有一个未完成的请求（发一个，等响应，再发下一个），多脚本需串行执行
     - 操作 tab 需要先 Target.attachToTarget，拿到 sessionId 后传入后续命令
@@ -137,7 +136,7 @@ class Browser_automationSkillMixin:
         - Part 3 (可选）：异常处理说明。执行过程中可能出现的、无法被Part 1吸收覆盖的异常情况的说明和处理建议。
     ### 其他开发规范
     - 元素必须使用稳定的、给予语义的定位器
-    - 不得进行全局撒网式的探索
+    - 不进行全局撒网式的探索
     - 必须包含判断所在页面、当前状态的明确规则
     - 操作元素前必须等待其可交互
     - 流程知识更新后，执行load_site_knowledge，重新加载知识
@@ -1234,7 +1233,7 @@ class Browser_automationSkillMixin:
         return json.dumps({"status": "ok", "mode": mode}, ensure_ascii=False)
 
     @register_action(
-        short_desc="load_site_knowledge(site_key, process_dir_name?) 加载站点知识或具体自动化流程",
+        short_desc="(site_key, process_dir_name?) 加载站点知识或具体自动化流程",
         description="加载指定站点的知识。只传 site_key 时加载站点 readme 和流程列表；"
                     "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。",
         param_infos={
