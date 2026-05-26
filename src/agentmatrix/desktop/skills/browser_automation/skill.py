@@ -170,12 +170,6 @@ class Browser_automationSkillMixin:
         else:
             _agent_current_tab.pop(name, None)
 
-        # 同步更新 bash session 中的 CDP_CURRENT_TAB_ID 环境变量
-        local_session = getattr(self.root_agent, 'local_session', None)
-        if local_session:
-            tab_id = tab.target_id if tab else ""
-            local_session.execute(f'export CDP_CURRENT_TAB_ID="{tab_id}"')
-
     async def _ensure_browser(self):
         """确保浏览器已启动，注册当前 agent 的 input_queue。"""
         # 正在重连 → 等待完成
@@ -236,7 +230,13 @@ class Browser_automationSkillMixin:
                 f'export CDP_SOCKET_PATH="{sock_path}"\n'
                 f'export CDP_CURRENT_TAB_ID="{tab.target_id if tab else ""}"\n'
             )
-            local_session.execute(env_cmds)
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(local_session.execute, env_cmds),
+                    timeout=5,
+                )
+            except asyncio.TimeoutError:
+                logger.debug("Skipped CDP env setup: shell busy")
 
     async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
         """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab，收养匹配的 tab。

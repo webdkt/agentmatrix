@@ -443,6 +443,41 @@ class ContainerSession:
             return False
         return self.process.poll() is None
 
+    def cancel_running(self) -> None:
+        """Kill all child processes of the shell (the running command), keeping the shell alive.
+
+        This preserves environment variables and working directory.
+        After killing, the shell continues to the next line (echo marker),
+        so execute() returns with exit code 137 (128 + SIGKILL).
+        """
+        if not self.process or not self.is_active:
+            return
+        shell_pid = self.process.pid
+        try:
+            import signal as sig
+            # Find direct child processes of the shell
+            result = subprocess.run(
+                ['ps', '-o', 'pid=', '--ppid', str(shell_pid)],
+                capture_output=True, text=True, timeout=2,
+            )
+            pids = []
+            for line in result.stdout.strip().split():
+                try:
+                    pids.append(int(line))
+                except ValueError:
+                    pass
+            if pids:
+                for pid in pids:
+                    try:
+                        os.kill(pid, sig.SIGKILL)
+                    except OSError:
+                        pass
+                self.logger.info(f"cancel_running: killed {len(pids)} child process(es) of shell {shell_pid}")
+            else:
+                self.logger.debug(f"cancel_running: no child processes for shell {shell_pid}")
+        except Exception as e:
+            self.logger.debug(f"cancel_running failed: {e}")
+
     def restart(self) -> None:
         """重启会话"""
         self.logger.info(f"重启会话 {self.session_id}")

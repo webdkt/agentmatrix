@@ -69,18 +69,21 @@ def parse_actions_from_thought(raw_reply: str) -> dict:
     return {"status": "success", "content": content}
 
 
-def extract_action_script_block(text: str) -> str:
+def extract_action_script_block(text: str) -> Tuple[str, str]:
     """
-    从 LLM 输出中提取 <action_script>...</action_script> 块的内容。
+    从 LLM 输出中提取 <action_script for="...">...</action_script> 块的内容和标签。
 
     Returns:
-        块内的文本（不含标签），如果没有找到则返回空字符串
+        (content, for_label) — content 为块内文本（不含标签），for_label 为 for 属性值。
+        未找到返回 ("", "")
     """
-    pattern = r'<action_script>(.*?)</action_script>'
+    pattern = r'<action_script(?:\s+for="([^"]*)")?\s*>(.*?)</action_script>'
     match = re.search(pattern, text, re.DOTALL)
     if match:
-        return match.group(1).strip()
-    return ""
+        for_label = match.group(1) or ""
+        content = match.group(2).strip()
+        return content, for_label
+    return "", ""
 
 
 def convert_function_blocks_to_action_script(text: str) -> str:

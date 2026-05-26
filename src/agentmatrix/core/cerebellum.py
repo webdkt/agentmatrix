@@ -61,7 +61,7 @@ class Cerebellum(AutoLoggerMixin):
             brain_callback: 向 Brain 请求补齐缺失参数的回调
 
         Returns:
-            {"params": {...}, "action_label": "..."}
+            {"params": {...}}
         """
         # 格式化参数定义
         param_lines = []
@@ -76,7 +76,6 @@ class Cerebellum(AutoLoggerMixin):
         param_def = "\n".join(param_lines)
 
         current_params = dict(user_params)
-        action_label = ""
         max_turns = 5
 
         for turn in range(max_turns):
@@ -97,7 +96,7 @@ class Cerebellum(AutoLoggerMixin):
                 2. Identify which required parameters are missing
 
                 Output ONLY a JSON object:
-                {{"mapping": {{"user_name1": "correct_name1", ...}}, "missing": ["param1", "param2"], "action_label": "brief description of the purpose of action, NOT what the mapping did"}}
+                {{"mapping": {{"user_name1": "correct_name1", ...}}, "missing": ["param1", "param2"]}}
             """)
 
             messages = [
@@ -118,7 +117,6 @@ class Cerebellum(AutoLoggerMixin):
 
             mapping = alignment.get("mapping", {})
             missing = alignment.get("missing", [])
-            action_label = alignment.get("action_label", "")
 
             # 用 mapping 对齐参数名，value 原样保留
             aligned = {}
@@ -131,7 +129,7 @@ class Cerebellum(AutoLoggerMixin):
 
             # 全齐 → 返回
             if not missing:
-                return {"params": current_params, "action_label": action_label}
+                return {"params": current_params}
 
             # 有缺失但没有 brain_callback → 无法补齐，退出
             if not brain_callback:
@@ -154,7 +152,7 @@ class Cerebellum(AutoLoggerMixin):
                 if re_parsed:
                     current_params.update(re_parsed)
 
-        return {"params": current_params, "action_label": action_label}
+        return {"params": current_params}
 
     def _extract_action_call(self, text: str, action_name: str) -> str:
         """

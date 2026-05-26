@@ -193,8 +193,6 @@ class MicroAgent(AutoLoggerMixin):
 
         return dynamic_class
 
-    _BASH_CANCEL_HINT = "\n\n注意：被取消的任务中可能包含 bash 命令，如果涉及网络请求/安装等长时间操作，命令可能仍在容器中运行，如需终止请使用 `ps` + `kill`。"
-
     @register_action(
         short_desc="[index]取消正在执行的操作, index 可选，1表示第一个，不提供则取消所有",
         description="取消当前正在运行的操作。通过编号指定取消哪个，不填则取消所有。",
@@ -226,7 +224,9 @@ class MicroAgent(AutoLoggerMixin):
             task.cancel()
             result = f"已取消 [{display_name}]"
             if action_name == "bash":
-                result += self._BASH_CANCEL_HINT
+                session = getattr(self.parent, 'container_session', None) or getattr(self.parent, 'local_session', None)
+                if session:
+                    session.cancel_running()
             return result
         elif self._running_actions:
             # 取消所有（排除自己）
@@ -259,7 +259,9 @@ class MicroAgent(AutoLoggerMixin):
                     task.cancel()
             result = f"已取消 {len(cancelled)} 个操作: [{', '.join(cancelled)}]"
             if has_bash:
-                result += self._BASH_CANCEL_HINT
+                session = getattr(self.parent, 'container_session', None) or getattr(self.parent, 'local_session', None)
+                if session:
+                    session.cancel_running()
             return result
         else:
             return "当前没有正在运行的操作"
@@ -1277,8 +1279,8 @@ class MicroAgent(AutoLoggerMixin):
             - action_results: [(action_name, params_dict, method, action_label), ...]
               参数已对齐，可直接执行
         """
-        # 提取 <action_script> 块
-        script_block = _utils.extract_action_script_block(full_text)
+        # 提取 <action_script> 块及 for 标签
+        script_block, for_label = _utils.extract_action_script_block(full_text)
         if not script_block:
             return [], []
 
@@ -1300,14 +1302,14 @@ class MicroAgent(AutoLoggerMixin):
         if valid_calls:
             # 正常路径：逐个解析参数
             for action_name, params_text in valid_calls:
-                result = await self._align_action_params(action_name, params_text)
+                result = await self._align_action_params(action_name, params_text, action_label_hint=for_label)
                 if result:
                     action_results.append(result)
         else:
             # 特殊通道：块内只有 action name 但不是函数式格式
             mentioned = self._scan_action_names(script_block)
             if len(mentioned) == 1 and not hallucinations:
-                result = await self._align_action_params_via_cerebellum(mentioned[0])
+                result = await self._align_action_params_via_cerebellum(mentioned[0], action_label_hint=for_label)
                 if result:
                     action_results.append(result)
 
@@ -1317,7 +1319,8 @@ class MicroAgent(AutoLoggerMixin):
         return action_names, action_results
 
     async def _align_action_params(
-        self, action_name: str, params_text: str
+        self, action_name: str, params_text: str,
+        action_label_hint: str = "",
     ) -> Optional[Tuple[str, dict, Any, str]]:
         """
         解析并对齐单个 action 的参数。
@@ -1328,6 +1331,9 @@ class MicroAgent(AutoLoggerMixin):
         3. 校验必须参数是否齐全
         4. 不齐 → cerebellum fallback
         5. 仍不齐 → 安全网 signal，返回 None
+
+        Args:
+            action_label_hint: 来自 <action_script for="..."> 的标签
 
         Returns:
             (action_name, params_dict, method, action_label) 或 None
@@ -1355,7 +1361,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # 3. 解析参数
         params = {}
-        action_label = ""
+        action_label = action_label_hint or " "
 
         # 3a. 尝试 key=value 解析
         parsed = _utils.parse_params_from_call(params_text)
@@ -1376,7 +1382,7 @@ class MicroAgent(AutoLoggerMixin):
                 # 多个位置参数 → cerebellum fallback
                 self.logger.debug(f"[{action_name}] 多个位置参数无法自动映射，使用 cerebellum")
                 if param_schema:
-                    params, action_label = await self._convert_params(
+                    params = await self._convert_params(
                         action_name, {}, param_schema
                     )
             # else: positional_values 为空，params 保持 {}
@@ -1407,7 +1413,7 @@ class MicroAgent(AutoLoggerMixin):
             self.logger.debug(f"[{action_name}] {', '.join(reason)}，使用 cerebellum 对齐")
 
             if param_schema:
-                params, action_label = await self._convert_params(
+                params = await self._convert_params(
                     action_name, params, param_schema
                 )
                 # 对齐后只保留合法参数名
@@ -1426,10 +1432,14 @@ class MicroAgent(AutoLoggerMixin):
         return (action_name, params, method, action_label)
 
     async def _align_action_params_via_cerebellum(
-        self, action_name: str
+        self, action_name: str,
+        action_label_hint: str = "",
     ) -> Optional[Tuple[str, dict, Any, str]]:
         """
         特殊通道：action name 没有函数式格式（无括号），通过 cerebellum 补全参数。
+
+        Args:
+            action_label_hint: 来自 <action_script for="..."> 的标签
 
         Returns:
             (action_name, params_dict, method, action_label) 或 None
@@ -1445,9 +1455,9 @@ class MicroAgent(AutoLoggerMixin):
 
         # 用 cerebellum 补全所有参数
         params = {}
-        action_label = ""
+        action_label = action_label_hint or " "
         if param_schema:
-            params, action_label = await self._convert_params(
+            params = await self._convert_params(
                 action_name, {}, param_schema
             )
 
@@ -1557,7 +1567,7 @@ class MicroAgent(AutoLoggerMixin):
 
     async def _convert_params(
         self, action_name: str, user_params: dict, param_schema: dict,
-    ) -> Tuple[dict, str]:
+    ) -> dict:
         """通过 cerebellum 对齐参数名 + Brain 补齐缺失参数。"""
 
         async def brain_callback(question: str) -> str:
@@ -1573,7 +1583,7 @@ class MicroAgent(AutoLoggerMixin):
             brain_callback=brain_callback,
         )
 
-        return result.get("params", {}), result.get("action_label", "")
+        return result.get("params", {})
 
     async def _execute_action(
         self, action_name: str, params: dict, method,
@@ -1591,7 +1601,7 @@ class MicroAgent(AutoLoggerMixin):
             action_index: 当前是第几个 action（从 1 开始）
             action_list: 完整的 action 列表
             action_id: running_actions 中的 ID
-            action_label: action 标签（cerebellum 生成，用于显示）
+            action_label: action 标签（来自 <action_script for="...">）
         """
         import inspect
 
