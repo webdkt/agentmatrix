@@ -98,11 +98,10 @@ class TodoManager:
             return "No todos to clear"
 
         # 删除单个条目（todo_str 为空即删除，忽略 status）
+        # 注意：不立即 _renumber()，保持索引稳定以便同批次后续操作引用
         if not todo_str:
             if index in self._todos:
                 del self._todos[index]
-                # 重编号：填补删除后的空缺
-                self._renumber()
                 self._change_counter += 1
                 self._save_memory_to_file()
                 self._remove_old_todo_block(micro)
@@ -141,6 +140,8 @@ class TodoManager:
 
     def _insert(self, index: str, todo_str: str, status: str, before: bool):
         """在指定位置前/后插入新条目，后续条目 index 递增。"""
+        # 插入前先重编号，确保基于连续编号操作
+        self._renumber()
         sorted_keys = sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x)
         target_num = int(index) if index.isdigit() else len(sorted_keys) + 1
 
@@ -293,10 +294,11 @@ class TodoManager:
         if not self._todos:
             return "<Todo List>No Todo Defined</Todo List>"
 
+        sorted_keys = sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x)
         lines = []
-        for idx in sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x):
-            entry = self._todos[idx]
-            lines.append(f"{idx}. [{entry['status']}] {entry['item']}")
+        for i, key in enumerate(sorted_keys, 1):
+            entry = self._todos[key]
+            lines.append(f"{i}. [{entry['status']}] {entry['item']}")
 
         return "<Todo List>\n" + "\n".join(lines) + "\n</Todo List>"
 
@@ -316,9 +318,10 @@ class TodoManager:
             self._agent.logger.warning(f"Todo save failed: {e}")
 
     def _serialize_data(self) -> dict:
+        sorted_keys = sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x)
         result = {}
-        for idx, val in self._todos.items():
-            result[idx] = {"item": val["item"], "status": val["status"]}
+        for i, key in enumerate(sorted_keys, 1):
+            result[str(i)] = {"item": self._todos[key]["item"], "status": self._todos[key]["status"]}
         return result
 
     def _read_file_into_memory(self):
