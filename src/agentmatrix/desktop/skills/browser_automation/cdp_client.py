@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import socket
+import struct
 from collections import deque
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 
@@ -183,6 +184,8 @@ class CDPClient:
 
     def register_relay(self, session_id: str, conn: socket.socket, id_offset: int):
         """Register a session relay. CDP responses with IDs in [id_offset+1, id_offset+9999] will be forwarded to conn."""
+        # 写超时 5 秒：客户端不读数据时，sendall 不会永久阻塞
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, struct.pack('ll', 5, 0))
         self._relay_sessions[session_id] = {"id_offset": id_offset, "conn": conn}
         logger.debug(f"Relay registered: session={session_id}, id_offset={id_offset}")
 
@@ -244,11 +247,12 @@ class CDPClient:
                             if offset < msg_id < offset + 10000:
                                 original_id = msg_id - offset
                                 msg["id"] = original_id
-                                try:
-                                    conn = relay_info["conn"]
-                                    conn.sendall(json.dumps(msg).encode() + b"\0")
-                                except (OSError, BrokenPipeError):
-                                    pass
+                                conn = relay_info["conn"]
+                                payload = json.dumps(msg).encode() + b"\0"
+                                # sendall 可能阻塞（客户端缓冲区满），必须移出 event loop
+                                asyncio.get_event_loop().run_in_executor(
+                                    None, self._relay_send, conn, payload
+                                )
                                 break
                     continue
 
@@ -277,6 +281,20 @@ class CDPClient:
             self._connected = False
             if was_connected:
                 await self._notify_status(False)
+
+    # --- Relay send (offloaded from event loop) ---
+
+    @staticmethod
+    def _relay_send(conn: socket.socket, data: bytes):
+        """Send data to a relay UDS client. Runs in executor to avoid blocking the event loop."""
+        try:
+            conn.sendall(data)
+        except (OSError, BrokenPipeError) as e:
+            logger.warning(f"Relay send failed, closing client: {e}")
+            try:
+                conn.close()
+            except OSError:
+                pass
 
     # --- Status ---
 
