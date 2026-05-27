@@ -1134,6 +1134,9 @@ Start generating the Working Notes now.
             md_skill_names=md_skill_names,
         )
 
+        # 绑定退出前 hook
+        micro._before_exit_hook = self._on_before_exit
+
         # 注册 system prompt 热刷新 + whiteboard/todo 管理 hook：每轮 think 前执行
         async def _before_think_hook():
             # 1. 同步 whiteboard 文件（用户协同编辑检测）
@@ -1293,17 +1296,6 @@ Start generating the Working Notes now.
         """Desktop: execute 结束后更新状态为 IDLE。"""
         if not self._is_stopping:
             self.update_status(new_status=AgentStatus.IDLE)
-
-    def _create_micro_agent(self) -> MicroAgent:
-        """Desktop: 创建持久 MicroAgent，绑定 _before_exit_hook。"""
-        agent = MicroAgent(
-            parent=self,
-            name=self.name,
-            available_skills=self.skills if self.skills else None,
-            system_prompt=self._get_system_prompt(),
-        )
-        agent._before_exit_hook = self._on_before_exit
-        return agent
 
     # reply reminder tag，用于包裹和清理历史中的提醒消息
     _REPLY_REMINDER_TAG = "system-auto-reply-reminder"
