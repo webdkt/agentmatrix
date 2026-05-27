@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
-import { confirm } from '@tauri-apps/plugin-dialog'
 import llmPresets from '@/assets/llm-presets.json'
 
 /**
@@ -193,23 +192,6 @@ export const useConfigStore = defineStore('config', {
 
       try {
         console.log('🚀 Starting wizard submission...')
-
-        // 0. 检查容器运行时（冷启动时 podman 可能还没装）
-        const runtimeInfo = await invoke('check_container_runtime')
-        if (runtimeInfo.runtime === 'none') {
-          const userConfirmed = await confirm(
-            'Matrix requires Docker or Podman to run containers.\n\n' +
-            'Neither is installed on your system.\n\n' +
-            'Would you like to install Podman now?\n' +
-            '(Alternatively, you can install Docker Desktop.)',
-            { title: 'Install Container Runtime', kind: 'warning' }
-          )
-          if (userConfirmed) {
-            await invoke('install_podman')
-          }
-          this.submitError = 'PODMAN_INSTALL_REQUIRED'
-          throw new Error('PODMAN_INSTALL_REQUIRED')
-        }
 
         // 1. 创建目录和模板
         await invoke('init_matrix_world', { matrixWorldPath: path, userName: name })
