@@ -83,7 +83,7 @@ onUnmounted(() => {
 
 <template>
   <div class="input-panel" v-if="hasSession">
-    <div class="input-panel__header">
+    <div class="input-panel__header" data-tauri-drag-region>
       <span class="input-panel__title">发送消息给 {{ agentName }}</span>
       <button class="input-panel__close" @click="closeWindow" title="Close">
         <MIcon name="x" />

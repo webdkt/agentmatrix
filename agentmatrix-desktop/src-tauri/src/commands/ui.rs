@@ -194,6 +194,44 @@ fn sync_stream_position_internal(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 创建结果窗口（屏幕居中，always on top）
+#[tauri::command]
+pub async fn create_result_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_webview_window("result")
+        .ok_or("Result window not found")?;
+
+    center_window(&window, 520.0, 400.0)?;
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 关闭结果窗口
+#[tauri::command]
+pub async fn destroy_result_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("result") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 调整结果窗口大小（内容自适应）
+#[tauri::command]
+pub async fn resize_result_window(
+    app: tauri::AppHandle,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("result") {
+        use tauri::LogicalSize;
+        let clamped_w = width.max(320.0).min(700.0);
+        let clamped_h = height.max(200.0).min(600.0);
+        window.set_size(LogicalSize::new(clamped_w, clamped_h))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// 创建输入窗口（屏幕居中）
 /// Session 数据已通过 set_current_session 写入全局状态，InputPanel 自行读取
 #[tauri::command]

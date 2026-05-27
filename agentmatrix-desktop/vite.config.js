@@ -43,6 +43,7 @@ export default defineConfig({
         detail: path.resolve(__dirname, 'detail.html'),
         capsule: path.resolve(__dirname, 'capsule.html'),
         stream: path.resolve(__dirname, 'stream.html'),
+        result: path.resolve(__dirname, 'result.html'),
       },
     },
   },

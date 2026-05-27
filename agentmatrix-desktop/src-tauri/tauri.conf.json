@@ -96,6 +96,22 @@
         "resizable": true,
         "visible": false,
         "backgroundColor": "#00000000"
+      },
+      {
+        "label": "result",
+        "url": "result.html",
+        "width": 520,
+        "height": 400,
+        "minWidth": 320,
+        "minHeight": 200,
+        "transparent": true,
+        "decorations": false,
+        "shadow": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "visible": false,
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {

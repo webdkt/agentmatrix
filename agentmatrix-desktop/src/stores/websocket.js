@@ -114,7 +114,12 @@ export const useWebSocketStore = defineStore('websocket', {
      */
     handleUIActionResult(message) {
       const { agent_name, data } = message
-      this.lastUIActionResult = { agent_name, ...data }
+      const result = { agent_name, ...data }
+      this.lastUIActionResult = result
+      // Also emit as Tauri event for floating windows
+      import('@tauri-apps/api/event').then(({ emit }) => {
+        emit('ws:ui-action-result', result)
+      })
     },
 
     /**

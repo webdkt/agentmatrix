@@ -4,6 +4,7 @@ import { listen, emit as tauriEmit } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useAgentStore } from '@/stores/agent'
 import { agentAPI } from '@/api/agent'
+import { showUIActionResult } from '@/composables/useUIActionResult'
 import GlassCard from './GlassCard.vue'
 import FloatingMenu from './FloatingMenu.vue'
 
@@ -99,7 +100,15 @@ async function invokeUIAction(actionNode) {
   if (!agentName.value) return
   try {
     const payload = { session_id: agentSessionId.value }
-    await agentAPI.invokeAgentUIAction(agentName.value, actionNode.action, payload)
+    const resp = await agentAPI.invokeAgentUIAction(agentName.value, actionNode.action, payload)
+    if (resp.success && resp.result != null) {
+      await showUIActionResult({
+        agent_name: agentName.value,
+        action_name: actionNode.action,
+        result: resp.result,
+        display_mode: resp.display_mode,
+      })
+    }
   } catch (e) {
     console.error('[Capsule] UI action failed:', e)
   }
@@ -136,6 +145,7 @@ async function handleSwitchSession() {
 // ---- Lifecycle ----
 let unlistenStatus = null
 let unlistenReloadSession = null
+let unlistenUIResult = null
 
 onMounted(async () => {
   invoke('clip_window_rounded', { label: 'floating-capsule', radius: 20 })
@@ -156,6 +166,13 @@ onMounted(async () => {
     agentStatusData.value = event.payload || {}
     agentStatus.value = event.payload?.status || 'IDLE'
   })
+
+  // Listen for WebSocket-pushed UI action results
+  unlistenUIResult = await listen('ws:ui-action-result', async (event) => {
+    if (event.payload.agent_name === agentName.value) {
+      await showUIActionResult(event.payload)
+    }
+  })
 })
 
 watch(isValidSession, async (valid) => {
@@ -166,6 +183,7 @@ watch(isValidSession, async (valid) => {
 onUnmounted(() => {
   if (unlistenStatus) unlistenStatus()
   if (unlistenReloadSession) unlistenReloadSession()
+  if (unlistenUIResult) unlistenUIResult()
 })
 </script>
 
