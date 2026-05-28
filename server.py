@@ -10,6 +10,7 @@ import re
 import time
 import asyncio
 import argparse
+import yaml
 from pathlib import Path
 from urllib.parse import quote, unquote
 from contextlib import asynccontextmanager
@@ -41,7 +42,6 @@ else:
 
 # Import AgentMatrix
 from agentmatrix import AgentMatrix, __version__
-from agentmatrix.desktop.services.config_service import ConfigService
 
 
 # === Parse Command-Line Arguments at Module Level ===
@@ -254,13 +254,6 @@ def load_user_agent_name(matrix_world_dir: Path) -> str:
     except Exception as e:
         print(f"⚠️  Error loading system_config.yml: {e}, using default 'User'")
         return "User"
-
-
-def save_llm_configs_to_file(configs: dict):
-    """Save LLM configurations dict to the global llm_config_path"""
-    llm_config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(llm_config_path, "w", encoding="utf-8") as f:
-        json.dump(configs, f, indent=4)
 
 
 # === Graceful Shutdown Handler ===
@@ -1752,32 +1745,6 @@ async def refresh_skills_cache():
 # === Agent Profile Management APIs ===
 
 
-def get_agent_yml_path(agent_name: str) -> Path:
-    """Get the YAML file path for an agent"""
-    return agents_dir / f"{agent_name}.yml"
-
-
-def load_agent_profile(agent_name: str) -> dict:
-    """Load agent profile from YAML file"""
-    import yaml
-
-    yml_path = get_agent_yml_path(agent_name)
-    if not yml_path.exists():
-        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-
-    with open(yml_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def save_agent_profile(agent_name: str, profile: dict):
-    """Save agent profile to YAML file"""
-    import yaml
-
-    yml_path = get_agent_yml_path(agent_name)
-    with open(yml_path, "w", encoding="utf-8") as f:
-        yaml.dump(profile, f, default_flow_style=False, allow_unicode=True)
-
-
 def agent_profile_to_response(profile: dict) -> dict:
     """Convert agent profile to API response format - 支持灵活的配置结构"""
     # Handle backward compatibility: mixins -> skills (仅用于显示)
@@ -1841,16 +1808,18 @@ async def get_agent_profiles():
 
 @app.get("/api/agent-profiles/{agent_name}")
 async def get_agent_profile(agent_name: str):
-    """Get a specific agent's full profile from YAML"""
+    """Get a specific agent's full profile"""
     try:
         global matrix_runtime
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        profile = ConfigService(matrix_runtime.paths).get_agent_profile(agent_name)
+        profile = matrix_runtime.agent_service.read_profile(agent_name)
+        if profile is None:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
         return agent_profile_to_response(profile)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1874,33 +1843,20 @@ async def get_agent_prompt(agent_name: str):
 
 @app.post("/api/agent-profiles")
 async def create_agent_profile(request: AgentConfigRequest):
-    """Create a new agent profile - 支持灵活的配置结构"""
+    """Create a new agent profile"""
     try:
-        import yaml
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        yml_path = get_agent_yml_path(request.name)
-
-        # Check if agent already exists
-        if yml_path.exists():
-            raise HTTPException(
-                status_code=409, detail=f"Agent '{request.name}' already exists"
-            )
-
-        # Validate name (alphanumeric, underscore, hyphen)
-        if not re.match(r"^[a-zA-Z0-9_-]+$", request.name):
-            raise HTTPException(
-                status_code=400,
-                detail="Agent name can only contain letters, numbers, underscores, and hyphens",
-            )
-
-        # Build profile - 只包含非空值，保持配置文件简洁
+        # Build profile from request
         profile = {
             "name": request.name,
             "description": request.description,
-            "class_name": request.class_name,  # 新格式：完整类路径
+            "class_name": request.class_name,
         }
 
-        # 可选字段 - 只在有值时添加
+        # Optional fields - only add when non-empty
         if request.backend_model and request.backend_model != "default_llm":
             profile["backend_model"] = request.backend_model
         if request.skills:
@@ -1916,47 +1872,50 @@ async def create_agent_profile(request: AgentConfigRequest):
         if request.logging:
             profile["logging"] = request.logging
 
-        # 处理额外字段（保留灵活性）
+        # Extra fields
         if request.extra_fields:
             for key, value in request.extra_fields.items():
-                if key not in profile:  # 不覆盖已处理的字段
+                if key not in profile:
                     profile[key] = value
 
-        save_agent_profile(request.name, profile)
-
-        # 🆕 动态加载并注册新Agent到运行时
-        global matrix_runtime
-        runtime_loaded = False
-        if matrix_runtime:
-            try:
-                await matrix_runtime.load_and_register_agent(request.name)
-                runtime_loaded = True
-                print(f"✅ Agent '{request.name}' 已动态加载并注册到系统")
-            except Exception as e:
-                print(f"⚠️  Agent配置已保存，但动态加载失败: {e}")
-                # 注意：即使加载失败，配置文件也已保存，用户可以重启系统来加载
-        else:
-            print("⚠️  Runtime未初始化，Agent配置已保存，需要重启系统才能加载")
+        try:
+            agent = await matrix_runtime.agent_service.create_agent(request.name, profile)
+            runtime_loaded = True
+            print(f"✅ Agent '{request.name}' created and registered")
+        except Exception as e:
+            runtime_loaded = False
+            print(f"⚠️  Agent config saved but runtime loading failed: {e}")
 
         return {
             "success": True,
             "message": f"Agent '{request.name}' created successfully",
             "agent": agent_profile_to_response(profile),
-            "runtime_loaded": runtime_loaded,  # 返回是否已加载到运行时
+            "runtime_loaded": runtime_loaded,
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/agent-profiles/{agent_name}")
 async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
-    """Update an existing agent profile - 支持灵活的配置结构"""
+    """Update an existing agent profile and hot-reload"""
     try:
-        profile = load_agent_profile(agent_name)
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        # 更新基本字段
+        # Read existing profile
+        profile = matrix_runtime.agent_service.read_profile(agent_name)
+        if profile is None:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+
+        # Update fields
         if request.description is not None:
             profile["description"] = request.description
         if request.backend_model is not None:
@@ -1965,7 +1924,7 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
             if request.skills:
                 profile["skills"] = request.skills
             else:
-                profile.pop("skills", None)  # 删除空数组
+                profile.pop("skills", None)
         if request.persona is not None:
             if request.persona:
                 profile["persona"] = request.persona
@@ -1973,8 +1932,6 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
                 profile.pop("persona", None)
         if request.class_name is not None:
             profile["class_name"] = request.class_name
-
-        # 更新新字段
         if request.cerebellum is not None:
             if request.cerebellum:
                 profile["cerebellum"] = request.cerebellum
@@ -1995,22 +1952,27 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
                 profile["logging"] = request.logging
             else:
                 profile.pop("logging", None)
-
-        # 处理额外字段（保留灵活性）
         if request.extra_fields:
             for key, value in request.extra_fields.items():
                 if value is not None:
                     profile[key] = value
                 else:
-                    profile.pop(key, None)  # 允许通过 None 删除字段
+                    profile.pop(key, None)
 
-        save_agent_profile(agent_name, profile)
-
-        return {
-            "success": True,
-            "message": f"Agent '{agent_name}' updated successfully",
-            "agent": agent_profile_to_response(profile),
-        }
+        # Update and hot-reload
+        try:
+            await matrix_runtime.agent_service.update_agent(agent_name, profile)
+            return {
+                "success": True,
+                "message": f"Agent '{agent_name}' updated and reloaded",
+                "agent": agent_profile_to_response(profile),
+            }
+        except Exception as e:
+            return {
+                "success": True,
+                "message": f"Agent '{agent_name}' updated (reload failed: {e})",
+                "agent": agent_profile_to_response(profile),
+            }
     except HTTPException:
         raise
     except Exception as e:
@@ -2019,25 +1981,26 @@ async def update_agent_profile(agent_name: str, request: AgentUpdateRequest):
 
 @app.delete("/api/agent-profiles/{agent_name}")
 async def delete_agent_profile(agent_name: str):
-    """Delete an agent profile"""
+    """Delete an agent profile and unregister from runtime"""
     try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
         # Prevent deleting User agent
-        if agent_name == "User":
+        if agent_name == "User" or agent_name == matrix_runtime.get_user_agent_name():
             raise HTTPException(status_code=403, detail="Cannot delete User agent")
 
-        yml_path = get_agent_yml_path(agent_name)
-
-        if not yml_path.exists():
-            raise HTTPException(
-                status_code=404, detail=f"Agent '{agent_name}' not found"
-            )
-
-        yml_path.unlink()
-
-        return {
-            "success": True,
-            "message": f"Agent '{agent_name}' deleted successfully",
-        }
+        try:
+            await matrix_runtime.agent_service.delete_agent(agent_name)
+            return {
+                "success": True,
+                "message": f"Agent '{agent_name}' deleted successfully",
+            }
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -2046,24 +2009,24 @@ async def delete_agent_profile(agent_name: str):
 
 @app.get("/api/agent-profiles/{agent_name}/reload")
 async def reload_agent_profile(agent_name: str):
-    """Reload an agent profile into runtime (requires runtime restart to take full effect)"""
+    """Reload an agent profile into runtime (hot-reload)"""
     global matrix_runtime
 
     if not matrix_runtime:
         raise HTTPException(status_code=503, detail="Runtime not initialized")
 
     try:
-        profile = load_agent_profile(agent_name)
-
-        # Note: Full reload requires restarting the runtime
-        # For now, we just verify the profile is valid
+        await matrix_runtime.agent_service.reload_agent(agent_name)
+        profile = matrix_runtime.agent_service.read_profile(agent_name)
         return {
             "success": True,
-            "message": f"Agent profile '{agent_name}' is valid. Restart server to apply changes.",
-            "agent": agent_profile_to_response(profile),
+            "message": f"Agent '{agent_name}' reloaded successfully",
+            "agent": agent_profile_to_response(profile) if profile else None,
         }
-    except HTTPException:
-        raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2072,11 +2035,11 @@ async def reload_agent_profile(agent_name: str):
 
 
 def load_llm_configs():
-    """Load all LLM configurations from the config service"""
+    """Load all LLM configurations from runtime config"""
     if matrix_runtime is None:
         return {}
     try:
-        return ConfigService(matrix_runtime.paths).list_llm_models()
+        return matrix_runtime.llm_service.list_models()
     except Exception as e:
         print(f"Error loading LLM configs: {e}")
         return {}
@@ -2130,14 +2093,13 @@ async def get_llm_config(config_name: str):
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        configs = ConfigService(matrix_runtime.paths).list_llm_models()
+        config = matrix_runtime.llm_service.get_model_config(config_name)
 
-        if config_name not in configs:
+        if config is None:
             raise HTTPException(
                 status_code=404, detail=f"LLM config '{config_name}' not found"
             )
 
-        config = configs[config_name]
         return {
             "name": config_name,
             "url": config.get("url", ""),
@@ -2160,21 +2122,19 @@ async def create_llm_config(request: LLMConfigCreateRequest):
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        # Validate name (alphanumeric, underscore, hyphen)
         if not re.match(r"^[a-zA-Z0-9_-]+$", request.name):
             raise HTTPException(
                 status_code=400,
                 detail="Config name can only contain letters, numbers, underscores, and hyphens",
             )
 
-        # Create new config using ConfigService
         config = {
             "url": request.url,
             "API_KEY": request.api_key,
             "model_name": request.model_name,
         }
 
-        ConfigService(matrix_runtime.paths).add_llm_model(request.name, config)
+        await matrix_runtime.llm_service.add_endpoint(request.name, config)
 
         return {
             "success": True,
@@ -2190,7 +2150,7 @@ async def create_llm_config(request: LLMConfigCreateRequest):
         }
     except HTTPException:
         raise
-    except FileExistsError as e:
+    except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2200,21 +2160,17 @@ async def create_llm_config(request: LLMConfigCreateRequest):
 async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
     """Update an existing LLM configuration"""
     try:
-        configs = load_llm_configs()
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        if config_name not in configs:
-            raise HTTPException(
-                status_code=404, detail=f"LLM config '{config_name}' not found"
-            )
-
-        # Update config
-        configs[config_name] = {
+        config = {
             "url": request.url,
             "API_KEY": request.api_key,
             "model_name": request.model_name,
         }
 
-        save_llm_configs_to_file(configs)
+        await matrix_runtime.llm_service.update_endpoint(config_name, config)
 
         return {
             "success": True,
@@ -2228,6 +2184,8 @@ async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
                 "description": get_llm_config_description(config_name),
             },
         }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -2238,28 +2196,20 @@ async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
 async def delete_llm_config(config_name: str):
     """Delete an LLM configuration"""
     try:
-        # Check if this is a required config
-        if config_name in REQUIRED_LLM_CONFIGS:
-            raise HTTPException(
-                status_code=403, detail=f"Cannot delete required config '{config_name}'"
-            )
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        configs = load_llm_configs()
-
-        if config_name not in configs:
-            raise HTTPException(
-                status_code=404, detail=f"LLM config '{config_name}' not found"
-            )
-
-        # Remove config
-        del configs[config_name]
-
-        save_llm_configs_to_file(configs)
+        await matrix_runtime.llm_service.delete_endpoint(config_name)
 
         return {
             "success": True,
             "message": f"LLM config '{config_name}' deleted successfully",
         }
+    except ValueError as e:
+        if "Cannot delete" in str(e):
+            raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -2270,45 +2220,31 @@ async def delete_llm_config(config_name: str):
 async def reset_llm_config(config_name: str):
     """Reset a required LLM config to default values"""
     try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
+
         if config_name not in REQUIRED_LLM_CONFIGS:
             raise HTTPException(
-                status_code=400, detail=f"Can only reset required configs"
+                status_code=400, detail="Can only reset required configs"
             )
 
-        configs = load_llm_configs()
+        await matrix_runtime.llm_service.reset_endpoint(config_name)
 
-        # Set default values based on config name
-        defaults = {
-            "default_llm": {
-                "url": "https://api.openai.com/v1/chat/completions",
-                "API_KEY": "your-api-key",
-                "model_name": "gpt-4",
-            },
-            "default_slm": {
-                "url": "https://api.openai.com/v1/chat/completions",
-                "API_KEY": "your-api-key",
-                "model_name": "gpt-3.5-turbo",
-            },
-            "browser-use-llm": {
-                "url": "https://api.openai.com/v1/chat/completions",
-                "API_KEY": "your-api-key",
-                "model_name": "gpt-4",
-            },
-        }
-
-        configs[config_name] = defaults.get(config_name, defaults["default_llm"])
-        save_llm_configs_to_file(configs)
+        config = matrix_runtime.llm_service.get_model_config(config_name)
 
         return {
             "success": True,
             "message": f"LLM config '{config_name}' reset to defaults",
             "config": {
                 "name": config_name,
-                **configs[config_name],
+                **config,
                 "is_required": True,
                 "description": get_llm_config_description(config_name),
             },
         }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -2490,17 +2426,7 @@ async def get_email_proxy_config():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        import yaml
-
-        result = ConfigService(matrix_runtime.paths).read_config("email_proxy")
-
-        if not result.success:
-            # Return empty config if file doesn't exist
-            return {}
-
-        # Parse YAML content and return as dict
-        config = yaml.safe_load(result.content) or {}
-        return config
+        return matrix_runtime.config.email_proxy.to_dict()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2513,20 +2439,12 @@ async def update_email_proxy_config(request: dict):
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        # Convert dict to YAML and write using ConfigService
-        import yaml
-
-        yaml_content = yaml.dump(
-            request, allow_unicode=True, default_flow_style=False, sort_keys=False
+        result = await matrix_runtime.email_proxy_config_svc.write_full_config(
+            yaml.dump(request, allow_unicode=True, default_flow_style=False)
         )
-        result = await ConfigService(matrix_runtime.paths).write_config(
-            "email_proxy", yaml_content, skip_verification=False
-        )
-
-        if not result.success:
-            raise HTTPException(status_code=400, detail=result.message)
-
-        return {"success": True, "message": "Email proxy config updated"}
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("message", "Update failed"))
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2541,25 +2459,8 @@ async def enable_email_proxy():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        # Read current config, update enabled field, write back
-        import yaml
-
-        result = ConfigService(matrix_runtime.paths).read_config("email_proxy")
-
-        if result.success:
-            config = yaml.safe_load(result.content) or {}
-        else:
-            config = {}
-
-        config["enabled"] = True
-        yaml_content = yaml.dump(
-            config, allow_unicode=True, default_flow_style=False, sort_keys=False
-        )
-        await ConfigService(matrix_runtime.paths).write_config(
-            "email_proxy", yaml_content, skip_verification=True
-        )
-
-        return {"success": True, "message": "Email proxy enabled"}
+        msg = await matrix_runtime.email_proxy_config_svc.enable()
+        return {"success": True, "message": msg}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2572,25 +2473,24 @@ async def disable_email_proxy():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        # Read current config, update enabled field, write back
-        import yaml
+        msg = await matrix_runtime.email_proxy_config_svc.disable()
+        return {"success": True, "message": msg}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        result = ConfigService(matrix_runtime.paths).read_config("email_proxy")
 
-        if result.success:
-            config = yaml.safe_load(result.content) or {}
-        else:
-            config = {}
+@app.post("/api/email-proxy/test")
+async def test_email_proxy():
+    """Test Email Proxy connection"""
+    try:
+        global matrix_runtime
+        if not matrix_runtime:
+            raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        config["enabled"] = False
-        yaml_content = yaml.dump(
-            config, allow_unicode=True, default_flow_style=False, sort_keys=False
-        )
-        await ConfigService(matrix_runtime.paths).write_config(
-            "email_proxy", yaml_content, skip_verification=True
-        )
-
-        return {"success": True, "message": "Email proxy disabled"}
+        results = await matrix_runtime.email_proxy_config_svc.test_connection()
+        return {"success": all(r.success for r in results), "tests": [r.to_dict() for r in results]}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2607,8 +2507,10 @@ async def add_user_mailbox(request: dict):
         if not email:
             raise HTTPException(status_code=400, detail="Email is required")
 
-        ConfigService(matrix_runtime.paths).add_user_mailbox(email)
+        matrix_runtime.email_proxy_config_svc.add_user_mailbox(email)
         return {"success": True, "message": f"Added user mailbox: {email}"}
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2625,8 +2527,10 @@ async def remove_user_mailbox(request: dict):
         if not email:
             raise HTTPException(status_code=400, detail="Email is required")
 
-        ConfigService(matrix_runtime.paths).remove_user_mailbox(email)
+        matrix_runtime.email_proxy_config_svc.remove_user_mailbox(email)
         return {"success": True, "message": f"Removed user mailbox: {email}"}
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2636,93 +2540,34 @@ async def remove_user_mailbox(request: dict):
 
 @app.get("/api/proxy/config")
 async def get_proxy_config():
-    """Get HTTP Proxy configuration from system_config.yml"""
+    """Get HTTP Proxy configuration"""
     try:
         global matrix_runtime
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        import yaml
-
-        config = app.state.config
-        system_config_path = (
-            Path(config["matrix_world_dir"])
-            / ".matrix"
-            / "configs"
-            / "system_config.yml"
-        )
-
-        if not system_config_path.exists():
-            return {"enabled": False, "host": "", "port": 0}
-
-        with open(system_config_path, "r", encoding="utf-8") as f:
-            system_config = yaml.safe_load(f) or {}
-
-        proxy = system_config.get("proxy", {})
-        return {
-            "enabled": proxy.get("enabled", False),
-            "host": proxy.get("host", ""),
-            "port": proxy.get("port", 0),
-        }
+        return matrix_runtime.proxy_service.get_config()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/proxy/config")
 async def update_proxy_config(request: dict):
-    """Update HTTP Proxy configuration in system_config.yml"""
+    """Update HTTP Proxy configuration"""
     try:
         global matrix_runtime
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        import yaml
-
-        config = app.state.config
-        system_config_path = (
-            Path(config["matrix_world_dir"])
-            / ".matrix"
-            / "configs"
-            / "system_config.yml"
+        await matrix_runtime.proxy_service.update_config(
+            host=request.get("host", ""),
+            port=int(request.get("port", 0)),
+            enabled=request.get("enabled", False),
         )
 
-        # Read current system config
-        if system_config_path.exists():
-            with open(system_config_path, "r", encoding="utf-8") as f:
-                system_config = yaml.safe_load(f) or {}
-        else:
-            system_config = {}
-
-        # Update proxy section
-        system_config["proxy"] = {
-            "enabled": request.get("enabled", False),
-            "host": request.get("host", ""),
-            "port": int(request.get("port", 0)),
-        }
-
-        # Write back
-        system_config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(system_config_path, "w", encoding="utf-8") as f:
-            yaml.dump(
-                system_config,
-                f,
-                allow_unicode=True,
-                default_flow_style=False,
-                sort_keys=False,
-            )
-
-        # Apply proxy env vars (only override when app proxy is enabled)
-        if (
-            system_config["proxy"]["enabled"]
-            and system_config["proxy"]["host"]
-            and system_config["proxy"]["port"]
-        ):
-            proxy_url = f"http://{system_config['proxy']['host']}:{system_config['proxy']['port']}"
-            os.environ["HTTP_PROXY"] = proxy_url
-            os.environ["HTTPS_PROXY"] = proxy_url
-        # 不删除系统环境变量，保留用户系统级代理配置
-
         return {"success": True, "message": "Proxy config updated"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -2737,44 +2582,10 @@ async def enable_proxy():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        import yaml
-
-        config = app.state.config
-        system_config_path = (
-            Path(config["matrix_world_dir"])
-            / ".matrix"
-            / "configs"
-            / "system_config.yml"
-        )
-
-        if system_config_path.exists():
-            with open(system_config_path, "r", encoding="utf-8") as f:
-                system_config = yaml.safe_load(f) or {}
-        else:
-            system_config = {}
-
-        if "proxy" not in system_config:
-            system_config["proxy"] = {"enabled": False, "host": "", "port": 0}
-
-        system_config["proxy"]["enabled"] = True
-
-        with open(system_config_path, "w", encoding="utf-8") as f:
-            yaml.dump(
-                system_config,
-                f,
-                allow_unicode=True,
-                default_flow_style=False,
-                sort_keys=False,
-            )
-
-        # Apply env vars
-        proxy = system_config["proxy"]
-        if proxy.get("host") and proxy.get("port"):
-            proxy_url = f"http://{proxy['host']}:{proxy['port']}"
-            os.environ["HTTP_PROXY"] = proxy_url
-            os.environ["HTTPS_PROXY"] = proxy_url
-
+        await matrix_runtime.proxy_service.enable()
         return {"success": True, "message": "Proxy enabled"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2787,42 +2598,7 @@ async def disable_proxy():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        import yaml
-
-        config = app.state.config
-        system_config_path = (
-            Path(config["matrix_world_dir"])
-            / ".matrix"
-            / "configs"
-            / "system_config.yml"
-        )
-
-        if system_config_path.exists():
-            with open(system_config_path, "r", encoding="utf-8") as f:
-                system_config = yaml.safe_load(f) or {}
-        else:
-            return {"success": True, "message": "Proxy already disabled"}
-
-        if "proxy" in system_config:
-            system_config["proxy"]["enabled"] = False
-
-        with open(system_config_path, "w", encoding="utf-8") as f:
-            yaml.dump(
-                system_config,
-                f,
-                allow_unicode=True,
-                default_flow_style=False,
-                sort_keys=False,
-            )
-
-        # 只清除 app 设置的代理，保留系统环境变量
-        # 如果 env var 值与 app config 一致则清除，否则保留（说明是系统级配置）
-        if "proxy" in system_config:
-            old_url = f"http://{system_config['proxy'].get('host', '')}:{system_config['proxy'].get('port', '')}"
-            for var in ("HTTP_PROXY", "HTTPS_PROXY"):
-                if os.environ.get(var) == old_url:
-                    os.environ.pop(var, None)
-
+        await matrix_runtime.proxy_service.disable()
         return {"success": True, "message": "Proxy disabled"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2836,57 +2612,8 @@ async def test_proxy():
         if not matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        import yaml
-
-        config = app.state.config
-        system_config_path = (
-            Path(config["matrix_world_dir"])
-            / ".matrix"
-            / "configs"
-            / "system_config.yml"
-        )
-
-        if not system_config_path.exists():
-            return {"success": False, "message": "Proxy not configured"}
-
-        with open(system_config_path, "r", encoding="utf-8") as f:
-            system_config = yaml.safe_load(f) or {}
-
-        proxy = system_config.get("proxy", {})
-        if not proxy.get("enabled") or not proxy.get("host") or not proxy.get("port"):
-            return {
-                "success": False,
-                "message": "Proxy is not enabled or not fully configured",
-            }
-
-        import aiohttp
-
-        proxy_url = f"http://{proxy['host']}:{proxy['port']}"
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "http://www.gstatic.com/generate_204",
-                    proxy=proxy_url,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status == 204 or resp.status == 200:
-                        return {
-                            "success": True,
-                            "message": f"Proxy {proxy_url} is working",
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "message": f"Proxy returned status {resp.status}",
-                        }
-        except aiohttp.ClientConnectorError as e:
-            return {"success": False, "message": f"Connection failed: {str(e)}"}
-        except asyncio.TimeoutError:
-            return {"success": False, "message": "Connection timed out after 10s"}
-        except Exception as e:
-            return {"success": False, "message": f"Proxy test failed: {str(e)}"}
-
+        result = await matrix_runtime.proxy_service.test_connection()
+        return result.to_dict()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

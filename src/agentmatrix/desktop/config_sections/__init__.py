@@ -1,26 +1,23 @@
 """
-Configuration Sections - 配置节类
+Configuration Sections - 配置数据类
 
 职责：
 1. 提供类型安全的配置访问
-2. 封装配置验证逻辑
-3. 提供清晰的配置接口
+2. 支持 from_dict / to_dict 序列化
+3. 纯数据类，不知道文件路径
 """
 
-from typing import Dict, Any, Optional
-import os
-
 from .container_config import ContainerConfigSection
+from typing import Any, Dict, List, Optional
 
 
 class LLMConfigSection:
-    """
-    LLM配置节
-    提供LLM配置的访问接口
-    """
+    """LLM配置 — 包装 llm_config.json 的数据"""
 
     def __init__(self, llm_config: Dict[str, Any]):
         self._config = llm_config
+
+    # ── 读取 ──
 
     def get_model_config(self, model_name: str) -> Optional[Dict[str, Any]]:
         return self._config.get(model_name)
@@ -58,38 +55,72 @@ class LLMConfigSection:
     def list_models(self) -> list:
         return list(self._config.keys())
 
+    # ── 写入 ──
+
+    def set_model_config(self, name: str, config: Dict[str, Any]) -> None:
+        self._config[name] = config
+
+    def remove_model(self, name: str) -> None:
+        self._config.pop(name, None)
+
+    # ── 序列化 ──
+
+    def to_dict(self) -> Dict[str, Any]:
+        return dict(self._config)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LLMConfigSection":
+        return cls(dict(data))
+
     def __repr__(self) -> str:
         return f"LLMConfigSection(models={self.list_models()})"
 
 
 class EmailProxyConfigSection:
-    """
-    Email Proxy配置节
-    提供Email Proxy配置的访问接口
-    """
+    """Email Proxy配置"""
 
     def __init__(self, email_proxy_config: Dict[str, Any]):
-        self._config = email_proxy_config
+        self._config = email_proxy_config or {}
 
     @property
     def enabled(self) -> bool:
         return self._config.get("enabled", False)
 
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        self._config["enabled"] = value
+
     @property
     def matrix_mailbox(self) -> str:
         return self._config.get("matrix_mailbox", "")
+
+    @matrix_mailbox.setter
+    def matrix_mailbox(self, value: str) -> None:
+        self._config["matrix_mailbox"] = value
 
     @property
     def user_mailbox(self) -> str:
         return self._config.get("user_mailbox", "")
 
+    @user_mailbox.setter
+    def user_mailbox(self, value: str) -> None:
+        self._config["user_mailbox"] = value
+
     @property
     def imap_config(self) -> Dict[str, Any]:
         return self._config.get("imap", {})
 
+    @imap_config.setter
+    def imap_config(self, value: Dict[str, Any]) -> None:
+        self._config["imap"] = value
+
     @property
     def smtp_config(self) -> Dict[str, Any]:
         return self._config.get("smtp", {})
+
+    @smtp_config.setter
+    def smtp_config(self, value: Dict[str, Any]) -> None:
+        self._config["smtp"] = value
 
     def is_configured(self) -> bool:
         if not self.enabled:
@@ -118,15 +149,19 @@ class EmailProxyConfigSection:
             "smtp": self.smtp_config,
         }
 
+    def to_dict(self) -> Dict[str, Any]:
+        return dict(self._config)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EmailProxyConfigSection":
+        return cls(dict(data))
+
     def __repr__(self) -> str:
         return f"EmailProxyConfigSection(enabled={self.enabled}, configured={self.is_configured()})"
 
 
 class MatrixConfigSection:
-    """
-    Matrix配置节
-    提供Matrix全局配置的访问接口
-    """
+    """系统配置（system_config.yml）"""
 
     def __init__(self, matrix_config: Dict[str, Any]):
         self._config = matrix_config
@@ -134,6 +169,10 @@ class MatrixConfigSection:
     @property
     def user_agent_name(self) -> str:
         return self._config.get("user_agent_name", "User")
+
+    @user_agent_name.setter
+    def user_agent_name(self, value: str) -> None:
+        self._config["user_agent_name"] = value
 
     @property
     def matrix_version(self) -> str:
@@ -147,15 +186,19 @@ class MatrixConfigSection:
     def timezone(self) -> str:
         return self._config.get("timezone", "UTC")
 
+    def to_dict(self) -> Dict[str, Any]:
+        return dict(self._config)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MatrixConfigSection":
+        return cls(dict(data))
+
     def __repr__(self) -> str:
         return f"MatrixConfigSection(user_agent='{self.user_agent_name}', version='{self.matrix_version}')"
 
 
 class ProxyConfigSection:
-    """
-    HTTP Proxy 配置节
-    提供 HTTP Proxy 配置的访问接口
-    """
+    """HTTP Proxy 配置"""
 
     def __init__(self, proxy_config: Dict[str, Any]):
         self._config = proxy_config or {}
@@ -164,13 +207,25 @@ class ProxyConfigSection:
     def enabled(self) -> bool:
         return self._config.get("enabled", False)
 
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        self._config["enabled"] = value
+
     @property
     def host(self) -> str:
         return self._config.get("host", "")
 
+    @host.setter
+    def host(self, value: str) -> None:
+        self._config["host"] = value
+
     @property
     def port(self) -> int:
         return self._config.get("port", 0)
+
+    @port.setter
+    def port(self, value: int) -> None:
+        self._config["port"] = value
 
     @property
     def http_proxy_url(self) -> str:
@@ -198,6 +253,13 @@ class ProxyConfigSection:
             "host": self.host,
             "port": self.port,
         }
+
+    def to_dict(self) -> Dict[str, Any]:
+        return dict(self._config)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProxyConfigSection":
+        return cls(dict(data))
 
     def __repr__(self) -> str:
         return f"ProxyConfigSection(enabled={self.enabled}, host='{self.host}', port={self.port})"

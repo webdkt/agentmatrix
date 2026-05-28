@@ -1,13 +1,12 @@
 """
 System Admin Skill - System Configuration Management
 
-Thin wrapper around ConfigService for system configuration operations.
-Includes LLM config, Email Proxy config, System config, and system controls.
+Manages LLM config, Email Proxy config, System/Proxy config, and system controls.
+All operations delegate to the Service layer (LLMService, ProxyService, EmailProxyConfigService).
 """
 
-from typing import Optional
+import json
 from agentmatrix.core.action import register_action
-from agentmatrix.desktop.services.config_service import ConfigService
 
 
 class System_adminSkillMixin:
@@ -19,10 +18,6 @@ class System_adminSkillMixin:
         "所有操作通过系统自动完成配置验证和备份。"
     )
     _skill_dependencies = ["base"]
-
-    def _get_cs(self):
-        """Get ConfigService instance."""
-        return ConfigService(self.root_agent.runtime.paths)
 
     def _format_result(self, result) -> str:
         """Format a result object into LLM-friendly text."""
@@ -37,11 +32,22 @@ class System_adminSkillMixin:
             else:
                 lines = [f"❌ {result.get('message', 'Failed')}"]
                 if result.get("errors"):
-                    lines.append("\nErrors:")
-                    for err in result["errors"]:
-                        lines.append(f"  • [{err['field']}] {err['issue']}")
-                        if err.get("suggestion"):
-                            lines.append(f"    💡 {err['suggestion']}")
+                    if isinstance(result["errors"], list):
+                        lines.append("\nErrors:")
+                        for err in result["errors"]:
+                            if isinstance(err, dict):
+                                lines.append(f"  • [{err.get('field', '?')}] {err.get('issue', err)}")
+                                if err.get("suggestion"):
+                                    lines.append(f"    💡 {err['suggestion']}")
+                            else:
+                                lines.append(f"  • {err}")
+                    elif isinstance(result["errors"], str):
+                        lines.append(f"\nErrors: {result['errors']}")
+                if result.get("verification"):
+                    lines.append("\nVerification results:")
+                    for v in result["verification"]:
+                        icon = "✅" if v.get("success") else "❌"
+                        lines.append(f"  {icon} {v['test_type']}: {v['message']}")
                 return "\n".join(lines)
         return str(result)
 
@@ -150,12 +156,7 @@ imap:
     )
     async def read_llm_config(self) -> str:
         try:
-            cs = self._get_cs()
-            result = cs.read_config("llm")
-            if result.success:
-                return result.content
-            else:
-                return f"❌ {result.error}"
+            return self.root_agent.runtime.llm_service.read_raw()
         except Exception as e:
             return f"❌ {e}"
 
@@ -166,9 +167,8 @@ imap:
     )
     async def update_llm_config(self, content: str) -> str:
         try:
-            cs = self._get_cs()
-            result = await cs.write_config("llm", content)
-            return self._format_result(result.to_dict())
+            result = await self.root_agent.runtime.llm_service.write_full_config(content)
+            return self._format_result(result)
         except Exception as e:
             return f"❌ {e}"
 
@@ -186,9 +186,13 @@ imap:
     )
     async def add_llm_endpoint(self, name: str, entry_content: str) -> str:
         try:
-            cs = self._get_cs()
-            result = cs.add_llm_endpoint(name, entry_content)
-            return self._format_result(result.to_dict())
+            entry = json.loads(entry_content)
+            await self.root_agent.runtime.llm_service.add_endpoint(name, entry)
+            return f"✅ LLM endpoint '{name}' added successfully"
+        except json.JSONDecodeError as e:
+            return f"❌ Invalid JSON: {e}"
+        except ValueError as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
@@ -199,9 +203,10 @@ imap:
     )
     async def delete_llm_endpoint(self, name: str) -> str:
         try:
-            cs = self._get_cs()
-            result = cs.delete_llm_endpoint(name)
-            return self._format_result(result.to_dict())
+            await self.root_agent.runtime.llm_service.delete_endpoint(name)
+            return f"✅ LLM endpoint '{name}' deleted successfully"
+        except ValueError as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
@@ -215,9 +220,13 @@ imap:
     )
     async def update_llm_endpoint(self, name: str, entry_content: str) -> str:
         try:
-            cs = self._get_cs()
-            result = cs.update_llm_endpoint(name, entry_content)
-            return self._format_result(result.to_dict())
+            entry = json.loads(entry_content)
+            await self.root_agent.runtime.llm_service.update_endpoint(name, entry)
+            return f"✅ LLM endpoint '{name}' updated successfully"
+        except json.JSONDecodeError as e:
+            return f"❌ Invalid JSON: {e}"
+        except ValueError as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
@@ -230,12 +239,10 @@ imap:
     )
     async def read_email_proxy_config(self) -> str:
         try:
-            cs = self._get_cs()
-            result = cs.read_config("email_proxy")
-            if result.success:
-                return result.content
-            else:
-                return f"❌ {result.error}"
+            content = self.root_agent.runtime.email_proxy_config_svc.read_raw()
+            if not content:
+                return "❌ Email proxy config not found"
+            return content
         except Exception as e:
             return f"❌ {e}"
 
@@ -246,9 +253,8 @@ imap:
     )
     async def update_email_proxy_config(self, content: str) -> str:
         try:
-            cs = self._get_cs()
-            result = await cs.write_config("email_proxy", content)
-            return self._format_result(result.to_dict())
+            result = await self.root_agent.runtime.email_proxy_config_svc.write_full_config(content)
+            return self._format_result(result)
         except Exception as e:
             return f"❌ {e}"
 
@@ -259,8 +265,7 @@ imap:
     )
     async def enable_email_proxy(self) -> str:
         try:
-            cs = self._get_cs()
-            return await cs.enable_email_proxy(self.root_agent.runtime)
+            return await self.root_agent.runtime.email_proxy_config_svc.enable()
         except Exception as e:
             return f"❌ {e}"
 
@@ -271,8 +276,7 @@ imap:
     )
     async def disable_email_proxy(self) -> str:
         try:
-            cs = self._get_cs()
-            return await cs.disable_email_proxy(self.root_agent.runtime)
+            return await self.root_agent.runtime.email_proxy_config_svc.disable()
         except Exception as e:
             return f"❌ {e}"
 
@@ -285,12 +289,10 @@ imap:
     )
     async def read_system_config(self) -> str:
         try:
-            cs = self._get_cs()
-            result = cs.read_config("system")
-            if result.success:
-                return result.content
-            else:
-                return f"❌ {result.error}"
+            content = self.root_agent.runtime.proxy_service.read_raw()
+            if not content:
+                return "❌ System config not found"
+            return content
         except Exception as e:
             return f"❌ {e}"
 
@@ -301,9 +303,8 @@ imap:
     )
     async def update_system_config(self, content: str) -> str:
         try:
-            cs = self._get_cs()
-            result = await cs.write_config("system", content)
-            return self._format_result(result.to_dict())
+            result = await self.root_agent.runtime.proxy_service.write_full_config(content)
+            return self._format_result(result)
         except Exception as e:
             return f"❌ {e}"
 
@@ -316,8 +317,7 @@ imap:
     )
     async def restart_system(self) -> str:
         try:
-            cs = self._get_cs()
-            return await cs.restart_system(self.root_agent.runtime)
+            return await self.root_agent.runtime.proxy_service.restart_system()
         except Exception as e:
             return f"❌ {e}"
 
@@ -330,14 +330,21 @@ imap:
     )
     async def list_config_history(self, config_name: str) -> str:
         try:
-            cs = self._get_cs()
-            backups = cs.list_backups(config_name)
+            if config_name == "llm":
+                backups = self.root_agent.runtime.llm_service.list_backups()
+            elif config_name == "system":
+                backups = self.root_agent.runtime.proxy_service.list_backups()
+            elif config_name == "email_proxy":
+                backups = self.root_agent.runtime.email_proxy_config_svc.list_backups()
+            else:
+                return f"❌ Unknown config name: {config_name}"
+
             if not backups:
                 return f"No history found for {config_name}"
 
             lines = [f"配置历史 {config_name}（共 {len(backups)} 条）:\n"]
             for b in backups:
-                lines.append(f"  • {b.name} ({b.size} bytes, {b.modified})")
+                lines.append(f"  • {b['name']} ({b['size']} bytes, {b['modified']})")
             lines.append("\n使用 read_config_history(history_name) 查看历史内容")
             return "\n".join(lines)
         except Exception as e:
@@ -350,16 +357,13 @@ imap:
     )
     async def read_config_history(self, history_name: str) -> str:
         try:
-            cs = self._get_cs()
-            # Try agent backup dir
-            try:
-                return cs.read_backup("agent", history_name)
-            except FileNotFoundError:
-                pass
-            # Try config backup dirs
-            for config_type in ["llm", "system", "email_proxy"]:
+            for svc_name, svc in [
+                ("llm", self.root_agent.runtime.llm_service),
+                ("system", self.root_agent.runtime.proxy_service),
+                ("email_proxy", self.root_agent.runtime.email_proxy_config_svc),
+            ]:
                 try:
-                    return cs.read_backup(config_type, history_name)
+                    return svc.read_backup(history_name)
                 except FileNotFoundError:
                     continue
             return f"❌ 历史文件不存在: {history_name}"
