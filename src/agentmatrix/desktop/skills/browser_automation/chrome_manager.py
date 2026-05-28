@@ -6,6 +6,7 @@ Uses file descriptors for CDP communication, bypassing the network stack entirel
 """
 
 import asyncio
+import json
 import logging
 import os
 import platform
@@ -13,6 +14,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -147,6 +149,7 @@ class ChromeManager:
             "id_offset": id_offset,
             "cdp_client": cdp_client,
             "client_conn": None,
+            "last_activity": 0.0,
             "thread": None,
         }
         self._session_relays[session_id] = relay_info
@@ -158,14 +161,46 @@ class ChromeManager:
                     conn, _ = server.accept()
                 except OSError:
                     break
-                # One client per session
-                if relay_info["client_conn"] is not None:
+                old_conn = relay_info["client_conn"]
+                if old_conn is not None:
+                    # Probe old connection: dead, active, or idle?
+                    kick = False
                     try:
-                        conn.sendall(b'{"error":"session relay busy"}\0')
-                        conn.close()
+                        chunk = old_conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+                        if chunk == b'':
+                            # Peer closed → dead, safe to kick
+                            kick = True
+                        else:
+                            # Has pending data → actively communicating
+                            kick = False
+                    except BlockingIOError:
+                        # Alive but no pending data → check idle time
+                        idle = time.time() - relay_info.get("last_activity", 0)
+                        kick = idle >= 5
+                    except (OSError, ConnectionError):
+                        # Broken → dead, safe to kick
+                        kick = True
+
+                    if not kick:
+                        try:
+                            err_msg = json.dumps({
+                                "error": "session relay busy: your previous script is still running. "
+                                         "Wait for it to finish or kill it before retrying."
+                            }) + "\0"
+                            conn.sendall(err_msg.encode())
+                            conn.close()
+                        except OSError:
+                            pass
+                        continue
+
+                    # Kick old connection
+                    logger.info(f"Kicking stale relay client for session {session_id[-8:]}")
+                    try:
+                        old_conn.close()
                     except OSError:
                         pass
-                    continue
+                    cdp_client.unregister_relay(session_id)
+                    relay_info["client_conn"] = None
                 relay_info["client_conn"] = conn
                 cdp_client.register_relay(session_id, conn, id_offset)
                 threading.Thread(
@@ -184,11 +219,14 @@ class ChromeManager:
 
     def _handle_session_client(self, session_id: str, conn: socket.socket, cdp_client):
         """Handle one UDS client for a session. Data flows through CDPClient (not directly to pipe)."""
+        relay_info = self._session_relays.get(session_id)
         try:
             while True:
                 data = conn.recv(65536)
                 if not data:
                     break
+                if relay_info:
+                    relay_info["last_activity"] = time.time()
                 cdp_client.write_from_relay(session_id, data)
         except (OSError, BrokenPipeError):
             pass

@@ -121,7 +121,8 @@ class Browser_automationSkillMixin:
     ```
     注意事项：
     - 一个 socket 连接同一时间只能有一个未完成的请求（发一个，等响应，再发下一个），多脚本需串行执行
-    - 操作 tab 需要先 Target.attachToTarget，拿到 sessionId 后传入后续命令
+    - 操作 tab 必须先 Target.attachToTarget 拿到 sessionId，每次脚本运行都要重新 attach，不可复用旧的 sessionId
+    - 环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 已自动注入，直接从 os.environ 读取，不要硬编码
     - Chrome 重启后 socket 会重建，脚本重连即可
     
     #### Javascript: No Console Output
@@ -771,252 +772,11 @@ class Browser_automationSkillMixin:
                 "error": str(e),
             }, ensure_ascii=False)
         
-    """@register_action(
-        short_desc="(file_path, str_arg1?) 按扩展名执行自动化脚本，str_arg1可选仅对 .py 有效。自动化工作必须通过此方法进行"
-                    "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
-                    "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
-                    "- .py：在宿主机执行 Python 脚本，自动注入 CDP 连接环境变量，str_arg1 通过 sys.argv[1] 传入\n\n"
-                    ,
-        description="读取脚本文件并按扩展名执行。\n"
-                    "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
-                    "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
-                    "- .py：在宿主机执行 Python 脚本，自动注入 CDP 连接环境变量，str_arg1 通过 sys.argv[1] 传入\n\n"
-                    ".json 示例（鼠标点击）：\n"
-                    '[\n'
-                    '  {"method":"Input.dispatchMouseEvent","params":{"type":"mousePressed","x":100,"y":200,"button":"left","clickCount":1}},\n'
-                    '  {"method":"Input.dispatchMouseEvent","params":{"type":"mouseReleased","x":100,"y":200,"button":"left","clickCount":1}}\n'
-                    ']\n\n'
-                    "路径会自动从 ~ / ~/current_task 转换为宿主路径。\n"
-                    "CDP 文档参考 https://chromedevtools.github.io/devtools-protocol/",
-        param_infos={
-            "file_path": "脚本文件路径，支持 .json / .js / .py（必须是 ~ 或 ~/current_task 及其子目录下）",
-            "str_arg1": "可选，仅对 .py 有效，传递给脚本的字符串参数（脚本通过 sys.argv[1] 读取）",
-        },
-    )"""
-    async def run_automation_script(self, file_path: str, str_arg1: str = None) -> str:
-        await self._ensure_browser()
-
-        # 容器路径 → 宿主路径
-        root = self.root_agent
-        agent_name = root.name
-        task_id = getattr(root, "current_task_id", None) or "default"
-        host_path = root.runtime.paths.resolve_path_to_host(
-            file_path, agent_name, task_id
-        )
-        if host_path is None or not host_path.exists():
-            return json.dumps({
-                "error": "文件必须在 ~ 或 ~/current_task 及其子目录下",
-            }, ensure_ascii=False)
-
-        # 读取文件
-        try:
-            content = host_path.read_text(encoding="utf-8")
-        except Exception as e:
-            return json.dumps({"error": f"读取文件失败: {e}"}, ensure_ascii=False)
-
-        ext = host_path.suffix.lower()
-
-        # ── .js → Runtime.evaluate ──
-        if ext == ".js":
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
-
-            try:
-                result = await _cdp_send_with_recovery(
-                    "Runtime.evaluate",
-                    {"expression": content, "returnByValue": True, "awaitPromise": True},
-                    tab=tab,
-                    timeout=15,
-                )
-                res = result.get("result", {})
-
-                if res.get("subtype") == "error":
-                    desc = res.get("description", "unknown JS error")
-                    logger.warning(f"[run_script] JS exception: {desc}")
-                    return json.dumps({"error": desc})
-
-                value = res.get("value")
-                type_name = res.get("type", "undefined")
-
-                if type_name == "undefined":
-                    return json.dumps({"type": "undefined", "value": None})
-                if value is None:
-                    return json.dumps({"type": type_name, "value": None})
-                if isinstance(value, (dict, list)):
-                    return json.dumps(value, ensure_ascii=False)
-                return str(value)
-            except Exception as e:
-                logger.warning(f"[run_script] JS error: {e}")
-                return json.dumps({"error": str(e)})
-
-        # ── .json → CDP 指令序列 ──
-        if ext == ".json":
-            try:
-                cmd = json.loads(content)
-            except json.JSONDecodeError as e:
-                return json.dumps({"error": f"JSON 解析失败: {e}"}, ensure_ascii=False)
-
-            if isinstance(cmd, dict):
-                commands = [cmd]
-            elif isinstance(cmd, list):
-                commands = cmd
-            else:
-                return json.dumps({"error": f"JSON 必须是对象或数组，实际: {type(cmd).__name__}"}, ensure_ascii=False)
-
-            results = []
-            for i, item in enumerate(commands):
-                method = item.get("method")
-                if not method:
-                    results.append({"index": i, "error": "缺少 'method' 字段"})
-                    continue
-
-                params = item.get("params", {})
-                timeout = item.get("timeout", 30)
-                cmd_tab_id = item.get("tab_id")
-
-                if cmd_tab_id:
-                    tab = infra["tab_manager"]._tabs.get(cmd_tab_id) if infra["tab_manager"] else None
-                    if not tab:
-                        results.append({"index": i, "method": method, "error": _tab_not_found_msg(cmd_tab_id)})
-                        continue
-                else:
-                    tab = self._get_current_tab()
-                    if not tab:
-                        results.append({"index": i, "method": method, "error": "没有活动的 tab"})
-                        continue
-
-                _is_input = method.startswith("Input.")
-                if _is_input:
-                    await _auto_yield_ui(tab)
-                try:
-                    result = await _cdp_send_with_recovery(
-                        method, params, tab=tab, timeout=timeout,
-                    )
-                    results.append({"index": i, "method": method, "result": result})
-                except Exception as e:
-                    logger.warning(f"[run_script] {method} error: {e}")
-                    results.append({"index": i, "method": method, "error": str(e)})
-                finally:
-                    if _is_input:
-                        await _auto_restore_ui(tab)
-
-            if len(commands) == 1:
-                return json.dumps(results[0], ensure_ascii=False, default=str)
-            return json.dumps({"status": "ok", "total": len(commands), "results": results}, ensure_ascii=False, default=str)
-
-        # ── .py → 宿主机 Python 脚本 ──
-        if ext == ".py":
-            # 收集 CDP 信息 — 使用当前 session 的 socket
-            session_id = self._agent_session_id()
-            if not session_id or not infra["chrome_manager"] or not infra["cdp_client"]:
-                return json.dumps({
-                    "status": "error",
-                    "error": "Chrome 未启动或 CDP 连接未建立。请尝试重启应用。",
-                }, ensure_ascii=False)
-            sock_path = infra["chrome_manager"].start_session_relay(session_id, infra["cdp_client"])
-            tab = self._get_current_tab()
-
-            # 构建环境变量
-            work_dir = root.runtime.paths.get_agent_work_files_dir(agent_name, task_id)
-            home_dir = root.runtime.paths.get_agent_home_dir(agent_name)
-            env = os.environ.copy()
-            env.update({
-                "CDP_SOCKET_PATH": sock_path,
-                "CDP_CURRENT_TAB_ID": tab.target_id if tab else "",
-                "CURRENT_TASK_DIR": str(work_dir),
-                "HOME_DIR": str(home_dir),
-                "SITE_KNOWLEDGE_DIR": str(home_dir / "site_knowledge"),
-            })
-
-            # 构建命令（优先使用共享 venv 的 Python）
-            shared_env_bin = root.runtime.paths.get_shared_env_bin()
-            python_cmd = os.path.join(shared_env_bin, "python3") if shared_env_bin else "python3"
-            cmd = [python_cmd, str(host_path)]
-            if str_arg1 is not None:
-                cmd.append(str_arg1)
-
-            # 整个 .py 脚本期间 UI 避让（脚本可能做 CDP 操作）
-            if tab:
-                await _auto_yield_ui(tab)
-            try:
-                # 执行
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=env,
-                    )
-                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                        proc.communicate(), timeout=300
-                    )
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    return json.dumps({
-                        "status": "timeout",
-                        "error": "脚本执行超时（300秒）",
-                    }, ensure_ascii=False)
-                except Exception as e:
-                    return json.dumps({
-                        "status": "error",
-                        "error": f"脚本执行失败: {e}",
-                    }, ensure_ascii=False)
-            finally:
-                if tab:
-                    await _auto_restore_ui(tab)
-
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-            stdout_lines = stdout.count("\n") + (1 if stdout and not stdout.endswith("\n") else 0)
-            MAX_INLINE_LINES = 100
-
-            def _save_to_tmp(content: str, suffix: str) -> tuple[str, str]:
-                """保存到 ~/current_task/tmp/，返回 (host_path, agent_path)。"""
-                import time
-                tmp_host_dir = work_dir / "tmp"
-                tmp_host_dir.mkdir(parents=True, exist_ok=True)
-                filename = f"script_{int(time.time())}_{os.getpid()}{suffix}"
-                host = tmp_host_dir / filename
-                host.write_text(content, encoding="utf-8")
-                agent_path = f"~/current_task/tmp/{filename}"
-                return str(host), agent_path
-
-            # 构建 result
-            result = {
-                "status": "ok" if proc.returncode == 0 else "error",
-                "exit_code": proc.returncode,
-            }
-
-            # stdout: 短输出直接返回，长输出存文件
-            if stdout_lines <= MAX_INLINE_LINES:
-                result["stdout"] = stdout
-            else:
-                _, container_path = _save_to_tmp(stdout, ".out")
-                result["stdout_file"] = container_path
-                result["stdout_lines"] = stdout_lines
-
-            # stderr: 同样处理
-            if stderr:
-                stderr_lines = stderr.count("\n") + (1 if not stderr.endswith("\n") else 0)
-                if stderr_lines <= MAX_INLINE_LINES:
-                    result["stderr"] = stderr
-                else:
-                    _, container_path = _save_to_tmp(stderr, ".err")
-                    result["stderr_file"] = container_path
-                    result["stderr_lines"] = stderr_lines
-
-            if proc.returncode != 0:
-                result["error"] = f"脚本退出码: {proc.returncode}"
-
-            return json.dumps(result, ensure_ascii=False)
-
-        return json.dumps({"error": f"不支持的文件类型 '{ext}'，支持 .json / .js / .py"}, ensure_ascii=False)
+    
     
 
     @register_action(
-        short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug",
+        short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug，默认当前tab",
         description="向当前（或指定）tab 发送 JavaScript 代码并返回执行结果。"
                     "支持返回 Promise / 使用 await，会等待 resolve 后返回最终值。",
         param_infos={
@@ -1134,9 +894,14 @@ class Browser_automationSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="get_cdp_info()",
-        description="获取当前 CDP 浏览器连接信息，供外部脚本连接浏览器做自动化。"
-                    "返回 socket 路径、当前 tab 的 target_id、示例代码等。",
+        short_desc="get_cdp_info() → 获取 CDP 连接信息和示例代码",
+        description="获取当前 CDP 浏览器连接信息。"
+                    "返回示例代码（含完整的 cdp() 函数和 attach 流程）。"
+                    "关键规则："
+                    "1) Python 脚本通过环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 连接浏览器，无需硬编码路径；"
+                    "2) 操作 tab 前必须先调用 Target.attachToTarget(targetId=TAB_ID) 获取 sessionId，不可省略；"
+                    "3) 每次脚本运行都要重新 attach，不要复用旧的 sessionId；"
+                    "4) 一个 socket 连接同一时间只能串行执行（发一个请求，等响应，再发下一个）。",
     )
     async def get_cdp_info(self) -> str:
         """返回 CDP 连接信息，供 Agent 编写 Python 代码直接连接浏览器。"""
@@ -1155,10 +920,13 @@ class Browser_automationSkillMixin:
 
         example_code = (
             "import socket, json, os\n"
-            f"SOCK = os.environ.get('CDP_SOCKET_PATH', '{sock_path}')\n"
-            "TAB_ID = os.environ.get('CDP_CURRENT_TAB_ID', '')\n"
+            "\n"
+            "# 从环境变量读取连接信息（系统会自动注入，绝对不可硬编码）\n"
+            "SOCK = os.environ['CDP_SOCKET_PATH']\n"
+            "TAB_ID = os.environ['CDP_CURRENT_TAB_ID']\n"
             "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
             "s.connect(SOCK)\n"
+            "\n"
             "_msg_id = 0\n"
             "def cdp(method, params=None, session_id=None):\n"
             "    global _msg_id; _msg_id += 1\n"
@@ -1174,9 +942,12 @@ class Browser_automationSkillMixin:
             "    if 'error' in resp: raise RuntimeError(resp['error'])\n"
             "    return resp.get('result', {})\n"
             "\n"
-            "# attach tab, then send commands\n"
+            "# 【必须】每次脚本运行都要重新 attach，拿到新的 sessionId\， 不可省略\n"
+            "# 不要硬编码或复用旧的 sessionId\n"
+            "# 一个 socket 连接同一时间只能串行执行（发一个请求，等响应，再发下一个）\n"
             "r = cdp('Target.attachToTarget', {'targetId': TAB_ID, 'flatten': True})\n"
-            "sid = r.get('sessionId', '')\n"
+            "sid = r['sessionId']  # 后续所有 tab 操作都要传 session_id=sid\n"
+            "\n"
             "cdp('Page.enable', session_id=sid)\n"
             "cdp('Page.navigate', {'url': 'https://example.com'}, session_id=sid)\n"
             "r = cdp('Runtime.evaluate', {'expression': 'document.title'}, session_id=sid)\n"
@@ -1187,7 +958,11 @@ class Browser_automationSkillMixin:
         return json.dumps({
             "status": "ok",
             "socket_path": sock_path,
-            "current_tab": tab.to_dict() if tab else None,
+            "current_tab": {
+                "target_id": tab.target_id,
+                "url": tab.url,
+                "title": tab.title,
+            } if tab else None,
             "example_code": example_code,
         }, ensure_ascii=False, indent=2)
 
