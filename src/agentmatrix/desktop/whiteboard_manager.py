@@ -133,7 +133,8 @@ class WhiteboardManager:
             self._save_memory_to_file()
             return
 
-        if file_data == self._serialize_data():
+        file_sections = file_data.get("sections", {})
+        if file_sections == self._serialize_data():
             return
 
         now = datetime.now()
