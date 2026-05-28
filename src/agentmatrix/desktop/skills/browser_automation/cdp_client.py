@@ -9,7 +9,6 @@ import asyncio
 import json
 import logging
 import socket
-import struct
 from collections import deque
 from typing import Callable, Deque, Dict, List, Optional, Tuple
 
@@ -185,7 +184,7 @@ class CDPClient:
     def register_relay(self, session_id: str, conn: socket.socket, id_offset: int):
         """Register a session relay. CDP responses with IDs in [id_offset+1, id_offset+9999] will be forwarded to conn."""
         # 写超时 5 秒：客户端不读数据时，sendall 不会永久阻塞
-        conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, struct.pack('ll', 5, 0))
+        conn.settimeout(5)
         self._relay_sessions[session_id] = {"id_offset": id_offset, "conn": conn}
         logger.debug(f"Relay registered: session={session_id}, id_offset={id_offset}")
 

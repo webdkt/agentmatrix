@@ -137,6 +137,7 @@ class MicroAgent(AutoLoggerMixin):
         # Core → Shell，所有 MicroAgent（含嵌套）共享 root_agent 的 event_queue
         self.event_queue: asyncio.Queue = self.root_agent.event_queue
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
+        self._action_result_buffer: list = []  # 暂存 ActionCompletedSignal，等所有 action 完成或外部信号到达时一并处理
         self._action_counter: int = 0
         self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
         self._before_think_hook = None  # Shell 层注入的 think 前回调
@@ -1016,21 +1017,29 @@ class MicroAgent(AutoLoggerMixin):
                     self.logger.debug(f"_before_think_hook error: {e}")
 
             # ===== 批量取信号 =====
-            # 如果 signal_queue 非空 → drain 所有 signals
-            # 如果 signal_queue 空 + 有 running actions → 阻塞等 signal
-            # 如果 signal_queue 空 + 无 running actions → 不阻塞（可能进入声明式退出）
-            if self.signal_queue.empty() and not self._running_actions:
-                # 没有信号也没有 running actions → 跳过信号获取，进入 action 执行后的退出判断
+            # 新机制：ActionCompletedSignal 不单独触发 think，攒到所有 action 完成
+            # 或外部信号到达时再一起处理
+            if self.signal_queue.empty() and not self._running_actions and not self._action_result_buffer:
+                # 没有信号、没有 running actions、没有暂存结果 → 跳过信号获取，进入退出判断
                 signals = []
-            elif self.signal_queue.empty() and self._running_actions:
-                # 有 running actions，阻塞等信号
-                signal = await self.signal_queue.get()
-                signals = [signal]
-                while not self.signal_queue.empty():
-                    signals.append(self.signal_queue.get_nowait())
+            elif self.signal_queue.empty() and (self._running_actions or self._action_result_buffer):
+                # 有 running actions 或暂存结果，阻塞等信号
+                signals = []
+                while True:
+                    signal = await self.signal_queue.get()
+                    signals.append(signal)
+                    while not self.signal_queue.empty():
+                        signals.append(self.signal_queue.get_nowait())
+                    has_external = any(not isinstance(s, ActionCompletedSignal) for s in signals)
+                    if has_external or not self._running_actions:
+                        break  # 有外部信号 或 所有 action 已完成 → 进入 think
+                    # 全是 ActionCompletedSignal 且还有 action 在跑 → 暂存，继续等
+                    self._action_result_buffer.extend(signals)
+                    signals = []
             else:
-                # signal_queue 非空，drain 所有
-                signals = []
+                # signal_queue 非空 或 有暂存结果，drain 所有
+                signals = list(self._action_result_buffer)
+                self._action_result_buffer = []
                 while not self.signal_queue.empty():
                     signals.append(self.signal_queue.get_nowait())
 
