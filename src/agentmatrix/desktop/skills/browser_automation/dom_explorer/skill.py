@@ -16,38 +16,6 @@ from agentmatrix.core.action import register_action
 logger = logging.getLogger(__name__)
 
 
-@register_action(
-    short_desc="keep_user_from_bored(chat_message)，每次执行同时都要跟用户说点什么，避免用户无聊",
-    description="向用户发送一条消息，避免用户无聊。消息会显示在浏览器页面的 agent 说话气泡中。",
-    param_infos={
-        "chat_message": "要发送给用户的消息文本",
-    },
-)
-async def keep_user_from_bored(self, chat_message: str) -> str:
-    from ..skill import _event_listener, _tab_manager
-
-    pinned_id = getattr(self, '_pinned_tab_id', None)
-    if not pinned_id:
-        return json.dumps({"status": "error", "error": "未绑定 tab"})
-
-    tab = _tab_manager._tabs.get(pinned_id) if _tab_manager else None
-    if not tab:
-        return json.dumps({"status": "error", "error": "绑定的 tab 已关闭"})
-
-    if not _event_listener:
-        return json.dumps({"status": "error", "error": "事件监听器未初始化"})
-
-    try:
-        await _event_listener.emit_to_browser(
-            tab.session_id,
-            "agent_output",
-            {"type": "think", "text": chat_message},
-        )
-        return json.dumps({"status": "ok"})
-    except Exception as e:
-        return json.dumps({"status": "error", "error": str(e)})
-
-
 class Dom_explorerSkillMixin:
     """DOM 探索 skill — 提供 JS 执行能力，供 Agent 自由探索 DOM。"""
 
@@ -67,20 +35,20 @@ class Dom_explorerSkillMixin:
         },
     )
     async def eval_js(self, code: str, tab_id: str = None) -> str:
-        from ..skill import _cdp_client, _tab_manager, _tab_not_found_msg, _cdp_send_with_recovery
+        from .._shared import infra, _tab_not_found_msg, _cdp_send_with_recovery
 
-        if not _cdp_client or not _cdp_client._connected:
+        if not infra["cdp_client"] or not infra["cdp_client"]._connected:
             return json.dumps({"error": "CDP client not connected"})
 
         if tab_id:
-            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"error": _tab_not_found_msg(tab_id)})
         else:
             pinned_id = getattr(self, '_pinned_tab_id', None)
             if not pinned_id:
                 return json.dumps({"error": "未绑定 tab，请指定 tab_id"})
-            tab = _tab_manager._tabs.get(pinned_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(pinned_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"error": f"绑定的 tab 已关闭 (tab_id={pinned_id})"})
 

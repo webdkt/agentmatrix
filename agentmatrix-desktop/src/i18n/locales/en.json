@@ -40,10 +40,6 @@
       "title": "Collab",
       "icon": "ti-message-circle"
     },
-    "dashboard": {
-      "title": "Dashboard",
-      "icon": "ti-layout-dashboard"
-    },
     "email": {
       "title": "Email",
       "icon": "ti-mail"
@@ -51,10 +47,6 @@
     "agents": {
       "title": "Agents",
       "icon": "ti-agent"
-    },
-    "magic": {
-      "title": "Magic",
-      "icon": "ti-wand"
     },
     "settings": {
       "title": "Settings",

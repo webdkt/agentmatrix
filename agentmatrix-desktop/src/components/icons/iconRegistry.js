@@ -17,8 +17,8 @@ import {
   Paperclip, Trash2, Copy, Pencil,
   CircleAlert, TriangleAlert, CircleX, CircleCheck, Info,
   ShieldCheck, Shield,
-  LayoutDashboard, Grid3x3,
-  Wand2, EyeOff, Eye,
+  Grid3x3,
+  EyeOff, Eye,
   Pause, Play,
   Zap, Rocket, Inbox, Upload,
   Database, Cpu, Link,
@@ -37,6 +37,9 @@ import {
 
   // Floating menu icons
   Crosshair, SquareDashed, Globe,
+
+  // Planning icons
+  ClipboardList, ListChecks,
 } from 'lucide-vue-next'
 
 export const iconMap = {
@@ -74,9 +77,7 @@ export const iconMap = {
   'info-circle': Info,
   'shield-check': ShieldCheck,
   shield: Shield,
-  'layout-dashboard': LayoutDashboard,
   grid: Grid3x3,
-  wand: Wand2,
   'eye-off': EyeOff,
   eye: Eye,
   'player-pause': Pause,
@@ -135,4 +136,8 @@ export const iconMap = {
   crosshair: Crosshair,
   'square-dashed': SquareDashed,
   globe: Globe,
+
+  // ─── Planning ───
+  clipboard: ClipboardList,
+  'list-checks': ListChecks,
 }

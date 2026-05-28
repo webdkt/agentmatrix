@@ -1,5 +1,7 @@
 name: OfficeExpert
 description: Offie办公软件操作专家
+class_name: agentmatrix.desktop.base_agent.BaseAgent
+session_type: local
 skills:
   - file
   - memory

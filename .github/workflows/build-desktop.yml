@@ -10,35 +10,8 @@ env:
   PYTHON_VERSION: '3.12'
 
 jobs:
-  # Job 1: Build Docker image (x86_64 only for maximum compatibility)
-  build-docker:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Build Docker image
-        run: |
-          docker build -f Dockerfile.minimal -t agentmatrix:latest .
-
-      - name: Export Docker image
-        run: |
-          mkdir -p artifacts
-          docker save agentmatrix:latest | gzip > artifacts/docker-image.tar.gz
-          ls -lh artifacts/docker-image.tar.gz
-
-      - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: artifacts/docker-image.tar.gz
-          retention-days: 7
-          compression-level: 6
-
-  # Job 2: Build macOS ARM64
+  # Job 1: Build macOS ARM64
   build-macos-arm64:
-    needs: build-docker
     runs-on: macos-26
 
     steps:
@@ -72,29 +45,6 @@ jobs:
           ls -lh dist-server/server/server
           echo "=== _internal folder ==="
           ls -la dist-server/server/_internal/ | head -20
-
-      # ==================== Download Docker Image ====================
-      - name: Download Docker image
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-          path: artifacts
-
-      - name: Copy Docker image to resources
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          cp artifacts/docker-image.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-
-      # ==================== Download Podman Installer ====================
-      - name: Download Podman installer (macOS ARM64)
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
-          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-macos-arm64.pkg") | .browser_download_url')
-          echo "Downloading from: $PACKAGE_URL"
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg "$PACKAGE_URL"
-          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-installer-arm64.pkg
 
       # ==================== Copy Python Distribution to Tauri Resources ====================
       - name: Copy Python distribution to resources (onedir mode)
@@ -144,9 +94,8 @@ jobs:
             agentmatrix-desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 7
 
-  # Job 3: Build Windows
+  # Job 2: Build Windows
   build-windows:
-    needs: build-docker
     runs-on: windows-latest
 
     steps:
@@ -180,31 +129,6 @@ jobs:
           ls -lh dist-server/server/server.exe
           echo "=== _internal folder ==="
           ls -la dist-server/server/_internal/ | head -20
-
-      # ==================== Download Docker Image ====================
-      - name: Download Docker image
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-          path: artifacts
-
-      - name: Copy Docker image to resources
-        shell: bash
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/docker
-          cp artifacts/docker-image.tar.gz agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-          ls -lh agentmatrix-desktop/src-tauri/resources/docker/image.tar.gz
-
-      # ==================== Download Podman Installer ====================
-      - name: Download Podman installer (Windows)
-        shell: bash
-        run: |
-          mkdir -p agentmatrix-desktop/src-tauri/resources/podman
-          RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/containers/podman/releases/latest)
-          PACKAGE_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name == "podman-installer-windows-amd64.msi") | .browser_download_url')
-          echo "Downloading from: $PACKAGE_URL"
-          curl -L -o agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi "$PACKAGE_URL"
-          ls -lh agentmatrix-desktop/src-tauri/resources/podman/podman-x64.msi
 
       # ==================== Copy Python Distribution to Tauri Resources ====================
       - name: Copy Python distribution to resources (onedir mode)
@@ -255,7 +179,7 @@ jobs:
             agentmatrix-desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
           retention-days: 7
 
-  # Job 4: Release (only on tag push)
+  # Job 3: Release (only on tag push)
   release:
     needs: [build-macos-arm64, build-windows]
     runs-on: ubuntu-latest

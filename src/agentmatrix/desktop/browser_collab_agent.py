@@ -18,7 +18,6 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from .base_agent import BaseAgent
-from .local_file_agent import LocalFileAgentMixin
 from .signals import BrowserSignal
 
 from ..core.signals import CoreEvent
@@ -443,7 +442,7 @@ class _SiteKnowledgeLoader:
             return False
 
 
-class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
+class BrowserCollabAgent(BaseAgent):
     """支持浏览器协作的 Agent。
 
     在 BaseAgent 基础上，提供：
@@ -455,7 +454,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
     浏览器端通过 __bh_emit__ 发送事件（indicator_result, range_result 等），
     Agent 通过 CDP 调用 __bh_show_indicator__ / __bh_show_range__ 触发交互。
 
-    继承 LocalFileAgentMixin，直接操作宿主机文件（不经过容器）。
+    使用 BaseAgent 的 session_type='local'（默认）直接操作宿主机文件。
     """
 
     # Site knowledge：跨 execute 保持，load_site_knowledge action 设置
@@ -466,6 +465,17 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
     # ==========================================
     # BaseAgent overrides
     # ==========================================
+
+    async def _route_signal(self, signal):
+        """BrowserSignal 无 session 时静默丢弃，不报错。"""
+        if isinstance(signal, BrowserSignal):
+            session_id = signal.agent_session_id
+            if not session_id:
+                if self.current_session:
+                    signal.agent_session_id = self.current_session["session_id"]
+                else:
+                    return  # 无 session context，丢弃 orphan 信号
+        await super()._route_signal(signal)
 
     async def _resolve_session(self, signal) -> dict:
         """BrowserSignal 由本类处理，其余委托 BaseAgent。"""
@@ -617,7 +627,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
 
     async def show_indicator(self):
         """触发浏览器内的indicator（十字准星）"""
-        from .skills.browser_automation.skill import _cdp_client, _agent_current_tab
+        from .skills.browser_automation._shared import infra, _agent_current_tab
         tab = _agent_current_tab.get(self.name)
         if not tab or not tab.session_id:
             return {"error": "No active browser tab"}
@@ -625,7 +635,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
         agent_name = json.dumps(self.name)
         session_id = json.dumps(self.active_session_id or "")
         js = f"window.__bh_show_indicator__ ? window.__bh_show_indicator__({agent_name}, {session_id}) : null"
-        await _cdp_client.send(
+        await infra["cdp_client"].send(
             "Runtime.evaluate", {"expression": js},
             session_id=tab.session_id, timeout=5,
         )
@@ -633,7 +643,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
 
     async def show_range_selector(self):
         """触发浏览器内的range selector"""
-        from .skills.browser_automation.skill import _cdp_client, _agent_current_tab
+        from .skills.browser_automation._shared import infra, _agent_current_tab
         tab = _agent_current_tab.get(self.name)
         if not tab or not tab.session_id:
             return {"error": "No active browser tab"}
@@ -641,7 +651,7 @@ class BrowserCollabAgent(LocalFileAgentMixin, BaseAgent):
         agent_name = json.dumps(self.name)
         session_id = json.dumps(self.active_session_id or "")
         js = f"window.__bh_show_range__ ? window.__bh_show_range__({agent_name}, {session_id}) : null"
-        await _cdp_client.send(
+        await infra["cdp_client"].send(
             "Runtime.evaluate", {"expression": js},
             session_id=tab.session_id, timeout=5,
         )

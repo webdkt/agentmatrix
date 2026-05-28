@@ -18,16 +18,47 @@ block_cipher = None
 # Project root
 project_root = Path(os.getcwd())
 
+
+# === Dynamically collect all agentmatrix submodules ===
+def collect_agentmatrix_hiddenimports():
+    """
+    Walk src/agentmatrix/ and generate hidden import paths for every .py module.
+    This ensures PyInstaller knows about all submodules after the package restructuring.
+    """
+    src_dir = project_root / "src" / "agentmatrix"
+    modules = []
+    if not src_dir.exists():
+        print(f"WARNING: {src_dir} does not exist, skipping hidden imports collection")
+        return modules
+
+    for root, dirs, files in os.walk(str(src_dir)):
+        # Skip __pycache__
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            filepath = Path(root) / f
+            rel = filepath.relative_to(src_dir)
+            parts = list(rel.with_suffix("").parts)
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            module_path = "agentmatrix." + ".".join(parts) if parts else "agentmatrix"
+            modules.append(module_path)
+
+    return sorted(set(modules))
+
+
+agentmatrix_hiddenimports = collect_agentmatrix_hiddenimports()
+print(f"Collected {len(agentmatrix_hiddenimports)} agentmatrix hidden imports")
+
 a = Analysis(
     ['server.py'],
-    pathex=[str(project_root)],
+    pathex=[str(project_root), str(project_root / "src")],
     binaries=[],
     datas=[
         # Include the entire agentmatrix package (all submodules, including skills)
         ('src/agentmatrix', 'agentmatrix'),
     ],
-    # Note: All agentmatrix submodules are included via the datas directive above
-    # PyInstaller will analyze Python imports and bundle dependencies automatically
     hiddenimports=[
         # FastAPI and related
         'fastapi',
@@ -67,12 +98,6 @@ a = Analysis(
         'pydantic',
         'pydantic.fields',
 
-        # Podman
-        'podman',
-        'podman.client',
-        'podman.errors',
-        'podman.compat',
-
         # tmux
         'libtmux',
 
@@ -93,23 +118,30 @@ a = Analysis(
         'aiosqlite',
         'pathlib',
 
-        # Skills module (dynamic loading support)
-        'agentmatrix.skills',
-        'agentmatrix.skills.registry',
+        # === server_handlers modules (refactored from server.py) ===
+        'server_handlers',
+        'server_handlers.state',
+        'server_handlers.models',
+        'server_handlers.lifecycle',
+        'server_handlers.utils',
+        'server_handlers.app_factory',
+        'server_handlers.routes',
+        'server_handlers.routes.system',
+        'server_handlers.routes.websocket',
+        'server_handlers.routes.config',
+        'server_handlers.routes.sessions',
+        'server_handlers.routes.agents',
+        'server_handlers.routes.agent_profiles',
+        'server_handlers.routes.skills',
+        'server_handlers.routes.llm_configs',
+        'server_handlers.routes.email_proxy',
+        'server_handlers.routes.proxy',
 
-        # Skills that use dynamic imports (ensure they're included in PyInstaller)
-        # These modules are loaded dynamically via importlib.util.spec_from_file_location
-        # We list them here to ensure PyInstaller includes them in the bundle
-        'agentmatrix.skills.base',
-        'agentmatrix.skills.file_skill',
-        'agentmatrix.skills.new_web_search',
-        'agentmatrix.skills.memory',
-        'agentmatrix.skills.markdown',
-        'agentmatrix.skills.agent_admin',
-        'agentmatrix.skills.system_admin',
-        'agentmatrix.skills.email',
-        'agentmatrix.skills.scheduler',
-        'agentmatrix.skills.deep_researcher',
+        # === agentmatrix modules (auto-collected from src/agentmatrix/) ===
+        # These are dynamically collected above to stay in sync with package restructuring.
+        # Skills use dynamic loading (importlib.util.spec_from_file_location),
+        # so PyInstaller's static analysis cannot discover them automatically.
+        *agentmatrix_hiddenimports,
 
         # Importlib (for dynamic skill loading)
         'importlib.util',

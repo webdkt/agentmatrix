@@ -30,178 +30,18 @@ from pathlib import Path
 
 from agentmatrix.core.action import register_action
 
-from .cdp_client import CDPClient
-from .chrome_manager import ChromeManager
-from .tab_manager import TabManager, TabInfo
-from .browser_events import BrowserEventListener
+from ._shared import (
+    infra,
+    _agent_current_tab, _agent_last_session, _agent_sk_callbacks,
+    _trigger_sk_callback, shutdown_browser_infra,
+    _update_current_tab, _on_tab_removed,
+    _short_url, _auto_yield_ui, _auto_restore_ui,
+    _cdp_send_with_recovery, _tab_not_found_msg, _get_shared_infra,
+)
+from .tab_manager import TabInfo
 from .interfaces import load_interface, list_interfaces
 
 logger = logging.getLogger(__name__)
-
-# ── 进程级单例（一个 Chrome 实例服务所有 Agent）─────────────
-
-_chrome_manager: Optional[ChromeManager] = None
-_cdp_client: Optional[CDPClient] = None
-_tab_manager: Optional[TabManager] = None
-_event_listener: Optional[BrowserEventListener] = None
-_init_lock = asyncio.Lock()
-
-# ── Agent 级状态（按 agent_name 索引，跨 MicroAgent 保持）──
-
-# 每个 agent 的当前 tab
-_agent_current_tab: dict[str, TabInfo] = {}
-_agent_last_session: dict[str, str] = {}  # agent_name → last known session_id
-_agent_sk_callbacks: dict[str, callable] = {}  # agent_name → tab 变化时刷新 site knowledge prompt
-
-
-def _trigger_sk_callback(agent_name: str):
-    """触发 agent 的 site knowledge prompt 刷新回调（如果已注册）。"""
-    callback = _agent_sk_callbacks.get(agent_name)
-    if callback:
-        try:
-            callback()
-        except Exception as e:
-            logger.debug(f"Site knowledge callback failed for '{agent_name}': {e}")
-
-
-def _update_current_tab(agent_name: str, target_id: str):
-    """更新 agent 的当前活动 tab（由 BrowserEventListener 调用）。"""
-    if not _tab_manager or not target_id or not agent_name:
-        return
-    tab = _tab_manager._tabs.get(target_id)
-    if tab:
-        _agent_current_tab[agent_name] = tab
-        _trigger_sk_callback(agent_name)
-
-
-def _on_tab_removed(target_id: str, agent_name: str):
-    """Tab 被销毁且 agent 无剩余 tab 时，清空 current_tab 引用。"""
-    current = _agent_current_tab.get(agent_name)
-    if current and current.target_id == target_id:
-        _agent_current_tab.pop(agent_name, None)
-        _trigger_sk_callback(agent_name)
-
-
-def _short_url(url: str) -> str:
-    """截取 URL 的 scheme://host/首段路径，超出部分用 /... 表示。"""
-    if not url:
-        return ""
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        segments = (parsed.path or "/").strip("/").split("/")
-        if segments and segments[0]:
-            base += "/" + segments[0]
-        if len(url) > len(base):
-            base += "/..."
-        return base
-    except Exception:
-        return url[:50] + "..." if len(url) > 50 else url
-
-
-async def _auto_yield_ui(tab: TabInfo):
-    """让前端 UI 进入避让模式（半透明 + 穿透 + 冻结）。"""
-    js = "(window.__bh_set_automation_mode__ || function(){})(true)"
-    try:
-        await _cdp_client.send(
-            "Runtime.evaluate", {"expression": js},
-            session_id=tab.session_id, timeout=3,
-        )
-    except Exception:
-        pass
-
-
-async def _auto_restore_ui(tab: TabInfo):
-    """通知前端 UI 可以恢复（1秒延迟防抖）。"""
-    js = "(window.__bh_set_automation_mode__ || function(){})(false)"
-    try:
-        await _cdp_client.send(
-            "Runtime.evaluate", {"expression": js},
-            session_id=tab.session_id, timeout=3,
-        )
-    except Exception:
-        pass
-
-
-async def _cdp_send_with_recovery(method: str, params: dict = None,
-                                   tab: TabInfo = None,
-                                   timeout: float = 30) -> dict:
-    """发送 CDP 命令，遇到 session 失效自动 re-attach 并重试一次。
-
-    tab.session_id 会被 recover_session 自动更新。
-    """
-    try:
-        return await _cdp_client.send(method, params, session_id=tab.session_id, timeout=timeout)
-    except Exception as e:
-        if not _event_listener or not _event_listener.is_session_error(e):
-            raise
-        if not tab.target_id:
-            raise
-        logger.warning(f"Session error for {tab.target_id[:12]}: {e}, recovering...")
-        new_sid = await _event_listener.recover_session(tab.target_id)
-        if not new_sid:
-            raise
-        # tab.session_id 已被 recover_session 通过 tab_mgr.update_session_id 更新
-        return await _cdp_client.send(method, params, session_id=new_sid, timeout=timeout)
-
-
-def _tab_not_found_msg(invalid_id: str) -> str:
-    """当 tab_id 不正确时，生成包含所有可用 tab 列表的错误消息。"""
-    lines = []
-    if _tab_manager:
-        for tab in _tab_manager._tabs.values():
-            lines.append(f"  - tab_id: {tab.target_id}, url: {_short_url(tab.url)}, title: {tab.title}")
-    tab_list = "\n".join(lines) if lines else "  (无可用 tab)"
-    return (f"tab_id '{invalid_id}' 不正确。当前可用的 tab：\n"
-            f"{tab_list}\n"
-            f"(url 仅显示域名和首段路径，完整信息请调用 list_tabs())")
-
-
-async def _get_shared_infra(profile_dir: str, port: int = 9222):
-    """获取或创建共享的 Chrome + CDP + TabManager 基础设施。"""
-    global _chrome_manager, _cdp_client, _tab_manager, _event_listener
-
-    async with _init_lock:
-        if _cdp_client and _cdp_client._connected:
-            return _cdp_client, _tab_manager, _event_listener
-
-        # 重连：保留现有 TabManager/EventListener，只重连 CDPClient
-        if _cdp_client is not None:
-            try:
-                await _cdp_client.connect()
-                if _event_listener:
-                    await _event_listener.resubscribe_all()
-                return _cdp_client, _tab_manager, _event_listener
-            except Exception as e:
-                logger.warning(f"CDP reconnect failed, reinitializing: {e}")
-
-        # 首次初始化
-        _chrome_manager = ChromeManager(profile_dir=profile_dir, port=port)
-        ws_url = await _chrome_manager.ensure_started()
-
-        _cdp_client = CDPClient(ws_url)
-        # 设置 WS URL 解析器（Chrome 重启后 URL 可能变化）
-        _cdp_client.set_ws_url_resolver(_chrome_manager.ensure_started)
-        await _cdp_client.connect()
-
-        _tab_manager = TabManager(_cdp_client)
-
-        _event_listener = BrowserEventListener(
-            _cdp_client, _tab_manager,
-            on_current_tab_change=_update_current_tab,
-            on_tab_removed=_on_tab_removed,
-        )
-        # 注册连接状态回调：断线时通知前端，重连时先 resubscribe 再通知前端
-        async def _on_cdp_status(connected):
-            if connected:
-                await _event_listener._on_reconnected()
-            else:
-                await _event_listener.notify_connection_status(False)
-        _cdp_client.on_status_change(_on_cdp_status)
-        await _event_listener.start_target_discovery()
-
-        return _cdp_client, _tab_manager, _event_listener
 
 
 # ── Skill Mixin ───────────────────────────────────────────
@@ -217,27 +57,73 @@ class Browser_automationSkillMixin:
     """
 
     _skill_description = """浏览器自动化开发：浏览器自动化流程和自动化脚本的生成、管理和运行
-    `~/site_knowledge`目录就是你的代码仓库。
+    `~/site_knowledge`目录是网站自动化代码仓库。
     ### ~/site_knowledge 的结构
     - 根目录（~/site_knowledge)
-        - index.txt: 网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
-            - url_prefix 可以是域名（如 `www.example.com`）或域名+路径前缀（如 `www.example.com/shop`）
+        - index.txt: 
+            - 网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
             - url_prefix 可能重复，但说明和子目录名必须不同（因为有些单体站点可能包含多个不同的子系统，结构和元素差异较大）
-            - 匹配规则：系统会自动根据hostname 来推荐匹配。但你必须显示的选择正确的site key 来加载对应的知识。系统不会自动加载，除非你明确的选择了一个site key。
-            - 使用 load_site_knowledge(site_key, process_dir_name?) 来加载对应的知识。仅提供 site_key 加载站点概览和流程列表；同时提供 process_dir_name 加载具体流程的详细步骤
-    - 根目录下每个网站(site key)一个子目录，内含：
-        - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
-        - shared_elements.md:  站内公用元素的定位说明，所有流程共享
-        - 流程子目录，每个自动化流程一个子目录，内含流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
-    - 每个流程子目录的结构
-        - readme.md: 业务流程和规则的简要说明
-        - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
-        - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
+            - 使用 load_site_knowledge(site_key) 来加载对应站点的概览和流程列表
+        - 子目录（site 目录）
+            - 每个site_key对应一个子目录(site 目录），存放该站点的所有自动化知识和脚本，site目录内有：
+            - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
+            - 流程子目录（process 目录），针对特定工作流程的子目录，内含该流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
+            - 使用 load_site_knowledge(site_key, process_dir_name) 来加载对应流程的自动化步骤和脚本列表
+            - 每个流程子目录的结构
+                - readme.md: 业务流程和规则的简要说明
+                - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
+                - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
         
     ### site_knowledge 文件规范
     #### Python自动化脚本
-    Python 脚本应该通过 CDP_PORT, CDP_HTTP_ENDPOINT, CDP_CURRENT_TAB_ID 等环境变量获取连接信息和路径，不要硬编码。
-    连接 CDP 时，如果使用 `websocket-client` 库，必须加 `suppress_origin=True`，否则 Chrome 会拒绝连接：
+    Python 脚本通过 Unix Domain Socket 与 Chrome 通信，协议为 null-terminated JSON（JSON + b'\\0'）。
+    环境变量：CDP_SOCKET_PATH（socket路径）、CDP_CURRENT_TAB_ID（当前tab的target_id）。
+    脚本示例：
+
+    ```python
+    import socket, json, os
+
+    SOCK = os.environ.get("CDP_SOCKET_PATH", "/tmp/agentmatrix_chrome_cdp.sock")
+    TAB_ID = os.environ.get("CDP_CURRENT_TAB_ID", "")
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(SOCK)
+
+    _msg_id = 0
+    def cdp(method, params=None, session_id=None):
+        '''发送 CDP 命令并等待响应'''
+        global _msg_id; _msg_id += 1
+        msg = {"id": _msg_id, "method": method, "params": params or {}}
+        if session_id: msg["sessionId"] = session_id
+        s.sendall(json.dumps(msg).encode() + b'\\x00')
+        buf = b''
+        while b'\\x00' not in buf:
+            chunk = s.recv(4096)
+            if not chunk: raise ConnectionError("socket closed")
+            buf += chunk
+        resp = json.loads(buf.split(b'\\x00', 1)[0])
+        if "error" in resp: raise RuntimeError(resp["error"])
+        return resp.get("result", {})
+
+    # 操作 tab 需先 attach
+    r = cdp("Target.attachToTarget", {"targetId": TAB_ID, "flatten": True})
+    sid = r.get("sessionId", "")
+    cdp("Page.enable", session_id=sid)
+
+    # 导航
+    cdp("Page.navigate", {"url": "https://example.com"}, session_id=sid)
+
+    # 执行 JS
+    r = cdp("Runtime.evaluate", {"expression": "document.title"}, session_id=sid)
+    print(r.get("result", {}).get("value"))
+
+    s.close()
+    ```
+    注意事项：
+    - 一个 socket 连接同一时间只能有一个未完成的请求（发一个，等响应，再发下一个），多脚本需串行执行
+    - 操作 tab 必须先 Target.attachToTarget 拿到 sessionId，每次脚本运行都要重新 attach，不可复用旧的 sessionId
+    - 环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 已自动注入，直接从 os.environ 读取，不要硬编码
+    - Chrome 重启后 socket 会重建，脚本重连即可
     
     #### Javascript: No Console Output
     eval_js 不会返回console的输出。只会返回脚本 return的结果。
@@ -251,7 +137,7 @@ class Browser_automationSkillMixin:
         - Part 3 (可选）：异常处理说明。执行过程中可能出现的、无法被Part 1吸收覆盖的异常情况的说明和处理建议。
     ### 其他开发规范
     - 元素必须使用稳定的、给予语义的定位器
-    - 不得进行全局撒网式的探索
+    - 不进行全局撒网式的探索
     - 必须包含判断所在页面、当前状态的明确规则
     - 操作元素前必须等待其可交互
     - 流程知识更新后，执行load_site_knowledge，重新加载知识
@@ -268,8 +154,8 @@ class Browser_automationSkillMixin:
         """设置 tab 的 agent 元数据（agent_session_id + 前端 __bh_agent_meta__）。"""
         agent_session_id = self._agent_session_id()
         tab.agent_session_id = agent_session_id
-        if _event_listener and tab.session_id:
-            await _event_listener.set_agent_meta(
+        if infra["event_listener"] and tab.session_id:
+            await infra["event_listener"].set_agent_meta(
                 tab.session_id, self._agent_name(), agent_session_id
             )
 
@@ -285,30 +171,24 @@ class Browser_automationSkillMixin:
         else:
             _agent_current_tab.pop(name, None)
 
-        # 同步更新 bash session 中的 CDP_CURRENT_TAB_ID 环境变量
-        local_session = getattr(self.root_agent, 'local_session', None)
-        if local_session:
-            tab_id = tab.target_id if tab else ""
-            local_session.execute(f'export CDP_CURRENT_TAB_ID="{tab_id}"')
-
     async def _ensure_browser(self):
         """确保浏览器已启动，注册当前 agent 的 input_queue。"""
         # 正在重连 → 等待完成
-        if _cdp_client and _cdp_client._reconnecting:
+        if infra["cdp_client"] and infra["cdp_client"]._reconnecting:
             for _ in range(60):  # 最多等 30 秒
                 await asyncio.sleep(0.5)
-                if _cdp_client._connected:
+                if infra["cdp_client"]._connected:
                     break
             else:
                 logger.warning("Timed out waiting for CDP reconnect")
 
-        if _cdp_client and _cdp_client._connected:
+        if infra["cdp_client"] and infra["cdp_client"]._connected:
             # 已连接 → 只需注册 agent input_queue
-            if _event_listener and self.root_agent:
-                _event_listener.register_agent_queue(
+            if infra["event_listener"] and self.root_agent:
+                infra["event_listener"].register_agent_queue(
                     self._agent_name(), self.root_agent.input_queue
                 )
-                _event_listener.start()
+                infra["event_listener"].start()
         else:
             agent_name = self._agent_name()
 
@@ -326,26 +206,38 @@ class Browser_automationSkillMixin:
                 )
                 listener.start()
 
-        # Session 切换检测：关闭旧 session 的 tab
+        # Session 切换检测：关闭旧 session 的 tab，清理旧 relay
         agent_name = self._agent_name()
         current_sid = self._agent_session_id()
         last_sid = _agent_last_session.get(agent_name, "")
 
         if current_sid and current_sid != last_sid:
+            # 停止旧 session 的 relay
+            if last_sid and infra["chrome_manager"]:
+                infra["chrome_manager"].stop_session_relay(last_sid)
             await self._cleanup_old_session_tabs(agent_name, current_sid)
             _agent_last_session[agent_name] = current_sid
 
+        # 启动当前 session 的 UDS relay（如果还没有的话）
+        sock_path = None
+        if current_sid and infra["chrome_manager"] and infra["cdp_client"]:
+            sock_path = infra["chrome_manager"].start_session_relay(current_sid, infra["cdp_client"])
+
         # 自动设置 CDP 环境变量到 Agent 的 bash session
         local_session = getattr(self.root_agent, 'local_session', None)
-        if local_session:
-            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
+        if local_session and sock_path:
             tab = self._get_current_tab()
             env_cmds = (
-                f'export CDP_PORT={port}\n'
-                f'export CDP_HTTP_ENDPOINT="http://127.0.0.1:{port}"\n'
+                f'export CDP_SOCKET_PATH="{sock_path}"\n'
                 f'export CDP_CURRENT_TAB_ID="{tab.target_id if tab else ""}"\n'
             )
-            local_session.execute(env_cmds)
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(local_session.execute, env_cmds),
+                    timeout=5,
+                )
+            except asyncio.TimeoutError:
+                logger.debug("Skipped CDP env setup: shell busy")
 
     async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
         """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab，收养匹配的 tab。
@@ -356,11 +248,11 @@ class Browser_automationSkillMixin:
         3. agent_name 匹配 且 agent_session_id == 当前 session → 收养（注册到 TabManager + 设为 current_tab）
         4. 否则 detach，跳过
         """
-        if not _cdp_client:
+        if not infra["cdp_client"]:
             return
 
         try:
-            pages = await _cdp_client.get_pages(include_internal=False)
+            pages = await infra["cdp_client"].get_pages(include_internal=False)
         except Exception as e:
             logger.warning(f"Failed to get Chrome pages for cleanup: {e}")
             return
@@ -379,8 +271,8 @@ class Browser_automationSkillMixin:
             # 临时 attach 读取 __bh_agent_meta__
             temp_sid = None
             try:
-                temp_sid = await _cdp_client.attach_to_target(tid)
-                result = await _cdp_client.send(
+                temp_sid = await infra["cdp_client"].attach_to_target(tid)
+                result = await infra["cdp_client"].send(
                     "Runtime.evaluate",
                     {"expression": "window.__bh_agent_meta__ || null",
                      "returnByValue": True},
@@ -394,7 +286,7 @@ class Browser_automationSkillMixin:
             # 读完立即 detach
             if temp_sid:
                 try:
-                    await _cdp_client.send(
+                    await infra["cdp_client"].send(
                         "Target.detachFromTarget",
                         {"sessionId": temp_sid},
                         timeout=5,
@@ -419,10 +311,10 @@ class Browser_automationSkillMixin:
                 f"(old_session={tab_sid[:12]}, url={url[:60]})"
             )
             try:
-                await _cdp_client.close_target(tid)
-                # 同步清理 _tab_manager
-                _tab_manager._tabs.pop(tid, None)
-                for ats in _tab_manager._agent_tabs.values():
+                await infra["cdp_client"].close_target(tid)
+                # 同步清理 infra["tab_manager"]
+                infra["tab_manager"]._tabs.pop(tid, None)
+                for ats in infra["tab_manager"]._agent_tabs.values():
                     ats.discard(tid)
                 closed += 1
             except Exception as e:
@@ -431,10 +323,10 @@ class Browser_automationSkillMixin:
         # 收养匹配当前 session 的 tab（系统恢复/重启场景）
         if adopt_candidates:
             for tid, url in adopt_candidates:
-                if _tab_manager._tabs.get(tid):
+                if infra["tab_manager"]._tabs.get(tid):
                     continue  # 已在 TabManager 中跟踪，跳过
                 try:
-                    tab = await _tab_manager.adopt_tab(
+                    tab = await infra["tab_manager"].adopt_tab(
                         tid, agent_name, current_session_id, url
                     )
                     await self._set_tab_agent_meta(tab)
@@ -445,12 +337,12 @@ class Browser_automationSkillMixin:
                     logger.warning(f"Failed to adopt tab {tid[:12]}: {e}")
 
             # 选择 current_tab：优先 active（visibilityState=visible），否则最后一个
-            adopted_tabs = _tab_manager.get_agent_tabs_sync(agent_name)
+            adopted_tabs = infra["tab_manager"].get_agent_tabs_sync(agent_name)
             if adopted_tabs and not _agent_current_tab.get(agent_name):
                 best = adopted_tabs[-1]
                 for t in adopted_tabs:
                     try:
-                        res = await _cdp_client.send(
+                        res = await infra["cdp_client"].send(
                             "Runtime.evaluate",
                             {"expression": "document.visibilityState",
                              "returnByValue": True},
@@ -472,7 +364,7 @@ class Browser_automationSkillMixin:
         # 如果 current_tab 被关了，更新到剩余 tab
         current = _agent_current_tab.get(agent_name)
         if current:
-            remaining = _tab_manager.get_agent_tabs_sync(agent_name)
+            remaining = infra["tab_manager"].get_agent_tabs_sync(agent_name)
             still_exists = any(t.target_id == current.target_id for t in remaining)
             if not still_exists:
                 _agent_current_tab[agent_name] = remaining[0] if remaining else None
@@ -493,12 +385,12 @@ class Browser_automationSkillMixin:
         agent_name = self._agent_name()
 
         # 确保至少有一个 tab
-        tabs = await _tab_manager.get_agent_tabs(agent_name)
+        tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
         if not tabs:
-            tab = await _tab_manager.create_tab(agent_name)
+            tab = await infra["tab_manager"].create_tab(agent_name)
             self._set_current_tab(tab)
-            if _event_listener:
-                await _event_listener.ensure_bridge(tab.session_id)
+            if infra["event_listener"]:
+                await infra["event_listener"].ensure_bridge(tab.session_id)
                 await self._set_tab_agent_meta(tab)
         else:
             # 恢复之前的 current_tab，或用第一个
@@ -527,10 +419,10 @@ class Browser_automationSkillMixin:
         # 复用当前 tab，而不是每次都新建
         tab = self._get_current_tab()
         if not tab:
-            tabs = await _tab_manager.get_agent_tabs(agent_name)
+            tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
             tab = tabs[0] if tabs else None
         if not tab:
-            tab = await _tab_manager.create_tab(agent_name)
+            tab = await infra["tab_manager"].create_tab(agent_name)
         self._set_current_tab(tab)
 
         try:
@@ -539,11 +431,11 @@ class Browser_automationSkillMixin:
 
             await asyncio.sleep(1)
 
-            if _event_listener:
-                await _event_listener.ensure_bridge(tab.session_id)
+            if infra["event_listener"]:
+                await infra["event_listener"].ensure_bridge(tab.session_id)
                 await self._set_tab_agent_meta(tab)
 
-            tab = await _tab_manager.refresh_tab_info(tab.target_id)
+            tab = await infra["tab_manager"].refresh_tab_info(tab.target_id)
             if tab:
                 self._set_current_tab(tab)
 
@@ -576,7 +468,7 @@ class Browser_automationSkillMixin:
         agent_name = self._agent_name()
 
         if op == "list":
-            tabs = await _tab_manager.get_agent_tabs(agent_name)
+            tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
             current = self._get_current_tab()
             result = []
             for tab in tabs:
@@ -591,35 +483,35 @@ class Browser_automationSkillMixin:
         elif op == "close":
             if not target_id:
                 return json.dumps({"status": "error", "error": "close 操作需要提供 target_id"}, ensure_ascii=False)
-            tab = await _tab_manager.get_tab(target_id)
+            tab = await infra["tab_manager"].get_tab(target_id)
             if not tab:
                 return json.dumps({"status": "error", "error": _tab_not_found_msg(target_id)}, ensure_ascii=False)
             if tab.agent_name != agent_name:
                 return json.dumps({"status": "error", "error": f"Tab {target_id} 不属于当前 agent"}, ensure_ascii=False)
-            await _tab_manager.close_tab(target_id)
+            await infra["tab_manager"].close_tab(target_id)
             current = self._get_current_tab()
             if current and current.target_id == target_id:
-                tabs = await _tab_manager.get_agent_tabs(agent_name)
+                tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
                 self._set_current_tab(tabs[0] if tabs else None)
             return json.dumps({"status": "ok"}, ensure_ascii=False)
 
         elif op == "switch_to":
             if not target_id:
                 return json.dumps({"status": "error", "error": "switch_to 操作需要提供 target_id"}, ensure_ascii=False)
-            tab = await _tab_manager.get_tab(target_id)
+            tab = await infra["tab_manager"].get_tab(target_id)
             if not tab:
                 return json.dumps({"status": "error", "error": _tab_not_found_msg(target_id)}, ensure_ascii=False)
             if tab.agent_name != agent_name:
                 return json.dumps({"status": "error", "error": f"Tab {target_id} 不属于当前 agent"}, ensure_ascii=False)
             try:
-                await _cdp_client.activate_target(target_id)
+                await infra["cdp_client"].activate_target(target_id)
                 if not tab.session_id:
-                    tab.session_id = await _cdp_client.attach_to_target(target_id)
-                    await _cdp_client.enable_domains(tab.session_id)
-                if _event_listener:
-                    await _event_listener.ensure_bridge(tab.session_id)
+                    tab.session_id = await infra["cdp_client"].attach_to_target(target_id)
+                    await infra["cdp_client"].enable_domains(tab.session_id)
+                if infra["event_listener"]:
+                    await infra["event_listener"].ensure_bridge(tab.session_id)
                 self._set_current_tab(tab)
-                tab = await _tab_manager.refresh_tab_info(target_id)
+                tab = await infra["tab_manager"].refresh_tab_info(target_id)
                 if tab:
                     self._set_current_tab(tab)
                 return json.dumps({
@@ -655,10 +547,10 @@ class Browser_automationSkillMixin:
                 "available": available,
             }, ensure_ascii=False)
 
-        if _event_listener:
-            await _event_listener.inject_js(tab.session_id, js)
+        if infra["event_listener"]:
+            await infra["event_listener"].inject_js(tab.session_id, js)
         else:
-            await _cdp_client.send(
+            await infra["cdp_client"].send(
                 "Runtime.evaluate",
                 {"expression": js},
                 session_id=tab.session_id,
@@ -688,7 +580,7 @@ class Browser_automationSkillMixin:
         await self._ensure_browser()
 
         if tab_id:
-            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
         else:
@@ -766,7 +658,7 @@ class Browser_automationSkillMixin:
         await self._ensure_browser()
 
         if tab_id:
-            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
         else:
@@ -850,7 +742,7 @@ class Browser_automationSkillMixin:
         await self._ensure_browser()
 
         if tab_id:
-            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
         else:
@@ -862,7 +754,7 @@ class Browser_automationSkillMixin:
         js = f"window.__bh_confirm__ ? window.__bh_confirm__({json.dumps(selector)}) : window.__bh_confirm({json.dumps(selector)})"
 
         try:
-            await _cdp_client.send(
+            await infra["cdp_client"].send(
                 "Runtime.evaluate",
                 {"expression": js},
                 session_id=tab.session_id,
@@ -880,248 +772,11 @@ class Browser_automationSkillMixin:
                 "error": str(e),
             }, ensure_ascii=False)
         
-    """@register_action(
-        short_desc="(file_path, str_arg1?) 按扩展名执行自动化脚本，str_arg1可选仅对 .py 有效。自动化工作必须通过此方法进行"
-                    "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
-                    "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
-                    "- .py：在宿主机执行 Python 脚本，自动注入 CDP 连接环境变量，str_arg1 通过 sys.argv[1] 传入\n\n"
-                    ,
-        description="读取脚本文件并按扩展名执行。\n"
-                    "- .json：按顺序执行 CDP 指令序列（单条对象或数组），每条可含 'tab_id'/'timeout'\n"
-                    "- .js：在当前 tab 中执行 JavaScript，可用 __bh_el_info / __bh_test 等工具函数\n"
-                    "- .py：在宿主机执行 Python 脚本，自动注入 CDP 连接环境变量，str_arg1 通过 sys.argv[1] 传入\n\n"
-                    ".json 示例（鼠标点击）：\n"
-                    '[\n'
-                    '  {"method":"Input.dispatchMouseEvent","params":{"type":"mousePressed","x":100,"y":200,"button":"left","clickCount":1}},\n'
-                    '  {"method":"Input.dispatchMouseEvent","params":{"type":"mouseReleased","x":100,"y":200,"button":"left","clickCount":1}}\n'
-                    ']\n\n'
-                    "路径会自动从 ~ / ~/current_task 转换为宿主路径。\n"
-                    "CDP 文档参考 https://chromedevtools.github.io/devtools-protocol/",
-        param_infos={
-            "file_path": "脚本文件路径，支持 .json / .js / .py（必须是 ~ 或 ~/current_task 及其子目录下）",
-            "str_arg1": "可选，仅对 .py 有效，传递给脚本的字符串参数（脚本通过 sys.argv[1] 读取）",
-        },
-    )"""
-    async def run_automation_script(self, file_path: str, str_arg1: str = None) -> str:
-        await self._ensure_browser()
-
-        # 容器路径 → 宿主路径
-        root = self.root_agent
-        agent_name = root.name
-        task_id = getattr(root, "current_task_id", None) or "default"
-        host_path = root.runtime.paths.container_path_to_host(
-            file_path, agent_name, task_id
-        )
-        if host_path is None or not host_path.exists():
-            return json.dumps({
-                "error": "文件必须在 ~ 或 ~/current_task 及其子目录下",
-            }, ensure_ascii=False)
-
-        # 读取文件
-        try:
-            content = host_path.read_text(encoding="utf-8")
-        except Exception as e:
-            return json.dumps({"error": f"读取文件失败: {e}"}, ensure_ascii=False)
-
-        ext = host_path.suffix.lower()
-
-        # ── .js → Runtime.evaluate ──
-        if ext == ".js":
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
-
-            try:
-                result = await _cdp_send_with_recovery(
-                    "Runtime.evaluate",
-                    {"expression": content, "returnByValue": True, "awaitPromise": True},
-                    tab=tab,
-                    timeout=15,
-                )
-                res = result.get("result", {})
-
-                if res.get("subtype") == "error":
-                    desc = res.get("description", "unknown JS error")
-                    logger.warning(f"[run_script] JS exception: {desc}")
-                    return json.dumps({"error": desc})
-
-                value = res.get("value")
-                type_name = res.get("type", "undefined")
-
-                if type_name == "undefined":
-                    return json.dumps({"type": "undefined", "value": None})
-                if value is None:
-                    return json.dumps({"type": type_name, "value": None})
-                if isinstance(value, (dict, list)):
-                    return json.dumps(value, ensure_ascii=False)
-                return str(value)
-            except Exception as e:
-                logger.warning(f"[run_script] JS error: {e}")
-                return json.dumps({"error": str(e)})
-
-        # ── .json → CDP 指令序列 ──
-        if ext == ".json":
-            try:
-                cmd = json.loads(content)
-            except json.JSONDecodeError as e:
-                return json.dumps({"error": f"JSON 解析失败: {e}"}, ensure_ascii=False)
-
-            if isinstance(cmd, dict):
-                commands = [cmd]
-            elif isinstance(cmd, list):
-                commands = cmd
-            else:
-                return json.dumps({"error": f"JSON 必须是对象或数组，实际: {type(cmd).__name__}"}, ensure_ascii=False)
-
-            results = []
-            for i, item in enumerate(commands):
-                method = item.get("method")
-                if not method:
-                    results.append({"index": i, "error": "缺少 'method' 字段"})
-                    continue
-
-                params = item.get("params", {})
-                timeout = item.get("timeout", 30)
-                cmd_tab_id = item.get("tab_id")
-
-                if cmd_tab_id:
-                    tab = _tab_manager._tabs.get(cmd_tab_id) if _tab_manager else None
-                    if not tab:
-                        results.append({"index": i, "method": method, "error": _tab_not_found_msg(cmd_tab_id)})
-                        continue
-                else:
-                    tab = self._get_current_tab()
-                    if not tab:
-                        results.append({"index": i, "method": method, "error": "没有活动的 tab"})
-                        continue
-
-                _is_input = method.startswith("Input.")
-                if _is_input:
-                    await _auto_yield_ui(tab)
-                try:
-                    result = await _cdp_send_with_recovery(
-                        method, params, tab=tab, timeout=timeout,
-                    )
-                    results.append({"index": i, "method": method, "result": result})
-                except Exception as e:
-                    logger.warning(f"[run_script] {method} error: {e}")
-                    results.append({"index": i, "method": method, "error": str(e)})
-                finally:
-                    if _is_input:
-                        await _auto_restore_ui(tab)
-
-            if len(commands) == 1:
-                return json.dumps(results[0], ensure_ascii=False, default=str)
-            return json.dumps({"status": "ok", "total": len(commands), "results": results}, ensure_ascii=False, default=str)
-
-        # ── .py → 宿主机 Python 脚本 ──
-        if ext == ".py":
-            # 收集 CDP 信息
-            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
-            http_endpoint = f"http://127.0.0.1:{port}"
-            tab = self._get_current_tab()
-
-            # 构建环境变量
-            work_dir = root.runtime.paths.get_agent_work_files_dir(agent_name, task_id)
-            home_dir = root.runtime.paths.get_agent_home_dir(agent_name)
-            env = os.environ.copy()
-            env.update({
-                "CDP_PORT": str(port),
-                "CDP_HTTP_ENDPOINT": http_endpoint,
-                "CDP_CURRENT_TAB_ID": tab.target_id if tab else "",
-                "CURRENT_TASK_DIR": str(work_dir),
-                "HOME_DIR": str(home_dir),
-                "SITE_KNOWLEDGE_DIR": str(home_dir / "site_knowledge"),
-            })
-
-            # 构建命令（优先使用共享 venv 的 Python）
-            shared_env_bin = root.runtime.paths.get_shared_env_bin()
-            python_cmd = os.path.join(shared_env_bin, "python3") if shared_env_bin else "python3"
-            cmd = [python_cmd, str(host_path)]
-            if str_arg1 is not None:
-                cmd.append(str_arg1)
-
-            # 整个 .py 脚本期间 UI 避让（脚本可能做 CDP 操作）
-            if tab:
-                await _auto_yield_ui(tab)
-            try:
-                # 执行
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=env,
-                    )
-                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                        proc.communicate(), timeout=300
-                    )
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    return json.dumps({
-                        "status": "timeout",
-                        "error": "脚本执行超时（300秒）",
-                    }, ensure_ascii=False)
-                except Exception as e:
-                    return json.dumps({
-                        "status": "error",
-                        "error": f"脚本执行失败: {e}",
-                    }, ensure_ascii=False)
-            finally:
-                if tab:
-                    await _auto_restore_ui(tab)
-
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-            stdout_lines = stdout.count("\n") + (1 if stdout and not stdout.endswith("\n") else 0)
-            MAX_INLINE_LINES = 100
-
-            def _save_to_tmp(content: str, suffix: str) -> tuple[str, str]:
-                """保存到 ~/current_task/tmp/，返回 (host_path, agent_path)。"""
-                import time
-                tmp_host_dir = work_dir / "tmp"
-                tmp_host_dir.mkdir(parents=True, exist_ok=True)
-                filename = f"script_{int(time.time())}_{os.getpid()}{suffix}"
-                host = tmp_host_dir / filename
-                host.write_text(content, encoding="utf-8")
-                agent_path = f"~/current_task/tmp/{filename}"
-                return str(host), agent_path
-
-            # 构建 result
-            result = {
-                "status": "ok" if proc.returncode == 0 else "error",
-                "exit_code": proc.returncode,
-            }
-
-            # stdout: 短输出直接返回，长输出存文件
-            if stdout_lines <= MAX_INLINE_LINES:
-                result["stdout"] = stdout
-            else:
-                _, container_path = _save_to_tmp(stdout, ".out")
-                result["stdout_file"] = container_path
-                result["stdout_lines"] = stdout_lines
-
-            # stderr: 同样处理
-            if stderr:
-                stderr_lines = stderr.count("\n") + (1 if not stderr.endswith("\n") else 0)
-                if stderr_lines <= MAX_INLINE_LINES:
-                    result["stderr"] = stderr
-                else:
-                    _, container_path = _save_to_tmp(stderr, ".err")
-                    result["stderr_file"] = container_path
-                    result["stderr_lines"] = stderr_lines
-
-            if proc.returncode != 0:
-                result["error"] = f"脚本退出码: {proc.returncode}"
-
-            return json.dumps(result, ensure_ascii=False)
-
-        return json.dumps({"error": f"不支持的文件类型 '{ext}'，支持 .json / .js / .py"}, ensure_ascii=False)
+    
     
 
     @register_action(
-        short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug",
+        short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug，默认当前tab",
         description="向当前（或指定）tab 发送 JavaScript 代码并返回执行结果。"
                     "支持返回 Promise / 使用 await，会等待 resolve 后返回最终值。",
         param_infos={
@@ -1133,7 +788,7 @@ class Browser_automationSkillMixin:
         await self._ensure_browser()
 
         if tab_id:
-            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"error": _tab_not_found_msg(tab_id)})
         else:
@@ -1209,7 +864,7 @@ class Browser_automationSkillMixin:
             return json.dumps({"error": f"params 必须是 dict，实际类型: {type(params).__name__}"})
 
         if tab_id:
-            tab = _tab_manager._tabs.get(tab_id) if _tab_manager else None
+            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
             if not tab:
                 return json.dumps({"error": _tab_not_found_msg(tab_id)})
         else:
@@ -1239,24 +894,76 @@ class Browser_automationSkillMixin:
     # ==========================================
 
     @register_action(
-        short_desc="get_cdp_info()",
-        description="获取当前 CDP 浏览器连接信息，供外部脚本连接浏览器做自动化。"
-                    "返回 WebSocket URL、调试端口、当前 tab 的 target_id 等。",
+        short_desc="get_cdp_info() → 获取 CDP 连接信息和示例代码",
+        description="获取当前 CDP 浏览器连接信息。"
+                    "返回示例代码（含完整的 cdp() 函数和 attach 流程）。"
+                    "关键规则："
+                    "1) Python 脚本通过环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 连接浏览器，无需硬编码路径；"
+                    "2) 操作 tab 前必须先调用 Target.attachToTarget(targetId=TAB_ID) 获取 sessionId，不可省略；"
+                    "3) 每次脚本运行都要重新 attach，不要复用旧的 sessionId；"
+                    "4) 一个 socket 连接同一时间只能串行执行（发一个请求，等响应，再发下一个）。",
     )
     async def get_cdp_info(self) -> str:
         """返回 CDP 连接信息，供 Agent 编写 Python 代码直接连接浏览器。"""
         await self._ensure_browser()
 
-        port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
-        ws_url = _chrome_manager.get_ws_url() if _chrome_manager else None
+        session_id = self._agent_session_id()
+        if not session_id or not infra["chrome_manager"] or not infra["cdp_client"]:
+            return json.dumps({
+                "status": "error",
+                "error": "Chrome 未启动或 CDP 连接未建立。请尝试重启应用。",
+            }, ensure_ascii=False)
+
+        sock_path = infra["chrome_manager"].start_session_relay(session_id, infra["cdp_client"])
         tab = self._get_current_tab()
+        tab_id = tab.target_id if tab else ""
+
+        example_code = (
+            "import socket, json, os\n"
+            "\n"
+            "# 从环境变量读取连接信息（系统会自动注入，绝对不可硬编码）\n"
+            "SOCK = os.environ['CDP_SOCKET_PATH']\n"
+            "TAB_ID = os.environ['CDP_CURRENT_TAB_ID']\n"
+            "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
+            "s.connect(SOCK)\n"
+            "\n"
+            "_msg_id = 0\n"
+            "def cdp(method, params=None, session_id=None):\n"
+            "    global _msg_id; _msg_id += 1\n"
+            "    msg = {'id': _msg_id, 'method': method, 'params': params or {}}\n"
+            "    if session_id: msg['sessionId'] = session_id\n"
+            "    s.sendall(json.dumps(msg).encode() + b'\\x00')\n"
+            "    buf = b''\n"
+            "    while b'\\x00' not in buf:\n"
+            "        chunk = s.recv(4096)\n"
+            "        if not chunk: raise ConnectionError('socket closed')\n"
+            "        buf += chunk\n"
+            "    resp = json.loads(buf.split(b'\\x00', 1)[0])\n"
+            "    if 'error' in resp: raise RuntimeError(resp['error'])\n"
+            "    return resp.get('result', {})\n"
+            "\n"
+            "# 【必须】每次脚本运行都要重新 attach，拿到新的 sessionId\， 不可省略\n"
+            "# 不要硬编码或复用旧的 sessionId\n"
+            "# 一个 socket 连接同一时间只能串行执行（发一个请求，等响应，再发下一个）\n"
+            "r = cdp('Target.attachToTarget', {'targetId': TAB_ID, 'flatten': True})\n"
+            "sid = r['sessionId']  # 后续所有 tab 操作都要传 session_id=sid\n"
+            "\n"
+            "cdp('Page.enable', session_id=sid)\n"
+            "cdp('Page.navigate', {'url': 'https://example.com'}, session_id=sid)\n"
+            "r = cdp('Runtime.evaluate', {'expression': 'document.title'}, session_id=sid)\n"
+            "print(r.get('result', {}).get('value'))\n"
+            "s.close()\n"
+        )
 
         return json.dumps({
             "status": "ok",
-            "port": port,
-            "ws_url": ws_url,
-            "http_endpoint": f"http://127.0.0.1:{port}",
-            "current_tab": tab.to_dict() if tab else None,
+            "socket_path": sock_path,
+            "current_tab": {
+                "target_id": tab.target_id,
+                "url": tab.url,
+                "title": tab.title,
+            } if tab else None,
+            "example_code": example_code,
         }, ensure_ascii=False, indent=2)
 
     
@@ -1301,7 +1008,7 @@ class Browser_automationSkillMixin:
         return json.dumps({"status": "ok", "mode": mode}, ensure_ascii=False)
 
     @register_action(
-        short_desc="load_site_knowledge(site_key, process_dir_name?) 加载站点知识或具体自动化流程",
+        short_desc="(site_key, process_dir_name?) 加载站点知识或具体自动化流程",
         description="加载指定站点的知识。只传 site_key 时加载站点 readme 和流程列表；"
                     "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。",
         param_infos={

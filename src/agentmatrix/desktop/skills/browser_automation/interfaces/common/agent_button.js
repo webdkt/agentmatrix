@@ -3,7 +3,7 @@
  *
  * 提供：指示器、范围选择器、发送过渡动画、Automation glow 效果。
  *
- * 通信机制不变：__bh_emit__ (前端→后端)，__bh_event_listeners__ (后端→前端)。
+ * 通信机制：__bh_emit__ (前端→后端)。
  *
  * 模块化结构（Python 拼接注入，共享同一 IIFE 闭包）：
  *   __bh_css__               — 由 Python 从 agent_button.css 生成

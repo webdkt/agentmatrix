@@ -117,8 +117,7 @@ class MicroAgent(AutoLoggerMixin):
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
         
-        self.whiteboard: dict = {}  # 草稿纸：工作过程中随手记录的要点，压缩时辅助生成 Working Notes
-        self.whiteboard_limit: int = 8  # whiteboard 积累到此条数时触发自动压缩
+        self.whiteboard: dict = {}  # 白板数据（由 BaseAgent 的 WhiteboardManager 管理）
 
         # ========== 压缩相关 ==========
         self.compression_token_threshold = compression_token_threshold
@@ -140,6 +139,8 @@ class MicroAgent(AutoLoggerMixin):
         self._running_actions: Dict[str, dict] = {}  # {action_id: {"index": int, "action_name": str, "label": str, "task": Task}}
         self._action_counter: int = 0
         self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
+        self._before_think_hook = None  # Shell 层注入的 think 前回调
+        self._before_exit_hook = None  # Shell 层注入的退出前回调
 
         # 日志
         self.logger.info(
@@ -192,8 +193,6 @@ class MicroAgent(AutoLoggerMixin):
 
         return dynamic_class
 
-    _BASH_CANCEL_HINT = "\n\n注意：被取消的任务中可能包含 bash 命令，如果涉及网络请求/安装等长时间操作，命令可能仍在容器中运行，如需终止请使用 `ps` + `kill`。"
-
     @register_action(
         short_desc="[index]取消正在执行的操作, index 可选，1表示第一个，不提供则取消所有",
         description="取消当前正在运行的操作。通过编号指定取消哪个，不填则取消所有。",
@@ -225,7 +224,9 @@ class MicroAgent(AutoLoggerMixin):
             task.cancel()
             result = f"已取消 [{display_name}]"
             if action_name == "bash":
-                result += self._BASH_CANCEL_HINT
+                session = getattr(self.parent, 'container_session', None) or getattr(self.parent, 'local_session', None)
+                if session:
+                    session.cancel_running()
             return result
         elif self._running_actions:
             # 取消所有（排除自己）
@@ -258,13 +259,20 @@ class MicroAgent(AutoLoggerMixin):
                     task.cancel()
             result = f"已取消 {len(cancelled)} 个操作: [{', '.join(cancelled)}]"
             if has_bash:
-                result += self._BASH_CANCEL_HINT
+                session = getattr(self.parent, 'container_session', None) or getattr(self.parent, 'local_session', None)
+                if session:
+                    session.cancel_running()
             return result
         else:
             return "当前没有正在运行的操作"
 
+    # pending-actions tag，用于包裹和清理历史中的未完成 action 消息
+    _PENDING_ACTIONS_TAG = "system-auto-pending-actions"
+
     async def inject_signals(self, signals):
         """Pre-think: 生成完整文本并注入 messages"""
+        import re
+
         if not signals:
             return
 
@@ -283,9 +291,41 @@ class MicroAgent(AutoLoggerMixin):
                 name = info.get("action_name", "?")
                 label = info.get("label", "")
                 parts.append(f"#{idx}-{name}-{label}" if label else f"#{idx}-{name}")
-            text += f"\n\n**Still running: {', '.join(parts)}**"
+
+            tag = self._PENDING_ACTIONS_TAG
+            pending_text = f"还有这{len(parts)}个action没有完成，等待结果中: {', '.join(parts)}"
+            text += f"\n\n<{tag}>\n{pending_text}\n</{tag}>"
+
+        # 清理上一条 user message 中的旧 pending-actions 块
+        self._purge_pending_actions_from_last_user_msg()
 
         self._add_message("user", text)
+
+    def _purge_pending_actions_from_last_user_msg(self):
+        """从最后一条 user message 中移除旧的 <system-auto-pending-actions> 块。"""
+        import re
+
+        tag = self._PENDING_ACTIONS_TAG
+        pattern = re.compile(
+            rf'\n*<{tag}>.*?</{tag}>\n*',
+            re.DOTALL,
+        )
+
+        # 逆序找最后一条 user message
+        for msg in reversed(self.messages):
+            if msg.get("role") != "user":
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, str):
+                cleaned = pattern.sub('\n', content).strip()
+                msg["content"] = cleaned if cleaned else "continue"
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        cleaned = pattern.sub('\n', item["text"]).strip()
+                        item["text"] = cleaned if cleaned else "continue"
+            break  # 只处理最后一条
 
 
     def _on_actions_done(self, action_ids, task):
@@ -614,19 +654,11 @@ class MicroAgent(AutoLoggerMixin):
         """
         判断是否应该压缩 messages
 
-        双通道触发：
-        1. token 阈值（64K tokens）— 被动阈值
-        2. whiteboard 积累量 — 主动信号，LLM 自己认为已产生足够多值得总结的信息
-
-        Returns:
-            bool: 是否应该压缩
+        仅检查 token 阈值。whiteboard 变更计数压缩触发已移到 BaseAgent 的 _before_think_hook。
         """
         total_tokens = estimate_messages_tokens(self.messages)
         if total_tokens >= self.compression_token_threshold:
             self.logger.info(f"📦 Messages 达到 {total_tokens} tokens，自动压缩...")
-            return True
-        if len(self.whiteboard) >= self.whiteboard_limit:
-            self.logger.info(f"📝 Scratchpad 积累 {len(self.whiteboard)} 条，自动压缩...")
             return True
         return False
 
@@ -917,6 +949,7 @@ class MicroAgent(AutoLoggerMixin):
             self.logger.warning("🔄 Waiting for LLM service recovery...")
             self._emit_event("status", "recovering")
             await self.root_agent.wait_for_llm_recovery()
+            self._emit_event("status", "thinking")
 
             # 3. 重试一次
             self.logger.info("🔄 Retrying after service recovery...")
@@ -955,6 +988,7 @@ class MicroAgent(AutoLoggerMixin):
                     self._emit_event("status", "recovering")
                     await asyncio.sleep(3)
                     await self.root_agent.wait_for_llm_recovery()
+                    self._emit_event("status", "thinking")
                     self.logger.info("✅ Service recovered, retrying compress_messages")
                     self._emit_event("system", "compress_start")
                     await self.root_agent.compress_messages(self)
@@ -1151,6 +1185,12 @@ class MicroAgent(AutoLoggerMixin):
                             self._run_exit_verification(raw_reply or "")
                         )
 
+                    # before-exit hook（Shell 层注入业务逻辑，如 reply reminder）
+                    if hasattr(self, '_before_exit_hook') and self._before_exit_hook:
+                        should_exit = await self._before_exit_hook()
+                        if not should_exit:
+                            continue  # hook 注入了信号，继续下一轮
+
                     self.logger.info("Loop exit: no actions detected, no running actions")
                     break
 
@@ -1172,6 +1212,7 @@ class MicroAgent(AutoLoggerMixin):
                 )
                 self._emit_event("status", "recovering")
                 await self.root_agent.wait_for_llm_recovery()
+                self._emit_event("status", "thinking")
 
                 # 恢复后重试当前步骤
                 self.logger.info(
@@ -1277,8 +1318,8 @@ class MicroAgent(AutoLoggerMixin):
             - action_results: [(action_name, params_dict, method, action_label), ...]
               参数已对齐，可直接执行
         """
-        # 提取 <action_script> 块
-        script_block = _utils.extract_action_script_block(full_text)
+        # 提取 <action_script> 块及 for 标签
+        script_block, for_label = _utils.extract_action_script_block(full_text)
         if not script_block:
             return [], []
 
@@ -1300,14 +1341,14 @@ class MicroAgent(AutoLoggerMixin):
         if valid_calls:
             # 正常路径：逐个解析参数
             for action_name, params_text in valid_calls:
-                result = await self._align_action_params(action_name, params_text)
+                result = await self._align_action_params(action_name, params_text, action_label_hint=for_label)
                 if result:
                     action_results.append(result)
         else:
             # 特殊通道：块内只有 action name 但不是函数式格式
             mentioned = self._scan_action_names(script_block)
             if len(mentioned) == 1 and not hallucinations:
-                result = await self._align_action_params_via_cerebellum(mentioned[0])
+                result = await self._align_action_params_via_cerebellum(mentioned[0], action_label_hint=for_label)
                 if result:
                     action_results.append(result)
 
@@ -1317,7 +1358,8 @@ class MicroAgent(AutoLoggerMixin):
         return action_names, action_results
 
     async def _align_action_params(
-        self, action_name: str, params_text: str
+        self, action_name: str, params_text: str,
+        action_label_hint: str = "",
     ) -> Optional[Tuple[str, dict, Any, str]]:
         """
         解析并对齐单个 action 的参数。
@@ -1328,6 +1370,9 @@ class MicroAgent(AutoLoggerMixin):
         3. 校验必须参数是否齐全
         4. 不齐 → cerebellum fallback
         5. 仍不齐 → 安全网 signal，返回 None
+
+        Args:
+            action_label_hint: 来自 <action_script for="..."> 的标签
 
         Returns:
             (action_name, params_dict, method, action_label) 或 None
@@ -1355,7 +1400,7 @@ class MicroAgent(AutoLoggerMixin):
 
         # 3. 解析参数
         params = {}
-        action_label = ""
+        action_label = action_label_hint or " "
 
         # 3a. 尝试 key=value 解析
         parsed = _utils.parse_params_from_call(params_text)
@@ -1376,7 +1421,7 @@ class MicroAgent(AutoLoggerMixin):
                 # 多个位置参数 → cerebellum fallback
                 self.logger.debug(f"[{action_name}] 多个位置参数无法自动映射，使用 cerebellum")
                 if param_schema:
-                    params, action_label = await self._convert_params(
+                    params = await self._convert_params(
                         action_name, {}, param_schema
                     )
             # else: positional_values 为空，params 保持 {}
@@ -1407,7 +1452,7 @@ class MicroAgent(AutoLoggerMixin):
             self.logger.debug(f"[{action_name}] {', '.join(reason)}，使用 cerebellum 对齐")
 
             if param_schema:
-                params, action_label = await self._convert_params(
+                params = await self._convert_params(
                     action_name, params, param_schema
                 )
                 # 对齐后只保留合法参数名
@@ -1426,10 +1471,14 @@ class MicroAgent(AutoLoggerMixin):
         return (action_name, params, method, action_label)
 
     async def _align_action_params_via_cerebellum(
-        self, action_name: str
+        self, action_name: str,
+        action_label_hint: str = "",
     ) -> Optional[Tuple[str, dict, Any, str]]:
         """
         特殊通道：action name 没有函数式格式（无括号），通过 cerebellum 补全参数。
+
+        Args:
+            action_label_hint: 来自 <action_script for="..."> 的标签
 
         Returns:
             (action_name, params_dict, method, action_label) 或 None
@@ -1445,9 +1494,9 @@ class MicroAgent(AutoLoggerMixin):
 
         # 用 cerebellum 补全所有参数
         params = {}
-        action_label = ""
+        action_label = action_label_hint or " "
         if param_schema:
-            params, action_label = await self._convert_params(
+            params = await self._convert_params(
                 action_name, {}, param_schema
             )
 
@@ -1557,7 +1606,7 @@ class MicroAgent(AutoLoggerMixin):
 
     async def _convert_params(
         self, action_name: str, user_params: dict, param_schema: dict,
-    ) -> Tuple[dict, str]:
+    ) -> dict:
         """通过 cerebellum 对齐参数名 + Brain 补齐缺失参数。"""
 
         async def brain_callback(question: str) -> str:
@@ -1573,7 +1622,7 @@ class MicroAgent(AutoLoggerMixin):
             brain_callback=brain_callback,
         )
 
-        return result.get("params", {}), result.get("action_label", "")
+        return result.get("params", {})
 
     async def _execute_action(
         self, action_name: str, params: dict, method,
@@ -1591,7 +1640,7 @@ class MicroAgent(AutoLoggerMixin):
             action_index: 当前是第几个 action（从 1 开始）
             action_list: 完整的 action 列表
             action_id: running_actions 中的 ID
-            action_label: action 标签（cerebellum 生成，用于显示）
+            action_label: action 标签（来自 <action_script for="...">）
         """
         import inspect
 
@@ -1629,9 +1678,6 @@ class MicroAgent(AutoLoggerMixin):
 
         return result
 
-    # whiteboard 浮动块的正则（匹配末尾的 <whiteboard>...</whiteboard>）
-    _WHITEBOARD_RE = re.compile(r'\s*<whiteboard>.*?</whiteboard>\s*$', re.DOTALL)
-
     def _add_message(self, role: str, content: str):
         """
         添加消息到对话历史
@@ -1642,40 +1688,8 @@ class MicroAgent(AutoLoggerMixin):
            a. 如果最后一条 content 是 str → 直接拼接字符串
            b. 如果最后一条 content 是 list（多模态）→ 找到text部分并追加
 
-        浮动 whiteboard：
-        - whiteboard 始终出现在最后一个 user message 末尾
-        - 添加新 user message 时，从旧 user message 移除，追加到新的
-
         如果有 session，自动保存到 session
         """
-        # === 浮动 whiteboard ===
-        if role == "user":
-            # 从 messages 中找到最后一个 user message，移除旧 whiteboard block
-            for i in range(len(self.messages) - 1, -1, -1):
-                if self.messages[i]["role"] == "user":
-                    c = self.messages[i]["content"]
-                    if isinstance(c, str) and "<whiteboard>" in c:
-                        self.messages[i]["content"] = self._WHITEBOARD_RE.sub('', c).rstrip()
-                    break
-            # 追加 whiteboard block 到当前 user message
-            if self.whiteboard:
-                from datetime import datetime
-                sorted_items = sorted(self.whiteboard.items(), key=lambda x: x[1]["ts"])
-                lines = []
-                prev_date = None
-                for k, v in sorted_items:
-                    dt = datetime.fromtimestamp(v["ts"])
-                    cur_date = dt.strftime("%Y/%m/%d")
-                    if cur_date != prev_date:
-                        ts_str = dt.strftime("%Y/%m/%d %H:%M")
-                        prev_date = cur_date
-                    else:
-                        ts_str = dt.strftime("%H:%M")
-                    lines.append(f"[{ts_str}] {k}: {v['content']}")
-                content += "\n\n<whiteboard>\n" + "\n".join(lines) + "\n</whiteboard>"
-            else:
-                content += "\n\n<whiteboard>Whiteboard is empty</whiteboard>"
-
         if not self.messages or self.messages[-1]["role"] != role:
             # 没有前一条消息，或 role 不同 → 直接添加
             self.messages.append({"role": role, "content": content})

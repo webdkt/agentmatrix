@@ -10,7 +10,6 @@ import SessionList from '@/components/session/SessionList.vue'
 import AgentSessionPanel from '@/components/collab/AgentSessionPanel.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
-import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   currentView: {
@@ -95,31 +94,9 @@ onMounted(async () => {
       <SettingsView @view-change="handleViewChange" />
     </div>
 
-    <!-- Dashboard View (Placeholder) -->
-    <div v-else-if="currentView === 'dashboard'" class="view-container__content view-container__content--full">
-      <div class="placeholder-view">
-        <div class="placeholder-view__icon">
-          <MIcon name="layout-dashboard" />
-        </div>
-        <h2>{{ $t('views.dashboard.title') }}</h2>
-        <p>Coming soon...</p>
-      </div>
-    </div>
-
     <!-- Agents View -->
     <div v-else-if="currentView === 'agents'" class="view-container__content">
       <AgentsView />
-    </div>
-
-    <!-- Magic View (Placeholder) -->
-    <div v-else-if="currentView === 'magic'" class="view-container__content view-container__content--full">
-      <div class="placeholder-view">
-        <div class="placeholder-view__icon">
-          <MIcon name="wand" />
-        </div>
-        <h2>{{ $t('views.magic.title') }}</h2>
-        <p>Coming soon...</p>
-      </div>
     </div>
 
   </main>
@@ -142,40 +119,6 @@ onMounted(async () => {
 
 .view-container__content--full {
   padding: var(--spacing-6);
-}
-
-.placeholder-view {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--text-tertiary);
-}
-
-.placeholder-view__icon {
-  width: 80px;
-  height: 80px;
-  background: var(--surface-hover);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 40px;
-  color: var(--border-strong);
-  margin-bottom: var(--spacing-6);
-}
-
-.placeholder-view h2 {
-  font-size: var(--font-2xl);
-  font-weight: var(--font-semibold);
-  color: var(--text-secondary);
-  margin-bottom: var(--spacing-2);
-}
-
-.placeholder-view p {
-  font-size: var(--font-base);
-  color: var(--text-tertiary);
 }
 
 /* Panel slide transition */

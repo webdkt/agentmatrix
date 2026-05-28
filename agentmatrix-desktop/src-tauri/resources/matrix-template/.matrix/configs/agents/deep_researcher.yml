@@ -1,6 +1,7 @@
 name: DeepResearcher
 description: 深度研究 Agent
 class_name: agentmatrix.desktop.base_agent.BaseAgent
+session_type: local
 
 persona: |
   你是一个深度研究员 (Deep Researcher)。

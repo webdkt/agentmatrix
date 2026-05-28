@@ -89,6 +89,7 @@ function parseEvent(raw) {
   }
   return {
     id: raw.id,
+    _receivedAt: Date.now(),
     timestamp: raw.timestamp,
     eventType: raw.event_type,
     eventName: raw.event_name,
@@ -162,6 +163,7 @@ function connectWebSocket() {
   }
   if (ws) {
     ws.onclose = null
+    ws.onerror = null
     ws.close()
     ws = null
   }

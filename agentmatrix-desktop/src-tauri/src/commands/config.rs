@@ -17,6 +17,25 @@ fn expand_path(path: &str) -> PathBuf {
     }
 }
 
+/// 读取 LLM 配置
+#[tauri::command]
+pub fn read_llm_config(matrix_world_path: String) -> Result<JsonValue, String> {
+    let config_path = expand_path(&matrix_world_path)
+        .join(".matrix/configs/llm_config.json");
+
+    if !config_path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read llm_config.json: {}", e))?;
+
+    let config: JsonValue = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse llm_config.json: {}", e))?;
+
+    Ok(config)
+}
+
 /// 保存 LLM 配置
 #[tauri::command]
 pub fn save_llm_config(matrix_world_path: String, llm_config: JsonValue) -> Result<(), String> {

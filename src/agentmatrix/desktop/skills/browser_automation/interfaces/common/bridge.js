@@ -1,8 +1,7 @@
 /**
- * Bridge JS — 注入到每个页面，提供前后端通信基础设施。
+ * Bridge JS — 注入到每个页面，提供前端→后端通信基础设施。
  *
  * 前端→后端：window.__bh_emit__(type, data)
- * 后端→前端：window.__bh_on_event__(type, data)（由 interface 设置处理函数）
  *
  * agent 元数据（agent_name, agent_session_id）由后端注入 bridge 后设置，
  * 每次事件自动附带，用于后端路由到正确的 agent session。
@@ -51,20 +50,7 @@
                 }
             }
         }
-        console.log('__BH_EVENT__ ' + JSON.stringify(payload));
-    };
-
-    /**
-     * 后端 → 前端：多监听器事件分发。
-     * 组件通过 __bh_event_listeners__.push(handler) 注册。
-     * 后端调用 __bh_on_event__(type, data) 时，所有监听器都会收到。
-     */
-    window.__bh_event_listeners__ = [];
-    window.__bh_on_event__ = function(type, data) {
-        var listeners = window.__bh_event_listeners__ || [];
-        for (var i = 0; i < listeners.length; i++) {
-            try { listeners[i](type, data); } catch(e) {}
-        }
+        window.__bhSendEvent(JSON.stringify(payload));
     };
 
     /**
@@ -99,7 +85,7 @@
         };
     };
 
-    // ==========================================
+// ==========================================
     // 元素闪烁高亮（检查/验证时自动触发）
     // ==========================================
     (function() {

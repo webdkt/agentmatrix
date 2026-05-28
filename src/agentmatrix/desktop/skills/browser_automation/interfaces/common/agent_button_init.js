@@ -55,33 +55,6 @@
         }
     });
 
-    // ==========================================
-    // Backend event handler
-    // ==========================================
-    window.__bh_event_listeners__.push(function(type, data) {
-        if (type === 'show_indicator') {
-            _showIndicator(
-                data.x || Math.round(window.innerWidth / 2),
-                data.y || Math.round(window.innerHeight / 2),
-                data.text || '拖动准心到目标位置'
-            );
-        } else if (type === 'show_range') {
-            _showRangeSelector();
-        } else if (type === 'connection_status') {
-            if (!data.connected) {
-                if (!shadow.querySelector('.ab-disconnect-banner')) {
-                    var b = document.createElement('div');
-                    b.className = 'ab-disconnect-banner';
-                    b.textContent = 'Backend disconnected \u2014 reconnecting...';
-                    shadow.appendChild(b);
-                }
-            } else {
-                var banner = shadow.querySelector('.ab-disconnect-banner');
-                if (banner) banner.remove();
-            }
-        }
-    });
-
     } // end __bh_init_overlay
     __bh_init_overlay();
 })();

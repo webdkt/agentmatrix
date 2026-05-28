@@ -40,10 +40,6 @@
       "title": "协作",
       "icon": "ti-message-circle"
     },
-    "dashboard": {
-      "title": "仪表盘",
-      "icon": "ti-layout-dashboard"
-    },
     "email": {
       "title": "邮件",
       "icon": "ti-mail"
@@ -51,10 +47,6 @@
     "agents": {
       "title": "智能体",
       "icon": "ti-agent"
-    },
-    "magic": {
-      "title": "魔法",
-      "icon": "ti-wand"
     },
     "settings": {
       "title": "设置",

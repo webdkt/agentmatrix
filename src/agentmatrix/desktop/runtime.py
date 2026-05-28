@@ -1,7 +1,12 @@
 # runtime.py
+import glob
 import json
+import logging
+import os
+import signal
 
 from datetime import datetime
+from pathlib import Path
 from ..core.message import Email
 from .loader import AgentLoader
 import asyncio
@@ -10,6 +15,66 @@ import asyncio
 from .post_office import PostOffice
 from ..core.log_util import LogFactory, AutoLoggerMixin
 from .system_status_collector import SystemStatusCollector
+
+logger = logging.getLogger(__name__)
+
+
+def kill_orphan_chrome():
+    """Kill orphaned Chrome processes from previous crash/force-quit.
+
+    Called at app startup before agents load. Any Chrome using our
+    profile directory at this point must be an orphan.
+    """
+    profile_dir = Path.home() / ".agentmatrix" / "cdp_browser_profile"
+    if not profile_dir.exists():
+        return 0
+
+    profile_marker = f"user-data-dir={profile_dir}"
+    killed = 0
+
+    import subprocess as _sp
+    try:
+        result = _sp.run(
+            ["pgrep", "-f", profile_marker],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pids = [int(p) for p in result.stdout.strip().split("\n") if p.strip()]
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    killed += 1
+                    logger.info(f"Killed orphan Chrome: PID {pid}")
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    logger.warning(f"Permission denied killing Chrome PID {pid}")
+
+            # Wait then force-kill survivors
+            import time
+            time.sleep(1)
+            for pid in pids:
+                try:
+                    os.kill(pid, 0)
+                    os.kill(pid, signal.SIGKILL)
+                    logger.warning(f"Force killed Chrome: PID {pid}")
+                except ProcessLookupError:
+                    pass
+    except FileNotFoundError:
+        pass  # pgrep not available (Windows)
+    except Exception as e:
+        logger.warning(f"Error killing orphan Chrome: {e}")
+
+    # Clean up stale UDS sockets
+    for sock_file in glob.glob("/tmp/agentmatrix_cdp_*.sock"):
+        try:
+            os.remove(sock_file)
+        except OSError:
+            pass
+
+    if killed > 0:
+        logger.info(f"Killed {killed} orphan Chrome process(es)")
+    return killed
 
 
 # all event format:
@@ -105,8 +170,8 @@ class AgentMatrix(AutoLoggerMixin):
         self.echo(">>> 初始化系统配置...")
         self._init_system_config()
 
-        # 🆕 初始化单容器管理器
-        self.echo(">>> 初始化单容器管理器...")
+        # 检查容器配置
+        self.echo(">>> 检查容器配置...")
         self._init_container_manager()
 
         self.echo(">>> 广播回调接口已初始化（事件驱动模式）")
@@ -164,16 +229,8 @@ class AgentMatrix(AutoLoggerMixin):
     # 准备世界资源，如向量数据库等
     def _prepare_world_resource(self):
 
-        # 🐳 确保容器运行时已启动（全局资源初始化）
-        self.echo(">>> 检查容器运行时状态...")
-        from .container.runtime_factory import ContainerRuntimeFactory
-
-        self._container_adapter = ContainerRuntimeFactory.ensure_running(logger=self.logger)
-        if not self._container_adapter:
-            raise RuntimeError(
-                "容器运行时启动失败。AgentMatrix 依赖 Docker 或 Podman 运行，请确保已安装并启动。\n"
-                "下载地址: https://www.docker.com/products/docker-desktop/"
-            )
+        # 容器运行时：延迟检测，仅在有 agent 需要时才初始化
+        self._container_adapter = None
 
         # 初始化 PostOffice（DB 连接需要在 async 上下文中调用 init_db()）
         self.post_office = PostOffice(self.paths, self.user_agent_name)
@@ -298,7 +355,27 @@ class AgentMatrix(AutoLoggerMixin):
             self.echo(">>> EmailProxy未启用")
 
     def _init_container_manager(self):
-        """初始化单容器管理器（共享容器架构）"""
+        """初始化单容器管理器 — 仅在有 agent 需要 container 时才检测运行时"""
+        # 先看有没有 agent 需要 container
+        needs_container = any(
+            a.profile.get("session_type", "local") == "container"
+            for a in self.agents.values()
+        )
+        if not needs_container:
+            self.container_manager = None
+            self.echo(">>> 无 container 类型 Agent，跳过容器管理器")
+            return
+
+        # 有 agent 需要容器，才检测运行时
+        self.echo(">>> 检测容器运行时...")
+        from .container.runtime_factory import ContainerRuntimeFactory
+
+        self._container_adapter = ContainerRuntimeFactory.ensure_running(logger=self.logger)
+        if not self._container_adapter:
+            self.container_manager = None
+            self.echo(">>> ⚠️ 容器运行时不可用，container Agent 将无法工作")
+            return
+
         from .container.single_container_manager import SingleContainerManager
 
         self.container_manager = SingleContainerManager(
@@ -445,7 +522,15 @@ class AgentMatrix(AutoLoggerMixin):
             except Exception as e:
                 self.echo(f">>> 单容器管理器停止失败: {e}")
 
-        # 6. 清理资源
+        # 6. 停止浏览器基础设施（Chrome 进程 + CDP 连接）
+        try:
+            from agentmatrix.desktop.skills.browser_automation._shared import shutdown_browser_infra
+            await shutdown_browser_infra()
+            self.echo(">>> Browser infrastructure stopped")
+        except Exception as e:
+            self.echo(f">>> Browser infrastructure stop error: {e}")
+
+        # 7. 清理资源
         self.running = False
 
         # 7. 取消未完成的任务（避免hang）
@@ -480,6 +565,11 @@ class AgentMatrix(AutoLoggerMixin):
     async def startup(self):
         """启动系统 - 注册Agent、启动服务、恢复未投递邮件"""
         self.echo(">>> 正在启动系统...")
+
+        # 清理上次遗留的 Chrome 进程（profile 被占用会导致新 Chrome 启动失败）
+        killed = kill_orphan_chrome()
+        if killed:
+            self.echo(f">>> 已清理 {killed} 个遗留 Chrome 进程")
 
         # 启动电源管理（防止系统休眠）
         self.power_manager.start_sync()

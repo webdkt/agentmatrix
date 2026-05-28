@@ -1,69 +1,59 @@
 """
-CDP WebSocket Client — async raw Chrome DevTools Protocol client.
+CDP Client — async Chrome DevTools Protocol client over pipes.
 
-Connects to Chrome's remote debugging WebSocket and provides
-send/receive for CDP commands and events.
+Communicates with Chrome via --remote-debugging-pipe file descriptors.
+No network involved, immune to proxies/firewalls.
 """
 
 import asyncio
 import json
 import logging
+import socket
+import struct
 from collections import deque
-from typing import Any, Callable, Dict, List, Optional
-
-import websockets
+from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 class CDPClient:
-    """Async CDP WebSocket client. One connection to Chrome."""
+    """Async CDP client over pipe transport."""
 
-    def __init__(self, ws_url: str, event_buffer_size: int = 500):
-        self.ws_url = ws_url
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+    def __init__(
+        self,
+        pipe_fds: Tuple[int, int],
+        event_buffer_size: int = 500,
+    ):
+        from .cdp_pipe import CDPPipeConnection
+        self._pipe = CDPPipeConnection(*pipe_fds)
         self._msg_id = 0
         self._pending: Dict[int, asyncio.Future] = {}
         self._event_handlers: Dict[str, List[Callable]] = {}
-        self._event_buffer: deque = deque(maxlen=event_buffer_size)
+        self._event_buffer: Deque = deque(maxlen=event_buffer_size)
         self._listen_task: Optional[asyncio.Task] = None
         self._connected = False
-        # 自动重连
         self._reconnecting = False
         self._status_callbacks: List[Callable] = []
-        self._ws_url_resolver: Optional[Callable] = None
+        self._relay_sessions: Dict[str, dict] = {}  # session_id → {"id_offset": int, "conn": socket}
 
     async def connect(self):
-        """Connect to Chrome's CDP WebSocket and start listening."""
+        """Connect to Chrome's CDP pipe and start listening."""
         if self._connected:
             return
-        # 如果自动重连正在进行，等待它完成
-        if self._reconnecting:
-            for _ in range(60):
-                await asyncio.sleep(0.5)
-                if self._connected:
-                    return
-            # 超时后继续尝试手动连接
-        # 清理可能残留的旧 listen task
         if self._listen_task and not self._listen_task.done():
             self._listen_task.cancel()
             try:
                 await self._listen_task
             except asyncio.CancelledError:
                 pass
-        self.ws = await websockets.connect(
-            self.ws_url,
-            max_size=50 * 1024 * 1024,  # 50MB for large DOM dumps
-            ping_interval=20,
-            ping_timeout=10,
-        )
+
+        await self._pipe.start()
         self._connected = True
         self._listen_task = asyncio.create_task(self._listen_loop())
-        logger.info(f"CDP connected: {self.ws_url}")
+        logger.info("CDP connected via pipe")
 
     async def close(self):
-        """Close the WebSocket connection. Cancels any in-progress reconnect."""
-        self._reconnecting = False  # 阻止自动重连
+        """Close the pipe connection."""
         self._connected = False
         if self._listen_task:
             self._listen_task.cancel()
@@ -71,10 +61,7 @@ class CDPClient:
                 await self._listen_task
             except asyncio.CancelledError:
                 pass
-        if self.ws:
-            await self.ws.close()
-            self.ws = None
-        # Cancel all pending futures
+        await self._pipe.close()
         for fut in self._pending.values():
             if not fut.done():
                 fut.cancel()
@@ -85,18 +72,8 @@ class CDPClient:
         """
         Send a CDP command and wait for the response.
 
-        Args:
-            method: CDP method name (e.g. "Page.navigate")
-            params: Method parameters
-            session_id: CDP session ID (for tab-specific commands)
-            timeout: Seconds to wait for response
-
         Returns:
             The "result" dict from the CDP response.
-
-        Raises:
-            RuntimeError: If CDP returns an error.
-            asyncio.TimeoutError: If no response within timeout.
         """
         if not self._connected:
             raise RuntimeError("CDP client not connected")
@@ -113,7 +90,7 @@ class CDPClient:
         fut = asyncio.get_event_loop().create_future()
         self._pending[msg_id] = fut
 
-        await self.ws.send(json.dumps(msg))
+        await self._pipe.send(json.dumps(msg))
 
         try:
             result = await asyncio.wait_for(fut, timeout=timeout)
@@ -134,18 +111,16 @@ class CDPClient:
 
     async def send_raw(self, method: str, params: dict = None,
                        session_id: str = None, timeout: float = 30) -> dict:
-        """Alias for send() — kept for compatibility with browser-harness naming."""
+        """Alias for send()."""
         return await self.send(method, params, session_id, timeout)
 
     # --- Target / Session Management ---
 
     async def get_targets(self) -> List[dict]:
-        """Get all browser targets (pages, iframes, workers, etc.)."""
         result = await self.send("Target.getTargets")
         return result.get("targetInfos", [])
 
     async def get_pages(self, include_internal: bool = False) -> List[dict]:
-        """Get page targets, optionally filtering out chrome:// internal pages."""
         targets = await self.get_targets()
         internal_prefixes = (
             "chrome://", "chrome-untrusted://", "devtools://",
@@ -160,12 +135,10 @@ class CDPClient:
         return pages
 
     async def create_target(self, url: str = "about:blank") -> str:
-        """Create a new tab, return targetId."""
         result = await self.send("Target.createTarget", {"url": url})
         return result["targetId"]
 
     async def attach_to_target(self, target_id: str) -> str:
-        """Attach to a target, return session_id."""
         result = await self.send(
             "Target.attachToTarget",
             {"targetId": target_id, "flatten": True}
@@ -173,15 +146,12 @@ class CDPClient:
         return result["sessionId"]
 
     async def activate_target(self, target_id: str):
-        """Bring a target to the foreground (visually show the tab)."""
         await self.send("Target.activateTarget", {"targetId": target_id})
 
     async def close_target(self, target_id: str):
-        """Close a target (tab)."""
         await self.send("Target.closeTarget", {"targetId": target_id})
 
     async def detach_from_target(self, session_id: str):
-        """Detach a CDP session from its target."""
         try:
             await self.send("Target.detachFromTarget", {"sessionId": session_id}, timeout=5)
         except Exception as e:
@@ -189,9 +159,8 @@ class CDPClient:
 
     async def enable_domains(self, session_id: str,
                              domains: List[str] = None):
-        """Enable CDP domains for a session."""
         if domains is None:
-            domains = ["Page", "DOM", "Runtime", "Network"]
+            domains = ["Page", "DOM", "Runtime"]
         for domain in domains:
             try:
                 await self.send(f"{domain}.enable", session_id=session_id,
@@ -202,31 +171,63 @@ class CDPClient:
     # --- Events ---
 
     def on_event(self, method: str, handler: Callable):
-        """Register an event handler for a CDP event method."""
         self._event_handlers.setdefault(method, []).append(handler)
 
     def drain_events(self, method_filter: str = None) -> List[dict]:
-        """
-        Get and clear buffered events.
-
-        Args:
-            method_filter: If set, only return events matching this method.
-
-        Returns:
-            List of event dicts.
-        """
         events = list(self._event_buffer)
         self._event_buffer.clear()
         if method_filter:
             events = [e for e in events if e.get("method") == method_filter]
         return events
 
+    # --- Relay Management (per-session UDS sockets) ---
+
+    def register_relay(self, session_id: str, conn: socket.socket, id_offset: int):
+        """Register a session relay. CDP responses with IDs in [id_offset+1, id_offset+9999] will be forwarded to conn."""
+        # 写超时 5 秒：客户端不读数据时，sendall 不会永久阻塞
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, struct.pack('ll', 5, 0))
+        self._relay_sessions[session_id] = {"id_offset": id_offset, "conn": conn}
+        logger.debug(f"Relay registered: session={session_id}, id_offset={id_offset}")
+
+    def unregister_relay(self, session_id: str):
+        """Unregister a session relay."""
+        self._relay_sessions.pop(session_id, None)
+        logger.debug(f"Relay unregistered: session={session_id}")
+
+    def write_from_relay(self, session_id: str, data: bytes):
+        """Forward raw CDP data from a UDS client to Chrome pipe, rewriting the message ID.
+
+        Parses the JSON, rewrites 'id' by adding the session's id_offset,
+        then writes to the pipe.
+        """
+        relay_info = self._relay_sessions.get(session_id)
+        if not relay_info:
+            return
+
+        offset = relay_info["id_offset"]
+
+        # Data may contain multiple null-terminated messages
+        for part in data.split(b"\0"):
+            if not part:
+                continue
+            try:
+                msg = json.loads(part.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            # Rewrite id
+            original_id = msg.get("id")
+            if isinstance(original_id, int):
+                msg["id"] = original_id + offset
+
+            self._pipe.write_raw(json.dumps(msg).encode("utf-8") + b"\0")
+
     # --- Internal ---
 
     async def _listen_loop(self):
         """Listen for CDP messages (responses + events)."""
         try:
-            async for raw in self.ws:
+            async for raw in self._pipe:
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
@@ -239,6 +240,20 @@ class CDPClient:
                     fut = self._pending.pop(msg_id, None)
                     if fut and not fut.done():
                         fut.set_result(msg)
+                    else:
+                        # Check relay sessions — route by ID range
+                        for sid, relay_info in self._relay_sessions.items():
+                            offset = relay_info["id_offset"]
+                            if offset < msg_id < offset + 10000:
+                                original_id = msg_id - offset
+                                msg["id"] = original_id
+                                conn = relay_info["conn"]
+                                payload = json.dumps(msg).encode() + b"\0"
+                                # sendall 可能阻塞（客户端缓冲区满），必须移出 event loop
+                                asyncio.get_event_loop().run_in_executor(
+                                    None, self._relay_send, conn, payload
+                                )
+                                break
                     continue
 
                 # Event
@@ -246,7 +261,6 @@ class CDPClient:
                 if method:
                     self._event_buffer.append(msg)
                     handlers = self._event_handlers.get(method, [])
-                    # 将 sessionId 注入 params，方便 handler 路由
                     params = msg.get("params", {})
                     if "sessionId" in msg:
                         params["_sessionId"] = msg["sessionId"]
@@ -258,8 +272,6 @@ class CDPClient:
                         except Exception as e:
                             logger.warning(f"Event handler error ({method}): {e}")
 
-        except websockets.ConnectionClosed:
-            logger.info("CDP WebSocket closed")
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -267,22 +279,29 @@ class CDPClient:
         finally:
             was_connected = self._connected
             self._connected = False
-            # 自动重连（除非是显式 close()）
-            if was_connected and not self._reconnecting:
-                asyncio.ensure_future(self._reconnect())
+            if was_connected:
+                await self._notify_status(False)
 
-    # --- Auto-reconnect ---
+    # --- Relay send (offloaded from event loop) ---
+
+    @staticmethod
+    def _relay_send(conn: socket.socket, data: bytes):
+        """Send data to a relay UDS client. Runs in executor to avoid blocking the event loop."""
+        try:
+            conn.sendall(data)
+        except (OSError, BrokenPipeError) as e:
+            logger.warning(f"Relay send failed, closing client: {e}")
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    # --- Status ---
 
     def on_status_change(self, callback: Callable):
-        """Register a callback for connection status changes: callback(connected: bool)."""
         self._status_callbacks.append(callback)
 
-    def set_ws_url_resolver(self, resolver: Callable):
-        """Set an async callable that returns a fresh WS URL (for Chrome restart scenarios)."""
-        self._ws_url_resolver = resolver
-
     async def _notify_status(self, connected: bool):
-        """Notify all status callbacks."""
         for cb in self._status_callbacks:
             try:
                 result = cb(connected)
@@ -290,59 +309,3 @@ class CDPClient:
                     await result
             except Exception as e:
                 logger.warning(f"Status callback error: {e}")
-
-    async def _reconnect(self):
-        """Auto-reconnect with exponential backoff."""
-        if self._reconnecting:
-            return
-        self._reconnecting = True
-        logger.info("CDP auto-reconnect starting...")
-
-        # 关闭旧 WebSocket，取消 pending futures
-        if self.ws:
-            try:
-                await self.ws.close()
-            except Exception:
-                pass
-            self.ws = None
-        for fut in self._pending.values():
-            if not fut.done():
-                fut.cancel()
-        self._pending.clear()
-
-        await self._notify_status(False)
-
-        backoff = 1.0
-        max_backoff = 30.0
-
-        while self._reconnecting:
-            try:
-                # 获取 WS URL（可能 Chrome 重启了，URL 变了）
-                ws_url = self.ws_url
-                if self._ws_url_resolver:
-                    try:
-                        ws_url = await self._ws_url_resolver()
-                    except Exception as e:
-                        logger.warning(f"WS URL resolver failed: {e}")
-
-                self.ws = await websockets.connect(
-                    ws_url,
-                    max_size=50 * 1024 * 1024,
-                    ping_interval=20,
-                    ping_timeout=10,
-                )
-                self.ws_url = ws_url
-                self._connected = True
-                self._reconnecting = False
-                self._listen_task = asyncio.create_task(self._listen_loop())
-                logger.info(f"CDP reconnected: {ws_url}")
-                await self._notify_status(True)
-                return
-
-            except Exception as e:
-                logger.warning(f"CDP reconnect failed: {e}, retrying in {backoff:.0f}s...")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, max_backoff)
-
-        # _reconnecting 被 close() 设为 False，退出
-        logger.info("CDP reconnect cancelled")

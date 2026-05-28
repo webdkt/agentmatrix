@@ -1,7 +1,7 @@
 #!/bin/bash
 # 仅构建 Tauri App
 # 运行时机：前端代码修改后
-# 前提：Python 后端和资源已准备好
+# 前提：Python 后端已准备好
 # 运行时间：1-2 分钟
 
 set -e
@@ -17,40 +17,15 @@ echo ""
 
 # 检查必要的资源
 echo "🔍 检查必要资源..."
-MISSING=false
-
 if [ ! -f "$RESOURCES_DIR/python_dist/server" ]; then
     echo "❌ Python backend 未找到: $RESOURCES_DIR/python_dist/server"
-    MISSING=true
-fi
-
-if [ ! -f "$RESOURCES_DIR/docker/image.tar.gz" ]; then
-    echo "❌ Docker image 未找到: $RESOURCES_DIR/docker/image.tar.gz"
-    MISSING=true
-fi
-
-if [ ! -d "$RESOURCES_DIR/podman" ] || [ -z "$(ls -A $RESOURCES_DIR/podman)" ]; then
-    echo "❌ Podman installer 未找到: $RESOURCES_DIR/podman/"
-    MISSING=true
-fi
-
-if [ "$MISSING" = true ]; then
-    echo ""
-    echo "❌ 缺少必要资源！"
     echo ""
     echo "请先运行: ./scripts/build_all.sh"
-    echo "准备所有资源"
     exit 1
 fi
 
-echo "✅ 所有必要资源已就绪"
-echo ""
-
-# 显示当前资源
-echo "📁 当前 resources 内容:"
-ls -lh "$RESOURCES_DIR/python_dist/server" 2>/dev/null | awk '{print "  Python:  " $9 ": " $5}'
-ls -lh "$RESOURCES_DIR/docker/image.tar.gz" 2>/dev/null | awk '{print "  Docker:  " $9 ": " $5}'
-ls -lh "$RESOURCES_DIR/podman/"*pkg 2>/dev/null | awk '{print "  Podman:  " $9 ": " $5}'
+echo "✅ Python backend 已就绪"
+ls -lh "$RESOURCES_DIR/python_dist/server" | awk '{print "  Python:  " $9 ": " $5}'
 echo ""
 
 # Tauri 构建
@@ -74,6 +49,4 @@ if [ -d "$BUNDLE_DIR/macos" ]; then
     fi
 fi
 echo ""
-
 echo "🎉 Tauri App 构建完成！"
-echo ""

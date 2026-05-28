@@ -100,6 +100,15 @@ class BaseAgent(BasicAgent):
 
         # Container Session（延迟初始化）
         self.container_session = None
+        self.local_session = None
+
+        # Whiteboard Manager（白板持久化 + 协同编辑）
+        from .whiteboard_manager import WhiteboardManager
+        self.whiteboard_manager = WhiteboardManager(self)
+
+        # Todo Manager（任务清单持久化）
+        from .todo_manager import TodoManager
+        self.todo_manager = TodoManager(self)
 
         # 浏览器适配器（懒启动，Agent 级共享资源）
         self._browser_adapter = None
@@ -116,65 +125,91 @@ class BaseAgent(BasicAgent):
         self.logger.info(f"Agent {self.name} 初始化完成")
 
     def _init_container_session(self):
-        """初始化 Container Session"""
-        if self.runtime is None:
-            raise RuntimeError("runtime 未注入，无法初始化 Container Session")
+        """根据 session_type 配置初始化对应的 Session"""
+        session_type = self.profile.get("session_type", "local")
+        if session_type == "local":
+            self._init_local_session()
+        elif session_type == "container":
+            self._init_container_session_impl()
+        else:
+            raise ValueError(f"Unknown session_type: '{session_type}'")
 
+    def _init_local_session(self):
+        """初始化本地持久 bash 会话（直接在宿主机执行）"""
+        from .container.local_session import LocalSession
+
+        home_dir = str(self.runtime.paths.get_agent_home_dir(self.name))
+        env_bin = self.runtime.paths.get_shared_env_bin()
+
+        session = LocalSession(
+            home_dir=home_dir,
+            logger=logging.getLogger(f"local_session.{self.name}"),
+            env_bin_path=env_bin,
+        )
+        session.start()
+
+        self.container_session = session
+        self.local_session = session
+        self.logger.info(f"Local Session 初始化成功 (HOME={home_dir})")
+
+        self._setup_output_mirror()
+
+    def _init_container_session_impl(self):
+        """初始化容器内 Session（通过 Docker/Podman exec）"""
         if (
             not hasattr(self.runtime, "container_manager")
             or not self.runtime.container_manager
         ):
-            raise RuntimeError("container_manager 未初始化，无法获取 Container Session")
+            raise RuntimeError(
+                f"Agent '{self.name}' 配置为 session_type='container'，"
+                "但容器运行时不可用。请安装 Docker/Podman，或将 session_type 改为 local。"
+            )
 
         cm = self.runtime.container_manager
-
-        # 确保用户存在（创建 Linux 用户和目录）
         cm.ensure_user(self.name)
 
-        # 获取或创建 container session
         self.container_session = cm.get_container_session(self.name)
+        self.local_session = None
         self.logger.info(
             f"Container Session 初始化成功 (session_id: {self.container_session.session_id})"
         )
 
-        # 始终挂载 output mirror，让终端输出持续广播
         self._setup_output_mirror()
 
     async def switch_workspace(self, task_id: str) -> bool:
-        """切换工作目录（通过 container session 执行命令）"""
-        print("baseagent switch workspace")
+        """切换工作目录（根据 session 类型选择路径策略）"""
         if self.container_session is None:
-            raise RuntimeError("Container Session 未初始化")
+            raise RuntimeError("Session 未初始化")
 
-        # 1. 在宿主机创建目录（使用 runtime.paths）
+        # 1. 在宿主机创建目录（两种模式都需要）
         task_dir = self.runtime.paths.get_agent_work_files_dir(self.name, task_id)
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2. 在容器内更新软链接（Agent 用户可以操作自己的软链接，不需要 root）
-        # ~/current_task 是固定的软链接，指向当前任务目录
-        # 先删除旧的 symlink 再创建，避免部分容器环境（如 BusyBox）下 ln -sf 不替换已有 symlink 的问题
-        symlink_target = f"/data/agents/{self.name}/work_files/{task_id}"
-        cmd = f"rm -f ~/current_task && ln -s {symlink_target} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
-        self.logger.info(f"switch_workspace 命令: {cmd}")
-        self.logger.info(f"宿主机目录: {task_dir} (存在={task_dir.exists()})")
-        self.logger.info(f"container_session alive: {self.container_session.is_alive()}")
-
-        try:
+        # 2. 根据 session 类型选择 symlink 策略
+        from .container.local_session import LocalSession
+        if isinstance(self.container_session, LocalSession):
+            # Local: 宿主机直接建 symlink
+            home_dir = self.runtime.paths.get_agent_home_dir(self.name)
+            symlink_path = home_dir / "current_task"
+            if symlink_path.is_symlink() or symlink_path.exists():
+                symlink_path.unlink()
+            symlink_path.symlink_to(str(task_dir))
+            exit_code, stdout, stderr = await asyncio.to_thread(
+                self.container_session.execute, "cd ~/current_task && pwd"
+            )
+        else:
+            # Container: 容器内建 symlink
+            symlink_target = f"/data/agents/{self.name}/work_files/{task_id}"
+            cmd = f"rm -f ~/current_task && ln -s {symlink_target} ~/current_task && cd ~/current_task && readlink -f ~/current_task"
             exit_code, stdout, stderr = await asyncio.to_thread(
                 self.container_session.execute, cmd
             )
-        except Exception as e:
-            self.logger.error(f"switch_workspace 执行异常: {e}")
-            return False
-
-        self.logger.info(f"switch_workspace 结果: exit={exit_code}, stdout={stdout}, stderr={stderr}")
 
         if exit_code != 0:
-            self.logger.warning(f"switch_workspace 命令失败: exit={exit_code}, stderr={stderr}")
+            self.logger.warning(f"switch_workspace 失败: stderr={stderr}")
             return False
 
         self.logger.info(f"工作目录已切换: {self.name} -> {task_id}")
-        self.logger.info(f"🔍 symlink 实际指向: {stdout.strip() if stdout else 'unknown'}")
         return True
 
     # ==================== 浏览器管理 ====================
@@ -439,8 +474,11 @@ Start generating the Working Notes now.
             self.current_session["history"] = agent.messages
             await self.session_manager.save_session(self.current_session)
 
-        # 清空 whiteboard
-        agent.whiteboard.clear()
+        # 重置变更计数器（不清空数据）
+        self.whiteboard_manager.reset_change_counter()
+        self.todo_manager.reset_change_counter()
+        # 同步到 MicroAgent 属性
+        agent.whiteboard = self.whiteboard_manager.data_as_legacy_format()
 
     def is_llm_available(self) -> bool:
         """检查 LLM 服务是否可用。"""
@@ -823,6 +861,22 @@ Start generating the Working Notes now.
 
         return workspace
 
+    def resolve_path_to_host(self, file_path: str):
+        """
+        将容器内路径（~/xxx, /data/agents/xxx, 相对路径）转换为宿主机路径
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            Path 或 None: 宿主机路径，无法转换时返回 None
+        """
+        if self.runtime is None:
+            return None
+        return self.runtime.paths.resolve_path_to_host(
+            file_path, self.name, self.current_task_id
+        )
+
     @property
     def current_workspace(self) -> Path:
         """
@@ -901,6 +955,15 @@ Start generating the Working Notes now.
                         self.last_received_email = signal
 
                     await self._route_signal(signal)
+
+                    # 更新 per-participant reply tracker
+                    if isinstance(signal, Email) and self.current_session is not None:
+                        tracker = self.current_session.setdefault("reply_tracker", {})
+                        tracker[signal.sender] = {
+                            "last_email_id": signal.id,
+                            "sender_session_id": signal.sender_session_id,
+                            "replied": False,
+                        }
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
@@ -952,7 +1015,7 @@ Start generating the Working Notes now.
             )
 
         # 写入 session event: email.received
-        body_preview = email.body[:200] if email.body else ""
+        body_preview = email.body or ""
         await self._log_session_event(
             session_id=session_id,
             event_type="email",
@@ -1006,6 +1069,12 @@ Start generating the Working Notes now.
             self.logger.error(f"工作区切换失败: task_id={session['task_id']}")
             raise RuntimeError(f"工作区切换失败: {session['task_id']}")
 
+        # 设置 whiteboard 文件路径
+        wb_dir = self.private_workspace / ".matrix"
+        wb_dir.mkdir(parents=True, exist_ok=True)
+        self.whiteboard_manager.set_file_path(wb_dir / "whiteboard.json")
+        self.todo_manager.set_file_path(wb_dir / "todo.json")
+
         # 写入 session event: session.activated
         await self._log_session_event(
             session_id=session_id,
@@ -1044,7 +1113,7 @@ Start generating the Working Notes now.
     def _create_micro_agent(self) -> MicroAgent:
         """Desktop: 带有 base/email skills + md skills + custom prompt 的 MicroAgent。"""
         available_skills = list(self.profile.get("skills", []))
-        for required in ["base", "email"]:
+        for required in ["base", "email", "basic_planning"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 
@@ -1065,12 +1134,32 @@ Start generating the Working Notes now.
             md_skill_names=md_skill_names,
         )
 
-        # 注册 system prompt 热刷新 hook：每轮 think 前重新拼装
-        async def _refresh_system_prompt():
+        # 绑定退出前 hook
+        micro._before_exit_hook = self._on_before_exit
+
+        # 注册 system prompt 热刷新 + whiteboard/todo 管理 hook：每轮 think 前执行
+        async def _before_think_hook():
+            # 1. 同步 whiteboard 文件（用户协同编辑检测）
+            self.whiteboard_manager.sync_from_file(micro)
+            # 2. 更新第一条 user message 中的 whiteboard
+            self.whiteboard_manager.update_first_user_message(micro)
+            # 3. 同步 todo 文件
+            self.todo_manager.sync_from_file(micro)
+            # 4. 更新第一条 user message 中的 todo
+            self.todo_manager.update_first_user_message(micro)
+            # 5. 更新 task reminder（注入最后一条 user message）
+            self.todo_manager.update_task_reminder(micro)
+            # 6. 检查变更计数 → 触发压缩
+            if self.whiteboard_manager.should_compress or self.todo_manager.should_compress:
+                await self.compress_messages(micro)
+                self.whiteboard_manager.reset_change_counter()
+                self.todo_manager.reset_change_counter()
+            # 7. 刷新 system prompt
             new_prompt = self._assemble_system_prompt(micro)
             micro.update_system_message(new_prompt)
 
-        micro._before_think_hook = _refresh_system_prompt
+        micro._before_think_hook = _before_think_hook
+
         return micro
 
     def _assemble_system_prompt(self, micro_agent: MicroAgent) -> str:
@@ -1118,22 +1207,17 @@ Start generating the Working Notes now.
 
         elif event.event_type == "think" and event.event_name == "brain":
             detail = event.detail or {}
-            if self._is_agent_speaking(detail):
-                # Agent 在说话 → 自动投递为 Email
-                await self._auto_dispatch_agent_message(session_id, detail)
-            else:
-                # Agent 在做事或格式异常 → 仅展示（strip action_script 后写 session_event）
-                display_text = self._strip_action_script(detail.get("raw_reply", ""))
-                if display_text:
-                    await self._log_session_event(
-                        session_id=session_id,
-                        event_type="think",
-                        event_name="brain",
-                        event_detail={
-                            "step_count": detail.get("step_count"),
-                            "thought": display_text,
-                        },
-                    )
+            display_text = self._strip_action_script(detail.get("raw_reply", ""))
+            if display_text:
+                await self._log_session_event(
+                    session_id=session_id,
+                    event_type="think",
+                    event_name="brain",
+                    event_detail={
+                        "step_count": detail.get("step_count"),
+                        "thought": display_text,
+                    },
+                )
 
         else:
             await self._log_session_event(
@@ -1143,77 +1227,10 @@ Start generating the Working Notes now.
                 event_detail=event.detail or None,
             )
 
-    # ==================== Agent 自动消息投递 ====================
-
-    def _is_agent_speaking(self, detail: dict) -> bool:
-        """
-        三层判断：LLM 输出是否是"自然语言对话"。
-
-        1. 有 <action_script> → 做动作 → False
-        2. 无 <action_script>，但整体是 XML/JSON → False
-        3. 其他 → 在说话 → True
-        """
-        raw = detail.get("raw_reply", "")
-        if not raw or not raw.strip():
-            return False
-        # 1. 有 <action_script> → 做动作
-        if '<action_script>' in raw:
-            return False
-        # 2. 整体是结构化文本 → 不算说话
-        text = raw.strip()
-        if (text.startswith('<') and text.endswith('>')) or \
-           (text.startswith('{') and text.endswith('}')) or \
-           (text.startswith('[') and text.endswith(']')):
-            return False
-        # 3. 其他 → 在说话
-        return True
-
     @staticmethod
     def _strip_action_script(text: str) -> str:
         """去掉 <action_script> 块，用于前端展示。"""
-        return re.sub(r'<action_script>.*?</action_script>', '', text, flags=re.DOTALL).strip()
-
-    async def _auto_dispatch_agent_message(self, session_id: str, detail: dict):
-        """当 LLM 输出是自然语言对话时，自动包装为 Email 投递。"""
-        from ..core.message import Email
-
-        session = self.current_session
-        last_email = self.last_received_email
-        body = detail.get("raw_reply", "")
-
-        if not body.strip() or not session:
-            return
-
-        recipient = last_email.sender if last_email else session.get("original_sender", "User")
-
-        msg = Email(
-            sender=self.name,
-            recipient=recipient,
-            subject="",
-            body=body,
-            in_reply_to=last_email.id if last_email else None,
-            task_id=session["task_id"],
-            sender_session_id=session["session_id"],
-            recipient_session_id=last_email.sender_session_id if last_email else None,
-        )
-
-        await self.post_office.dispatch(msg)
-
-        await self._log_session_event(session_id, "email", "sent", {
-            "email_id": msg.id,
-            "subject": "",
-            "body_preview": body,
-            "sender": self.name,
-            "recipient": recipient,
-            "has_more": len(body) > 200,
-            "task_id": session["task_id"],
-        })
-
-        await self.session_manager.update_reply_mapping(
-            msg_id=msg.id,
-            session_id=session["session_id"],
-            task_id=session["task_id"],
-        )
+        return re.sub(r'<action_script[^>]*>.*?</action_script>', '', text, flags=re.DOTALL).strip()
 
     def _handle_session_cancelled(self, session: dict):
         """Desktop: session 被取消时的处理（stop 中断）。"""
@@ -1279,6 +1296,75 @@ Start generating the Working Notes now.
         """Desktop: execute 结束后更新状态为 IDLE。"""
         if not self._is_stopping:
             self.update_status(new_status=AgentStatus.IDLE)
+
+    # reply reminder tag，用于包裹和清理历史中的提醒消息
+    _REPLY_REMINDER_TAG = "system-auto-reply-reminder"
+
+    async def _on_before_exit(self) -> bool:
+        """MicroAgent _run_loop 退出前的 hook。返回 True 允许退出，False 阻止退出。"""
+        import re
+        from ..core.signals import TextSignal
+
+        session = self.current_session
+        if not session:
+            return True
+
+        tracker = session.get("reply_tracker", {})
+        unreplied = [
+            (p, info) for p, info in tracker.items()
+            if not info.get("replied", True)
+        ]
+
+        if not unreplied:
+            return True  # 没有未回复，允许退出
+
+        # 清理历史中已有的 reply-reminder 消息块
+        self._purge_reply_reminders()
+
+        names = "、".join(p for p, _ in unreplied)
+        reminder_text = (
+            f"你还没有回复 {names} 的邮件。"
+            f"如需回复请使用 send_internal_mail，如无需回复请忽略本消息。"
+        )
+        wrapped = f"<{self._REPLY_REMINDER_TAG}>\n{reminder_text}\n</{self._REPLY_REMINDER_TAG}>"
+        reminder = TextSignal(
+            text=wrapped,
+            type_name="reply_reminder",
+        )
+        # 先标记为已提醒，防止无限循环
+        for _, info in unreplied:
+            info["replied"] = True
+
+        self.active_micro_agent.signal_queue.put_nowait(reminder)
+        self.logger.info(f"Injected reply reminder for: {names}")
+        return False  # 注入了信号，阻止退出，让 loop 继续
+
+    def _purge_reply_reminders(self):
+        """从 user messages 中移除所有 <system-auto-reply-reminder> 块。
+
+        如果移除后 content 变空，设为 "continue"。
+        """
+        import re
+
+        tag = self._REPLY_REMINDER_TAG
+        pattern = re.compile(
+            rf'\n*<{tag}>.*?</{tag}>\n*',
+            re.DOTALL,
+        )
+
+        for msg in self.active_micro_agent.messages:
+            if msg.get("role") != "user":
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, str):
+                cleaned = pattern.sub('\n', content).strip()
+                msg["content"] = cleaned if cleaned else "continue"
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        cleaned = pattern.sub('\n', item["text"]).strip()
+                        item["text"] = cleaned if cleaned else "continue"
 
     # _run_session, _deactivate_session — 由 BasicAgent 提供
 
@@ -1411,7 +1497,7 @@ Start generating the Working Notes now.
         if available_skills is None:
             available_skills = self.profile.get("skills", [])
 
-        for required in ["base", "email"]:
+        for required in ["base", "email", "basic_planning"]:
             if required not in available_skills:
                 available_skills = [required] + available_skills
 

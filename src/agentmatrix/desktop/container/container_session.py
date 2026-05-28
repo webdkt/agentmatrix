@@ -6,6 +6,7 @@ Container Session - 持久容器内 Shell 会话
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import threading
@@ -319,10 +320,34 @@ class ContainerSession:
             )
             if result.returncode != 0:
                 return False, result.stderr.strip()
-            return True, ""
         except Exception:
             # 校验本身失败（不应该阻止执行）
-            return True, ""
+            pass
+
+        # bash -n 对未闭合 heredoc 返回 0，需额外检查
+        closed, err = self._check_heredoc_closed(command)
+        if not closed:
+            return False, err
+
+        return True, ""
+
+    @staticmethod
+    def _check_heredoc_closed(command: str) -> Tuple[bool, str]:
+        """检查所有 heredoc 是否已闭合"""
+        heredoc_re = re.compile(r'<<-?\s*[\'"]?(\w+)[\'"]?')
+        lines = command.split('\n')
+
+        for match in heredoc_re.finditer(command):
+            delimiter = match.group(1)
+            line_num = command[:match.start()].count('\n')
+
+            if not any(
+                line.strip() == delimiter
+                for line in lines[line_num + 1:]
+            ):
+                return False, f"heredoc '{delimiter}' 未闭合，缺少结束标记"
+
+        return True, ""
 
     def _send_raw(self, data: str) -> None:
         """发送原始数据到 stdin"""
@@ -417,6 +442,41 @@ class ContainerSession:
         if not self.is_active or not self.process:
             return False
         return self.process.poll() is None
+
+    def cancel_running(self) -> None:
+        """Kill all child processes of the shell (the running command), keeping the shell alive.
+
+        This preserves environment variables and working directory.
+        After killing, the shell continues to the next line (echo marker),
+        so execute() returns with exit code 137 (128 + SIGKILL).
+        """
+        if not self.process or not self.is_active:
+            return
+        shell_pid = self.process.pid
+        try:
+            import signal as sig
+            # Find direct child processes of the shell
+            result = subprocess.run(
+                ['ps', '-o', 'pid=', '--ppid', str(shell_pid)],
+                capture_output=True, text=True, timeout=2,
+            )
+            pids = []
+            for line in result.stdout.strip().split():
+                try:
+                    pids.append(int(line))
+                except ValueError:
+                    pass
+            if pids:
+                for pid in pids:
+                    try:
+                        os.kill(pid, sig.SIGKILL)
+                    except OSError:
+                        pass
+                self.logger.info(f"cancel_running: killed {len(pids)} child process(es) of shell {shell_pid}")
+            else:
+                self.logger.debug(f"cancel_running: no child processes for shell {shell_pid}")
+        except Exception as e:
+            self.logger.debug(f"cancel_running failed: {e}")
 
     def restart(self) -> None:
         """重启会话"""

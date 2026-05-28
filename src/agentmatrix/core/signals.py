@@ -104,7 +104,9 @@ class ActionCompletedSignal:
         return None
 
     def to_text(self) -> str:
-        display_name = f"{self.action_name}: {self.label}" if self.label else self.action_name
+        # 去掉 "skill." 前缀，让输出更简洁
+        short_name = self.action_name.rsplit('.', 1)[-1] if '.' in self.action_name else self.action_name
+        display_name = f"{short_name}: {self.label}" if self.label else short_name
         if self.status == "ok":
             return f"[{display_name} Done]: {self.result}"
         elif self.status == "canceled":

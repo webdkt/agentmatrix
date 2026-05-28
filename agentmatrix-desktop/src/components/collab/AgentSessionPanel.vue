@@ -4,9 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useAgentStore } from '@/stores/agent'
 import { useWebSocketStore } from '@/stores/websocket'
-import { marked } from 'marked'
+import { showUIActionResult } from '@/composables/useUIActionResult'
 import { useChatTimeline } from '@/composables/useChatTimeline'
-import { useCollabFile } from '@/composables/useCollabFile'
 import { useTaskFiles } from '@/composables/useTaskFiles'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { agentAPI } from '@/api/agent'
@@ -18,7 +17,7 @@ import EmptySessionPanel from './EmptySessionPanel.vue'
 import NewTaskPanel from './NewTaskPanel.vue'
 import TaskSendingOverlay from './TaskSendingOverlay.vue'
 import AgentTerminal from './AgentTerminal.vue'
-import TaskFilesPanel from './TaskFilesPanel.vue'
+import TaskInfoPanel from './TaskInfoPanel.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 import { useFloatingWindow } from '@/composables/useFloatingWindow'
 
@@ -93,14 +92,13 @@ const navigateToAgentSession = (otherSessionId) => {
 }
 
 // ---- Collab file ----
-const { collabFile, collabFileName, openCollabFile } = useCollabFile({ agentName: currentAgentName })
 
 // ---- Collab draft message (provide/inject for cross-component communication) ----
 const collabDraftMessage = ref('')
 provide('collabDraftMessage', collabDraftMessage)
 
 // ---- UI State ----
-const showTaskFiles = ref(false)
+const taskInfoRef = ref(null)
 const showTerminal = ref(false)
 const terminalFullscreen = ref(false)
 const isCollabMode = ref(false)
@@ -109,17 +107,9 @@ const subjectInput = ref(null)
 // ---- Close panels when switching sessions ----
 watch(currentSessionId, (newId, oldId) => {
   if (newId && oldId && newId !== oldId) {
-    // Close terminal and files panel when switching to a different session
+    // Close terminal when switching to a different session
     showTerminal.value = false
     terminalFullscreen.value = false
-    showTaskFiles.value = false
-  }
-})
-
-// ---- Auto-load files when TaskFiles panel opens ----
-watch(showTaskFiles, (visible) => {
-  if (visible && currentAgentName.value && currentSessionId.value) {
-    taskFiles.loadFiles()
   }
 })
 
@@ -161,7 +151,7 @@ async function updateSubject(event) {
   }
 }
 
-// ---- Task files (single instance shared with TaskFilesPanel) ----
+// ---- Task files ----
 const taskFiles = useTaskFiles({
   agentName: () => currentAgentName.value,
   sessionId: () => currentSessionId.value,
@@ -219,14 +209,16 @@ const wsStore = useWebSocketStore()
 
 // ---- Floating Window ----
 const floating = useFloatingWindow()
-const showUIActionModal = ref(false)
-const uiActionResult = ref(null)
 
 // 监听 WebSocket 推送的 UI_ACTION_RESULT
-watch(() => wsStore.lastUIActionResult, (result) => {
+watch(() => wsStore.lastUIActionResult, async (result) => {
   if (result && result.agent_name === currentAgentName.value) {
-    uiActionResult.value = result
-    showUIActionModal.value = true
+    await showUIActionResult({
+      agent_name: result.agent_name,
+      action_name: result.action_name,
+      result: result.result,
+      display_mode: result.display_mode,
+    })
   }
 })
 
@@ -236,28 +228,18 @@ const invokeUIAction = async (actionNode) => {
     const payload = { session_id: currentSessionId.value }
     console.log('[UI Action]', actionNode.action, payload)
     const resp = await agentAPI.invokeAgentUIAction(currentAgentName.value, actionNode.action, payload)
-    if (resp.success && resp.result != null && !showUIActionModal.value) {
-      uiActionResult.value = {
+    console.log('[UI Action] API response:', resp)
+    if (resp.success && resp.result != null) {
+      await showUIActionResult({
         agent_name: currentAgentName.value,
         action_name: actionNode.action,
         result: resp.result,
         display_mode: resp.display_mode,
-      }
-      showUIActionModal.value = true
+      })
     }
   } catch (e) {
     console.error('UI action failed:', e)
   }
-}
-
-const closeUIActionModal = () => {
-  showUIActionModal.value = false
-  uiActionResult.value = null
-}
-
-const renderMarkdown = (text) => {
-  if (!text) return ''
-  return marked.parse(String(text))
 }
 
 // ---- Drag-drop file upload (single global listener) ----
@@ -339,7 +321,7 @@ async function setupDragDrop() {
         const { fileNames: copied } = await taskFiles.copyFiles(paths)
         fileNames.push(...copied)
         if (fileNames.length > 0) {
-          showTaskFiles.value = true
+          taskInfoRef.value?.switchTab('files')
           const fileList = fileNames.map(n => `- ${n}`).join('\n')
           const draftLine = `已复制以下文件到 \`~/current_task\` 目录，你看一下：\n${fileList}\n`
           collabDraftMessage.value = collabDraftMessage.value
@@ -447,10 +429,53 @@ const toggleCollabMode = async () => {
   }
 }
 
-// ---- Task files panel width ----
-const taskFilesWidth = computed(() => {
-  return Math.round(middleSize.value.width * 0.5)
+// ---- TaskInfo Panel resizable ----
+const taskInfoWidth = ref(null) // null = 50% default, number = fixed px
+const isDraggingDivider = ref(false)
+
+const taskInfoStyle = computed(() => {
+  if (taskInfoWidth.value != null) {
+    return { flex: '0 0 auto', width: `${taskInfoWidth.value}px` }
+  }
+  return { flex: '3 1 0%' } // default: 5:3 ratio
 })
+
+const messagesStyle = computed(() => {
+  if (taskInfoWidth.value != null) {
+    return { flex: '1 1 0%', minWidth: '0' }
+  }
+  return { flex: '5 1 0%', minWidth: '0' } // default: 5:3 ratio
+})
+
+function onDividerMouseDown(e) {
+  e.preventDefault()
+  isDraggingDivider.value = true
+  // If still in default 50/50 mode, initialize from actual widths
+  if (taskInfoWidth.value == null && middleArea.value) {
+    const total = middleArea.value.clientWidth
+    taskInfoWidth.value = Math.round(total / 2)
+  }
+  document.addEventListener('mousemove', onDividerMouseMove)
+  document.addEventListener('mouseup', onDividerMouseUp)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function onDividerMouseMove(e) {
+  if (!isDraggingDivider.value || !middleArea.value) return
+  const total = middleArea.value.clientWidth
+  const newWidth = total - e.clientX + middleArea.value.getBoundingClientRect().left
+  const clamped = Math.max(200, Math.min(total - 300, newWidth))
+  taskInfoWidth.value = Math.round(clamped)
+}
+
+function onDividerMouseUp() {
+  isDraggingDivider.value = false
+  document.removeEventListener('mousemove', onDividerMouseMove)
+  document.removeEventListener('mouseup', onDividerMouseUp)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
 </script>
 
 <template>
@@ -552,7 +577,7 @@ const taskFilesWidth = computed(() => {
     <!-- Middle Area -->
     <div ref="middleArea" class="agent-session-panel__middle">
       <!-- Chat messages -->
-      <div ref="messagesContainer" data-drop-zone="chat" class="agent-session-panel__messages" @scroll="onScroll">
+      <div ref="messagesContainer" data-drop-zone="chat" class="agent-session-panel__messages" :style="messagesStyle" @scroll="onScroll">
         <!-- Loading older events indicator -->
         <div v-if="isLoadingMore" class="agent-session-panel__loading-more">
           <MIcon name="loader" class="spin" /> 加载更早的消息...
@@ -619,30 +644,39 @@ const taskFilesWidth = computed(() => {
         </div>
       </div>
 
-      <!-- Task Files Slide-Out (from right edge) -->
-      <Transition name="slide-right">
-        <TaskFilesPanel
-          v-if="showTaskFiles && currentAgentName && currentSessionId"
-          :width="taskFilesWidth"
-          :files="taskFiles.files.value"
-          :files-loading="taskFiles.filesLoading.value"
-          :current-dir="taskFiles.currentDir.value"
-          :root-dir="taskFiles.rootDir.value"
-          :is-at-root="taskFiles.isAtRoot.value"
-          :relative-path="taskFiles.relativePath.value"
-          :selected-files="taskFiles.selectedFiles.value"
-          :context-menu="taskFiles.contextMenu.value"
-          @load-files="taskFiles.loadFiles()"
-          @open-entry="(entry) => taskFiles.openEntry(entry)"
-          @go-up="taskFiles.goUp()"
-          @go-root="taskFiles.goRoot()"
-          @select-file="(entry, event) => taskFiles.toggleFileSelection(entry, event)"
-          @contextmenu="(entry, event) => taskFiles.showContextMenu(entry, event)"
-          @hide-context-menu="taskFiles.hideContextMenu()"
-          @menu-action="(action) => taskFiles.handleMenuAction(action)"
-          @close="showTaskFiles = false"
-        />
-      </Transition>
+      <!-- Resizable Divider -->
+      <div
+        v-if="currentAgentName && currentSessionId"
+        class="agent-session-panel__divider"
+        :class="{ 'agent-session-panel__divider--active': isDraggingDivider }"
+        @mousedown="onDividerMouseDown"
+      />
+
+      <!-- TaskInfo Panel (resizable right panel, default 50%) -->
+      <TaskInfoPanel
+        v-if="currentAgentName && currentSessionId"
+        ref="taskInfoRef"
+        :agent-name="currentAgentName"
+        :session-id="currentSessionId"
+        :files="taskFiles.files.value"
+        :files-loading="taskFiles.filesLoading.value"
+        :current-dir="taskFiles.currentDir.value"
+        :root-dir="taskFiles.rootDir.value"
+        :is-at-root="taskFiles.isAtRoot.value"
+        :relative-path="taskFiles.relativePath.value"
+        :selected-files="taskFiles.selectedFiles.value"
+        :context-menu="taskFiles.contextMenu.value"
+        class="agent-session-panel__task-info"
+        :style="taskInfoStyle"
+        @load-files="taskFiles.loadFiles()"
+        @open-entry="(entry) => taskFiles.openEntry(entry)"
+        @go-up="taskFiles.goUp()"
+        @go-root="taskFiles.goRoot()"
+        @select-file="(entry, event) => taskFiles.toggleFileSelection(entry, event)"
+        @contextmenu="(entry, event) => taskFiles.showContextMenu(entry, event)"
+        @hide-context-menu="taskFiles.hideContextMenu()"
+        @menu-action="(action) => taskFiles.handleMenuAction(action)"
+      />
 
       <!-- Floating Terminal -->
       <AgentTerminal
@@ -667,30 +701,6 @@ const taskFilesWidth = computed(() => {
     <div data-drop-zone="input" class="agent-session-panel__bottom">
       <!-- Floating toolbar (sits on right shoulder) -->
       <div class="agent-session-panel__floating-toolbar">
-        <!-- CollabFile indicator -->
-        <button
-          class="floating-toolbar-btn"
-          :class="{
-            'floating-toolbar-btn--active': collabFile,
-            'floating-toolbar-btn--disabled': !collabFile,
-          }"
-          @click="openCollabFile"
-          :disabled="!collabFileName"
-        >
-          <MIcon name="file" />
-          <span class="floating-toolbar-btn__dot" v-if="collabFile"></span>
-          <span class="floating-toolbar-btn__tooltip">{{ collabFileName || 'No collab file' }}</span>
-        </button>
-
-        <!-- Task Files toggle -->
-        <button
-          class="floating-toolbar-btn"
-          :class="{ 'floating-toolbar-btn--active': showTaskFiles }"
-          @click="showTaskFiles = !showTaskFiles"
-        >
-          <MIcon name="folder" />
-          <span class="floating-toolbar-btn__tooltip">Task Files</span>
-        </button>
 
         <!-- Terminal toggle -->
         <button
@@ -751,31 +761,6 @@ const taskFilesWidth = computed(() => {
       />
     </div>
     </template> <!-- end session mode -->
-
-    <!-- UI Action Result Modal -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="showUIActionModal && uiActionResult" class="ui-action-modal">
-          <div class="ui-action-modal__overlay" @click="closeUIActionModal"></div>
-          <div class="ui-action-modal__content">
-            <div class="ui-action-modal__header">
-              <h2 class="ui-action-modal__title">{{ $t(`ui_actions.actions.${uiActionResult.action_name}`, uiActionResult.action_name) }}</h2>
-              <button @click="closeUIActionModal" class="ui-action-modal__close">
-                <MIcon name="x" />
-              </button>
-            </div>
-            <div class="ui-action-modal__body">
-              <div v-if="uiActionResult.display_mode === 'markdown'" class="ui-action-modal__markdown" v-html="renderMarkdown(uiActionResult.result)"></div>
-              <div v-else-if="uiActionResult.display_mode === 'json'" class="ui-action-modal__pre-wrap"><pre>{{ typeof uiActionResult.result === 'string' ? uiActionResult.result : JSON.stringify(uiActionResult.result, null, 2) }}</pre></div>
-              <div v-else class="ui-action-modal__text">{{ uiActionResult.result }}</div>
-            </div>
-            <div class="ui-action-modal__footer">
-              <button @click="closeUIActionModal" class="ui-action-modal__btn">Close</button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
   </div>
 </template>
 
@@ -805,6 +790,8 @@ const taskFilesWidth = computed(() => {
   display: flex;
   align-items: center;
   gap: 14px;
+  flex: 1;
+  min-width: 0;
 }
 
 .agent-session-panel__avatar {
@@ -1022,13 +1009,39 @@ const taskFilesWidth = computed(() => {
 }
 
 .agent-session-panel__messages {
-  flex: 1;
+  flex: 5 1 0%;
   overflow-y: auto;
   padding: 32px 36px 16px 36px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   min-width: 0;
+}
+
+/* ---- Resizable Divider ---- */
+.agent-session-panel__divider {
+  width: 7px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 3;
+  transition: background 0.15s ease;
+  margin: 0 -1px;
+}
+
+.agent-session-panel__divider:hover,
+.agent-session-panel__divider--active {
+  background: var(--accent);
+}
+
+/* ---- TaskInfo Panel (default 5:3, resizable) ---- */
+.agent-session-panel__task-info {
+  flex: 3 1 0%;
+  overflow: hidden;
+  background: var(--surface-base);
+  z-index: 2;
+  min-width: 200px;
 }
 
 .agent-session-panel__loading-more {
@@ -1222,20 +1235,8 @@ const taskFilesWidth = computed(() => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-/* CollabFile: slate blue */
-.floating-toolbar-btn:nth-child(1) {
-  border-color: #5A7A9A;
-  color: #5A7A9A;
-}
-
-/* Task Files: amber */
-.floating-toolbar-btn:nth-child(2) {
-  border-color: #A08050;
-  color: #A08050;
-}
-
 /* Terminal: sage green */
-.floating-toolbar-btn:nth-child(3) {
+.floating-toolbar-btn:nth-child(1) {
   border-color: #5A8A52;
   color: #5A8A52;
 }
@@ -1302,18 +1303,6 @@ const taskFilesWidth = computed(() => {
 
 /* ---- Active state: solid fill ---- */
 .floating-toolbar-btn:nth-child(1).floating-toolbar-btn--active {
-  border-color: #3A5A7A;
-  color: #3A5A7A;
-  background: rgba(90, 122, 154, 0.12);
-}
-
-.floating-toolbar-btn:nth-child(2).floating-toolbar-btn--active {
-  border-color: #7A5A20;
-  color: #7A5A20;
-  background: rgba(160, 128, 80, 0.12);
-}
-
-.floating-toolbar-btn:nth-child(3).floating-toolbar-btn--active {
   border-color: #3A6A32;
   color: #3A6A32;
   background: rgba(90, 138, 82, 0.12);
@@ -1395,18 +1384,6 @@ const taskFilesWidth = computed(() => {
   pointer-events: none;
 }
 
-/* ---- Slide-out transition for TaskFilesPanel ---- */
-.slide-right-enter-active,
-.slide-right-leave-active {
-  transition: transform 0.25s var(--ease-out);
-  will-change: transform;
-}
-
-.slide-right-enter-from,
-.slide-right-leave-to {
-  transform: translateX(100%);
-}
-
 /* ---- Animations ---- */
 .animate-spin {
   animation: spin 1s linear infinite;
@@ -1426,127 +1403,5 @@ const taskFilesWidth = computed(() => {
   from { opacity: 0; transform: translateY(4px) }
   to { opacity: 1; transform: translateY(0) }
 }
-
-/* ---- UI Action Modal ---- */
-.ui-action-modal {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.ui-action-modal__overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(2px);
-}
-.ui-action-modal__content {
-  position: relative;
-  width: 90vw;
-  max-width: 900px;
-  height: 80vh;
-  max-height: 700px;
-  background: var(--surface-secondary);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.ui-action-modal__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-base);
-}
-.ui-action-modal__title {
-  font-family: var(--font-sans);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin: 0;
-}
-.ui-action-modal__close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px; height: 32px;
-  border: none; background: transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  color: var(--text-tertiary);
-  transition: all 0.15s ease;
-}
-.ui-action-modal__close:hover {
-  background: var(--surface-hover);
-  color: var(--text-secondary);
-}
-.ui-action-modal__body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-.ui-action-modal__body pre {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  background: var(--surface-base);
-  padding: 16px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-}
-.ui-action-modal__text {
-  font-family: var(--font-sans);
-  font-size: 14px;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-}
-.ui-action-modal__markdown {
-  font-family: var(--font-sans);
-  font-size: 14px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-.ui-action-modal__markdown :deep(h1), .ui-action-modal__markdown :deep(h2), .ui-action-modal__markdown :deep(h3) {
-  margin: 16px 0 8px;
-}
-.ui-action-modal__markdown :deep(pre) {
-  background: var(--surface-base);
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  overflow-x: auto;
-}
-.ui-action-modal__markdown :deep(code) {
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-.ui-action-modal__footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-base);
-}
-.ui-action-modal__btn {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 8px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: white;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.ui-action-modal__btn:hover {
-  background: var(--surface-secondary);
-}
 </style>
+

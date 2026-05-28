@@ -2,7 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
-use commands::container::{check_container_runtime, init_podman_vm, ensure_container_image};
 
 use std::process::{Command, Child};
 use std::sync::Mutex;
@@ -412,30 +411,13 @@ async fn get_backend_port(state: State<'_, BackendState>) -> Result<Option<u16>,
 
 
 
-// ─── Container Runtime Detection ─── (migrated to commands/container.rs)
-
-// ─── Ensure Environment (unified startup: container runtime + backend) ───
+// ─── Ensure Environment (Python env + backend) ───
 
 async fn ensure_environment_logic(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
-    let runtime_info = check_container_runtime().await?;
-    if runtime_info.runtime == "none" {
-        return Err("No container runtime found. Please install Docker or Podman.".to_string());
-    }
-    if runtime_info.runtime == "podman" {
-        init_podman_vm().await?;
-    }
-
-    // 1. 确保容器镜像存在
-    ensure_container_image(app.clone()).await?;
-
-    // 2. 初始化容器包（仅在 cold start 时执行一次）
-    // 函数内部会检查 container_packages_initialized 标志
-    commands::container::initialize_container_packages(app.clone()).await?;
-
-    // 3. 确保 Python 环境（仅在首次执行一次，供 LocalFileAgent 使用）
+    // 1. 确保 Python 环境（供 Agent 使用）
     commands::python_env::ensure_python_env(app.clone()).await?;
 
-    // 4. 启动 backend
+    // 2. 启动 backend
     start_backend_logic(app, state).await?;
 
     Ok(())
@@ -498,7 +480,10 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(BackendState { child: Mutex::new(None), port: AtomicU16::new(0) })
-        .manage(commands::state::AppState { current_session: std::sync::Mutex::new(commands::state::CurrentSession::default()) })
+        .manage(commands::state::AppState {
+            current_session: std::sync::Mutex::new(commands::state::CurrentSession::default()),
+            ui_action_result: std::sync::Mutex::new(commands::state::UIActionResult::default()),
+        })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
@@ -739,6 +724,27 @@ fn main() {
                     }
                     w.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
                 }
+
+                // Result: transparent background
+                if let Some(w) = app.get_webview_window("result") {
+                    let ns = w.ns_window().unwrap() as *mut c_void;
+                    unsafe {
+                        let sel_opaque = sel_registerName(b"setOpaque:\0".as_ptr().cast());
+                        let f_bool: unsafe extern "C" fn(*mut c_void, *const c_void, i8) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_bool(ns, sel_opaque, 0);
+                        let cls = objc_getClass(b"NSColor\0".as_ptr().cast());
+                        let sel_clear = sel_registerName(b"clearColor\0".as_ptr().cast());
+                        let f_ret: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        let clear = f_ret(cls, sel_clear);
+                        let sel_bg = sel_registerName(b"setBackgroundColor:\0".as_ptr().cast());
+                        let f_void: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
+                            std::mem::transmute(objc_msgSend as *const ());
+                        f_void(ns, sel_bg, clear);
+                    }
+                    w.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
+                }
             }
 
             // Reposition stream window when capsule is moved
@@ -827,15 +833,12 @@ fn main() {
             commands::matrix::init_matrix_world,
             commands::filesystem::copy_file,
             commands::filesystem::file_exists,
+            commands::filesystem::read_text_file,
+            commands::filesystem::write_text_file,
+            commands::config::read_llm_config,
             commands::config::save_llm_config,
             commands::config::save_email_proxy_config_cmd,
             commands::config::save_env_file,
-            commands::container::check_container_runtime,
-            commands::container::install_podman,
-            commands::container::check_image,
-            commands::container::load_image,
-            commands::container::init_podman_vm,
-            commands::container::ensure_container_image,
             wizard_complete,
             commands::ui::is_window_focused,
             commands::ui::show_window,
@@ -848,10 +851,15 @@ fn main() {
             commands::ui::destroy_input_window,
             commands::ui::create_detail_window,
             commands::ui::destroy_detail_window,
+            commands::ui::create_result_window,
+            commands::ui::destroy_result_window,
+            commands::ui::resize_result_window,
             commands::ui::minimize_main_window,
             commands::ui::restore_main_window,
             commands::state::get_current_session,
             commands::state::set_current_session,
+            commands::state::get_ui_action_result,
+            commands::state::set_ui_action_result,
             commands::python_env::ensure_python_env,
             commands::python_env::check_python_env,
         ])

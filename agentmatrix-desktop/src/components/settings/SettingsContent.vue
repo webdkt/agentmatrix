@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import LLMConfigList from './llm/LLMConfigList.vue'
 import EmailProxyConfig from './email-proxy/EmailProxyConfig.vue'
@@ -7,217 +7,159 @@ import ProxyConfig from './proxy/ProxyConfig.vue'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
+  categories: {
+    type: Array,
+    required: true
+  },
   currentCategory: {
     type: String,
     required: true
   }
 })
 
+const emit = defineEmits(['save'])
+
 const settingsStore = useSettingsStore()
+const contentRef = ref(null)
 
-const isLoading = ref(false)
-const error = ref(null)
+const currentMeta = computed(() => {
+  return props.categories.find(c => c.id === props.currentCategory) || props.categories[0]
+})
 
-// Methods - MUST be defined before watch
-const loadCategoryData = async (category) => {
-  isLoading.value = true
-  error.value = null
-
-  try {
-    switch (category) {
-      case 'llm':
-        await settingsStore.loadLLMConfig()
-        break
-      case 'email-proxy':
-        // Will be implemented when Email Proxy API is ready
-        break
-      case 'proxy':
-        await settingsStore.loadProxyConfig()
-        break
-    }
-  } catch (err) {
-    error.value = err.message
-    console.error(`Failed to load ${category} data:`, err)
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// Computed
 const currentCategoryComponent = computed(() => {
-  const components = {
+  const map = {
     'llm': LLMConfigList,
     'email-proxy': EmailProxyConfig,
     'proxy': ProxyConfig
   }
-  return components[props.currentCategory] || null
+  return map[props.currentCategory] || null
 })
 
-const categoryTitle = computed(() => {
-  const titles = {
-    'llm': 'LLM Configuration',
-    'email-proxy': 'Email Proxy',
-    'proxy': 'HTTP Proxy'
-  }
-  return titles[props.currentCategory] || 'Settings'
-})
+function save() {
+  contentRef.value?.save?.()
+}
 
-const categoryDescription = computed(() => {
-  const descriptions = {
-    'llm': 'Manage your language model providers and API configurations',
-    'email-proxy': 'Configure email proxy service settings',
-    'proxy': 'Configure HTTP proxy for LLM API calls and container network access'
-  }
-  return descriptions[props.currentCategory] || ''
-})
-
-// Watch category changes to load data
-watch(() => props.currentCategory, async (newCategory) => {
-  await loadCategoryData(newCategory)
-}, { immediate: true })
-
-// Lifecycle
-onMounted(async () => {
-  await loadCategoryData(props.currentCategory)
-})
+defineExpose({ save })
 </script>
 
 <template>
-  <main class="settings-content">
-    <!-- Loading State -->
-    <div v-if="isLoading" class="loading-state">
-      <div class="loading-spinner">
-        <MIcon name="loader" />
-      </div>
-      <p>Loading settings...</p>
-    </div>
-
-    <!-- Error State -->
-    <div v-else-if="error" class="error-state">
-      <div class="error-icon">
-        <MIcon name="alert-circle" />
-      </div>
-      <h3>Failed to load settings</h3>
-      <p>{{ error }}</p>
-    </div>
-
-    <!-- Content -->
-    <div v-else class="content-wrapper">
-      <!-- Category Header -->
-      <header class="category-header">
-        <div>
-          <h2 class="category-title">{{ categoryTitle }}</h2>
-          <p class="category-description">{{ categoryDescription }}</p>
+  <div class="settings-content">
+    <header class="page-header">
+      <div class="page-header-left">
+        <div class="page-icon-wrap">
+          <MIcon :name="currentMeta.icon" class="page-icon" />
         </div>
-      </header>
-
-      <!-- Category Content -->
-      <div class="category-content">
-        <component :is="currentCategoryComponent" v-if="currentCategoryComponent" />
-        <div v-else class="not-found">
-          <MIcon name="help-circle" />
-          <p>Category not found</p>
+        <div class="page-title-group">
+          <h1 class="page-title">{{ currentMeta.labelZh }} 配置</h1>
+          <p class="page-desc">{{ currentMeta.desc }}</p>
         </div>
       </div>
-    </div>
-  </main>
+      <button class="save-btn" @click="emit('save')">
+        <MIcon name="check" class="save-icon" />
+        <span>保存全部</span>
+      </button>
+    </header>
+
+    <main class="content-body">
+      <component :is="currentCategoryComponent" v-if="currentCategoryComponent" ref="contentRef" />
+    </main>
+  </div>
 </template>
 
 <style scoped>
 .settings-content {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  background: white;
-}
-
-.loading-state,
-.error-state {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.page-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 40px;
+  background: white;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.page-icon-wrap {
+  width: 44px;
+  height: 44px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  gap: var(--spacing-4);
-  color: var(--text-tertiary);
-  padding: var(--spacing-8);
+  background: var(--accent-muted);
+  border-radius: var(--radius-xl);
+  flex-shrink: 0;
 }
 
-.loading-spinner {
-  font-size: 48px;
-  animation: spin 1s linear infinite;
+.page-icon {
+  font-size: 22px;
+  color: var(--accent);
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.page-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.error-icon {
-  font-size: 48px;
-  color: var(--error-500);
+.page-title {
+  font-size: var(--font-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+  letter-spacing: var(--tracking-tight);
 }
 
-.error-state h3 {
-  font-size: var(--font-lg);
-  font-weight: var(--font-semibold);
+.page-desc {
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   margin: 0;
+  line-height: 1.4;
 }
 
-.error-state p {
+.save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 18px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-full);
   font-size: var(--font-sm);
-  color: var(--text-tertiary);
-  margin: 0;
-}
-
-.content-wrapper {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.category-header {
-  flex-shrink: 0;
-  padding: var(--spacing-8) var(--spacing-8) var(--spacing-6) var(--spacing-8);
-  border-bottom: 1px solid var(--surface-hover);
-}
-
-.category-title {
-  font-size: var(--font-2xl);
   font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  margin: 0 0 var(--spacing-2) 0;
-  line-height: var(--leading-tight);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-out);
+  box-shadow: 0 1px 2px rgba(166, 123, 123, 0.2);
 }
 
-.category-description {
-  font-size: var(--font-sm);
-  color: var(--text-tertiary);
-  margin: 0;
+.save-btn:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 2px 6px rgba(166, 123, 123, 0.3);
+  transform: translateY(-0.5px);
 }
 
-.category-content {
+.save-icon {
+  font-size: 15px;
+}
+
+.content-body {
   flex: 1;
   overflow-y: auto;
-  padding: 0 var(--spacing-8) var(--spacing-8) var(--spacing-8);
-}
-
-.not-found {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 400px;
-  gap: var(--spacing-4);
-  color: var(--text-tertiary);
-}
-
-.not-found i {
-  font-size: 64px;
+  overflow-x: hidden;
+  background: var(--surface-secondary);
+  padding: 28px 40px 48px;
 }
 </style>
