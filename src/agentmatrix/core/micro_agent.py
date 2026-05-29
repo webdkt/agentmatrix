@@ -1265,6 +1265,12 @@ class MicroAgent(AutoLoggerMixin):
         - intent → LLM 表达了意图但没给命令，投递操作提示
         """
         try:
+            # 快速检查：末尾是问号，直接判定为 question，跳过小脑
+            if raw_reply.rstrip().endswith('?') or raw_reply.rstrip().endswith('？'):
+                self.logger.info("Exit verification: ends with ?, fast-track as question")
+                self._emit_event("session", "exit_msg", {"exit_msg_type": "question"})
+                return
+
             verification_prompt = _utils.build_exit_verification_prompt(raw_reply)
             verification_result = await self.cerebellum.backend.think_with_retry(
                 initial_messages=[{"role": "user", "content": verification_prompt}],
@@ -1276,7 +1282,11 @@ class MicroAgent(AutoLoggerMixin):
             self.logger.info(f"Exit verification result: {result}")
 
             if result in ("question", "statement", "other"):
-                return  # 确认该退出，循环已经退了，什么都不做
+                if result in ("question", "statement"):
+                    self._emit_event("session", "exit_msg", {
+                        "exit_msg_type": result,
+                    })
+                return
 
             # 不该退出 — 检查是否已有新工作在进行
             if not self.signal_queue.empty():
@@ -1333,9 +1343,17 @@ class MicroAgent(AutoLoggerMixin):
             return [], []
 
         # 在块内解析函数式调用（含幻觉检测）
-        valid_calls, hallucinations = _utils.parse_function_calls(
+        valid_calls, hallucinations, syntax_errors = _utils.parse_function_calls(
             script_block, self.action_registry["_flat"]
         )
+
+        # 语法错误处理：括号/字符串未闭合，提示 LLM 修正格式
+        if syntax_errors:
+            error_names = ", ".join(syntax_errors)
+            self.signal_queue.put_nowait(TextSignal(
+                text=f"[System] action '{error_names}' 的参数包含语法错误（括号或字符串未正确闭合）。",
+                type_name="syntax_error",
+            ))
 
         # 幻觉处理：生成 signal 提醒 LLM 纠偏
         if hallucinations:

@@ -117,7 +117,8 @@ const renderedBody = computed(() => {
     if (!body) return ''
     return body
   }
-  const body = props.message.data?.detail?.body_preview
+  // bubble-agent: body_preview from emails, or thought text from exit_msg upgraded thoughts
+  const body = props.message.data?.detail?.body_preview || props.message.data?.detail?.thought
   if (!body) return ''
   return renderMarkdownWithPaths(body)
 })
@@ -264,6 +265,8 @@ const handleAttachmentClick = async (attachment) => {
 
   <!-- Agent chat bubble (left-aligned, parchment) -->
   <div v-else-if="message.type === 'bubble-agent'" class="chat-msg">
+    <div v-if="message.data?.exitMsgType === 'question'" class="chat-msg__exit-badge chat-msg__exit-badge--question">?</div>
+    <div v-else-if="message.data?.exitMsgType === 'statement'" class="chat-msg__exit-badge chat-msg__exit-badge--statement"></div>
     <div class="chat-msg__bubble">
       <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handleContentClick"></div>
       <div v-if="attachments.length > 0" class="chat-msg__attachments">
@@ -418,6 +421,31 @@ const handleAttachmentClick = async (attachment) => {
   font-size: 14px;
   color: var(--text-primary);
   line-height: 1.65;
+}
+
+/* ===== Exit badge (question mark / statement indicator) ===== */
+.chat-msg__exit-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.chat-msg__exit-badge--question {
+  background: var(--accent-soft, rgba(99, 102, 241, 0.15));
+  color: var(--accent, #6366f1);
+}
+
+.chat-msg__exit-badge--statement {
+  background: var(--surface-hover);
+  width: 8px;
+  height: 8px;
 }
 
 /* ===== Agent-to-agent email bubble ===== */

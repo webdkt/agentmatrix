@@ -1219,6 +1219,17 @@ Start generating the Working Notes now.
                     },
                 )
 
+        elif event.event_type == "session" and event.event_name == "exit_msg":
+            detail = event.detail or {}
+            await self._log_session_event(
+                session_id=session_id,
+                event_type="session",
+                event_name="exit_msg",
+                event_detail={
+                    "exit_msg_type": detail.get("exit_msg_type"),
+                },
+            )
+
         else:
             await self._log_session_event(
                 session_id=session_id,
@@ -1310,9 +1321,10 @@ Start generating the Working Notes now.
             return True
 
         tracker = session.get("reply_tracker", {})
+        user_name = self.runtime.get_user_agent_name() if self.runtime else "User"
         unreplied = [
             (p, info) for p, info in tracker.items()
-            if not info.get("replied", True)
+            if not info.get("replied", True) and p != user_name
         ]
 
         if not unreplied:

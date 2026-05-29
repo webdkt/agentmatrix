@@ -156,12 +156,14 @@ def parse_function_calls(
         action_registry_flat: action_registry["_flat"] 字典
 
     Returns:
-        (valid_calls, hallucination_names)
+        (valid_calls, hallucination_names, syntax_errors)
         - valid_calls: [(action_name, params_text), ...] — 在 registry 中的
         - hallucination_names: [name, ...] — 函数格式正确但 name 不存在
+        - syntax_errors: [name, ...] — 有效 action 但括号/字符串未正确闭合
     """
     valid_calls = []
     hallucinations = []
+    syntax_errors = []
 
     # 匹配行首的 func_name( 或 skill.func_name(
     # 支持前导空白
@@ -197,8 +199,14 @@ def parse_function_calls(
             pos += 1
 
         if depth != 0:
-            # 括号未闭合，跳过
-            continue
+            # 括号未闭合（通常因参数内字符串引号不匹配，如 r"""...""" 内嵌了 """）
+            if func_name in action_registry_flat:
+                # 有效 action：仍尝试执行，参数取剩余全部文本
+                params_text = text[start_paren + 1:].strip()
+                valid_calls.append((func_name, params_text))
+                syntax_errors.append(func_name)
+            # 不论是否有效，消费剩余文本防止内部代码被误识别为 action
+            break
 
         # 标记消费范围：从本调用的开头到闭合括号
         consumed_end = pos
@@ -211,7 +219,7 @@ def parse_function_calls(
         else:
             hallucinations.append(func_name)
 
-    return valid_calls, hallucinations
+    return valid_calls, hallucinations, syntax_errors
 
 
 def parse_params_from_call(params_text: str) -> Dict[str, Any]:

@@ -212,6 +212,21 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       : (evt.agent_name === agentName)
     if (!isMatch) return
 
+    // exit_msg: mutate the last thought event's display mode instead of appending a new event
+    if (evt.data.event_type === 'session' && evt.data.event_name === 'exit_msg') {
+      const exitMsgType = evt.data.event_detail?.exit_msg_type
+      if (exitMsgType) {
+        for (let i = events.value.length - 1; i >= 0; i--) {
+          if (events.value[i].renderType === 'thought') {
+            events.value[i].renderType = 'bubble-agent'
+            events.value[i].exitMsgType = exitMsgType
+            break
+          }
+        }
+      }
+      return
+    }
+
     const parsed = parseEvent(evt.data)
     if (parsed.renderType === 'skip') return
 
