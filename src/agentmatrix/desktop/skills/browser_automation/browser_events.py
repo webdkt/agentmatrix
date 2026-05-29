@@ -314,10 +314,74 @@ class BrowserEventListener:
             return
         self.cdp.on_event("Runtime.bindingCalled", self._on_binding_called)
         self.cdp.on_event("Page.loadEventFired", self._on_page_loaded)
+        self.cdp.on_event("Page.javascriptDialogOpening", self._on_js_dialog)
         self.cdp.on_event("Target.targetDestroyed", self._on_target_destroyed)
         self.cdp.on_event("Target.targetCreated", self._on_target_created)
         self.cdp.on_event("Target.targetInfoChanged", self._on_target_info_changed)
         self._handlers_registered = True
+
+    def _on_js_dialog(self, params):
+        """处理 JS 对话框：beforeunload 自动接受，其他类型路由给 agent。"""
+        if not self.active:
+            return
+
+        dialog_type = params.get("type", "")
+        session_id = params.get("_sessionId", "")
+        url = params.get("url", "")
+        message = params.get("message", "")
+
+        if dialog_type == "beforeunload":
+            # beforeunload 自动接受，避免阻塞页面
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(self._auto_accept_dialog(session_id))
+            except RuntimeError:
+                pass
+            return
+
+        # 其他对话框（alert/confirm/prompt）→ 作为信号路由给 agent
+        agent_name = ""
+        target_id = ""
+        if session_id:
+            tab = self.tab_mgr.get_tab_by_session_sync(session_id)
+            if tab:
+                agent_name = tab.agent_name
+                target_id = tab.target_id
+
+        if not agent_name:
+            agent_name = self._find_agent_for_tab(session_id)
+
+        if agent_name:
+            self._emit_to_agent(agent_name, BrowserSignal(
+                agent_name=agent_name,
+                agent_session_id="",
+                event_type="js_dialog",
+                url=url,
+                data={
+                    "dialog_type": dialog_type,
+                    "message": message,
+                    "target_id": target_id,
+                    "has_default_value": "defaultPrompt" in params,
+                    "default_value": params.get("defaultPrompt", ""),
+                },
+                cdp_session_id=session_id,
+            ))
+            logger.info(f"JS dialog ({dialog_type}) routed to agent '{agent_name}': {message[:80]}")
+
+    async def _auto_accept_dialog(self, session_id: str):
+        """自动接受 beforeunload 对话框。"""
+        if not session_id:
+            return
+        try:
+            await self.cdp.send(
+                "Page.handleJavaScriptDialog",
+                {"accept": True},
+                session_id=session_id,
+                timeout=5,
+            )
+            logger.info(f"Auto-accepted beforeunload dialog (session={session_id[:12]})")
+        except Exception as e:
+            logger.warning(f"Failed to auto-accept dialog: {e}")
 
     def _on_binding_called(self, params):
         """处理 CDP bindingCalled 事件，解析 __bhSendEvent 传递的事件数据。"""

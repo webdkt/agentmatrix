@@ -522,8 +522,9 @@ class BrowserCollabAgent(BaseAgent):
             self._current_site_url = metadata.get("sk_site_key")
             self._loaded_site_key = metadata.get("sk_site_key")
             self._loaded_process_dir = metadata.get("sk_process_dir")
-            from .skills.browser_automation.skill import _agent_sk_callbacks
+            from .skills.browser_automation.skill import _agent_sk_callbacks, _agent_env_callbacks
             _agent_sk_callbacks.pop(self.name, None)
+            _agent_env_callbacks.pop(self.name, None)
         try:
             if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
                 await self.active_micro_agent._ensure_browser()

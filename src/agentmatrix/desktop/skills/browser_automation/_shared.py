@@ -38,6 +38,7 @@ _init_lock = asyncio.Lock()
 _agent_current_tab: dict[str, TabInfo] = {}
 _agent_last_session: dict[str, str] = {}  # agent_name → last known session_id
 _agent_sk_callbacks: dict[str, callable] = {}  # agent_name → tab 变化时刷新 site knowledge prompt
+_agent_env_callbacks: dict[str, callable] = {}  # agent_name → async callable(target_id) 更新 CDP_CURRENT_TAB_ID
 
 
 def _trigger_sk_callback(agent_name: str):
@@ -48,6 +49,17 @@ def _trigger_sk_callback(agent_name: str):
             callback()
         except Exception as e:
             logger.debug(f"Site knowledge callback failed for '{agent_name}': {e}")
+
+
+def _trigger_env_callback(agent_name: str, target_id: str):
+    """触发 agent 的 CDP 环境变量更新回调（如果已注册）。"""
+    env_cb = _agent_env_callbacks.get(agent_name)
+    if env_cb:
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(env_cb(target_id))
+        except RuntimeError:
+            pass
 
 
 async def shutdown_browser_infra():
@@ -84,6 +96,7 @@ def _update_current_tab(agent_name: str, target_id: str):
     if tab:
         _agent_current_tab[agent_name] = tab
         _trigger_sk_callback(agent_name)
+        _trigger_env_callback(agent_name, target_id)
 
 
 def _on_tab_removed(target_id: str, agent_name: str):
@@ -92,6 +105,7 @@ def _on_tab_removed(target_id: str, agent_name: str):
     if current and current.target_id == target_id:
         _agent_current_tab.pop(agent_name, None)
         _trigger_sk_callback(agent_name)
+        _trigger_env_callback(agent_name, "")
 
 
 def _short_url(url: str) -> str:

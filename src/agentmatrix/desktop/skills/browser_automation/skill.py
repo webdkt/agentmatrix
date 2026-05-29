@@ -33,6 +33,7 @@ from agentmatrix.core.action import register_action
 from ._shared import (
     infra,
     _agent_current_tab, _agent_last_session, _agent_sk_callbacks,
+    _agent_env_callbacks,
     _trigger_sk_callback, shutdown_browser_infra,
     _update_current_tab, _on_tab_removed,
     _short_url, _auto_yield_ui, _auto_restore_ui,
@@ -42,6 +43,28 @@ from .tab_manager import TabInfo
 from .interfaces import load_interface, list_interfaces
 
 logger = logging.getLogger(__name__)
+
+
+def _make_env_update_callback(root_agent, sock_path: str):
+    """创建异步回调，在 tab 变化时更新 CDP 环境变量（两个都设，覆盖 shell 重启等丢失场景）。"""
+    async def _update_cdp_env(target_id):
+        local_session = getattr(root_agent, 'local_session', None)
+        if not local_session:
+            return
+        env_cmd = (
+            f'export CDP_SOCKET_PATH="{sock_path}"\n'
+            f'export CDP_CURRENT_TAB_ID="{target_id}"\n'
+        )
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(local_session.execute, env_cmd),
+                timeout=5,
+            )
+        except asyncio.TimeoutError:
+            logger.debug("Skipped CDP env update: shell busy")
+        except Exception:
+            logger.debug("Skipped CDP env update: execute failed")
+    return _update_cdp_env
 
 
 # ── Skill Mixin ───────────────────────────────────────────
@@ -66,7 +89,24 @@ class Browser_automationSkillMixin:
             - 使用 load_site_knowledge(site_key) 来加载对应站点的概览和流程列表
         - 子目录（site 目录）
             - 每个site_key对应一个子目录(site 目录），存放该站点的所有自动化知识和脚本，site目录内有：
-            - readme.md: 网站说明、针对该网站的自动化特点的公共说明，流程的介绍和索引。
+            - readme.md: 网站说明，必须的结构如下
+                ```markdown
+                # 站点说明
+                {{简短说明该站点的用途}}
+                ## 🚀 快速开始 (Quick Start)
+                **首次使用？按以下顺序操作：**
+                1. **确定你的业务场景**：
+                - {{场景A}} → 使用 `{{流程A目录名}}` 流程
+                - {{场景B}} → 使用 `{{流程B目录名}}` 流程
+                2. **阅读流程文档**：
+                - 前往对应的流程目录（如 `{{流程A目录名}}/`）
+                - **首先阅读该目录下的 `readme.md`** - 了解流程概述、业务规则和步骤索引
+                - **然后按 `step-00-*.md` → `step-01-*.md` → ... 的顺序执行**
+
+                3. **重要提醒**：
+                - {{列出该站点需要特别注意的事项，如前置条件、特殊阶段等}}
+                - 请严格按照流程文档中的步骤顺序执行，不要跳过任何步骤
+                ```
             - 流程子目录（process 目录），针对特定工作流程的子目录，内含该流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
             - 使用 load_site_knowledge(site_key, process_dir_name) 来加载对应流程的自动化步骤和脚本列表
             - 每个流程子目录的结构
@@ -123,7 +163,9 @@ class Browser_automationSkillMixin:
     - 一个 socket 连接同一时间只能有一个未完成的请求（发一个，等响应，再发下一个），多脚本需串行执行
     - 操作 tab 必须先 Target.attachToTarget 拿到 sessionId，每次脚本运行都要重新 attach，不可复用旧的 sessionId
     - 环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 已自动注入，直接从 os.environ 读取，不要硬编码
+    - **如果脚本运行时发现环境变量为空或不存在**：说明 CDP 连接尚未就绪或 shell 会话已重启。应先调用 get_cdp_info() 获取 socket_path 和 current_tab.target_id，然后通过 bash 执行 `export CDP_SOCKET_PATH="..." && export CDP_CURRENT_TAB_ID="..."` 设置环境变量，再重新运行脚本。不要等待、不要重试旧的空值。
     - Chrome 重启后 socket 会重建，脚本重连即可
+    - **刷新页面**：不要用 `location.reload()`（会触发 beforeunload 弹窗导致 CDP session 阻塞），应使用 CDP 命令 `Page.navigate` 到当前 URL，或 `Page.reload`（绕过 beforeunload）
     
     #### Javascript: No Console Output
     eval_js 不会返回console的输出。只会返回脚本 return的结果。
@@ -225,19 +267,28 @@ class Browser_automationSkillMixin:
 
         # 自动设置 CDP 环境变量到 Agent 的 bash session
         local_session = getattr(self.root_agent, 'local_session', None)
-        if local_session and sock_path:
+        if local_session:
             tab = self._get_current_tab()
-            env_cmds = (
-                f'export CDP_SOCKET_PATH="{sock_path}"\n'
-                f'export CDP_CURRENT_TAB_ID="{tab.target_id if tab else ""}"\n'
-            )
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(local_session.execute, env_cmds),
-                    timeout=5,
+            if sock_path:
+                env_cmds = (
+                    f'export CDP_SOCKET_PATH="{sock_path}"\n'
+                    f'export CDP_CURRENT_TAB_ID="{tab.target_id if tab else ""}"\n'
                 )
-            except asyncio.TimeoutError:
-                logger.debug("Skipped CDP env setup: shell busy")
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(local_session.execute, env_cmds),
+                        timeout=5,
+                    )
+                    logger.info(f"CDP env set: SOCK={sock_path}, TAB={tab.target_id[:12] if tab else 'None'}")
+                except Exception as e:
+                    logger.warning(f"CDP env setup failed: {e}")
+                # 注册 tab 变化时自动更新 CDP 环境变量的回调（两个都设）
+                _agent_env_callbacks[agent_name] = _make_env_update_callback(self.root_agent, sock_path)
+            else:
+                logger.warning(f"CDP env skipped: sock_path is None (sid={current_sid[:8] if current_sid else 'None'}, "
+                               f"chrome_mgr={bool(infra['chrome_manager'])}, cdp={bool(infra['cdp_client'])})")
+        else:
+            logger.debug("CDP env skipped: no local_session")
 
     async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
         """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab，收养匹配的 tab。
@@ -823,9 +874,20 @@ class Browser_automationSkillMixin:
                 return json.dumps({"type": "undefined", "value": None})
             if value is None:
                 return json.dumps({"type": type_name, "value": None})
+
+            # 截断过大返回值，防止撑爆 context
+            _MAX_RETURN_CHARS = 8000
             if isinstance(value, (dict, list)):
-                return json.dumps(value, ensure_ascii=False)
-            return str(value)
+                text = json.dumps(value, ensure_ascii=False)
+            else:
+                text = str(value)
+            if len(text) > _MAX_RETURN_CHARS:
+                size_kb = len(text.encode("utf-8", errors="replace")) // 1024
+                return (f"eval_js 返回值过大（{size_kb} KB），已截断。"
+                        f"请修改代码只返回需要的信息（如 length、特定字段），"
+                        f"或用脚本将结果写入文件再处理。"
+                        f"前 {_MAX_RETURN_CHARS} 字符预览：\n{text[:_MAX_RETURN_CHARS]}")
+            return text
         except Exception as e:
             logger.warning(f"[eval_js] CDP error: {e}")
             return json.dumps({"error": str(e)})

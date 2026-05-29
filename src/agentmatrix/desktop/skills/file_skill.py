@@ -347,9 +347,6 @@ class FileSkillMixin:
             self.logger.debug(f"[bash] 检测到未闭合双引号，自动补齐")
             command += '"'
 
-        # 执行前检查 shell 是否可响应，不可响应则自动重启
-        await asyncio.to_thread(container_session.ensure_responsive)
-
         # 执行命令
         exit_code, stdout, stderr = await asyncio.to_thread(
             container_session.execute, command, timeout
