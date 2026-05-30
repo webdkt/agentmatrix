@@ -41,6 +41,8 @@ class EmailProxyService(AutoLoggerMixin):
     连接外部邮箱和AgentMatrix的桥梁服务：
     - 从IMAP拉取邮件并调用UserProxyAgent.speak()
     - 监听PostOffice的dispatch事件，发送外部邮件
+    
+    配置管理方法通过 EmailProxyConfigMixin 提供。
     """
 
     def __init__(
@@ -845,3 +847,114 @@ class EmailProxyService(AutoLoggerMixin):
                 decoded_parts.append(content)
 
         return "".join(decoded_parts)
+
+    # ── 配置管理方法 ──
+
+    def get_config(self) -> dict:
+        """返回当前 Email Proxy 配置"""
+        return dict(self.config)
+
+    async def update_config(self, new_config: dict):
+        """
+        更新 Email Proxy 配置并持久化。
+        
+        Args:
+            new_config: 新的 email_proxy 配置 dict（不含外层 email_proxy key）
+        """
+        import yaml
+        from ..config_schemas import EmailProxyConfig as EmailProxyConfigSchema
+        from ..utils.backup import backup_file, cleanup_old_backups
+
+        validated = EmailProxyConfigSchema(**new_config)
+
+        self.paths.email_proxy_config_path.parent.mkdir(parents=True, exist_ok=True)
+        backup_file(
+            self.paths.email_proxy_config_path,
+            self.paths.backup_dir,
+            "email_proxy_config",
+        )
+
+        ep_data = validated.model_dump()
+        with open(self.paths.email_proxy_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(ep_data, f, allow_unicode=True, default_flow_style=False)
+
+        cleanup_old_backups(self.paths.backup_dir, "email_proxy_config")
+
+        self.config = ep_data
+        self.matrix_mailbox = ep_data.get("matrix_mailbox", "")
+        self.user_mailbox = ep_data.get("user_mailbox", "")
+        self.imap_config = ep_data.get("imap", {})
+        self.smtp_config = ep_data.get("smtp", {})
+
+    async def enable(self, runtime):
+        """启用 Email Proxy：更新配置 + 启动服务"""
+        import yaml
+        from ..utils.backup import backup_file
+
+        self.config["enabled"] = True
+        backup_file(
+            self.paths.email_proxy_config_path,
+            self.paths.backup_dir,
+            "email_proxy_config",
+        )
+        with open(self.paths.email_proxy_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(self.config, f, allow_unicode=True, default_flow_style=False)
+
+        if runtime.email_proxy is None:
+            runtime._init_email_proxy()
+        if runtime.email_proxy and not runtime.email_proxy._running:
+            runtime.email_proxy_task = asyncio.ensure_future(runtime.email_proxy.start())
+
+    async def disable(self, runtime):
+        """禁用 Email Proxy：更新配置 + 停止服务"""
+        import yaml
+        from ..utils.backup import backup_file
+
+        self.config["enabled"] = False
+        backup_file(
+            self.paths.email_proxy_config_path,
+            self.paths.backup_dir,
+            "email_proxy_config",
+        )
+        with open(self.paths.email_proxy_config_path, "w", encoding="utf-8") as f:
+            yaml.dump(self.config, f, allow_unicode=True, default_flow_style=False)
+
+        if self._running:
+            await self.stop()
+
+    async def test_connection(self):
+        """测试 SMTP 和 IMAP 连接"""
+        from ..config_verifier import verify_smtp_connection, verify_imap_connection
+
+        results = []
+        if self.smtp_config:
+            results.append(await verify_smtp_connection(self.smtp_config))
+        if self.imap_config:
+            results.append(await verify_imap_connection(self.imap_config))
+        return results
+
+    def add_user_mailbox(self, email_addr: str):
+        """添加用户邮箱到 user_mailbox 列表"""
+        current = self.config.get("user_mailbox", "")
+        if isinstance(current, str):
+            if not current:
+                self.config["user_mailbox"] = email_addr
+            elif email_addr not in current:
+                self.config["user_mailbox"] = [current, email_addr]
+        elif isinstance(current, list):
+            if email_addr not in current:
+                current.append(email_addr)
+        self.user_mailbox = self.config["user_mailbox"]
+
+    def remove_user_mailbox(self, email_addr: str):
+        """从 user_mailbox 列表移除邮箱"""
+        current = self.config.get("user_mailbox", "")
+        if isinstance(current, str):
+            if current == email_addr:
+                self.config["user_mailbox"] = ""
+        elif isinstance(current, list):
+            if email_addr in current:
+                current.remove(email_addr)
+                if len(current) == 1:
+                    self.config["user_mailbox"] = current[0]
+        self.user_mailbox = self.config.get("user_mailbox", "")

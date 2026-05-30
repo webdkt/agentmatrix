@@ -6,24 +6,24 @@ import re
 
 from fastapi import APIRouter, HTTPException
 
-from agentmatrix.desktop.services.config_service import ConfigService
 from ..state import server_state
 from ..models import LLMConfigUpdateRequest, LLMConfigCreateRequest
-from ..utils import (
-    REQUIRED_LLM_CONFIGS,
-    load_llm_configs,
-    save_llm_configs_to_file,
-    get_llm_config_description,
-)
+from ..utils import REQUIRED_LLM_CONFIGS, get_llm_config_description
 
 router = APIRouter(prefix="/api/llm-configs")
+
+
+def _svc():
+    if not server_state.matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+    return server_state.matrix_runtime.llm_service
 
 
 @router.get("/")
 async def get_llm_configs():
     """Get all LLM configurations"""
     try:
-        configs = load_llm_configs()
+        configs = _svc().list_models()
 
         result = []
         for name, config in configs.items():
@@ -50,10 +50,7 @@ async def get_llm_configs():
 async def get_llm_config(config_name: str):
     """Get a specific LLM configuration"""
     try:
-        if not server_state.matrix_runtime:
-            raise HTTPException(status_code=503, detail="Runtime not initialized")
-
-        configs = ConfigService(server_state.matrix_runtime.paths).list_llm_models()
+        configs = _svc().list_models()
 
         if config_name not in configs:
             raise HTTPException(
@@ -79,9 +76,6 @@ async def get_llm_config(config_name: str):
 async def create_llm_config(request: LLMConfigCreateRequest):
     """Create a new LLM configuration"""
     try:
-        if not server_state.matrix_runtime:
-            raise HTTPException(status_code=503, detail="Runtime not initialized")
-
         if not re.match(r"^[a-zA-Z0-9_-]+$", request.name):
             raise HTTPException(
                 status_code=400,
@@ -94,7 +88,7 @@ async def create_llm_config(request: LLMConfigCreateRequest):
             "model_name": request.model_name,
         }
 
-        ConfigService(server_state.matrix_runtime.paths).add_llm_model(request.name, config)
+        await _svc().add_endpoint(request.name, config)
 
         return {
             "success": True,
@@ -110,7 +104,7 @@ async def create_llm_config(request: LLMConfigCreateRequest):
         }
     except HTTPException:
         raise
-    except FileExistsError as e:
+    except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -120,20 +114,13 @@ async def create_llm_config(request: LLMConfigCreateRequest):
 async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
     """Update an existing LLM configuration"""
     try:
-        configs = load_llm_configs()
-
-        if config_name not in configs:
-            raise HTTPException(
-                status_code=404, detail=f"LLM config '{config_name}' not found"
-            )
-
-        configs[config_name] = {
+        config = {
             "url": request.url,
             "API_KEY": request.api_key,
             "model_name": request.model_name,
         }
 
-        save_llm_configs_to_file(configs)
+        await _svc().update_endpoint(config_name, config)
 
         return {
             "success": True,
@@ -149,6 +136,8 @@ async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -157,21 +146,7 @@ async def update_llm_config(config_name: str, request: LLMConfigUpdateRequest):
 async def delete_llm_config(config_name: str):
     """Delete an LLM configuration"""
     try:
-        if config_name in REQUIRED_LLM_CONFIGS:
-            raise HTTPException(
-                status_code=403, detail=f"Cannot delete required config '{config_name}'"
-            )
-
-        configs = load_llm_configs()
-
-        if config_name not in configs:
-            raise HTTPException(
-                status_code=404, detail=f"LLM config '{config_name}' not found"
-            )
-
-        del configs[config_name]
-
-        save_llm_configs_to_file(configs)
+        await _svc().delete_endpoint(config_name)
 
         return {
             "success": True,
@@ -179,6 +154,10 @@ async def delete_llm_config(config_name: str):
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        detail = str(e)
+        code = 403 if "required" in detail else 404
+        raise HTTPException(status_code=code, detail=detail)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -192,40 +171,22 @@ async def reset_llm_config(config_name: str):
                 status_code=400, detail=f"Can only reset required configs"
             )
 
-        configs = load_llm_configs()
-
-        defaults = {
-            "default_llm": {
-                "url": "https://api.openai.com/v1/chat/completions",
-                "API_KEY": "your-api-key",
-                "model_name": "gpt-4",
-            },
-            "default_slm": {
-                "url": "https://api.openai.com/v1/chat/completions",
-                "API_KEY": "your-api-key",
-                "model_name": "gpt-3.5-turbo",
-            },
-            "browser-use-llm": {
-                "url": "https://api.openai.com/v1/chat/completions",
-                "API_KEY": "your-api-key",
-                "model_name": "gpt-4",
-            },
-        }
-
-        configs[config_name] = defaults.get(config_name, defaults["default_llm"])
-        save_llm_configs_to_file(configs)
+        await _svc().reset_endpoint(config_name)
+        config = _svc().get_model_config(config_name)
 
         return {
             "success": True,
             "message": f"LLM config '{config_name}' reset to defaults",
             "config": {
                 "name": config_name,
-                **configs[config_name],
+                **(config or {}),
                 "is_required": True,
                 "description": get_llm_config_description(config_name),
             },
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

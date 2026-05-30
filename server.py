@@ -26,7 +26,7 @@ else:
 
 # Re-export so existing ``from agentmatrix import ...`` still works
 from agentmatrix import AgentMatrix, __version__          # noqa: F401
-from agentmatrix.desktop.services.config_service import ConfigService  # noqa: F401
+# ConfigService has been split into agent_service, llm_service, proxy_service, email_proxy_config_service
 
 # ---------------------------------------------------------------------------
 # CLI argument parsing (must happen at import time — uvicorn references

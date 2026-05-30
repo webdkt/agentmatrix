@@ -1,13 +1,11 @@
 """
 Agent Admin Skill - Agent Profile Management
 
-Thin wrapper around ConfigService for agent management operations.
-All logic is in ConfigService; this skill just provides the action interface.
+Delegates to AgentService for all agent operations.
 """
 
-from typing import Optional
+import yaml
 from agentmatrix.core.action import register_action
-from agentmatrix.desktop.services.config_service import ConfigService
 
 
 class Agent_adminSkillMixin:
@@ -20,9 +18,8 @@ class Agent_adminSkillMixin:
     )
     _skill_dependencies = ["base"]
 
-    def _get_cs(self):
-        """Get ConfigService instance."""
-        return ConfigService(self.root_agent.runtime.paths)
+    def _svc(self):
+        return self.root_agent.runtime.agent_service
 
     def _format_result(self, result) -> str:
         """Format a result object into LLM-friendly text."""
@@ -42,11 +39,15 @@ class Agent_adminSkillMixin:
             else:
                 lines = [f"❌ {result.get('message', 'Failed')}"]
                 if result.get("errors"):
-                    lines.append("\nErrors:")
-                    for err in result["errors"]:
-                        lines.append(f"  • [{err['field']}] {err['issue']}")
-                        if err.get("suggestion"):
-                            lines.append(f"    💡 {err['suggestion']}")
+                    if isinstance(result["errors"], list):
+                        lines.append("\nErrors:")
+                        for err in result["errors"]:
+                            if isinstance(err, dict):
+                                lines.append(f"  • [{err.get('field', '?')}] {err.get('issue', err)}")
+                                if err.get("suggestion"):
+                                    lines.append(f"    💡 {err['suggestion']}")
+                            else:
+                                lines.append(f"  • {err}")
                 return "\n".join(lines)
         return str(result)
 
@@ -116,12 +117,10 @@ persona: |
     )
     async def read_agent_profile(self, agent_name: str) -> str:
         try:
-            cs = self._get_cs()
-            result = cs.read_agent_config(agent_name)
-            if result.success:
-                return result.content
-            else:
-                return f"❌ {result.error}"
+            content = self._svc().read_profile_raw(agent_name)
+            if content is None:
+                return f"❌ Agent '{agent_name}' not found"
+            return content
         except Exception as e:
             return f"❌ {e}"
 
@@ -139,20 +138,22 @@ persona: |
     )
     async def create_agent_profile(self, agent_name: str, content: str) -> str:
         try:
-            cs = self._get_cs()
-            result = await cs.create_agent_config(agent_name, content)
-            if result.success:
-                return (
-                    self._format_result(result.to_dict())
-                    + "\n\n💡 配置文件已创建。需要调用 reload_agent 来加载新 Agent。"
-                )
-            return self._format_result(result.to_dict())
+            profile = yaml.safe_load(content) or {}
+            await self._svc().create_agent(agent_name, profile)
+            return (
+                f"✅ Agent '{agent_name}' created and registered successfully"
+                "\n\n💡 配置文件已创建，Agent 已加载到运行时。"
+            )
+        except FileExistsError as e:
+            return f"❌ {e}"
+        except ValueError as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
     @register_action(
         short_desc="更新 Agent Profile（agent_name, content）",
-        description="更新现有 Agent 的配置文件。建议先用 read_agent_profile 读取当前配置，修改后再调用此方法。",
+        description="更新现有 Agent 的配置文件并热重载。建议先用 read_agent_profile 读取当前配置，修改后再调用此方法。",
         param_infos={
             "agent_name": "Agent 的显示名（name 字段）",
             "content": "Agent Profile 的完整 YAML 内容",
@@ -160,61 +161,40 @@ persona: |
     )
     async def update_agent_profile(self, agent_name: str, content: str) -> str:
         try:
-            cs = self._get_cs()
-            result = await cs.write_agent_config(agent_name, content)
-            return self._format_result(result.to_dict())
+            profile = yaml.safe_load(content) or {}
+            await self._svc().update_agent(agent_name, profile)
+            return f"✅ Agent '{agent_name}' updated and reloaded successfully"
+        except ValueError as e:
+            return f"❌ {e}"
+        except FileNotFoundError as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
     @register_action(
         short_desc="删除 Agent（agent_name, delete_config=false）",
-        description="从运行时移除 Agent，可选是否同时删除配置文件。高风险操作。",
+        description="停止 Agent、从运行时移除，并删除配置文件。高风险操作。",
         param_infos={
             "agent_name": "要删除的 Agent 名称",
-            "delete_config": "是否同时删除配置文件（true/false，默认 false）",
+            "delete_config": "是否同时删除配置文件（true/false，默认 true）",
         },
     )
-    async def delete_agent(self, agent_name: str, delete_config: bool = False) -> str:
+    async def delete_agent(self, agent_name: str, delete_config: bool = True) -> str:
         try:
-            cs = self._get_cs()
             runtime = self.root_agent.runtime
-
             if agent_name not in runtime.agents:
                 return f"❌ Agent '{agent_name}' not found"
-
             if agent_name == runtime.user_agent_name:
                 return f"❌ Cannot delete User agent"
 
-            agent = runtime.agents[agent_name]
+            await self._svc().delete_agent(agent_name)
 
-            # 先停止当前执行
-            cs.stop_agent(runtime, agent_name)
-
-            # 取消 worker tasks
-            if hasattr(agent, "email_worker_task") and agent.email_worker_task:
-                agent.email_worker_task.cancel()
-            if hasattr(agent, "history_worker_task") and agent.history_worker_task:
-                agent.history_worker_task.cancel()
-
-            # 从 PostOffice 取消注册
-            if runtime.post_office and hasattr(runtime.post_office, "unregister"):
-                runtime.post_office.unregister(agent)
-
-            # 从 runtime 移除
-            del runtime.agents[agent_name]
-
-            # 🆕 移除容器用户（单容器架构）
-            if hasattr(runtime, "container_manager") and runtime.container_manager:
-                try:
-                    runtime.container_manager.remove_user(agent_name)
-                except Exception as e:
-                    self.logger.warning(f"移除容器用户失败: {e}")
-
-            if delete_config:
-                msg = cs.delete_agent_config(agent_name)
-                return f"✅ Agent '{agent_name}' 已删除（{msg}）"
-            else:
-                return f"✅ Agent '{agent_name}' 已删除（配置文件保留）"
+            msg = f"✅ Agent '{agent_name}' 已删除"
+            if not delete_config:
+                msg += "（配置文件保留）"
+            return msg
+        except ValueError as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
@@ -228,10 +208,10 @@ persona: |
     )
     async def clone_agent(self, from_agent: str, new_agent_name: str) -> str:
         try:
-            cs = self._get_cs()
-            return await cs.clone_agent(
-                self.root_agent.runtime, from_agent, new_agent_name
-            )
+            await self._svc().clone_agent(from_agent, new_agent_name)
+            return f"✅ Agent '{new_agent_name}' cloned from '{from_agent}' and loaded into runtime"
+        except (ValueError, FileNotFoundError) as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
@@ -244,8 +224,10 @@ persona: |
     )
     async def stop_agent(self, agent_name: str) -> str:
         try:
-            cs = self._get_cs()
-            return cs.stop_agent(self.root_agent.runtime, agent_name)
+            await self._svc().stop_agent(agent_name)
+            return f"✅ Agent '{agent_name}' 的当前执行已中止"
+        except ValueError as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
@@ -256,8 +238,10 @@ persona: |
     )
     async def reload_agent(self, agent_name: str) -> str:
         try:
-            cs = self._get_cs()
-            return await cs.reload_agent(self.root_agent.runtime, agent_name)
+            await self._svc().reload_agent(agent_name)
+            return f"✅ Agent '{agent_name}' reloaded successfully"
+        except (ValueError, FileNotFoundError) as e:
+            return f"❌ {e}"
         except Exception as e:
             return f"❌ {e}"
 
@@ -268,8 +252,21 @@ persona: |
     )
     async def list_agents(self) -> str:
         try:
-            cs = self._get_cs()
-            return cs.list_agents(self.root_agent.runtime)
+            agents = self._svc().list_running_agents()
+            if not agents:
+                return "No agents running"
+
+            lines = [f"Running agents ({len(agents)}):\n"]
+            for info in agents:
+                lines.append(f"  ** {info.name} **")
+                lines.append(f"     description: {info.description}")
+                lines.append(f"     status: {info.status}")
+                lines.append(f"     model: {info.backend_model}")
+                skills = info.skills or []
+                lines.append(f"     skills: {', '.join(skills) if skills else 'none'}")
+                lines.append("")
+
+            return "\n".join(lines)
         except Exception as e:
             return f"❌ {e}"
 
@@ -282,14 +279,13 @@ persona: |
     )
     async def list_agent_profile_history(self, agent_name: str) -> str:
         try:
-            cs = self._get_cs()
-            backups = cs.list_agent_backups(agent_name)
+            backups = self._svc().list_backups(agent_name)
             if not backups:
                 return f"No history found for agent '{agent_name}'"
 
             lines = [f"Agent '{agent_name}' 配置历史（共 {len(backups)} 条）:\n"]
             for b in backups:
-                lines.append(f"  • {b.name} ({b.size} bytes, {b.modified})")
+                lines.append(f"  • {b}")
             return "\n".join(lines)
         except Exception as e:
             return f"❌ {e}"

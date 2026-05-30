@@ -6,7 +6,6 @@ import re
 
 from fastapi import APIRouter, HTTPException
 
-from agentmatrix.desktop.services.config_service import ConfigService
 from ..state import server_state
 from ..models import AgentConfigRequest, AgentUpdateRequest
 from ..utils import (
@@ -48,7 +47,7 @@ async def get_agent_profile_by_name(agent_name: str):
         if not server_state.matrix_runtime:
             raise HTTPException(status_code=503, detail="Runtime not initialized")
 
-        profile = ConfigService(server_state.matrix_runtime.paths).get_agent_profile(agent_name)
+        profile = server_state.matrix_runtime.agent_service.read_profile(agent_name)
         return agent_profile_to_response(profile)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")

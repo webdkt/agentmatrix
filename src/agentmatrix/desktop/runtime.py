@@ -186,6 +186,18 @@ class AgentMatrix(AutoLoggerMixin):
         self.status_collector = SystemStatusCollector(self)
         self.echo(">>> 系统状态收集器已初始化")
 
+        # 🆕 Services
+        from .services.agent_service import AgentService
+        from .services.llm_service import LLMService
+        from .services.proxy_service import ProxyService
+        from .services.email_proxy_config_service import EmailProxyConfigService
+
+        self.agent_service = AgentService(self)
+        self.llm_service = LLMService(self)
+        self.proxy_service = ProxyService(self)
+        self.email_proxy_config_svc = EmailProxyConfigService(self)
+        self.echo(">>> Services 已初始化")
+
     def get_user_agent_name(self) -> str:
         """Get the configured user agent name"""
         return self.user_agent_name
