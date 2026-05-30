@@ -47,8 +47,7 @@ if [ -d "$MATRIX_TEMPLATE_SRC" ]; then
     TEMPLATE_RESOURCES_DST="$SCRIPT_DIR/src-tauri/resources/matrix-template"
     echo "   → Copying to Tauri resources: $TEMPLATE_RESOURCES_DST"
     mkdir -p "$TEMPLATE_RESOURCES_DST"
-    # Use rsync WITHOUT --delete to avoid removing files that are in git
-    rsync -a "$MATRIX_TEMPLATE_SRC/" "$TEMPLATE_RESOURCES_DST/" 2>/dev/null || \
+    rsync -a --delete "$MATRIX_TEMPLATE_SRC/" "$TEMPLATE_RESOURCES_DST/" 2>/dev/null || \
         cp -rf "$MATRIX_TEMPLATE_SRC"/. "$TEMPLATE_RESOURCES_DST"/
     echo "   ✅ Synced to $TEMPLATE_RESOURCES_DST"
 
