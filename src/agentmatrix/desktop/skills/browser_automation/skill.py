@@ -172,7 +172,7 @@ class Browser_automationSkillMixin:
     #### 正式脚本 vs 探索脚本
     ~/site_knowledge 下只能存放正式的脚本。探索脚本放在 ~/current_task/tmp 下。
     #### 流程文档 step-{{index}}-{{step_name}}.md
-    - 流程文档本质上是一个执行手册，是一份“代码”
+    - 流程文档本质上是一个执行手册，是一份"代码"
     - 流程文档的基本结构
         - Part 1（Code): 带有编号的执行步骤。每个步骤要么是（a）自动化脚本，（b）手动执行的具体js or cdp命令,或者是(c) Agent 进行判断的、分支或者循环的说明。 Part 1 的目的是让任何Agent可以按照步骤完成该流程，无需懂的业务。
         - Part 2 (Doc): 对业务逻辑的补充说明，作为参考供debug, 后续开发和版本review用。
@@ -626,7 +626,7 @@ class Browser_automationSkillMixin:
         },
     )
     async def find_selector(self, instruction_text: str, tab_id: str = None) -> str:
-        from agentmatrix.core.micro_agent import MicroAgent
+        from agentmatrix.core.sub_agent import SubAgentShell
 
         await self._ensure_browser()
 
@@ -655,31 +655,30 @@ class Browser_automationSkillMixin:
             "- 优先考虑元素自身的**语义化**的属性"
             "- 如果本身缺少直接的稳定属性，就去寻找元素的上级、下级或相邻结构中的稳定定位元素，以其为锚点，再通过相对关系来定位目标元素。"
             "- 一个属性是否是稳定可靠的selector取决于作用域。例如单纯的<a> tag一般无法直接用于定位。但如果其父节点可以稳定定位，parent > a 就是一个简单稳定的定位手段"
-            "- 所以在本身没有稳定属性的情况下，优先找到目标元素“层级关系最近”的稳定元素，然后在缩小的作用域里进行更简单的定位"
+            "- 所以在本身没有稳定属性的情况下，优先找到目标元素层级关系最近的稳定元素，然后在缩小的作用域里进行更简单的定位"
             "- 避免使用无语义、随机生成的属性来作为定位依据"
             "5. 可以用 __bh_test 或 __bh_test_xpath 验证selector匹配元素的数量"
-            "6. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
+            "6. 用 return_result(result={\"selector\": \"找到的CSS选择器或XPath\", \"additional_info\": \"元素描述\"}) 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
             "用户完全不懂技术，并且缺乏耐心，所以无论你做什么action，都要用 keep_user_from_bored 来说点什么避免用户长时间等待。可以通俗的解释工作，或者说一些相关话题、有趣又有智慧的评论，避免用户觉得无聊"
         )
 
-        micro = MicroAgent(
+        sub = SubAgentShell(
             parent=self.root_agent,
             name=f"{self.root_agent.name}_dom_explorer",
             available_skills=["browser_automation.dom_explorer"],
             system_prompt=prompt,
+            result_params={"selector": "CSS选择器或XPath", "additional_info": "元素描述"},
+            micro_agent_attrs={"_pinned_tab_id": tab_id},
         )
-        micro._pinned_tab_id = tab_id
 
         try:
-            result = await micro.execute(
-                run_label="Find Element Selector",
+            result = await sub.execute(
                 task=(
                     f"用户对于要找的元素的描述: {instruction_text}\n"
                     f"当前页面: {tab.url}\n"
                     f"tab_id: {tab_id}\n\n"
                     "请找到用户需要的元素的稳定定位表达式。"
                 ),
-                exit_actions=["return_selector"],
             )
             return json.dumps({
                 "status": "ok",
@@ -692,6 +691,18 @@ class Browser_automationSkillMixin:
                 "status": "error",
                 "error": str(e),
             }, ensure_ascii=False)
+        finally:
+            # 清理 SubAgent 可能残留的 overlay
+            try:
+                if infra["cdp_client"] and infra["cdp_client"]._connected:
+                    await infra["cdp_client"].send(
+                        "Runtime.evaluate",
+                        {"expression": "window.__bh_cleanup_all && __bh_cleanup_all()"},
+                        session_id=tab.session_id,
+                        timeout=3,
+                    )
+            except Exception:
+                pass
 
     @register_action(
         short_desc="find_unique_selector_by_xy(additional_info, tab_id?, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
@@ -704,7 +715,7 @@ class Browser_automationSkillMixin:
         },
     )
     async def find_unique_selector_by_xy(self, additional_info: str, tab_id: str = None, x: int = 0, y: int = 0) -> str:
-        from agentmatrix.core.micro_agent import MicroAgent
+        from agentmatrix.core.sub_agent import SubAgentShell
 
         await self._ensure_browser()
 
@@ -740,25 +751,25 @@ class Browser_automationSkillMixin:
             "- 优先考虑元素自身的**语义化**的属性"
             "- 如果本身缺少直接的稳定属性，就去寻找元素的上级、下级或相邻结构中的稳定定位元素，以其为锚点，再通过相对关系来定位目标元素。"
             "- 一个属性是否是稳定可靠的selector取决于作用域。例如单纯的<a> tag一般无法直接用于定位。但如果其父节点可以稳定定位，parent > a 就是一个简单稳定的定位手段"
-            "- 所以在本身没有稳定属性的情况下，优先找到目标元素“层级关系最近”的稳定元素，然后在缩小的作用域里进行更简单的定位"
+            "- 所以在本身没有稳定属性的情况下，优先找到目标元素层级关系最近的稳定元素，然后在缩小的作用域里进行更简单的定位"
             "- 避免使用无语义、随机生成的属性来作为定位依据"
             "4. 用 __bh_test 或 __bh_test_xpath 验证唯一性（count 必须为 1）\n"
             "5. 不唯一则调整，直到唯一且稳定（不依赖动态、随机的属性、数量关系）\n"
-            "6. 调用 return_selector 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
+            "6. 用 return_result(result={\"selector\": \"找到的CSS选择器或XPath\", \"additional_info\": \"元素描述\"}) 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
             "用户完全不懂技术，并且缺乏耐心，所以无论你做什么action，都要用 keep_user_from_bored 来说点什么避免用户长时间等待。可以通俗的解释工作，或者说一些相关话题、有趣又有智慧的评论，避免用户觉得无聊"
         )
 
-        micro = MicroAgent(
+        sub = SubAgentShell(
             parent=self.root_agent,
             name=f"{self.root_agent.name}_dom_explorer",
             available_skills=["browser_automation.dom_explorer"],
             system_prompt=prompt,
+            result_params={"selector": "CSS选择器或XPath", "additional_info": "元素描述"},
+            micro_agent_attrs={"_pinned_tab_id": tab_id},
         )
-        micro._pinned_tab_id = tab_id
 
         try:
-            result = await micro.execute(
-                run_label="Find Element Selector",
+            result = await sub.execute(
                 task=(
                     f"用户在页面上指向了一个位置，描述: {additional_info}\n"
                     f"坐标: x={x}, y={y}\n"
@@ -766,7 +777,6 @@ class Browser_automationSkillMixin:
                     f"tab_id: {tab_id}\n\n"
                     "请找到用户想指的交互元素的稳定唯一定位表达式。"
                 ),
-                exit_actions=["return_selector"],
             )
             return json.dumps({
                 "status": "ok",
@@ -779,6 +789,18 @@ class Browser_automationSkillMixin:
                 "status": "error",
                 "error": str(e),
             }, ensure_ascii=False)
+        finally:
+            # 清理 SubAgent 可能残留的 overlay
+            try:
+                if infra["cdp_client"] and infra["cdp_client"]._connected:
+                    await infra["cdp_client"].send(
+                        "Runtime.evaluate",
+                        {"expression": "window.__bh_cleanup_all && __bh_cleanup_all()"},
+                        session_id=tab.session_id,
+                        timeout=3,
+                    )
+            except Exception:
+                pass
 
     @register_action(
         short_desc="confirm_element(selector, tab_id?) 在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",

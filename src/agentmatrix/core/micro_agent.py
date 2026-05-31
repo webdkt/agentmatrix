@@ -142,6 +142,7 @@ class MicroAgent(AutoLoggerMixin):
         self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
         self._before_think_hook = None  # Shell 层注入的 think 前回调
         self._before_exit_hook = None  # Shell 层注入的退出前回调
+        self._should_exit: bool = False  # action 设置此 flag 触发退出
 
         # 日志
         self.logger.info(
@@ -678,7 +679,6 @@ class MicroAgent(AutoLoggerMixin):
         result_params: Optional[Dict[str, str]] = None,
         session_store: Optional[SessionStore] = None,
         simple_mode: bool = False,
-        exit_actions=[],  # 如果运行哪些动作就退出主循环
     ) -> Any:
         """
         执行任务（可重复调用）
@@ -779,7 +779,7 @@ class MicroAgent(AutoLoggerMixin):
 
         try:
             # 执行 think-negotiate-act 循环
-            await self._run_loop(exit_actions)
+            await self._run_loop()
 
             # 计算执行时间
             duration = time.time() - start_time
@@ -960,11 +960,9 @@ class MicroAgent(AutoLoggerMixin):
                 max_retries=3,
             )
 
-    async def _run_loop(self, exit_actions=[]):
+    async def _run_loop(self):
         """信号驱动的执行主循环 - think → launch actions → wait signal → think"""
         start_time = time.time()
-        if isinstance(exit_actions, str):
-            exit_actions = [exit_actions]
         step_count = 0
         while True:
             # 🔀 检查点1：每次循环开始时检查是否暂停
@@ -1093,51 +1091,7 @@ class MicroAgent(AutoLoggerMixin):
                 
 
                 # 4. 分发 actions
-                should_break_loop = False
-
-                # 分离 exit_actions 和普通 actions
-                # 双向短名匹配：exit_actions 和 action_name 都可能是全名或短名
-                exit_action_set = set(exit_actions)
-                # 预处理 exit_actions 的短名集合
-                exit_short_names = set()
-                for ea in exit_actions:
-                    exit_short_names.add(ea.rsplit('.', 1)[-1] if '.' in ea else ea)
-
-                exit_action_name = None
-                for action_name in action_names:
-                    # 全名匹配
-                    if action_name in exit_action_set:
-                        exit_action_name = action_name
-                        break
-                    # 短名双向匹配
-                    short = action_name.rsplit('.', 1)[-1] if '.' in action_name else action_name
-                    if short in exit_short_names:
-                        exit_action_name = action_name
-                        break
-
-                if exit_action_name:
-                    # exit_action 仍然同步执行，执行完直接退出循环
-                    self.logger.info(f"Executing exit action: {exit_action_name}")
-                    self.return_action_name = exit_action_name
-                    # 从 action_results 中找到 exit_action 的完整结果
-                    exit_result = None
-                    for r in action_results:
-                        if r[0] == exit_action_name:
-                            exit_result = r
-                            break
-                    if exit_result:
-                        _, exit_params, exit_method, exit_label = exit_result
-                        try:
-                            result = await self._execute_action(
-                                exit_action_name, exit_params, exit_method,
-                                action_names.index(exit_action_name) + 1, action_names,
-                                action_label=exit_label,
-                            )
-                            self.result = result
-                        except Exception:
-                            pass
-                    should_break_loop = True
-                elif action_names:
+                if action_names:
                     action_count = len(action_names)
                     action_desc = f"{action_count} action{'s' if action_count > 1 else ''}"
                     self.logger.info(f"Launching {action_desc}: {action_names}")
@@ -1180,9 +1134,12 @@ class MicroAgent(AutoLoggerMixin):
                         if len(self._running_actions) >= prev_count:
                             break  # 数量没减少（有慢 action 在跑），进入下一轮
 
-                # 5. 检查是否需要退出主循环
-                if should_break_loop:
-                    self.logger.info(f"Loop exit: exit action '{exit_action_name}' completed")
+                # 5. 检查 _should_exit flag（action 设置此 flag 触发退出）
+                if getattr(self, '_should_exit', False):
+                    self._should_exit = False
+                    last_action = getattr(self, 'last_action_name', None)
+                    self.return_action_name = last_action
+                    self.logger.info(f"Loop exit: action '{last_action}' set _should_exit")
                     break
 
                 # 声明式退出：没有新 action 要执行，没有 running action 在跑，且 signal_queue 为空

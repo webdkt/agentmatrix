@@ -125,7 +125,7 @@ class MemorySkillMixin:
         """
         搜索一组关键词，找到答案返回 str，否则返回 None
         """
-        from agentmatrix.core.micro_agent import MicroAgent
+        from agentmatrix.desktop.sub_agent import DesktopSubAgent
 
         self.logger.info(
             f"Group {group_index}: searching AND({', '.join(keywords)})"
@@ -188,31 +188,25 @@ class MemorySkillMixin:
 
 重要：
 - 对于值得记录的信息，用 take_note 积累发现
-- provide_final_answer 是最终答案，调用后阅读结束
-- 读完本批如果不能提供最终答案，思考决定选择：
-    - 如果后面还值得探索，用 read_next_batch 继续
-    - 如果当前 session 与问题完全无关，用 session_irrelevant 跳过
+- 找到答案后，用 return_result(result={{"status": "answer", "content": "答案内容"}}) 返回
+- 读完本批如果找不到答案，思考决定选择：
+    - 如果后面还值得探索，用 return_result(result={{"status": "next_batch"}}) 返回
+    - 如果当前 session 与问题完全无关，用 return_result(result={{"status": "irrelevant"}}) 返回
 """
 
-                sub_agent = MicroAgent(
-                    parent=self,
+                sub = DesktopSubAgent(
+                    parent=self.root_agent,
                     name=f"{self.name}_recall_g{group_index}_{session_id[:8]}_{i}",
                     available_skills=["memory.memory_reader", "file"],
+                    persona=getattr(self, "persona", None),
+                    prompt_template="SIMPLE_MODE",
+                    micro_agent_attrs={"notes": []},
                 )
-                sub_agent.notes = []
-                sub_agent.answer = None
 
                 try:
-                    await sub_agent.execute(
-                        run_label=f"recall_g{group_index}_{i}",
+                    result = await sub.execute(
                         task=task,
-                        persona=getattr(self, "persona", None),
                         simple_mode=True,
-                        exit_actions=[
-                            "provide_final_answer",
-                            "read_next_batch",
-                            "session_irrelevant",
-                        ],
                     )
                 except asyncio.CancelledError:
                     raise
@@ -220,23 +214,20 @@ class MemorySkillMixin:
                     self.logger.error(f"Recall sub-agent failed: {e}")
                     continue
 
-                sub_notes = getattr(sub_agent, "notes", [])
+                sub_notes = getattr(sub._micro_agent, "notes", [])
                 session_notes.extend(sub_notes)
 
-                action = getattr(sub_agent, "return_action_name", None)
-                answer = getattr(sub_agent, "answer", None)
-
                 self.logger.info(
-                    f"Group {group_index}: session batch {i} exit action: {action}"
+                    f"Group {group_index}: session batch {i} result: {result}"
                 )
 
-                if action == "provide_final_answer":
-                    return answer or "\n".join(session_notes)
-
-                elif action == "session_irrelevant":
-                    break
-
-                # read_next_batch: continue
+                if result and isinstance(result, dict):
+                    status = result.get("status", "answer")
+                    if status == "answer":
+                        return result.get("content") or "\n".join(session_notes)
+                    elif status == "irrelevant":
+                        break
+                    # status == "next_batch": continue
 
         self.logger.info(f"Group {group_index}: no answer found")
         return None

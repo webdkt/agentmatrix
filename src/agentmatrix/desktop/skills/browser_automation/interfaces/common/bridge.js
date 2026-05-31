@@ -281,6 +281,32 @@
         }
     };
 
+    // ==========================================
+    // 统一清理 — 清除所有 overlay、高亮和确认对话框
+    // ==========================================
+
+    /**
+     * 清除所有 overlay、高亮和确认对话框。
+     * 用于 SubAgent 退出后清理残留 UI，或 eval_js 执行前清理。
+     */
+    window.__bh_cleanup_all = function() {
+        // 1. 移除确认对话框（bridge.js 创建的）
+        var overlay = document.getElementById('__bh_confirm_overlay__');
+        if (overlay) overlay.remove();
+        var bubble = document.getElementById('__bh_confirm_bubble__');
+        if (bubble) bubble.remove();
+
+        // 2. 清除所有高亮
+        if (typeof __bh_clear_highlights === 'function') {
+            __bh_clear_highlights();
+        }
+
+        // 3. 恢复 agent_button overlay 状态
+        if (window.__bh_confirm_overlay__ && window.__bh_confirm_overlay__.hide) {
+            window.__bh_confirm_overlay__.hide();
+        }
+    };
+
     /**
      * 获取坐标处所有元素（从最顶层到底层），隐藏 __bh_host__ 后探测。
      * @param {number} x
@@ -427,6 +453,9 @@
             overlay.addEventListener('click', function(e) {
                 if (e.target === overlay) emit(false);
             });
+
+            // 10. 安全超时：60 秒后自动清理（防止残留阻塞页面交互）
+            setTimeout(function() { emit(false); }, 60000);
 
         } catch (e) {
             window.__bh_emit__('element_confirmed', {selector: selector, confirmed: false, error: e.message});
