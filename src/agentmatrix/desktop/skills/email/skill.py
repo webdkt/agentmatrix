@@ -76,6 +76,10 @@ class EmailSkillMixin:
         - 从当前 agent 的 attachments 目录复制到目标 agent 的 attachments 目录
         - 自动处理文件重名
         """
+        # 防护：LLM 可能传字符串而非列表（如 attachment="path" → attachments="path"）
+        if attachments is not None and not isinstance(attachments, list):
+            attachments = [attachments]
+
         # 校验收件人是否为有效的系统 Agent 名字
         runtime = self.root_agent.runtime
         if runtime and runtime.agent_name_set:
