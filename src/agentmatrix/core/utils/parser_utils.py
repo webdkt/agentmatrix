@@ -10,15 +10,15 @@ import re
 
 def working_notes_parser(raw_reply: str) -> dict:
     """
-    解析 working notes 生成结果（提取 Markdown 内容）
+    解析 working notes 生成结果（提取 <working_note> 标签包裹的内容）
 
     期望格式：
-    - 纯 Markdown 文本
-    - 或包裹在 ```markdown ... ``` 中的内容
+    <working_note>
+    ... Markdown 格式的工作笔记 ...
+    </working_note>
 
-    验证要求：
-    - 必须包含至少一个二级标题 (## ...)
-    - 必须包含 "## 🧠 关键上下文" 或 "## 关键上下文" 区域（兜底）
+    标签外的内容会被忽略，只提取标签内的部分。
+    这避免了 LLM 的寒暄、解释、确认语等干扰内容被当作 Working Notes。
 
     Args:
         raw_reply: LLM 的原始输出
@@ -30,38 +30,24 @@ def working_notes_parser(raw_reply: str) -> dict:
             "feedback": str (仅错误时)
         }
     """
-    # 1. 提取 Markdown 内容（去除 code block）
-    content = raw_reply.strip()
+    # 1. 提取 <working_note> 标签内的内容
+    match = re.search(r'<working_note>(.*?)</working_note>', raw_reply, re.DOTALL)
 
-    if "```markdown" in content:
-        match = re.search(r"```markdown\s*(.*?)\s*```", content, re.DOTALL)
-        if match:
-            content = match.group(1)
-    elif "```" in content:
-        match = re.search(r"```\s*(.*?)\s*```", content, re.DOTALL)
-        if match:
-            content = match.group(1)
+    if match:
+        content = match.group(1).strip()
+        if content:
+            return {"status": "success", "content": content}
 
-    # 2. 验证是否包含二级标题
-    if "##" not in content:
-        return {
-            "status": "error",
-            "feedback": "Working Notes 必须包含至少一个二级标题 (## ...) 用于组织信息结构",
-        }
+    # 2. 没有找到有效的 <working_note> 标签
+    # 检查是否有开标签但没有闭标签（LLM 输出被截断的情况）
+    if '<working_note>' in raw_reply and '</working_note>' not in raw_reply:
+        start_idx = raw_reply.index('<working_note>') + len('<working_note>')
+        content = raw_reply[start_idx:].strip()
+        if content:
+            return {"status": "success", "content": content}
 
-    # 3. 验证是否包含兜底区域
-    # 支持多种可能的写法：## 🧠 关键上下文, ## 关键上下文, ## Context 等
-    has_context_section = bool(
-        re.search(r"##\s*[🧠\s]*关键上下文", content)
-        or re.search(r"##\s*Context", content, re.IGNORECASE)
-        or re.search(r"##\s*全局上下文", content)
-    )
-
-    if not has_context_section:
-        return {
-            "status": "error",
-            "feedback": "Working Notes 必须包含一个兜底区域，建议使用 '## 🧠 关键上下文' 或 '## 关键上下文'",
-        }
-
-    # 4. 成功，返回 Markdown 内容
-    return {"status": "success", "content": content.strip()}
+    # 3. 完全没有 <working_note> 标签，要求 LLM 重新格式化
+    return {
+        "status": "error",
+        "feedback": "请用 <working_note> 和 </working_note> 标签包裹你的工作笔记输出。格式示例：\n<working_note>\n## 当前状态\n...\n## 🧠 关键上下文\n...\n</working_note>",
+    }
