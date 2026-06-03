@@ -241,7 +241,7 @@ class CDPClient:
                         fut.set_result(msg)
                     else:
                         # Check relay sessions — route by ID range
-                        for sid, relay_info in self._relay_sessions.items():
+                        for sid, relay_info in dict(self._relay_sessions).items():
                             offset = relay_info["id_offset"]
                             if offset < msg_id < offset + 10000:
                                 original_id = msg_id - offset

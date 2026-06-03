@@ -14,7 +14,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -149,7 +148,6 @@ class ChromeManager:
             "id_offset": id_offset,
             "cdp_client": cdp_client,
             "client_conn": None,
-            "last_activity": 0.0,
             "thread": None,
         }
         self._session_relays[session_id] = relay_info
@@ -163,38 +161,7 @@ class ChromeManager:
                     break
                 old_conn = relay_info["client_conn"]
                 if old_conn is not None:
-                    # Probe old connection: dead, active, or idle?
-                    kick = False
-                    try:
-                        chunk = old_conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
-                        if chunk == b'':
-                            # Peer closed → dead, safe to kick
-                            kick = True
-                        else:
-                            # Has pending data → actively communicating
-                            kick = False
-                    except BlockingIOError:
-                        # Alive but no pending data → check idle time
-                        idle = time.time() - relay_info.get("last_activity", 0)
-                        kick = idle >= 5
-                    except (OSError, ConnectionError):
-                        # Broken → dead, safe to kick
-                        kick = True
-
-                    if not kick:
-                        try:
-                            err_msg = json.dumps({
-                                "error": "session relay busy: your previous script is still running. "
-                                         "Wait for it to finish or kill it before retrying."
-                            }) + "\0"
-                            conn.sendall(err_msg.encode())
-                            conn.close()
-                        except OSError:
-                            pass
-                        continue
-
-                    # Kick old connection
-                    logger.info(f"Kicking stale relay client for session {session_id[-8:]}")
+                    logger.info(f"Kicking old relay client for session {session_id[-8:]}")
                     try:
                         old_conn.close()
                     except OSError:
@@ -225,8 +192,6 @@ class ChromeManager:
                 data = conn.recv(65536)
                 if not data:
                     break
-                if relay_info:
-                    relay_info["last_activity"] = time.time()
                 cdp_client.write_from_relay(session_id, data)
         except (OSError, BrokenPipeError):
             pass

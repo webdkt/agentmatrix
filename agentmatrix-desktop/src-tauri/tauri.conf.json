@@ -131,7 +131,8 @@
     ],
     "resources": [
       "resources/matrix-template/**/*",
-      "resources/python_dist/**/*"
+      "resources/python_dist/**/*",
+      "resources/shared_env_requirements.txt"
     ],
     "externalBin": [],
     "macOS": {

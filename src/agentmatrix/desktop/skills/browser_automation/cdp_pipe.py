@@ -12,6 +12,7 @@ import asyncio
 import fcntl
 import logging
 import os
+import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class CDPPipeConnection:
     def __init__(self, read_fd: int, write_fd: int):
         self._rfd = read_fd
         self._wfd = write_fd
+        self._write_lock = threading.Lock()
         self._queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
         self._read_task: Optional[asyncio.Task] = None
         self._closed = False
@@ -63,13 +65,17 @@ class CDPPipeConnection:
 
     def _blocking_write(self, data: bytes):
         """Write all bytes to the pipe (blocking, runs in executor)."""
-        while data:
-            n = os.write(self._wfd, data)
-            data = data[n:]
+        with self._write_lock:
+            while data:
+                n = os.write(self._wfd, data)
+                data = data[n:]
 
     def write_raw(self, data: bytes):
         """Synchronous write to pipe — for relay threads (non-async context)."""
-        self._blocking_write(data)
+        with self._write_lock:
+            while data:
+                n = os.write(self._wfd, data)
+                data = data[n:]
 
     def __aiter__(self):
         return self

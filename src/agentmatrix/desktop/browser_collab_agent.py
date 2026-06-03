@@ -24,26 +24,14 @@ from ..core.signals import CoreEvent
 
 logger = logging.getLogger(__name__)
 
+# ── Site Knowledge tag patterns for message-level injection ──
 
-# ==========================================
-# Site Knowledge 标记区间
-# ==========================================
-
-SITE_KNOWLEDGE_MARKER_START = "=== 站点自动化知识 ==="
-SITE_KNOWLEDGE_MARKER_END = "=== 站点自动化知识 END ==="
-SYS_HINT_START = "**** 系统提示 ****"
-SYS_HINT_END = "**** 系统提示结束 ****"
-
-
-def update_site_knowledge_section(text: str, content: str) -> str:
-    """在 text 中找到标记区间，替换其中的内容。"""
-    pattern = re.escape(SITE_KNOWLEDGE_MARKER_START) + r".*?" + re.escape(SITE_KNOWLEDGE_MARKER_END)
-    replacement = SITE_KNOWLEDGE_MARKER_START + "\n" + content + "\n" + SITE_KNOWLEDGE_MARKER_END
-    return re.sub(pattern, replacement, text, flags=re.DOTALL)
+_SITE_KNOWLEDGE_RE = re.compile(r'<site-knowledge>.*?</site-knowledge>\n*', re.DOTALL)
+_SITE_KNOWLEDGE_HINT_RE = re.compile(r'\s*<site-knowledge-hint>.*?</site-knowledge-hint>\s*', re.DOTALL)
 
 
 # ==========================================
-# Site Knowledge 自动注入
+# Site Knowledge Loader
 # ==========================================
 
 class _SiteKnowledgeLoader:
@@ -51,54 +39,29 @@ class _SiteKnowledgeLoader:
 
     读取 ~/site_knowledge/index.txt，按 hostname 匹配当前 URL。
 
-    输出结构（注入到 === 站点自动化知识 === 标记区间内）：
-        [agent 主动加载的站点知识 — load_site_knowledge 设置]
-        **** 系统提示 ****
-        [系统自动注入 — tab 变化时自动刷新，4 种场景]
-        **** 系统提示结束 ****
+    新架构下：
+    - load() 返回 agent 主动加载的站点知识内容（用于 <site-knowledge> tag 包裹）
+    - build_tab_hint() 根据当前 URL 和已加载状态生成动态提示（用于 tab 变化时注入）
     """
 
     def __init__(self, agent_name: str, home_dir: str, agent):
         self.agent_name = agent_name
         self.home_dir = home_dir
-        self.agent = agent  # BrowserCollabAgent 实例，读写 _current_site_url
+        self.agent = agent  # BrowserCollabAgent 实例，读写 _current_site_url 等
 
     def load(self, current_url: str) -> str:
-        """生成完整的站点知识区块内容（不含外层 === 站点自动化知识 === 标记）。"""
-        os.makedirs(os.path.join(self.home_dir, "site_knowledge"), exist_ok=True)
+        """生成 agent 主动加载的站点知识内容（不含 tag 包裹）。
 
-        hostname = self._parse_hostname(current_url)
-        matches = self._get_hostname_matches(hostname)
-        current_site = getattr(self.agent, '_current_site_url', None)
+        仅返回 _build_agent_section 的结果，不再包含系统自动注入区。
+        """
+        current_site = getattr(self.agent, '_loaded_site_key', None)
         loaded_process = getattr(self.agent, '_loaded_process_dir', None)
 
-        agent_section = self._build_agent_section(current_url, current_site, loaded_process)
-        system_section = self._build_system_hint(current_url, matches, current_site)
-
-        parts = []
-        if agent_section:
-            parts.append(agent_section)
-            parts.append("")
-        parts.append(SYS_HINT_START)
-        if system_section:
-            parts.append(system_section)
-        parts.append(SYS_HINT_END)
-        return "\n".join(parts)
-
-    # ------------------------------------------------------------------
-    # Agent 主动加载区
-    # ------------------------------------------------------------------
-
-    def _build_agent_section(self, current_url: str, current_site: str, loaded_process: str = None) -> str:
-        """Agent 通过 load_site_knowledge 主动加载的站点知识。
-
-        如果只加载了 site → 注入 readme + 流程子目录列表
-        如果加载了 process → 注入 process 的 readme + step 列表
-        """
         if not current_site:
             return ""
+
         entries = self._parse_index()
-        entry = next((e for e in entries if self._entry_key(e).startswith(current_site)), None)
+        entry = next((e for e in entries if self._entry_key(e) == current_site), None)
         if not entry:
             return ""
 
@@ -124,6 +87,43 @@ class _SiteKnowledgeLoader:
 
         self._append_flow_list(lines, site_dir)
         return "\n".join(lines)
+
+    def build_tab_hint(self, current_url: str) -> str:
+        """根据当前 URL 与已加载 SK 的关系，生成动态提示文字。
+
+        返回空字符串表示无需提示（已加载且匹配，或已加载但当前页面无匹配）。
+        返回提示文字时，调用方应注入到 MicroAgent 的 user message 中。
+        """
+        hostname = self._parse_hostname(current_url) if current_url else ""
+        matches = self._get_hostname_matches(hostname) if hostname else []
+        current_site = getattr(self.agent, '_loaded_site_key', None)
+
+        if current_site:
+            loaded_in_matches = any(self._entry_key(m) == current_site for m in matches)
+            if loaded_in_matches:
+                return ""  # 已加载且匹配，无需提示
+            if matches:
+                lines = ["当前页面与已加载的站点知识不一致。"]
+                lines.append("以下站点知识匹配当前页面：")
+                for ep, desc, dirname in matches:
+                    full_key = self._entry_key((ep, desc, dirname))
+                    lines.append(f"- {full_key}: {desc}")
+                lines.append("是否要加载新的站点知识？调用 load_site_knowledge(site_key)")
+                return "\n".join(lines)
+            return ""  # 已加载 SK，当前页面无匹配，不干扰
+        else:
+            if matches:
+                lines = ["检测到匹配的站点知识："]
+                for ep, desc, dirname in matches:
+                    full_key = self._entry_key((ep, desc, dirname))
+                    lines.append(f"- {full_key}: {desc}")
+                lines.append("是否要加载？调用 load_site_knowledge(site_key)")
+                return "\n".join(lines)
+            return ""
+
+    # ------------------------------------------------------------------
+    # Agent 主动加载区
+    # ------------------------------------------------------------------
 
     def _build_process_section(self, ep: str, desc: str, dirname: str,
                                 site_dir: str, process_dir_name: str) -> str:
@@ -173,119 +173,11 @@ class _SiteKnowledgeLoader:
             m = step_pattern.match(filename)
             if m:
                 step_name = m.group(2)
-                # Check if corresponding .py script exists
                 py_file = f"step-{m.group(1)}-{step_name}.py"
                 has_script = os.path.isfile(os.path.join(process_dir, py_file))
                 steps.append((step_name, has_script))
 
         return steps
-
-    # ------------------------------------------------------------------
-    # 系统自动注入区（4 种场景）
-    # ------------------------------------------------------------------
-
-    def _build_system_hint(self, current_url: str, matches: list, current_site: str) -> str:
-        if not current_url:
-            # 无 tab → 列出 index 内容
-            return self._format_index_listing("当前无打开的网页。index.txt中的站点知识：")
-
-        if matches:
-            if current_site:
-                # (1) 有匹配 + agent 已加载
-                # 检查是否有重叠：loaded site 是否在自动匹配列表中
-                loaded_in_matches = any(
-                    self._entry_key(m) == current_site for m in matches
-                )
-                if loaded_in_matches:
-                    # 重叠 → loaded site 与当前 URL 吻合，不需要额外提示
-                    return ""
-                else:
-                    # 不重叠 → 当前 URL 不匹配 loaded site，发出警告
-                    return self._format_mismatch_warning(current_url, matches)
-            else:
-                # (2) 有匹配 + agent 未加载 → 200 行预览
-                return self._format_system_preview(current_url, matches)
-        else:
-            if current_site:
-                # (3) 无匹配 + agent 已加载 → 留白
-                return ""
-            else:
-                # (4) 无匹配 + agent 未加载 → 提示
-                total = len(self._parse_index())
-                return f"目前无匹配的站点知识，index.txt中共有{total}条站点知识"
-
-    def _format_index_listing(self, header: str) -> str:
-        """列出 index.txt 内容，最多 50 行。"""
-        index_path = os.path.join(self.home_dir, "site_knowledge", "index.txt")
-        entries = self._parse_index()
-        if not entries:
-            return header + "\n(index.txt 为空或不存在)"
-
-        max_lines = 50
-        lines = [header, ""]
-        shown = entries[:max_lines]
-        for ep, desc, dirname in shown:
-            lines.append(f"- {ep}:{desc}:{dirname}")
-
-        remaining = len(entries) - len(shown)
-        if remaining > 0:
-            lines.append("")
-            lines.append(f"(还有 {remaining} 条未显示)")
-
-        return "\n".join(lines)
-
-    def _format_mismatch_warning(self, current_url: str, matches: list) -> str:
-        """当前 URL 不匹配已加载的 site，警告并列出实际匹配的站点。"""
-        sk_dir = os.path.join(self.home_dir, "site_knowledge")
-        lines = [
-            "=== Warning ===",
-            f"Current loaded site knowledge does not match current url: {current_url}",
-            "Following site(s) match current url:",
-        ]
-        for ep, desc, dirname in matches:
-            full_key = self._entry_key((ep, desc, dirname))
-            site_dir = os.path.join(sk_dir, dirname)
-            lines.append(f"- site_key: {full_key}")
-            lines.append(f"  desc: {desc}")
-
-            readme_path = os.path.join(site_dir, "readme.md")
-            content = self._read_file_lines(readme_path, 200)
-            if content:
-                lines.append(f"  {content}")
-                if self._file_has_more(readme_path, 200):
-                    lines.append("  (read more from readme.md)")
-
-        return "\n".join(lines)
-
-    def _format_system_preview(self, current_url: str, matches: list) -> str:
-        """场景 2：有匹配且 agent 未加载 → 展示每个匹配 200 行预览。"""
-        sk_dir = os.path.join(self.home_dir, "site_knowledge")
-        lines = [
-            f"当前URL: {current_url}",
-            "",
-            "匹配到以下已记录的网站知识：",
-            "使用 load_site_knowledge(site_key) 加载特定站点的完整知识（site_key 为上方列出的完整 site_key）。",
-        ]
-        for i, (ep, desc, dirname) in enumerate(matches, 1):
-            site_dir = os.path.join(sk_dir, dirname)
-            full_key = self._entry_key((ep, desc, dirname))
-            lines.append("")
-            lines.append(f"=== site {i} ===")
-            lines.append(f"site_key: {full_key}")
-            lines.append(f"desc: {desc}")
-            lines.append(f"目录: ~/site_knowledge/{dirname}")
-
-            readme_path = os.path.join(site_dir, "readme.md")
-            content = self._read_file_lines(readme_path, 200)
-            if content:
-                lines.append("site knowledge:")
-                lines.append(content)
-                if self._file_has_more(readme_path, 200):
-                    lines.append("(read more from readme.md)")
-
-            self._append_flow_list(lines, site_dir)
-
-        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # 公共接口
@@ -331,22 +223,6 @@ class _SiteKnowledgeLoader:
             metadata = session.setdefault("metadata", {})
             metadata["sk_site_key"] = self.agent._loaded_site_key
             metadata["sk_process_dir"] = self.agent._loaded_process_dir
-
-    def reload_and_update_prompt(self, micro_agent):
-        """重新加载 site knowledge 并即时更新 micro agent 的 system prompt。"""
-        from .skills.browser_automation.skill import _agent_current_tab
-
-        tab = _agent_current_tab.get(self.agent_name)
-        url = tab.url if tab else ""
-        new_content = self.load(url)
-
-        micro_agent.system_prompt = update_site_knowledge_section(
-            micro_agent.system_prompt, new_content
-        )
-        if micro_agent.messages and micro_agent.messages[0]["role"] == "system":
-            micro_agent.messages[0]["content"] = update_site_knowledge_section(
-                micro_agent.messages[0]["content"], new_content
-            )
 
     # ------------------------------------------------------------------
     # 内部 helpers
@@ -449,7 +325,8 @@ class BrowserCollabAgent(BaseAgent):
     - 通过 CDP 触发浏览器内的 indicator（十字准星）和 range selector（范围选择器）
     - 自动解析 BrowserSignal 的 session
     - 自动确保 CDP 浏览器基础设施就绪
-    - Site knowledge 注入到 MicroAgent 系统提示
+    - Site knowledge 通过 <site-knowledge> tag 注入到 user message 上下文
+    - Tab 变化时通过 BrowserSignal 注入 <site-knowledge-hint> 提示
 
     浏览器端通过 __bh_emit__ 发送事件（indicator_result, range_result 等），
     Agent 通过 CDP 调用 __bh_show_indicator__ / __bh_show_range__ 触发交互。
@@ -463,11 +340,52 @@ class BrowserCollabAgent(BaseAgent):
     _loaded_process_dir: str = None
 
     # ==========================================
+    # Site Knowledge 静态工具方法
+    # ==========================================
+
+    @staticmethod
+    def _purge_sk_from_messages(messages):
+        """从消息历史中移除所有 <site-knowledge> 块。"""
+        for msg in messages:
+            c = msg.get("content")
+            if isinstance(c, str):
+                msg["content"] = _SITE_KNOWLEDGE_RE.sub('', c).strip()
+
+    @staticmethod
+    def _purge_sk_hints(messages):
+        """从消息历史中移除所有 <site-knowledge-hint> 块。"""
+        for msg in messages:
+            c = msg.get("content")
+            if isinstance(c, str):
+                msg["content"] = _SITE_KNOWLEDGE_HINT_RE.sub('\n', c).strip()
+
+    @staticmethod
+    def _extract_current_sk(messages):
+        """从消息历史中提取最新的 <site-knowledge> 内容块（含 tag）。"""
+        pattern = re.compile(r'<site-knowledge>.*?</site-knowledge>', re.DOTALL)
+        for msg in reversed(messages):
+            c = msg.get("content", "")
+            if isinstance(c, str):
+                match = pattern.search(c)
+                if match:
+                    return match.group(0)
+        return None
+
+    @staticmethod
+    def _inject_sk_to_first_user_msg(messages, sk_content):
+        """将 SK 内容注入到第一条 user message 的开头。"""
+        for msg in messages:
+            if msg.get("role") == "user":
+                msg["content"] = f"{sk_content}\n\n{msg['content']}"
+                return True
+        return False
+
+    # ==========================================
     # BaseAgent overrides
     # ==========================================
 
     async def _route_signal(self, signal):
-        """BrowserSignal 无 session 时静默丢弃，不报错。"""
+        """BrowserSignal 处理：过滤 orphan 信号 + 注入 SK hint。"""
         if isinstance(signal, BrowserSignal):
             session_id = signal.agent_session_id
             if not session_id:
@@ -475,7 +393,33 @@ class BrowserCollabAgent(BaseAgent):
                     signal.agent_session_id = self.current_session["session_id"]
                 else:
                     return  # 无 session context，丢弃 orphan 信号
+
+            # Tab URL 变化时注入 site-knowledge hint
+            if signal.event_type == "page_navigated" and signal.url:
+                self._inject_sk_hint(signal.url)
+
         await super()._route_signal(signal)
+
+    def _inject_sk_hint(self, current_url: str):
+        """Tab URL 变化时注入 SK hint 到 MicroAgent messages。"""
+        ma = self.active_micro_agent
+        if not ma or not hasattr(ma, '_site_knowledge_loader'):
+            return
+        hint = ma._site_knowledge_loader.build_tab_hint(current_url)
+        if not hint:
+            return
+
+        # 清除旧的 <site-knowledge-hint> 块
+        self._purge_sk_hints(ma.messages)
+
+        # 注入到最后一条 user message
+        tagged = f"<site-knowledge-hint>\n{hint}\n</site-knowledge-hint>"
+        for i in range(len(ma.messages) - 1, -1, -1):
+            if ma.messages[i].get("role") == "user":
+                ma.messages[i]["content"] += "\n\n" + tagged
+                return
+        # 没有找到 user message，创建一条新的
+        ma.messages.append({"role": "user", "content": tagged})
 
     async def _resolve_session(self, signal) -> dict:
         """BrowserSignal 由本类处理，其余委托 BaseAgent。"""
@@ -522,8 +466,7 @@ class BrowserCollabAgent(BaseAgent):
             self._current_site_url = metadata.get("sk_site_key")
             self._loaded_site_key = metadata.get("sk_site_key")
             self._loaded_process_dir = metadata.get("sk_process_dir")
-            from .skills.browser_automation.skill import _agent_sk_callbacks, _agent_env_callbacks
-            _agent_sk_callbacks.pop(self.name, None)
+            from .skills.browser_automation._shared import _agent_env_callbacks
             _agent_env_callbacks.pop(self.name, None)
         try:
             if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
@@ -532,8 +475,8 @@ class BrowserCollabAgent(BaseAgent):
             logger.warning(f"Auto CDP init failed (will retry in actions): {e}")
 
     def _create_micro_agent(self):
-        """注入 site knowledge 后创建 MicroAgent，并注册 tab 变化回调。"""
-        from .skills.browser_automation.skill import _agent_current_tab, _agent_sk_callbacks
+        """创建 MicroAgent，设置 site knowledge loader。"""
+        from .skills.browser_automation._shared import _agent_current_tab
 
         # 如果之前设置过 work mode，用对应的 persona
         mode = getattr(self, '_current_work_mode', None)
@@ -545,30 +488,67 @@ class BrowserCollabAgent(BaseAgent):
         home_dir = self.runtime.paths.get_agent_home_dir(self.name)
         sk_loader = _SiteKnowledgeLoader(self.name, home_dir, self)
 
-        tab = _agent_current_tab.get(self.name)
-        url = tab.url if tab else ""
-        site_knowledge = sk_loader.load(url)
-
         micro = super()._create_micro_agent()
         micro._site_knowledge_loader = sk_loader
 
-        # 注入 site knowledge 到标记区间
-        micro.system_prompt = update_site_knowledge_section(
-            micro.system_prompt, site_knowledge
-        )
-
-        # 注册回调：tab 变化时自动刷新 system prompt
-        _agent_sk_callbacks[self.name] = lambda: sk_loader.reload_and_update_prompt(micro)
-
-        # Hook: 链式叠加 site knowledge 刷新到基础 prompt 刷新之上
-        base_hook = micro._before_think_hook
-        async def _refresh_sk_before_think():
-            if base_hook:
-                await base_hook()  # 先执行基础 prompt 刷新
-            sk_loader.reload_and_update_prompt(micro)  # 再刷新站点知识
-        micro._before_think_hook = _refresh_sk_before_think
+        # 不再注入 site knowledge 到 system prompt
+        # 不再注册 tab 变化回调（由 _route_signal 中的 BrowserSignal 处理）
+        # 不再在 _before_think_hook 中刷新 SK
 
         return micro
+
+    # ==========================================
+    # 消息压缩保护
+    # ==========================================
+
+    async def compress_messages(self, agent) -> None:
+        """压缩消息时，保护 site knowledge 内容。
+
+        1. 提取当前 <site-knowledge> 内容块
+        2. 清除 <site-knowledge> 和 <site-knowledge-hint> 块（节省压缩 token）
+        3. 调用父类压缩
+        4. 将 SK 重新注入到压缩后的第一条 user message
+        """
+        # 1. 提取当前 SK（压缩前）
+        current_sk = self._extract_current_sk(agent.messages)
+
+        # 2. 清除 SK 和 SK hint 块（压缩前，避免 LLM 混淆）
+        for msg in agent.messages:
+            c = msg.get("content")
+            if isinstance(c, str):
+                c = _SITE_KNOWLEDGE_RE.sub('[站点自动化知识已加载]', c)
+                c = _SITE_KNOWLEDGE_HINT_RE.sub('', c).strip()
+                msg["content"] = c
+
+        # 3. 调用父类压缩
+        await super().compress_messages(agent)
+
+        # 4. 压缩后将 SK 重新注入到第一条 user message
+        if current_sk:
+            self._inject_sk_to_first_user_msg(agent.messages, current_sk)
+
+    async def generate_working_notes(self, messages, focus_hint=""):
+        """生成 Working Notes 时，告知 LLM 不需详细记录 SK 内容。"""
+        # 替换 SK 内容为简短占位（节省 token）
+        working_copy = []
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                cleaned = _SITE_KNOWLEDGE_RE.sub('[站点自动化知识已加载]', content)
+                cleaned = _SITE_KNOWLEDGE_HINT_RE.sub('', cleaned).strip()
+                msg_copy = dict(msg)
+                msg_copy["content"] = cleaned
+                working_copy.append(msg_copy)
+            else:
+                working_copy.append(msg)
+
+        sk_hint_text = (
+            "注意：<site-knowledge> 中的站点自动化知识会在压缩后自动注入到消息上下文中，"
+            "不需要在 Working Notes 中详细记录这些内容，只需记住'已加载了某某站点的知识'即可。"
+        )
+        enhanced_focus = (focus_hint + "\n" + sk_hint_text) if focus_hint else sk_hint_text
+
+        return await super().generate_working_notes(working_copy, focus_hint=enhanced_focus)
 
     def update_status(self, new_status=None):
         """状态更新。"""

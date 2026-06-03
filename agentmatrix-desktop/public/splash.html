@@ -85,9 +85,13 @@
       window.__TAURI__.event.listen('installation-progress', (event) => {
         console.log('📊 Received installation-progress event:', event.payload);
         const progress = event.payload;
-
-        // 更新进度文字
         updateStatus(progress);
+      });
+
+      window.__TAURI__.event.listen('python-env-progress', (event) => {
+        console.log('📊 Received python-env-progress event:', event.payload);
+        const progress = event.payload;
+        updatePythonEnvStatus(progress);
       });
 
       console.log('✅ Event listener registered');
@@ -122,6 +126,34 @@
       }
 
       statusEl.innerHTML = text;
+    }
+
+    function updatePythonEnvStatus(progress) {
+      const statusEl = document.getElementById('status');
+      const { stage, message } = progress;
+
+      const stageMessages = {
+        'detecting': '正在检测 Python 环境...',
+        'downloading': '正在下载运行时组件...',
+        'installing': '正在安装 Python 环境...',
+        'creating_venv': '正在创建虚拟环境...',
+        'installing_packages': '正在安装依赖包...',
+        'done': 'Python 环境准备完成',
+        'error': '环境配置出错'
+      };
+
+      let text = stageMessages[stage] || '';
+      if (message) {
+        text = message;
+      }
+
+      if (stage === 'done') {
+        statusEl.innerHTML = '✅ ' + text;
+      } else if (stage === 'error') {
+        statusEl.innerHTML = '⚠️ ' + text;
+      } else {
+        statusEl.innerHTML = text;
+      }
     }
   </script>
 </body>

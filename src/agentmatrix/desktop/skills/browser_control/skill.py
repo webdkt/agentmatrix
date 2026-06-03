@@ -17,8 +17,8 @@ from agentmatrix.core.action import register_action
 
 from agentmatrix.desktop.skills.browser_automation._shared import (
     infra,
-    _agent_current_tab, _agent_last_session, _agent_sk_callbacks,
-    _trigger_sk_callback, shutdown_browser_infra,
+    _agent_current_tab, _agent_last_session,
+    _agent_env_callbacks,
     _update_current_tab, _on_tab_removed,
     _short_url, _auto_yield_ui, _auto_restore_ui,
     _cdp_send_with_recovery, _tab_not_found_msg, _get_shared_infra,
@@ -324,7 +324,6 @@ class Browser_controlSkillMixin:
                     except Exception:
                         pass
                 _agent_current_tab[agent_name] = best
-                _trigger_sk_callback(agent_name)
                 logger.info(
                     f"Adopted current_tab: {best.target_id[:12]} "
                     f"(url={best.url[:60]})"
@@ -336,7 +335,6 @@ class Browser_controlSkillMixin:
             still_exists = any(t.target_id == current.target_id for t in remaining)
             if not still_exists:
                 _agent_current_tab[agent_name] = remaining[0] if remaining else None
-                _trigger_sk_callback(agent_name)
 
         if closed:
             logger.info(
@@ -875,20 +873,17 @@ class Browser_controlSkillMixin:
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0]["content"] = full_prompt
 
-        sk_loader = getattr(self, '_site_knowledge_loader', None)
-        if sk_loader:
-            sk_loader.reload_and_update_prompt(self)
-
         root._current_work_mode = mode
 
         return json.dumps({"status": "ok", "mode": mode}, ensure_ascii=False)
 
     @register_action(
-        short_desc="load_site_knowledge(site_key, process_dir_name?) 加载站点知识或具体自动化流程",
+        short_desc="load_site_knowledge(site_key, process_dir_name?) 加载站点知识或具体自动化流程。返回的<site-knowledge>内容已进入上下文，无需额外操作。",
         description="加载指定站点的知识。只传 site_key 时加载站点 readme 和流程列表；"
-                    "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。",
+                    "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。"
+                    "返回 <site-knowledge> 包裹的内容，自动进入对话上下文。",
         param_infos={
-            "site_key": "站点 site_key（来自注入文本的 site_key 行，格式 url_prefix:desc:dir_name）",
+            "site_key": "站点 site_key（格式 url_prefix:desc:dir_name）",
             "process_dir_name": "可选，自动化流程子目录名称，加载具体流程的详细知识",
         },
     )
@@ -897,8 +892,25 @@ class Browser_controlSkillMixin:
         if not loader:
             return json.dumps({"error": "site knowledge loader 未初始化"})
         result = loader.set_current_site(site_key, process_dir_name)
-        loader.reload_and_update_prompt(self)
-        return result
+        result_data = json.loads(result)
+        if result_data.get("error"):
+            return result
+
+        # 清除 message history 中所有旧的 <site-knowledge> 块
+        from agentmatrix.desktop.browser_collab_agent import BrowserCollabAgent
+        BrowserCollabAgent._purge_sk_from_messages(self.messages)
+        # 同时清除旧的 <site-knowledge-hint> 块
+        BrowserCollabAgent._purge_sk_hints(self.messages)
+
+        # 生成内容并用 tag 包裹
+        tab = _agent_current_tab.get(self._agent_name())
+        url = tab.url if tab else ""
+        content = loader.load(url)
+        if not content:
+            return json.dumps({"status": "ok", "site_url_prefix": result_data.get("site_url_prefix", site_key)},
+                              ensure_ascii=False)
+        tagged = f"<site-knowledge>\n{content}\n</site-knowledge>"
+        return tagged
 
     # ==========================================
     # Cleanup

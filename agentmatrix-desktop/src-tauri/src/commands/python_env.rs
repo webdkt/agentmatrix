@@ -192,6 +192,75 @@ fn create_venv(python_path: &str, venv_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Get the path to the shared_env_requirements.txt resource file.
+/// Dev mode: uses CARGO_MANIFEST_DIR; production: uses Tauri resource dir.
+fn get_requirements_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+            .unwrap_or_else(|_| ".".to_string());
+        let path = std::path::PathBuf::from(manifest_dir)
+            .join("resources")
+            .join("shared_env_requirements.txt");
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    let path = resource_dir.join("resources").join("shared_env_requirements.txt");
+    if path.exists() {
+        Ok(path)
+    } else {
+        Err(format!("shared_env_requirements.txt not found at {:?}", path))
+    }
+}
+
+/// Install packages into the shared venv from requirements file.
+/// Failures are logged but do NOT block app startup.
+fn install_packages(app: &tauri::AppHandle, venv_python: &str, requirements_path: &Path) -> Result<(), String> {
+    let pip_path = if cfg!(target_os = "windows") {
+        let mut p = std::path::PathBuf::from(venv_python);
+        p.pop();
+        p.push("pip.exe");
+        p
+    } else {
+        let mut p = std::path::PathBuf::from(venv_python);
+        p.pop();
+        p.push("pip3");
+        p
+    };
+
+    if !pip_path.exists() {
+        eprintln!("[python_env] pip not found at {:?}, skipping package installation", pip_path);
+        emit_progress(&app, "installing_packages", "pip not found, skipping package installation.");
+        return Ok(());
+    }
+
+    emit_progress(&app, "installing_packages", "Installing packages into shared environment...");
+
+    let requirements_str = requirements_path.to_string_lossy().to_string();
+    let output = StdCommand::new(&pip_path)
+        .args(["install", "--no-cache-dir", "-r", &requirements_str])
+        .output()
+        .map_err(|e| format!("Failed to run pip: {}", e))?;
+
+    if output.status.success() {
+        emit_progress(&app, "installing_packages", "Packages installed successfully.");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        eprintln!(
+            "[python_env] pip install failed (non-blocking):\nstdout: {}\nstderr: {}",
+            stdout, stderr
+        );
+        emit_progress(&app, "installing_packages", "Some packages failed to install, continuing...");
+    }
+
+    Ok(())
+}
+
 /// Verify a venv's python works and meets version requirement
 fn verify_venv(venv_path: &Path) -> Result<String, String> {
     let python_path = if cfg!(target_os = "windows") {
@@ -357,6 +426,15 @@ pub async fn ensure_python_env(app: tauri::AppHandle) -> Result<String, String> 
     // 5. Verify
     let venv_python = verify_venv(&shared_env)?;
     emit_progress(&app, "done", &format!("Shared Python environment ready: {}", venv_python));
+
+    // 5.5. Install packages into the shared venv (non-blocking on failure)
+    if let Ok(req_path) = get_requirements_path(&app) {
+        if let Err(e) = install_packages(&app, &venv_python, &req_path) {
+            eprintln!("[python_env] Package installation error: {}", e);
+        }
+    } else {
+        eprintln!("[python_env] Requirements file not found, skipping package installation.");
+    }
 
     // 6. Save config
     let mut config = AppConfig::load()?;

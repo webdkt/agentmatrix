@@ -6,6 +6,7 @@ import mimetypes
 from pathlib import Path
 from typing import Optional
 from agentmatrix.core.action import register_action
+from agentmatrix.desktop.container.local_session import LocalSession
 
 
 class VisionSkillMixin:
@@ -42,6 +43,7 @@ class VisionSkillMixin:
 
         对图片调用视觉大模型进行理解，返回文本描述。
         优先将容器路径映射到宿主路径直接读取，映射失败则在容器内执行。
+        LocalSession 下，无法映射的路径直接按宿主路径读取。
 
         Args:
             file_path: 图片文件路径
@@ -50,11 +52,21 @@ class VisionSkillMixin:
         Returns:
             str: 视觉大模型对图片的理解文本
         """
-        # 优先尝试宿主路径直接读取
         host_path = self._resolve_path_to_host(file_path)
+        is_local = isinstance(self.root_agent.container_session, LocalSession)
 
         if host_path and host_path.exists() and host_path.is_file():
             base64_data, mime_type, file_size = self._read_image_from_host(host_path)
+        elif is_local:
+            direct_path = Path(file_path)
+            if direct_path.exists() and direct_path.is_file():
+                base64_data, mime_type, file_size = self._read_image_from_host(direct_path)
+            elif host_path and host_path.exists() and host_path.is_file():
+                base64_data, mime_type, file_size = self._read_image_from_host(host_path)
+            else:
+                base64_data = f"查看图片失败：文件不存在\n  路径: {file_path}"
+                mime_type = None
+                file_size = 0
         else:
             base64_data, mime_type, file_size = await self._read_image_from_container(file_path)
 
