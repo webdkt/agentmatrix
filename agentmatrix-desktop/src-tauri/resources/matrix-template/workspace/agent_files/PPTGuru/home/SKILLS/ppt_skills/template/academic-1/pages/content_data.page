@@ -1,0 +1,229 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: page-title
+    elementType: text
+    bounds: [80, 30, 1120, 35]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Experiments: HSA Surpasses Baselines by 4.2 F1 on ArXiv-Summ and 6.8 on PubMed-QA</strong></p>
+
+  - elementId: title-divider
+    elementType: shape
+    bounds: [80, 72, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: results-table
+    elementType: table
+    bounds: [80, 90, 740, 280]
+    columnWidths: [0.25, 0.15, 0.15, 0.15, 0.15, 0.15]
+    rowHeights: [0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.16]
+    style: "$default"
+    rows:
+      - - content:
+            text: |
+              <p>Model</p>
+        - content:
+            text: |
+              <p>ArXiv-Summ</p>
+        - content:
+            text: |
+              <p>PubMed-QA</p>
+        - content:
+            text: |
+              <p>BookSum</p>
+        - content:
+            text: |
+              <p>GovReport</p>
+        - content:
+            text: |
+              <p>Avg.</p>
+      - - content:
+            text: |
+              <p>Full Attention</p>
+        - content:
+            text: |
+              <p>42.3</p>
+        - content:
+            text: |
+              <p>68.1</p>
+        - content:
+            text: |
+              <p>38.7</p>
+        - content:
+            text: |
+              <p>51.2</p>
+        - content:
+            text: |
+              <p>50.1</p>
+      - - content:
+            text: |
+              <p>Sparse Transformer</p>
+        - content:
+            text: |
+              <p>38.1</p>
+        - content:
+            text: |
+              <p>61.4</p>
+        - content:
+            text: |
+              <p>35.2</p>
+        - content:
+            text: |
+              <p>46.8</p>
+        - content:
+            text: |
+              <p>45.4</p>
+      - - content:
+            text: |
+              <p>Linear Attention</p>
+        - content:
+            text: |
+              <p>36.5</p>
+        - content:
+            text: |
+              <p>58.9</p>
+        - content:
+            text: |
+              <p>33.8</p>
+        - content:
+            text: |
+              <p>44.1</p>
+        - content:
+            text: |
+              <p>43.3</p>
+      - - content:
+            text: |
+              <p>Longformer</p>
+        - content:
+            text: |
+              <p>39.8</p>
+        - content:
+            text: |
+              <p>64.2</p>
+        - content:
+            text: |
+              <p>36.5</p>
+        - content:
+            text: |
+              <p>48.3</p>
+        - content:
+            text: |
+              <p>47.2</p>
+      - - content:
+            text: |
+              <p>BigBird</p>
+        - content:
+            text: |
+              <p>40.5</p>
+        - content:
+            text: |
+              <p>65.7</p>
+        - content:
+            text: |
+              <p>37.1</p>
+        - content:
+            text: |
+              <p>49.6</p>
+        - content:
+            text: |
+              <p>48.2</p>
+      - - content:
+            text: |
+              <p><strong>HSA (Ours)</strong></p>
+        - content:
+            text: |
+              <p><strong>46.5</strong></p>
+        - content:
+            text: |
+              <p><strong>74.9</strong></p>
+        - content:
+            text: |
+              <p><strong>41.2</strong></p>
+        - content:
+            text: |
+              <p><strong>55.1</strong></p>
+        - content:
+            text: |
+              <p><strong>54.4</strong></p>
+
+  - elementId: efficiency-chart
+    elementType: chart
+    bounds: [860, 90, 340, 280]
+    type: bar
+    data:
+      - {model: "Full", memory: 100, time: 100}
+      - {model: "Longformer", memory: 42, time: 38}
+      - {model: "BigBird", memory: 48, time: 45}
+      - {model: "HSA", memory: 28, time: 22}
+    x: model
+    y: [memory, time]
+    names: ["Memory (%)", "Time (%)"]
+    colors: ["$secondary", "$primary"]
+    options:
+      fontFamily: "Arial, Microsoft YaHei"
+    legend:
+      show: true
+      position: top
+      fontSize: 11
+    yAxis:
+      title: "Relative (%)"
+      gridLine:
+        color: "#F1F5F9"
+        style: solid
+        width: 1
+      label:
+        fontSize: 11
+        color: "$textLight"
+    xAxis:
+      label:
+        fontSize: 11
+        color: "$textLight"
+
+  - elementId: analysis-text
+    elementType: text
+    bounds: [80, 390, 1120, 120]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Key Findings</strong></p>
+        <p style="margin-top:4px">HSA achieves <strong>4.2 F1 improvement</strong> on ArXiv-Summ and <strong>6.8 F1</strong> on PubMed-QA over the strongest baseline (BigBird). Notably, HSA outperforms even Full Attention on PubMed-QA (+6.8), suggesting the hierarchical inductive bias is beneficial for biomedical domain structure. Efficiency gains are substantial: <strong>72% reduction</strong> in memory usage and <strong>78% reduction</strong> in training time versus Full Attention.</p>
+
+  - elementId: ablation-text
+    elementType: text
+    bounds: [80, 520, 1120, 100]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Ablation Study</strong></p>
+        <p style="margin-top:4px">Removing document-level global tokens (-2.1 F1), paragraph-level compression (-1.4 F1), or sentence-level local windows (-1.8 F1) all degrade performance, confirming that each granularity contributes complementary information. The full three-level hierarchy is necessary for optimal results.</p>
+
+  - elementId: source-note
+    elementType: text
+    bounds: [80, 660, 1000, 20]
+    content:
+      style: "$footnote"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Source: Results averaged over 3 random seeds; 95% CI ±0.8 F1; <a href="https://example.com">Reproducibility repository</a></p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>06</p>

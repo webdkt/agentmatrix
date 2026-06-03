@@ -1,0 +1,83 @@
+title: Lake Blue Diamond - Academic Template
+size:
+- 1280
+- 720
+theme:
+  colors:
+    primary: '#0E7490'
+    secondary: '#06B6D4'
+    accent: '#22D3EE'
+    background: '#FFFFFF'
+    text: '#1A1A1A'
+    textLight: '#4A4A4A'
+    border: '#E2E8F0'
+    tableAlt: '#ECFEFF'
+    darkBg: '#07101E'
+    cardBg: '#F0EDE8'
+    lightAccent: '#D4A76A'
+    white: '#FFFFFF'
+    medgray: '#8B8C89'
+  textStyles:
+    title:
+      fontSize: 44
+      color: $primary
+      fontFamily: Oranienbaum, MiSans
+      lineHeight: 1.2
+    chapterTitle:
+      fontSize: 32
+      color: $primary
+      fontFamily: Oranienbaum, MiSans
+      lineHeight: 1.3
+    actionTitle:
+      fontSize: 24
+      color: $text
+      fontFamily: Oranienbaum, MiSans
+      lineHeight: 1.3
+    body:
+      fontSize: 18
+      color: $text
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.6
+    caption:
+      fontSize: 14
+      color: $textLight
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.4
+    footnote:
+      fontSize: 12
+      color: $textLight
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.4
+    formula:
+      fontSize: 18
+      color: $text
+      fontFamily: Times New Roman, Noto Serif SC
+      lineHeight: 1.8
+    pageNumber:
+      fontSize: 12
+      color: $textLight
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.0
+  tableStyles:
+    default:
+      fontSize: 14
+      fontFamily: QuattrocentoSans, MiSans
+      headerFill: $primary
+      headerColor: '#FFFFFF'
+      headerBold: true
+      bodyFill:
+      - '#FFFFFF'
+      - $tableAlt
+      bodyColor: $text
+      firstColumnBold: true
+      border:
+        style: solid
+        width: 1
+        color: $border
+pages:
+- pages/cover.page
+- pages/table_of_contents.page
+- pages/chapter.page
+- pages/content_left_right.page
+- pages/content_table.page
+- pages/final.page

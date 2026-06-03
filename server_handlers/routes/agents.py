@@ -30,6 +30,7 @@ async def get_agents():
                     "name": name,
                     "description": getattr(agent, "description", "No description"),
                     "backend_model": getattr(agent, "backend_model", "default_llm"),
+                    "skills": getattr(agent, "skills", []),
                 }
             )
 
@@ -54,6 +55,7 @@ async def get_agent(agent_name: str):
         "name": agent_name,
         "description": getattr(agent, "description", "No description"),
         "backend_model": getattr(agent, "backend_model", "default_llm"),
+        "skills": getattr(agent, "skills", []),
     }
 
 

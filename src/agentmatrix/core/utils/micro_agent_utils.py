@@ -201,9 +201,6 @@ def parse_function_calls(
         if depth != 0:
             # 括号未闭合（通常因参数内字符串引号不匹配，如 r"""...""" 内嵌了 """）
             if func_name in action_registry_flat:
-                # 有效 action：仍尝试执行，参数取剩余全部文本
-                params_text = text[start_paren + 1:].strip()
-                valid_calls.append((func_name, params_text))
                 syntax_errors.append(func_name)
             # 不论是否有效，消费剩余文本防止内部代码被误识别为 action
             break

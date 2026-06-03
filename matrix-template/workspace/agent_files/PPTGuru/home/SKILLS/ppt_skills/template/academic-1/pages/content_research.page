@@ -1,0 +1,99 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: page-title
+    elementType: text
+    bounds: [80, 30, 1120, 35]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Research Gap: Quadratic Complexity Limits Scalability Beyond 4K Tokens</strong></p>
+
+  - elementId: title-divider
+    elementType: shape
+    bounds: [80, 72, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: problem-statement
+    elementType: text
+    bounds: [80, 95, 560, 200]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Problem Statement</strong></p>
+        <p style="margin-top:6px">Standard self-attention computes pairwise token interactions with \(O(n^2)\) time and memory complexity, creating a fundamental bottleneck for long-document processing where \(n > 10,000\).</p>
+        <p style="margin-top:6px">Existing sparse approximations sacrifice either local coherence (global patterns) or long-range dependencies (local patterns), failing to achieve both simultaneously.</p>
+
+  - elementId: motivation-chart
+    elementType: chart
+    bounds: [680, 95, 520, 250]
+    type: bar
+    data:
+      - {method: "Full Attn", complexity: 100, accuracy: 100}
+      - {method: "Sparse A", complexity: 25, accuracy: 72}
+      - {method: "Sparse B", complexity: 30, accuracy: 78}
+      - {method: "Linear A", complexity: 8, accuracy: 65}
+      - {method: "Linear B", complexity: 10, accuracy: 70}
+    x: method
+    y: [complexity, accuracy]
+    names: ["Relative Complexity", "Relative Accuracy (%)"]
+    colors: ["#94A3B8", "$primary"]
+    options:
+      fontFamily: "Arial, Microsoft YaHei"
+    legend:
+      show: true
+      position: top
+      fontSize: 12
+    yAxis:
+      title: "Relative Scale"
+      gridLine:
+        color: "#F1F5F9"
+        style: solid
+        width: 1
+      label:
+        fontSize: 12
+        color: "$textLight"
+    xAxis:
+      label:
+        fontSize: 12
+        color: "$textLight"
+
+  - elementId: research-questions
+    elementType: text
+    bounds: [80, 310, 1120, 180]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Research Questions</strong></p>
+        <p style="margin-top:6px"><strong>RQ1:</strong> Can we design an attention mechanism that achieves sub-quadratic complexity without sacrificing the expressiveness required for long-document understanding tasks?</p>
+        <p style="margin-top:6px"><strong>RQ2:</strong> What is the theoretical relationship between sparsity pattern and representational capacity for hierarchical document structures?</p>
+        <p style="margin-top:6px"><strong>RQ3:</strong> Does the proposed method generalize across diverse long-document benchmarks (summarization, QA, retrieval)?</p>
+
+  - elementId: methodology-overview
+    elementType: text
+    bounds: [80, 505, 1120, 90]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Methodological Approach</strong></p>
+        <p style="margin-top:4px">We decompose attention into three granularities: (1) <strong>sentence-level</strong> local windows, (2) <strong>paragraph-level</strong> compressed representations, and (3) <strong>document-level</strong> global tokens. This hierarchical decomposition reduces complexity to \(O(n \log n)\) while preserving both local and global dependencies.</p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>04</p>

@@ -1,0 +1,132 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: page-title
+    elementType: text
+    bounds: [80, 30, 1120, 35]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Complexity Analysis: HSA Achieves \(O(n \log n)\) via Hierarchical Decomposition</strong></p>
+
+  - elementId: title-divider
+    elementType: shape
+    bounds: [80, 72, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: formula-1-label
+    elementType: text
+    bounds: [80, 90, 1120, 30]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>1. Standard Self-Attention Complexity</strong></p>
+
+  - elementId: formula-1
+    elementType: text
+    bounds: [100, 125, 1120, 40]
+    content:
+      style: "$formula"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>\(\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V \Rightarrow O(n^2 d)\)</p>
+
+  - elementId: formula-2-label
+    elementType: text
+    bounds: [80, 175, 1120, 30]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>2. Hierarchical Sparse Attention Decomposition</strong></p>
+
+  - elementId: formula-2
+    elementType: text
+    bounds: [100, 210, 1120, 80]
+    content:
+      style: "$formula"
+      align: [left, top]
+      text: |
+        <p>\(HSA = \underbrace{\text{LocalAttn}}_{O(n_s w d)} + \underbrace{\text{CompressAttn}}_{O(n_p c d)} + \underbrace{\text{GlobalAttn}}_{O(n_g^2 d)}\)</p>
+
+  - elementId: formula-3-label
+    elementType: text
+    bounds: [80, 300, 1120, 30]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>3. Asymptotic Complexity With Document Hierarchy</strong></p>
+
+  - elementId: formula-3
+    elementType: text
+    bounds: [100, 335, 1120, 40]
+    content:
+      style: "$formula"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>\(T_{\text{HSA}} = O\left(nd + \frac{n}{k}d + k^2d\right) = O(nd + k^2d)\)</p>
+
+  - elementId: formula-4
+    elementType: text
+    bounds: [100, 385, 1120, 40]
+    content:
+      style: "$formula"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>\(\text{Let } k = \sqrt{n} \Rightarrow T_{\text{HSA}} = O(n \cdot d + n \cdot d) = O(n \cdot d)\)</p>
+
+  - elementId: derivation-note
+    elementType: text
+    bounds: [80, 440, 1120, 95]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Derivation Notes</strong></p>
+        <p style="margin-top:4px">Where \(n_s\) = number of sentences, \(w\) = local window size (constant), \(n_p\) = number of paragraphs, \(c\) = compression ratio (constant), \(n_g\) = number of global tokens (\(O(\sqrt{n})\)). The total number of tokens processed across all three levels is bounded by \(n + n/k + k^2\), minimized when \(k = \sqrt{n}\), yielding \(O(n)\) token operations.</p>
+
+  - elementId: theorem-box
+    elementType: shape
+    bounds: [80, 545, 1120, 100]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$tableAlt"
+    border:
+      style: solid
+      width: 1
+      color: "$border"
+
+  - elementId: theorem-text
+    elementType: text
+    bounds: [100, 552, 1080, 90]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Theorem 1 (Representational Capacity):</strong> For any sequence \(X \in \mathbb{R}^{n \times d}\), HSA with \(k = \sqrt{n}\) global tokens can represent any function representable by full attention on a compressed subsequence of length \(O(\sqrt{n})\), plus local perturbations within window size \(w\). Formal proof in Appendix A.</p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>07</p>

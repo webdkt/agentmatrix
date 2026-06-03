@@ -1,0 +1,156 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: header-line
+    elementType: shape
+    bounds: [60, 64, 1160, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: action-title
+    elementType: text
+    bounds: [60, 20, 1160, 40]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Market consolidation: top 3 players capture 67% of incremental growth</strong></p>
+
+  - elementId: chart-left
+    elementType: chart
+    bounds: [60, 90, 560, 380]
+    type: bar
+    data:
+      - {company: "Company A", share2022: 18, share2024: 24}
+      - {company: "Company B", share2022: 15, share2024: 22}
+      - {company: "Company C", share2022: 12, share2024: 21}
+      - {company: "Company D", share2022: 14, share2024: 11}
+      - {company: "Others", share2022: 41, share2024: 22}
+    x: company
+    y: [share2022, share2024]
+    names: ["2022 Market Share %", "2024 Market Share %"]
+    colors: ["#CBD5E1", "$primary"]
+    options:
+      direction: horizontal
+      fontFamily: "Arial, Microsoft YaHei"
+    legend:
+      show: true
+      position: bottom
+      fontSize: 12
+    xAxis:
+      label:
+        fontSize: 12
+        color: "$textLight"
+    yAxis:
+      label:
+        fontSize: 12
+        color: "$textLight"
+      gridLine:
+        color: "#F1F5F9"
+        style: solid
+        width: 1
+    dataLabels:
+      show: true
+      fontSize: 12
+      color: "$text"
+
+  - elementId: right-analysis
+    elementType: text
+    bounds: [660, 90, 560, 260]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Key Insights</strong></p>
+        <p>Top 3 competitors increased combined share by <strong>22pp</strong> since 2022, driven by M&amp;A activity and platform consolidation.</p>
+        <p style="margin-top:8px">Market concentration (HHI) rose from 1,240 to <strong>1,860</strong>, approaching moderately concentrated thresholds.</p>
+        <p style="margin-top:8px">Company C achieved fastest growth (+9pp) through vertical integration strategy.</p>
+
+  - elementId: right-metric-box
+    elementType: shape
+    bounds: [660, 370, 270, 100]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$tableAlt"
+    border:
+      style: solid
+      width: 1
+      color: "$border"
+
+  - elementId: right-metric-value
+    elementType: text
+    bounds: [675, 378, 240, 45]
+    content:
+      style: "$metric"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>+22pp</strong></p>
+
+  - elementId: right-metric-label
+    elementType: text
+    bounds: [675, 428, 240, 35]
+    content:
+      style: "$caption"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Top 3 Share Gain (2022-24)</p>
+
+  - elementId: right-metric-box-2
+    elementType: shape
+    bounds: [950, 370, 270, 100]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$tableAlt"
+    border:
+      style: solid
+      width: 1
+      color: "$border"
+
+  - elementId: right-metric-value-2
+    elementType: text
+    bounds: [965, 378, 240, 45]
+    content:
+      style: "$metric"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>1,860</strong></p>
+
+  - elementId: right-metric-label-2
+    elementType: text
+    bounds: [965, 428, 240, 35]
+    content:
+      style: "$caption"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>HHI Concentration Index</p>
+
+  - elementId: source-note
+    elementType: text
+    bounds: [60, 490, 1160, 30]
+    content:
+      style: "$footnote"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Source: Industry Association Annual Report 2024; Company filings; <a href="https://example.com">Market Research Firm</a></p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>04</p>

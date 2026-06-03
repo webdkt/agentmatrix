@@ -1,0 +1,73 @@
+pageType: cover
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: cover-institution
+    elementType: text
+    bounds: [100, 80, 700, 30]
+    content:
+      style: "$caption"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Department of Computer Science, University of Technology</p>
+
+  - elementId: cover-title
+    elementType: text
+    bounds: [100, 180, 900, 140]
+    content:
+      style: "$title"
+      align: [left, top]
+      text: |
+        <p><strong>A Novel Attention Mechanism for Long-Document Understanding</strong></p>
+
+  - elementId: cover-divider
+    elementType: shape
+    bounds: [100, 350, 100, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: cover-subtitle
+    elementType: text
+    bounds: [100, 370, 800, 40]
+    content:
+      fontSize: 20
+      color: "$textLight"
+      fontFamily: "Arial, Microsoft YaHei"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Ph.D. Dissertation Defense</p>
+
+  - elementId: cover-author
+    elementType: text
+    bounds: [100, 440, 500, 30]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Presented by:</strong> Jane Smith</p>
+
+  - elementId: cover-advisor
+    elementType: text
+    bounds: [100, 480, 500, 30]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Advisor:</strong> Prof. Robert Chen</p>
+
+  - elementId: cover-date
+    elementType: text
+    bounds: [100, 540, 400, 30]
+    content:
+      style: "$caption"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>November 15, 2024</p>

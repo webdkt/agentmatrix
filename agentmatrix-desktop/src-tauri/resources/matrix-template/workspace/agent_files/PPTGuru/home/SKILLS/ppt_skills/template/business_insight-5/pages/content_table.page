@@ -1,0 +1,207 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: header-line
+    elementType: shape
+    bounds: [60, 64, 1160, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: action-title
+    elementType: text
+    bounds: [60, 20, 1160, 40]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Competitive benchmarking reveals 840bps margin gap from scale, mix</strong></p>
+
+  - elementId: comparison-table
+    elementType: table
+    bounds: [60, 85, 1160, 320]
+    columnWidths: [0.18, 0.14, 0.14, 0.14, 0.14, 0.14, 0.12]
+    rowHeights: [0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.16]
+    style: "$default"
+    rows:
+      - - content:
+            text: |
+              <p>Metric</p>
+        - content:
+            text: |
+              <p>Our Co.</p>
+        - content:
+            text: |
+              <p>Comp A</p>
+        - content:
+            text: |
+              <p>Comp B</p>
+        - content:
+            text: |
+              <p>Comp C</p>
+        - content:
+            text: |
+              <p>Ind Avg</p>
+        - content:
+            text: |
+              <p>Gap</p>
+      - - content:
+            text: |
+              <p>Revenue ($M)</p>
+        - content:
+            text: |
+              <p><strong>155.0</strong></p>
+        - content:
+            text: |
+              <p>210.0</p>
+        - content:
+            text: |
+              <p>98.0</p>
+        - content:
+            text: |
+              <p>142.0</p>
+        - content:
+            text: |
+              <p>151.3</p>
+        - content:
+            text: |
+              <p>+3.7M</p>
+      - - content:
+            text: |
+              <p>Gross Margin</p>
+        - content:
+            text: |
+              <p><strong>58.2%</strong></p>
+        - content:
+            text: |
+              <p>49.8%</p>
+        - content:
+            text: |
+              <p>52.1%</p>
+        - content:
+            text: |
+              <p>61.5%</p>
+        - content:
+            text: |
+              <p>54.4%</p>
+        - content:
+            text: |
+              <p><span style="color:#DC2626;">-330bps</span></p>
+      - - content:
+            text: |
+              <p>EBITDA Margin</p>
+        - content:
+            text: |
+              <p><strong>22.4%</strong></p>
+        - content:
+            text: |
+              <p>18.1%</p>
+        - content:
+            text: |
+              <p>14.2%</p>
+        - content:
+            text: |
+              <p>25.7%</p>
+        - content:
+            text: |
+              <p>19.1%</p>
+        - content:
+            text: |
+              <p><span style="color:#059669;">+330bps</span></p>
+      - - content:
+            text: |
+              <p>R&D / Rev</p>
+        - content:
+            text: |
+              <p><strong>14.2%</strong></p>
+        - content:
+            text: |
+              <p>11.8%</p>
+        - content:
+            text: |
+              <p>9.5%</p>
+        - content:
+            text: |
+              <p>16.3%</p>
+        - content:
+            text: |
+              <p>13.0%</p>
+        - content:
+            text: |
+              <p><span style="color:#059669;">+120bps</span></p>
+      - - content:
+            text: |
+              <p>S&M / Rev</p>
+        - content:
+            text: |
+              <p><strong>18.6%</strong></p>
+        - content:
+            text: |
+              <p>24.2%</p>
+        - content:
+            text: |
+              <p>21.8%</p>
+        - content:
+            text: |
+              <p>17.1%</p>
+        - content:
+            text: |
+              <p>20.4%</p>
+        - content:
+            text: |
+              <p><span style="color:#059669;">-180bps</span></p>
+      - - content:
+            text: |
+              <p>Employee Count</p>
+        - content:
+            text: |
+              <p><strong>2,840</strong></p>
+        - content:
+            text: |
+              <p>4,200</p>
+        - content:
+            text: |
+              <p>1,650</p>
+        - content:
+            text: |
+              <p>3,100</p>
+        - content:
+            text: |
+              <p>2,947</p>
+        - content:
+            text: |
+              <p>-107</p>
+
+  - elementId: conclusion-text
+    elementType: text
+    bounds: [60, 425, 1160, 110]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Key Takeaways</strong></p>
+        <p>Despite trailing Competitor C on gross margin, our EBITDA margin leads the peer set by 330bps due to superior operational efficiency (S&amp;M 180bps below average). R&amp;D intensity (14.2%) exceeds industry norms, supporting the innovation-led growth thesis. Scale disadvantage vs. Competitor A ($55M gap) is the primary structural challenge.</p>
+
+  - elementId: source-note
+    elementType: text
+    bounds: [60, 660, 1000, 20]
+    content:
+      style: "$footnote"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Source: Public filings Q3'24; Industry benchmarking database; <a href="https://example.com">Bloomberg data</a></p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>05</p>

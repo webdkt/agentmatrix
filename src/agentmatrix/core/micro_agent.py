@@ -1323,8 +1323,11 @@ class MicroAgent(AutoLoggerMixin):
         action_results = []
 
         if valid_calls:
-            # 正常路径：逐个解析参数
+            # 正常路径：逐个解析参数（跳过有语法错误的 action，让 LLM 修正后重试）
+            syntax_error_set = set(syntax_errors)
             for action_name, params_text in valid_calls:
+                if action_name in syntax_error_set:
+                    continue
                 result = await self._align_action_params(action_name, params_text, action_label_hint=for_label)
                 if result:
                     action_results.append(result)

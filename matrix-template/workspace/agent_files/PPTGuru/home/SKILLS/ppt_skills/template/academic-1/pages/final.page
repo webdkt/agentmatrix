@@ -1,0 +1,55 @@
+pageType: final
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: final-title
+    elementType: text
+    bounds: [100, 200, 600, 55]
+    content:
+      style: "$chapterTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Conclusion</strong></p>
+
+  - elementId: final-divider
+    elementType: shape
+    bounds: [100, 270, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: final-message
+    elementType: text
+    bounds: [100, 295, 900, 140]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Contributions:</strong></p>
+        <p style="margin-top:4px">(1) Proposed Hierarchical Sparse Attention (HSA) achieving \(O(n \log n)\) complexity with theoretical guarantees.</p>
+        <p style="margin-top:4px">(2) Demonstrated state-of-the-art results on four long-document benchmarks with 72% efficiency gains.</p>
+        <p style="margin-top:4px">(3) Provided rigorous complexity analysis and representational capacity proofs.</p>
+
+  - elementId: future-work
+    elementType: text
+    bounds: [100, 450, 900, 80]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Future Work:</strong> Extend HSA to multi-modal long documents (images + text); explore adaptive hierarchy depth based on document genre; integrate with retrieval-augmented generation pipelines.</p>
+
+  - elementId: qa-text
+    elementType: text
+    bounds: [100, 560, 400, 35]
+    content:
+      fontSize: 22
+      color: "$primary"
+      fontFamily: "Times New Roman, Noto Serif SC"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Thank You — Questions?</strong></p>

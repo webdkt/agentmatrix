@@ -1,0 +1,88 @@
+title: Red Line Sharp - Business Insight Template
+size:
+- 1280
+- 720
+theme:
+  colors:
+    primary: '#991B1B'
+    secondary: '#B91C1C'
+    accent: '#7F1D1D'
+    background: '#FFFFFF'
+    text: '#1A202C'
+    textLight: '#6B7280'
+    border: '#E5E7EB'
+    tableAlt: '#F9FAFB'
+    darkBg: '#07101E'
+    cardBg: '#F0EDE8'
+    lightAccent: '#D4A76A'
+    white: '#FFFFFF'
+    medgray: '#8B8C89'
+  textStyles:
+    title:
+      fontSize: 48
+      color: $primary
+      fontFamily: Oranienbaum, MiSans
+      lineHeight: 1.2
+    subtitle:
+      fontSize: 24
+      color: $secondary
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.4
+    chapterTitle:
+      fontSize: 32
+      color: $primary
+      fontFamily: Oranienbaum, MiSans
+      lineHeight: 1.3
+    actionTitle:
+      fontSize: 28
+      color: $text
+      fontFamily: Oranienbaum, MiSans
+      lineHeight: 1.3
+    body:
+      fontSize: 18
+      color: $text
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.6
+    caption:
+      fontSize: 14
+      color: $textLight
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.4
+    footnote:
+      fontSize: 12
+      color: $textLight
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.4
+    metric:
+      fontSize: 48
+      color: $primary
+      fontFamily: Oranienbaum, MiSans
+      lineHeight: 1.1
+    pageNumber:
+      fontSize: 12
+      color: $textLight
+      fontFamily: QuattrocentoSans, MiSans
+      lineHeight: 1.0
+  tableStyles:
+    default:
+      fontSize: 14
+      fontFamily: QuattrocentoSans, MiSans
+      headerFill: $primary
+      headerColor: '#FFFFFF'
+      headerBold: true
+      bodyFill:
+      - '#FFFFFF'
+      - $tableAlt
+      bodyColor: $text
+      firstColumnBold: true
+      border:
+        style: solid
+        width: 1
+        color: $border
+pages:
+- pages/cover.page
+- pages/table_of_contents.page
+- pages/chapter.page
+- pages/content_left_right.page
+- pages/content_table.page
+- pages/final.page

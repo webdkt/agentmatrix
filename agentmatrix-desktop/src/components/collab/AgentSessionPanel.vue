@@ -181,8 +181,31 @@ const loadAgentUISchema = async () => {
   }
 }
 
+const agentSkills = ref([])
+
+const loadAgentSkills = async () => {
+  if (!currentAgentName.value) {
+    agentSkills.value = []
+    return
+  }
+  const cached = agentStore.getAgentSkills(currentAgentName.value)
+  if (cached.length > 0) {
+    agentSkills.value = cached
+    return
+  }
+  try {
+    const result = await agentAPI.getAgent(currentAgentName.value)
+    agentSkills.value = result.skills || []
+    agentStore.setAgentSkills(currentAgentName.value, result.skills || [])
+  } catch (e) {
+    console.error('Failed to load agent skills:', e)
+    agentSkills.value = []
+  }
+}
+
 watch(currentAgentName, () => {
   loadAgentUISchema()
+  loadAgentSkills()
 }, { immediate: true })
 
 // 目录节点（有 children）
@@ -658,6 +681,7 @@ function onDividerMouseUp() {
         ref="taskInfoRef"
         :agent-name="currentAgentName"
         :session-id="currentSessionId"
+        :agent-skills="agentSkills"
         :files="taskFiles.files.value"
         :files-loading="taskFiles.filesLoading.value"
         :current-dir="taskFiles.currentDir.value"

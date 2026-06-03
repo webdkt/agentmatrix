@@ -159,11 +159,19 @@ class FileSkillMixin:
         return content
 
     @register_action(
-        short_desc="写入文件[file_path,content,mode='overwrite',allow_overwrite=False]",
-        description="写入文件内容。默认覆盖模式。",
+        short_desc=(
+            "写入文件[file_path,content,mode='overwrite',allow_overwrite=False]。"
+            "多行content必须用r'''...'''或r\"\"\"...\"\"\"包裹，用真实换行，不要用\\n：\n"
+            "file.write(file_path='out.txt', content=r'''第一行\n第二行''')"
+        ),
+        description=(
+            "写入文件内容，默认覆盖模式。"
+            "content参数如含多行文本，必须用r'''...'''或r\"\"\"...\"\"\"包裹，"
+            "文本中用真实换行，不要用\\n转义。"
+        ),
         param_infos={
             "file_path": "文件路径",
-            "content": "文件内容",
+            "content": "文件内容。多行文本必须用r'''...'''或r\"\"\"...\"\"\"包裹，用真实换行不要用\\n",
             "mode": "写入模式，'overwrite' 覆盖或 'append' 追加（默认overwrite）",
             "allow_overwrite": "（可选）是否允许覆盖已存在文件（默认False）",
         },

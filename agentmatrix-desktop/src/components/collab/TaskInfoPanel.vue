@@ -2,14 +2,13 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useWhiteboard } from '@/composables/useWhiteboard'
 import { useTodo } from '@/composables/useTodo'
-import WhiteboardView from './WhiteboardView.vue'
-import TodoView from './TodoView.vue'
-import TaskFilesPanel from './TaskFilesPanel.vue'
+import { resolvePanels } from './panels/panelRegistry'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const props = defineProps({
   agentName: { type: String, required: true },
   sessionId: { type: String, required: true },
+  agentSkills: { type: Array, default: () => [] },
   // Task files props (passed from AgentSessionPanel)
   files: { type: Array, default: () => [] },
   filesLoading: { type: Boolean, default: false },
@@ -36,8 +35,22 @@ const todo = useTodo({
   sessionId: () => props.sessionId,
 })
 
+// ---- Dynamic panel list based on agent skills ----
+const visiblePanels = computed(() => resolvePanels(props.agentSkills))
+
 // ---- Accordion ----
 const expandedSection = ref('whiteboard')
+
+watch(visiblePanels, (panels) => {
+  if (panels.length === 0) {
+    expandedSection.value = null
+    return
+  }
+  const ids = panels.map(p => p.id)
+  if (expandedSection.value && !ids.includes(expandedSection.value)) {
+    expandedSection.value = ids[0]
+  }
+}, { immediate: true })
 
 function toggleSection(name) {
   expandedSection.value = expandedSection.value === name ? null : name
@@ -62,7 +75,70 @@ const entryCount = computed(() => {
 })
 
 const todoCount = computed(() => Object.keys(todo.todos.value).length)
-const fileCount = computed(() => props.files.length)
+
+// ---- Per-panel count badge ----
+const panelCounts = computed(() => ({
+  whiteboard: entryCount.value || null,
+  todo: todoCount.value || null,
+  files: null,
+  siteKnowledge: null,
+}))
+
+// ---- Per-panel props ----
+function getPanelProps(panelId) {
+  const common = { agentName: props.agentName, sessionId: props.sessionId }
+  if (panelId === 'whiteboard') {
+    return {
+      ...common,
+      sections: whiteboard.sections.value,
+      isLoaded: whiteboard.isLoaded.value,
+      onSave: whiteboard.replaceAll,
+    }
+  }
+  if (panelId === 'todo') {
+    return {
+      ...common,
+      todos: todo.todos.value,
+      isLoaded: todo.isLoaded.value,
+    }
+  }
+  if (panelId === 'files') {
+    return {
+      ...common,
+      files: props.files,
+      filesLoading: props.filesLoading,
+      currentDir: props.currentDir,
+      rootDir: props.rootDir,
+      isAtRoot: props.isAtRoot,
+      relativePath: props.relativePath,
+      selectedFiles: props.selectedFiles,
+      contextMenu: props.contextMenu,
+    }
+  }
+  return common
+}
+
+// ---- Per-panel events ----
+function onPanelEvent(panelId, eventName, ...args) {
+  if (panelId === 'files') {
+    const eventMap = {
+      'load-files': () => emit('load-files'),
+      'open-entry': (entry) => emit('open-entry', entry),
+      'go-up': () => emit('go-up'),
+      'go-root': () => emit('go-root'),
+      'select-file': (entry, event) => emit('select-file', entry, event),
+      'contextmenu': (entry, event) => emit('contextmenu', entry, event),
+      'hide-context-menu': () => emit('hide-context-menu'),
+      'menu-action': (action) => emit('menu-action', action),
+      'save': (data) => { /* whiteboard save handled directly */ },
+    }
+    const handler = eventMap[eventName]
+    if (handler) handler(...args)
+  }
+  if (panelId === 'whiteboard' && eventName === 'save') {
+    whiteboard.replaceAll(...args)
+  }
+}
 
 // ---- Auto-refresh files when tab is expanded ----
 let filesRefreshTimer = null
@@ -84,49 +160,39 @@ defineExpose({ switchTab })
 
 <template>
   <div class="task-info-panel">
-    <!-- Whiteboard -->
-    <div class="tip-section" :class="{ 'tip-section--collapsed': expandedSection !== 'whiteboard' }">
-      <button class="tip-section__header" @click="toggleSection('whiteboard')">
-        <span class="tip-section__header-icon"><MIcon name="clipboard" /></span>
-        <span class="tip-section__header-label">Whiteboard</span>
-        <span v-if="entryCount" class="tip-section__header-count">{{ entryCount }}</span>
+    <div
+      v-for="panel in visiblePanels"
+      :key="panel.id"
+      class="tip-section"
+      :class="{ 'tip-section--collapsed': expandedSection !== panel.id }"
+    >
+      <button class="tip-section__header" @click="toggleSection(panel.id)">
+        <span class="tip-section__header-icon"><MIcon :name="panel.icon" /></span>
+        <span class="tip-section__header-label">{{ panel.label }}</span>
+        <span v-if="panelCounts[panel.id]" class="tip-section__header-count">{{ panelCounts[panel.id] }}</span>
         <MIcon name="chevron-down" class="tip-section__chevron" />
       </button>
-      <div v-if="expandedSection === 'whiteboard'" class="tip-section__body">
-        <WhiteboardView
+      <div v-if="expandedSection === panel.id" class="tip-section__body">
+        <!-- Whiteboard (needs composable data + save event) -->
+        <component
+          :is="panel.component"
+          v-if="panel.id === 'whiteboard'"
           :sections="whiteboard.sections.value"
           :is-loaded="whiteboard.isLoaded.value"
           :agent-name="agentName"
           @save="whiteboard.replaceAll"
         />
-      </div>
-    </div>
-
-    <!-- Todo -->
-    <div class="tip-section" :class="{ 'tip-section--collapsed': expandedSection !== 'todo' }">
-      <button class="tip-section__header" @click="toggleSection('todo')">
-        <span class="tip-section__header-icon"><MIcon name="list-checks" /></span>
-        <span class="tip-section__header-label">Todo</span>
-        <span v-if="todoCount" class="tip-section__header-count">{{ todoCount }}</span>
-        <MIcon name="chevron-down" class="tip-section__chevron" />
-      </button>
-      <div v-if="expandedSection === 'todo'" class="tip-section__body">
-        <TodoView
+        <!-- Todo (needs composable data) -->
+        <component
+          :is="panel.component"
+          v-else-if="panel.id === 'todo'"
           :todos="todo.todos.value"
           :is-loaded="todo.isLoaded.value"
         />
-      </div>
-    </div>
-
-    <!-- Files -->
-    <div class="tip-section" :class="{ 'tip-section--collapsed': expandedSection !== 'files' }">
-      <button class="tip-section__header" @click="toggleSection('files')">
-        <span class="tip-section__header-icon"><MIcon name="folder" /></span>
-        <span class="tip-section__header-label">Files</span>
-        <MIcon name="chevron-down" class="tip-section__chevron" />
-      </button>
-      <div v-if="expandedSection === 'files'" class="tip-section__body">
-        <TaskFilesPanel
+        <!-- Files (needs many props from parent) -->
+        <component
+          :is="panel.component"
+          v-else-if="panel.id === 'files'"
           :files="files"
           :files-loading="filesLoading"
           :current-dir="currentDir"
@@ -143,6 +209,13 @@ defineExpose({ switchTab })
           @contextmenu="(entry, event) => emit('contextmenu', entry, event)"
           @hide-context-menu="emit('hide-context-menu')"
           @menu-action="(action) => emit('menu-action', action)"
+        />
+        <!-- Generic panels (receive agentName + sessionId) -->
+        <component
+          :is="panel.component"
+          v-else
+          :agent-name="agentName"
+          :session-id="sessionId"
         />
       </div>
     </div>

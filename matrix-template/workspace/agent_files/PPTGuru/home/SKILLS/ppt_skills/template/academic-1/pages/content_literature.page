@@ -1,0 +1,214 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: page-title
+    elementType: text
+    bounds: [80, 30, 1120, 35]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Related Work: Three Paradigms With Complementary Limitations</strong></p>
+
+  - elementId: title-divider
+    elementType: shape
+    bounds: [80, 72, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: lit-review-text
+    elementType: text
+    bounds: [80, 90, 1120, 120]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Literature Taxonomy</strong></p>
+        <p style="margin-top:4px">Long-document attention mechanisms can be categorized into three paradigms: (1) <strong>Sparse Attention</strong> (Child et al., 2019; Zaheer et al., 2020) restricts pairwise interactions to predefined patterns; (2) <strong>Linear Attention</strong> (Katharopoulos et al., 2020; Choromanski et al., 2021) approximates softmax with kernel methods achieving \(O(n)\) complexity; (3) <strong>Hierarchical Methods</strong> (Pappagari et al., 2019; Zhang et al., 2022) process documents at multiple resolutions but lack end-to-end differentiability.</p>
+
+  - elementId: comparison-table
+    elementType: table
+    bounds: [80, 225, 1120, 290]
+    columnWidths: [0.18, 0.20, 0.16, 0.16, 0.16, 0.14]
+    rowHeights: [0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.14, 0.14]
+    style: "$default"
+    rows:
+      - - content:
+            text: |
+              <p>Method</p>
+        - content:
+            text: |
+              <p>Key Idea</p>
+        - content:
+            text: |
+              <p>Complexity</p>
+        - content:
+            text: |
+              <p>Local Coherence</p>
+        - content:
+            text: |
+              <p>Global Scope</p>
+        - content:
+            text: |
+              <p>Differentiability</p>
+      - - content:
+            text: |
+              <p>Sparse Transformer</p>
+        - content:
+            text: |
+              <p>Fixed sparse patterns</p>
+        - content:
+            text: |
+              <p>\(O(n \sqrt{n})\)</p>
+        - content:
+            text: |
+              <p>Partial</p>
+        - content:
+            text: |
+              <p>Limited</p>
+        - content:
+            text: |
+              <p>Yes</p>
+      - - content:
+            text: |
+              <p>Longformer</p>
+        - content:
+            text: |
+              <p>Sliding + global</p>
+        - content:
+            text: |
+              <p>\(O(n \cdot w)\)</p>
+        - content:
+            text: |
+              <p>Good</p>
+        - content:
+            text: |
+              <p>Fixed tokens</p>
+        - content:
+            text: |
+              <p>Yes</p>
+      - - content:
+            text: |
+              <p>BigBird</p>
+        - content:
+            text: |
+              <p>Random + global + local</p>
+        - content:
+            text: |
+              <p>\(O(n)\)</p>
+        - content:
+            text: |
+              <p>Partial</p>
+        - content:
+            text: |
+              <p>Better</p>
+        - content:
+            text: |
+              <p>Yes</p>
+      - - content:
+            text: |
+              <p>Performer</p>
+        - content:
+            text: |
+              <p>FAVOR+ kernel</p>
+        - content:
+            text: |
+              <p>\(O(n)\)</p>
+        - content:
+            text: |
+              <p>Approx.</p>
+        - content:
+            text: |
+              <p>Full</p>
+        - content:
+            text: |
+              <p>Yes</p>
+      - - content:
+            text: |
+              <p>Linformer</p>
+        - content:
+            text: |
+              <p>Low-rank projection</p>
+        - content:
+            text: |
+              <p>\(O(n)\)</p>
+        - content:
+            text: |
+              <p>Approx.</p>
+        - content:
+            text: |
+              <p>Full</p>
+        - content:
+            text: |
+              <p>Yes</p>
+      - - content:
+            text: |
+              <p>H-Transformer</p>
+        - content:
+            text: |
+              <p>Hierarchical pooling</p>
+        - content:
+            text: |
+              <p>\(O(n \log n)\)</p>
+        - content:
+            text: |
+              <p>Multi-level</p>
+        - content:
+            text: |
+              <p>Multi-level</p>
+        - content:
+            text: |
+              <p>No</p>
+      - - content:
+            text: |
+              <p><strong>HSA (Ours)</strong></p>
+        - content:
+            text: |
+              <p><strong>Learned hierarchy</strong></p>
+        - content:
+            text: |
+              <p><strong>\(O(n \log n)\)</strong></p>
+        - content:
+            text: |
+              <p><strong>Full</strong></p>
+        - content:
+            text: |
+              <p><strong>Full</strong></p>
+        - content:
+            text: |
+              <p><strong>Yes</strong></p>
+
+  - elementId: gap-text
+    elementType: text
+    bounds: [80, 530, 1120, 80]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Identified Gap</strong></p>
+        <p style="margin-top:4px">No existing method simultaneously achieves: (i) sub-quadratic complexity, (ii) end-to-end differentiability, (iii) explicit multi-resolution structure matching document hierarchy, and (iv) strong empirical performance across diverse long-document tasks. HSA addresses all four criteria.</p>
+
+  - elementId: source-note
+    elementType: text
+    bounds: [80, 660, 1000, 20]
+    content:
+      style: "$footnote"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Source: Key references cited per cell; see References slide for full bibliography</p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>05</p>

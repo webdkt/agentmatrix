@@ -1,0 +1,74 @@
+title: Oracle Light 2
+size:
+- 1280
+- 720
+theme:
+  colors:
+    primary: '#04536F'
+    secondary: '#6C3F49'
+    accent: '#C74634'
+    background: '#FBF9F8'
+    text: '#2A2F2F'
+    textLight: '#8B8580'
+    border: '#8B8580'
+    tableAlt: '#F1EFED'
+    highlight: '#F0CC71'
+    cardBg: '#F1EFED'
+    cardAccent: '#AEA8A2'
+    white: '#FFFFFF'
+    darkBg: '#2A2F2F'
+  textStyles:
+    title:
+      fontFamily: Georgia, MiSans
+      fontSize: 36
+      color: $text
+    subtitle:
+      fontFamily: Oracle Sans Tab, MiSans
+      fontSize: 20
+      color: $textLight
+    actionTitle:
+      fontFamily: Georgia, MiSans
+      fontSize: 28
+      color: $primary
+    body:
+      fontFamily: Oracle Sans Tab, MiSans
+      fontSize: 16
+      color: $text
+      lineHeight: 1.5
+    caption:
+      fontFamily: Oracle Sans Tab, MiSans
+      fontSize: 14
+      color: $textLight
+    footnote:
+      fontFamily: Oracle Sans Tab, MiSans
+      fontSize: 10
+      color: $textLight
+    pageNumber:
+      fontFamily: Oracle Sans Tab, MiSans
+      fontSize: 10
+      color: $textLight
+  tableStyles:
+    default:
+      headerFill: $highlight
+      headerFont:
+        bold: true
+        color: $text
+        fontSize: 14
+      bodyFont:
+        color: $text
+        fontSize: 14
+      border:
+        color: $border
+        width: 1
+      altRowFill: $tableAlt
+pages:
+- pages/cover.page
+- pages/table_of_contents.page
+- pages/chapter.page
+- pages/content_single.page
+- pages/content_left_right.page
+- pages/content_three_column.page
+- pages/content_image_right.page
+- pages/content_table.page
+- pages/content_metric.page
+- pages/final.page

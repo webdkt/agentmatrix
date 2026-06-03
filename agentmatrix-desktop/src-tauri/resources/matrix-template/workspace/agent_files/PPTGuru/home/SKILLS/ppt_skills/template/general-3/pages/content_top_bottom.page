@@ -1,0 +1,181 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: header-line
+    elementType: shape
+    bounds: [60, 64, 1160, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: action-title
+    elementType: text
+    bounds: [60, 20, 1160, 40]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Revenue slows to 12% YoY; macro headwinds offset segment expansion</strong></p>
+
+  - elementId: top-chart
+    elementType: chart
+    bounds: [60, 85, 1160, 280]
+    type: line
+    data:
+      - {quarter: "Q1'22", revenue: 85, target: 80}
+      - {quarter: "Q2'22", revenue: 92, target: 90}
+      - {quarter: "Q3'22", revenue: 98, target: 95}
+      - {quarter: "Q4'22", revenue: 105, target: 100}
+      - {quarter: "Q1'23", revenue: 110, target: 108}
+      - {quarter: "Q2'23", revenue: 118, target: 115}
+      - {quarter: "Q3'23", revenue: 128, target: 125}
+      - {quarter: "Q4'23", revenue: 138, target: 135}
+      - {quarter: "Q1'24", revenue: 142, target: 145}
+      - {quarter: "Q2'24", revenue: 148, target: 155}
+      - {quarter: "Q3'24", revenue: 155, target: 165}
+    x: quarter
+    y: [revenue, target]
+    names: ["Actual Revenue ($M)", "Target ($M)"]
+    colors: ["$primary", "#94A3B8"]
+    options:
+      fontFamily: "Arial, Microsoft YaHei"
+    seriesStyle:
+      revenue:
+        width: 3
+        marker:
+          shape: circle
+          size: 6
+      target:
+        width: 2
+        line: dash
+        marker: false
+    yAxis:
+      title: "Revenue ($M)"
+      gridLine:
+        color: "#F1F5F9"
+        style: solid
+        width: 1
+      label:
+        fontSize: 12
+        color: "$textLight"
+    xAxis:
+      label:
+        fontSize: 12
+        color: "$textLight"
+    legend:
+      show: true
+      position: top
+      fontSize: 12
+
+  - elementId: bottom-insight
+    elementType: text
+    bounds: [60, 385, 1160, 90]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p>Revenue grew <strong>12% YoY</strong> in Q3'24, down from 18% in Q2'24. Enterprise segment (+24%) and International (+31%) partially offset Consumer decline (-8%). Q4 guidance revised down to <strong>$158M</strong> (from $165M) due to delayed government procurement cycles.</p>
+
+  - elementId: segment-table
+    elementType: table
+    bounds: [60, 490, 1160, 160]
+    columnWidths: [0.22, 0.18, 0.15, 0.15, 0.15, 0.15]
+    rowHeights: [0.28, 0.24, 0.24, 0.24]
+    style: "$default"
+    rows:
+      - - content:
+            text: |
+              <p>Segment</p>
+        - content:
+            text: |
+              <p>Q3'24 Revenue</p>
+        - content:
+            text: |
+              <p>YoY Growth</p>
+        - content:
+            text: |
+              <p>GM%</p>
+        - content:
+            text: |
+              <p>Share of Total</p>
+        - content:
+            text: |
+              <p>Q4 Guidance</p>
+      - - content:
+            text: |
+              <p>Enterprise</p>
+        - content:
+            text: |
+              <p>$62.4M</p>
+        - content:
+            text: |
+              <p><strong>+24%</strong></p>
+        - content:
+            text: |
+              <p>72%</p>
+        - content:
+            text: |
+              <p>40%</p>
+        - content:
+            text: |
+              <p>$58M</p>
+      - - content:
+            text: |
+              <p>Consumer</p>
+        - content:
+            text: |
+              <p>$71.8M</p>
+        - content:
+            text: |
+              <p><span style="color:#DC2626;">-8%</span></p>
+        - content:
+            text: |
+              <p>45%</p>
+        - content:
+            text: |
+              <p>46%</p>
+        - content:
+            text: |
+              <p>$78M</p>
+      - - content:
+            text: |
+              <p>International</p>
+        - content:
+            text: |
+              <p>$20.8M</p>
+        - content:
+            text: |
+              <p><strong>+31%</strong></p>
+        - content:
+            text: |
+              <p>58%</p>
+        - content:
+            text: |
+              <p>14%</p>
+        - content:
+            text: |
+              <p>$22M</p>
+
+  - elementId: source-note
+    elementType: text
+    bounds: [60, 660, 1000, 20]
+    content:
+      style: "$footnote"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Source: Company Q3'24 Earnings Release; Segment reporting; <a href="https://example.com">Analyst consensus</a></p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>05</p>

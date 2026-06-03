@@ -1,0 +1,52 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+- elementId: content-title
+  elementType: text
+  bounds:
+  - 81
+  - 19
+  - 1120
+  - 86
+  content:
+    style: "$title"
+    align:
+    - left
+    - middle
+    text: |
+      <p><strong>Section Title</strong></p>
+
+- elementId: content-subtitle
+  elementType: text
+  bounds:
+  - 81
+  - 106
+  - 1120
+  - 35
+  content:
+    style: "$subtitle"
+    align:
+    - left
+    - middle
+    text: |
+      <p>Subtitle</p>
+
+- elementId: content-body
+  elementType: text
+  bounds:
+  - 80
+  - 168
+  - 1120
+  - 473
+  content:
+    style: "$body"
+    align:
+    - left
+    - top
+    text: |
+      <p>Main paragraph text goes here. Use this layout for single-column content with a title and optional subtitle.</p>
+      <ul data-level="1"><li>First level bullet point</li></ul>
+      <ul data-level="2"><li>Second level bullet point</li></ul>
+      <ul data-level="3"><li>Third level bullet point</li></ul>

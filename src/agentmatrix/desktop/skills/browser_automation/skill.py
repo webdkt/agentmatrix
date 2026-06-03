@@ -1,76 +1,32 @@
 """
-CDP Browser Skill — 浏览器自动化，支持前端 Interface 注入和双向事件。
+Browser Automation Skill — 浏览器自动化，支持前端 Interface 注入和双向事件。
+
+所有实现方法在 ._shared.BrowserCommonMixin 中，此类只声明 @register_action 装饰器
+并代理调用。新增 action 时：先在 BrowserCommonMixin 中加实现方法（无装饰器），
+再在此加 @register_action 薄壳。
 
 Agent Actions:
 - open_url(url)               → 打开 URL（自动注入通信桥接）
-- tab_operation(op, target_id?)  → 统一 tab 管理（list / close / switch_to）
-- run_automation_script(file_path, str_arg1?) → 按扩展名执行自动化脚本（.json CDP / .js JavaScript / .py Python）
-- eval_js(code, tab_id?) → 在当前 tab 直接执行 JavaScript 代码字符串
-- cdp_command(method, params?, tab_id?) → 直接发送 CDP 协议指令
-
-CDP 连接对 Agent 完全透明：session 激活时自动建立连接、恢复 tab、注册 agent queue。
-无需手动调用 open_browser()。
-
-
-设计要点：
-- Chrome/CDP/TabManager/EventListener 是进程级单例（一个 Chrome 进程）
-- Tab 按 agent_name 隔离（多 Agent 各自管理自己的 tabs）
-- _agent_current_tab 按 agent_name 索引，跨 MicroAgent 实例保持
-- BrowserEventListener 按 agent_name 路由 BrowserSignal 到 agent 的 input_queue
-- 每个 tab 关联 agent_name + agent_session_id，前端事件自动附带这些元数据
+- tab_operation(op, target_id?)→ 统一 tab 管理（list / close / switch_to）
+- find_selector(...)           → 启动临时 Agent 探索 DOM 找 selector
+- find_unique_selector_by_xy(...) → 同上，基于坐标
+- confirm_element(selector)   → 高亮元素弹确认框
+- try_js_code(code)            → 执行 JS 代码
+- try_cdp_command(method, params?) → 发送 CDP 指令
+- get_cdp_info()               → 获取 CDP 连接信息和示例代码
+- set_work_mode(mode)          → 切换 develop/execute 模式
+- load_site_knowledge(...)     → 加载站点知识
 """
-
-import ast
-import asyncio
-import json
-import logging
-import os
-from typing import Optional
-from pathlib import Path
 
 from agentmatrix.core.action import register_action
 
-from ._shared import (
-    infra,
-    _agent_current_tab, _agent_last_session,
-    _agent_env_callbacks,
-    _update_current_tab, _on_tab_removed,
-    _short_url, _auto_yield_ui, _auto_restore_ui,
-    _cdp_send_with_recovery, _tab_not_found_msg, _get_shared_infra,
-)
-from .tab_manager import TabInfo
+from ._shared import BrowserCommonMixin, infra
 from .interfaces import load_interface, list_interfaces
 
-logger = logging.getLogger(__name__)
 
-
-def _make_env_update_callback(root_agent, sock_path: str):
-    """创建异步回调，在 tab 变化时更新 CDP 环境变量（两个都设，覆盖 shell 重启等丢失场景）。"""
-    async def _update_cdp_env(target_id):
-        local_session = getattr(root_agent, 'local_session', None)
-        if not local_session:
-            return
-        env_cmd = (
-            f'export CDP_SOCKET_PATH="{sock_path}"\n'
-            f'export CDP_CURRENT_TAB_ID="{target_id}"\n'
-        )
-        try:
-            await asyncio.wait_for(
-                asyncio.to_thread(local_session.execute, env_cmd),
-                timeout=5,
-            )
-        except asyncio.TimeoutError:
-            logger.debug("Skipped CDP env update: shell busy")
-        except Exception:
-            logger.debug("Skipped CDP env update: execute failed")
-    return _update_cdp_env
-
-
-# ── Skill Mixin ───────────────────────────────────────────
-
-class Browser_automationSkillMixin:
+class Browser_automationSkillMixin(BrowserCommonMixin):
     """
-    Browser Automation Skill — 浏览器自动化 
+    Browser Automation Skill — 浏览器自动化
 
     多 Agent 支持：
     - 所有 agent 共享一个 Chrome 实例
@@ -184,274 +140,7 @@ class Browser_automationSkillMixin:
     - 流程知识更新后，执行load_site_knowledge，重新加载知识
   """
 
-    def _agent_name(self) -> str:
-        return getattr(self.root_agent, "name", "default")
-
-    def _agent_session_id(self) -> str:
-        """获取当前 agent 的 active session_id。"""
-        return getattr(self.root_agent, "active_session_id", "") or ""
-
-    async def _set_tab_agent_meta(self, tab: TabInfo):
-        """设置 tab 的 agent 元数据（agent_session_id + 前端 __bh_agent_meta__）。"""
-        agent_session_id = self._agent_session_id()
-        tab.agent_session_id = agent_session_id
-        if infra["event_listener"] and tab.session_id:
-            await infra["event_listener"].set_agent_meta(
-                tab.session_id, self._agent_name(), agent_session_id
-            )
-
-    def _get_current_tab(self) -> Optional[TabInfo]:
-        """获取当前 agent 的活动 tab（跨 MicroAgent 保持）。"""
-        return _agent_current_tab.get(self._agent_name())
-
-    def _set_current_tab(self, tab: Optional[TabInfo]):
-        """设置当前 agent 的活动 tab。"""
-        name = self._agent_name()
-        if tab:
-            _agent_current_tab[name] = tab
-        else:
-            _agent_current_tab.pop(name, None)
-
-    async def _ensure_browser(self):
-        """确保浏览器已启动，注册当前 agent 的 input_queue。"""
-        # 正在重连 → 等待完成
-        if infra["cdp_client"] and infra["cdp_client"]._reconnecting:
-            for _ in range(60):  # 最多等 30 秒
-                await asyncio.sleep(0.5)
-                if infra["cdp_client"]._connected:
-                    break
-            else:
-                logger.warning("Timed out waiting for CDP reconnect")
-
-        if infra["cdp_client"] and infra["cdp_client"]._connected:
-            # 已连接 → 只需注册 agent input_queue
-            if infra["event_listener"] and self.root_agent:
-                infra["event_listener"].register_agent_queue(
-                    self._agent_name(), self.root_agent.input_queue
-                )
-                infra["event_listener"].start()
-        else:
-            agent_name = self._agent_name()
-
-            # 固定 profile 路径，始终同一个，保留登录状态、书签、扩展等
-            profile_dir = str(Path.home() / ".agentmatrix" / "cdp_browser_profile")
-
-            port = int(os.environ.get("CDP_BROWSER_PORT", "9222"))
-
-            cdp, tab_mgr, listener = await _get_shared_infra(profile_dir, port)
-
-            # 注册 agent input_queue
-            if listener and self.root_agent:
-                listener.register_agent_queue(
-                    self._agent_name(), self.root_agent.input_queue
-                )
-                listener.start()
-
-        # Session 切换检测：关闭旧 session 的 tab，清理旧 relay
-        agent_name = self._agent_name()
-        current_sid = self._agent_session_id()
-        last_sid = _agent_last_session.get(agent_name, "")
-
-        if current_sid and current_sid != last_sid:
-            # 停止旧 session 的 relay
-            if last_sid and infra["chrome_manager"]:
-                infra["chrome_manager"].stop_session_relay(last_sid)
-            await self._cleanup_old_session_tabs(agent_name, current_sid)
-            _agent_last_session[agent_name] = current_sid
-
-        # 启动当前 session 的 UDS relay（如果还没有的话）
-        sock_path = None
-        if current_sid and infra["chrome_manager"] and infra["cdp_client"]:
-            sock_path = infra["chrome_manager"].start_session_relay(current_sid, infra["cdp_client"])
-
-        # 自动设置 CDP 环境变量到 Agent 的 bash session
-        local_session = getattr(self.root_agent, 'local_session', None)
-        if local_session:
-            tab = self._get_current_tab()
-            if sock_path:
-                env_cmds = (
-                    f'export CDP_SOCKET_PATH="{sock_path}"\n'
-                    f'export CDP_CURRENT_TAB_ID="{tab.target_id if tab else ""}"\n'
-                )
-                try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(local_session.execute, env_cmds),
-                        timeout=5,
-                    )
-                    logger.info(f"CDP env set: SOCK={sock_path}, TAB={tab.target_id[:12] if tab else 'None'}")
-                except Exception as e:
-                    logger.warning(f"CDP env setup failed: {e}")
-                # 注册 tab 变化时自动更新 CDP 环境变量的回调（两个都设）
-                _agent_env_callbacks[agent_name] = _make_env_update_callback(self.root_agent, sock_path)
-            else:
-                logger.warning(f"CDP env skipped: sock_path is None (sid={current_sid[:8] if current_sid else 'None'}, "
-                               f"chrome_mgr={bool(infra['chrome_manager'])}, cdp={bool(infra['cdp_client'])})")
-        else:
-            logger.debug("CDP env skipped: no local_session")
-
-    async def _cleanup_old_session_tabs(self, agent_name: str, current_session_id: str):
-        """通过 CDP 查询 Chrome 所有 page，关闭属于该 agent 旧 session 的 tab，收养匹配的 tab。
-
-        对每个 page：
-        1. 临时 attach → Runtime.evaluate 读 window.__bh_agent_meta__
-        2. agent_name 匹配 且 agent_session_id ≠ 当前 session → 关闭
-        3. agent_name 匹配 且 agent_session_id == 当前 session → 收养（注册到 TabManager + 设为 current_tab）
-        4. 否则 detach，跳过
-        """
-        if not infra["cdp_client"]:
-            return
-
-        try:
-            pages = await infra["cdp_client"].get_pages(include_internal=False)
-        except Exception as e:
-            logger.warning(f"Failed to get Chrome pages for cleanup: {e}")
-            return
-
-        if not pages:
-            return
-
-        closed = 0
-        adopt_candidates = []  # (target_id, url) 匹配当前 session 的 tab
-        for page in pages:
-            tid = page.get("targetId", "")
-            url = page.get("url", "")
-            if not tid:
-                continue
-
-            # 临时 attach 读取 __bh_agent_meta__
-            temp_sid = None
-            try:
-                temp_sid = await infra["cdp_client"].attach_to_target(tid)
-                result = await infra["cdp_client"].send(
-                    "Runtime.evaluate",
-                    {"expression": "window.__bh_agent_meta__ || null",
-                     "returnByValue": True},
-                    session_id=temp_sid,
-                    timeout=5,
-                )
-                meta = result.get("result", {}).get("value")
-            except Exception:
-                meta = None
-
-            # 读完立即 detach
-            if temp_sid:
-                try:
-                    await infra["cdp_client"].send(
-                        "Target.detachFromTarget",
-                        {"sessionId": temp_sid},
-                        timeout=5,
-                    )
-                except Exception:
-                    pass
-
-            # 判断是否属于当前 agent 的旧 session
-            if not meta:
-                continue  # 无 meta（未注入 bridge），跳过
-            if meta.get("agent_name") != agent_name:
-                continue  # 属于其他 agent，跳过
-            tab_sid = meta.get("agent_session_id", "")
-            if not tab_sid or tab_sid == current_session_id:
-                # 无 session 标记 或 当前 session → 收养候选
-                adopt_candidates.append((tid, url))
-                continue
-
-            # 关闭旧 session 的 tab
-            logger.info(
-                f"Cleaning old session tab: {tid[:12]} "
-                f"(old_session={tab_sid[:12]}, url={url[:60]})"
-            )
-            try:
-                await infra["cdp_client"].close_target(tid)
-                # 同步清理 infra["tab_manager"]
-                infra["tab_manager"]._tabs.pop(tid, None)
-                for ats in infra["tab_manager"]._agent_tabs.values():
-                    ats.discard(tid)
-                closed += 1
-            except Exception as e:
-                logger.warning(f"Failed to close tab {tid[:12]}: {e}")
-
-        # 收养匹配当前 session 的 tab（系统恢复/重启场景）
-        if adopt_candidates:
-            for tid, url in adopt_candidates:
-                if infra["tab_manager"]._tabs.get(tid):
-                    continue  # 已在 TabManager 中跟踪，跳过
-                try:
-                    tab = await infra["tab_manager"].adopt_tab(
-                        tid, agent_name, current_session_id, url
-                    )
-                    await self._set_tab_agent_meta(tab)
-                    logger.info(
-                        f"Adopted matching-session tab: {tid[:12]} (url={url[:60]})"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to adopt tab {tid[:12]}: {e}")
-
-            # 选择 current_tab：优先 active（visibilityState=visible），否则最后一个
-            adopted_tabs = infra["tab_manager"].get_agent_tabs_sync(agent_name)
-            if adopted_tabs and not _agent_current_tab.get(agent_name):
-                best = adopted_tabs[-1]
-                for t in adopted_tabs:
-                    try:
-                        res = await infra["cdp_client"].send(
-                            "Runtime.evaluate",
-                            {"expression": "document.visibilityState",
-                             "returnByValue": True},
-                            session_id=t.session_id,
-                            timeout=3,
-                        )
-                        if res.get("result", {}).get("value") == "visible":
-                            best = t
-                            break
-                    except Exception:
-                        pass
-                _agent_current_tab[agent_name] = best
-                logger.info(
-                    f"Adopted current_tab: {best.target_id[:12]} "
-                    f"(url={best.url[:60]})"
-                )
-
-        # 如果 current_tab 被关了，更新到剩余 tab
-        current = _agent_current_tab.get(agent_name)
-        if current:
-            remaining = infra["tab_manager"].get_agent_tabs_sync(agent_name)
-            still_exists = any(t.target_id == current.target_id for t in remaining)
-            if not still_exists:
-                _agent_current_tab[agent_name] = remaining[0] if remaining else None
-
-        if closed:
-            logger.info(
-                f"Session cleanup: closed {closed} old tabs for '{agent_name}'"
-            )
-
-    # ==========================================
-    # Actions
-    # ==========================================
-
-    async def open_browser(self) -> str:
-        """启动/连接浏览器。"""
-        await self._ensure_browser()
-        agent_name = self._agent_name()
-
-        # 确保至少有一个 tab
-        tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
-        if not tabs:
-            tab = await infra["tab_manager"].create_tab(agent_name)
-            self._set_current_tab(tab)
-            if infra["event_listener"]:
-                await infra["event_listener"].ensure_bridge(tab.session_id)
-                await self._set_tab_agent_meta(tab)
-        else:
-            # 恢复之前的 current_tab，或用第一个
-            if not self._get_current_tab():
-                self._set_current_tab(tabs[0])
-
-        tab = self._get_current_tab()
-        return json.dumps({
-            "status": "ok",
-            "message": "浏览器已就绪",
-            "tab_count": len(tabs) if tabs else 1,
-            "current_tab": tab.target_id if tab else "",
-        }, ensure_ascii=False)
+    # ── Action 薄壳：@register_action + 调用 mixin 实现 ──────────
 
     @register_action(
         short_desc="open_url(url)",
@@ -460,123 +149,127 @@ class Browser_automationSkillMixin:
         param_infos={"url": "要打开的 URL（如 https://github.com）"},
     )
     async def open_url(self, url: str) -> str:
-        """打开 URL。复用当前 tab（如有），否则新建。"""
-        await self._ensure_browser()
-        agent_name = self._agent_name()
-
-        # 复用当前 tab，而不是每次都新建
-        tab = self._get_current_tab()
-        if not tab:
-            tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
-            tab = tabs[0] if tabs else None
-        if not tab:
-            tab = await infra["tab_manager"].create_tab(agent_name)
-        self._set_current_tab(tab)
-
-        try:
-            await _cdp_send_with_recovery("Page.enable", tab=tab, timeout=5)
-            await _cdp_send_with_recovery("Page.navigate", {"url": url}, tab=tab, timeout=30)
-
-            await asyncio.sleep(1)
-
-            if infra["event_listener"]:
-                await infra["event_listener"].ensure_bridge(tab.session_id)
-                await self._set_tab_agent_meta(tab)
-
-            tab = await infra["tab_manager"].refresh_tab_info(tab.target_id)
-            if tab:
-                self._set_current_tab(tab)
-
-            return json.dumps({
-                "status": "ok",
-                "target_id": tab.target_id if tab else "",
-                "url": tab.url if tab else url,
-                "title": tab.title if tab else "",
-            }, ensure_ascii=False)
-
-        except Exception as e:
-            return json.dumps({
-                "status": "error",
-                "error": str(e),
-                "target_id": tab.target_id,
-            }, ensure_ascii=False)
+        return await super().open_url(url)
 
     @register_action(
         short_desc="tab_operation(op, target_id?) 统一 tab 管理。op='list' 列出 tabs, op='close' 关闭 tab, op='switch_to' 切换 tab",
         description="统一 tab 管理。op='list' 列出当前 agent 的所有 tab（含 tab ID、URL、标题、是否当前 tab）；"
                     "op='close' 关闭指定 tab（关闭后自动切换到剩余 tab）；"
-                    "op='switch_to' 切换到指定 tab（激活并注入 bridge）。",
+                    "op='switch_to' 切换到指定 tab（激活并注入 bridge）.",
         param_infos={
             "op": "操作类型：'list' / 'close' / 'switch_to'",
             "target_id": "tab 的 target_id（list 不需要，close/switch_to 必填）",
         },
     )
     async def tab_operation(self, op: str, target_id: str = None) -> str:
-        await self._ensure_browser()
-        agent_name = self._agent_name()
+        return await super().tab_operation(op, target_id)
 
-        if op == "list":
-            tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
-            current = self._get_current_tab()
-            result = []
-            for tab in tabs:
-                result.append({
-                    "target_id": tab.target_id,
-                    "url": tab.url,
-                    "title": tab.title,
-                    "is_current": current and tab.target_id == current.target_id,
-                })
-            return json.dumps({"tab_count": len(result), "tabs": result}, ensure_ascii=False)
+    @register_action(
+        short_desc="find_selector(instruction_text, tab_id?) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
+        description="find_selector(instruction_text, tab_id?) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
+        param_infos={
+            "additional_info": "用户对该元素的描述文字（从 indicator_result 信号获取）",
+            "tab_id": "可选，目标 tab 的 tab_id，不传则使用当前 tab",
+        },
+    )
+    async def find_selector(self, instruction_text: str, tab_id: str = None) -> str:
+        return await super().find_selector(instruction_text, tab_id)
 
-        elif op == "close":
-            if not target_id:
-                return json.dumps({"status": "error", "error": "close 操作需要提供 target_id"}, ensure_ascii=False)
-            tab = await infra["tab_manager"].get_tab(target_id)
-            if not tab:
-                return json.dumps({"status": "error", "error": _tab_not_found_msg(target_id)}, ensure_ascii=False)
-            if tab.agent_name != agent_name:
-                return json.dumps({"status": "error", "error": f"Tab {target_id} 不属于当前 agent"}, ensure_ascii=False)
-            await infra["tab_manager"].close_tab(target_id)
-            current = self._get_current_tab()
-            if current and current.target_id == target_id:
-                tabs = await infra["tab_manager"].get_agent_tabs(agent_name)
-                self._set_current_tab(tabs[0] if tabs else None)
-            return json.dumps({"status": "ok"}, ensure_ascii=False)
+    @register_action(
+        short_desc="find_unique_selector_by_xy(additional_info, tab_id?, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
+        description="find_unique_selector_by_xy(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
+        param_infos={
+            "additional_info": "用户对该元素的描述文字,以及任何有助于定位元素的额外信息",
+            "tab_id": "可选，目标 tab 的 tab_id，不传则使用当前 tab",
+            "x": "用户指向的 x 坐标",
+            "y": "用户指向的 y 坐标",
+        },
+    )
+    async def find_unique_selector_by_xy(self, additional_info: str, tab_id: str = None, x: int = 0, y: int = 0) -> str:
+        return await super().find_unique_selector_by_xy(additional_info, tab_id, x, y)
 
-        elif op == "switch_to":
-            if not target_id:
-                return json.dumps({"status": "error", "error": "switch_to 操作需要提供 target_id"}, ensure_ascii=False)
-            tab = await infra["tab_manager"].get_tab(target_id)
-            if not tab:
-                return json.dumps({"status": "error", "error": _tab_not_found_msg(target_id)}, ensure_ascii=False)
-            if tab.agent_name != agent_name:
-                return json.dumps({"status": "error", "error": f"Tab {target_id} 不属于当前 agent"}, ensure_ascii=False)
-            try:
-                await infra["cdp_client"].activate_target(target_id)
-                if not tab.session_id:
-                    tab.session_id = await infra["cdp_client"].attach_to_target(target_id)
-                    await infra["cdp_client"].enable_domains(tab.session_id)
-                if infra["event_listener"]:
-                    await infra["event_listener"].ensure_bridge(tab.session_id)
-                self._set_current_tab(tab)
-                tab = await infra["tab_manager"].refresh_tab_info(target_id)
-                if tab:
-                    self._set_current_tab(tab)
-                return json.dumps({
-                    "status": "ok",
-                    "target_id": tab.target_id if tab else target_id,
-                    "url": tab.url if tab else "",
-                    "title": tab.title if tab else "",
-                }, ensure_ascii=False)
-            except Exception as e:
-                return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
+    @register_action(
+        short_desc="confirm_element(selector, tab_id?) 在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",
+        description="在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。"
+                    "立即返回，用户确认结果通过 element_confirmed 信号异步返回。",
+        param_infos={
+            "selector": "要确认的 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）",
+            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
+        },
+    )
+    async def confirm_element(self, selector: str, tab_id: str = None) -> str:
+        return await super().confirm_element(selector, tab_id)
 
-        else:
-            return json.dumps({"status": "error", "error": f"未知操作 '{op}'，支持: list / close / switch_to"}, ensure_ascii=False)
+    @register_action(
+        short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug，默认当前tab",
+        description="向当前（或指定）tab 发送 JavaScript 代码并返回执行结果。"
+                    "支持返回 Promise / 使用 await，会等待 resolve 后返回最终值。",
+        param_infos={
+            "code": "要执行的 JavaScript 代码字符串（支持 async/await）",
+            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
+        },
+    )
+    async def try_js_code(self, code: str, tab_id: str = None) -> str:
+        return await super().try_js_code(code, tab_id)
 
-    
+    @register_action(
+        short_desc="(method, params?, tab_id?) 试验CDP协议指令。params 必须是 dict 对象，不能用于正式执行和测试，只能用于探索试验和debug，不得用于正式自动化执行",
+        description="向浏览器 tab 发送原始 CDP (Chrome DevTools Protocol) 指令并返回结果。"
+                    "可用于执行 Input.dispatchMouseEvent（鼠标事件）、Input.dispatchKeyEvent（键盘事件）、"
+                    "Page.captureScreenshot（截图）等任意 CDP 方法。\n\n"
+                    "params 必须是 dict 对象，示例：\n"
+                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mousePressed", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
+                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
+                    '  cdp_command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter", "text": "\\r"})\n\n'
+                    "完整文档参考 https://chromedevtools.github.io/devtools-protocol/",
+        param_infos={
+            "method": "CDP 方法名，如 Input.dispatchMouseEvent",
+            "params": "可选，CDP 参数 dict，如 {\"type\":\"mousePressed\",\"x\":100,\"y\":200}",
+            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
+        },
+    )
+    async def try_cdp_command(self, method: str, params=None, tab_id: str = None) -> str:
+        return await super().try_cdp_command(method, params, tab_id)
+
+    @register_action(
+        short_desc="get_cdp_info() → 获取 CDP 连接信息和示例代码",
+        description="获取当前 CDP 浏览器连接信息。"
+                    "返回示例代码（含完整的 cdp() 函数和 attach 流程）。"
+                    "关键规则："
+                    "1) Python 脚本通过环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 连接浏览器，无需硬编码路径；"
+                    "2) 操作 tab 前必须先调用 Target.attachToTarget(targetId=TAB_ID) 获取 sessionId，不可省略；"
+                    "3) 每次脚本运行都要重新 attach，不要复用旧的 sessionId；"
+                    "4) 一个 socket 连接同一时间只能串行执行（发一个请求，等响应，再发下一个）。",
+    )
+    async def get_cdp_info(self) -> str:
+        return await super().get_cdp_info()
+
+    @register_action(
+        short_desc="(mode)切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。必须根据当前情况切换到合适的模式。",
+        description="切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。"
+                    "会重建 system prompt（使用 profile 中对应的模式 persona）.",
+        param_infos={"mode": "工作模式：'develop' 或 'execute'"},
+    )
+    async def set_work_mode(self, mode: str) -> str:
+        return await super().set_work_mode(mode)
+
+    @register_action(
+        short_desc="(site_key, process_dir_name?) 加载站点知识或具体自动化流程。返回的<site-knowledge>内容已进入上下文，无需额外操作。",
+        description="加载指定站点的知识。只传 site_key 时加载站点 readme 和流程列表；"
+                    "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。"
+                    "返回 <site-knowledge> 包裹的内容，自动进入对话上下文。",
+        param_infos={
+            "site_key": "站点 site_key（格式 url_prefix:desc:dir_name）",
+            "process_dir_name": "可选，自动化流程子目录名称，加载具体流程的详细知识",
+        },
+    )
+    async def load_site_knowledge(self, site_key: str, process_dir_name: str = None) -> str:
+        return await super().load_site_knowledge(site_key, process_dir_name)
+
+    # ── Internal (not registered) ────────────────────────────
+
     async def deprecated_show_interface(self, name: str) -> str:
-        """注入前端 interface。"""
+        """注入前端 interface（已废弃，保留兼容）。"""
         await self._ensure_browser()
         tab = self._get_current_tab()
 
@@ -609,524 +302,3 @@ class Browser_automationSkillMixin:
             "message": f"Interface '{name}' 已注入到当前页面",
             "target_id": tab.target_id,
         }, ensure_ascii=False)
-
-    # ==========================================
-    # DOM 探索 (indicator → selector)
-    # ==========================================
-
-    @register_action(
-        short_desc="find_selector(instruction_text, tab_id?) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
-        description="find_selector(instruction_text, tab_id?) 启动一个临时Agent 在浏览器中探索 DOM，找到目标元素的最佳稳定selector。instruction_text关于要找什么、以及有什么已知信息后者scope的详细描述",
-        param_infos={
-            "additional_info": "用户对该元素的描述文字（从 indicator_result 信号获取）",
-            "tab_id": "可选，目标 tab 的 tab_id，不传则使用当前 tab",
-        },
-    )
-    async def find_selector(self, instruction_text: str, tab_id: str = None) -> str:
-        from agentmatrix.core.sub_agent import SubAgentShell
-
-        await self._ensure_browser()
-
-        if tab_id:
-            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
-            if not tab:
-                return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
-        else:
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"status": "error", "error": "没有活动的 tab，请先用 open_url() 打开页面"})
-            tab_id = tab.target_id
-
-        prompt = (
-            "你是一个 DOM 元素定位专家。\n"
-            f"你的任务：找到用户需要的元素的稳定定位表达式（CSS selector 或 XPath）。\n"
-            "可用工具函数（通过 eval_js 调用，必须传 tab_id）：\n"
-            "- __bh_el_info(el) — 获取元素详情，返回 {tag, id, cls, text, rect, attrs}\n"
-            "- __bh_tag_path(el) — 获取 CSS 路径\n"
-            "- __bh_xpath(el) — 获取 XPath\n"
-            "- __bh_test(selector) — 测试 CSS selector 命中数\n"
-            "- __bh_test_xpath(xpath) — 测试 XPath 命中数\n\n"
-            "要求：为目标元素生成稳定的定位表达式：\n"
-            "- 稳定是指依赖固定、语义的属性和稳定的、固定的结构关系，不依赖动态属性、看上去像变量、哈希值、自增值、随机值的属性值"
-            "- 好的selector 往往也是短的、含义清晰的selector，并且条件数量少的selector（例如单一属性优于多个属性组合，标签+属性优于纯属性）。"
-            "- 优先考虑元素自身的**语义化**的属性"
-            "- 如果本身缺少直接的稳定属性，就去寻找元素的上级、下级或相邻结构中的稳定定位元素，以其为锚点，再通过相对关系来定位目标元素。"
-            "- 一个属性是否是稳定可靠的selector取决于作用域。例如单纯的<a> tag一般无法直接用于定位。但如果其父节点可以稳定定位，parent > a 就是一个简单稳定的定位手段"
-            "- 所以在本身没有稳定属性的情况下，优先找到目标元素层级关系最近的稳定元素，然后在缩小的作用域里进行更简单的定位"
-            "- 避免使用无语义、随机生成的属性来作为定位依据"
-            "5. 可以用 __bh_test 或 __bh_test_xpath 验证selector匹配元素的数量"
-            "6. 用 return_result(result={\"selector\": \"找到的CSS选择器或XPath\", \"additional_info\": \"元素描述\"}) 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
-            "用户完全不懂技术，并且缺乏耐心，所以无论你做什么action，都要用 keep_user_from_bored 来说点什么避免用户长时间等待。可以通俗的解释工作，或者说一些相关话题、有趣又有智慧的评论，避免用户觉得无聊"
-        )
-
-        sub = SubAgentShell(
-            parent=self.root_agent,
-            name=f"{self.root_agent.name}_dom_explorer",
-            available_skills=["browser_automation.dom_explorer"],
-            system_prompt=prompt,
-            result_params={"selector": "CSS选择器或XPath", "additional_info": "元素描述"},
-            micro_agent_attrs={"_pinned_tab_id": tab_id},
-        )
-
-        try:
-            result = await sub.execute(
-                task=(
-                    f"用户对于要找的元素的描述: {instruction_text}\n"
-                    f"当前页面: {tab.url}\n"
-                    f"tab_id: {tab_id}\n\n"
-                    "请找到用户需要的元素的稳定定位表达式。"
-                ),
-            )
-            return json.dumps({
-                "status": "ok",
-                "selector": result['selector'],
-                "description": result['additional_info'],
-                "tab_id": tab_id,
-            }, ensure_ascii=False)
-        except Exception as e:
-            return json.dumps({
-                "status": "error",
-                "error": str(e),
-            }, ensure_ascii=False)
-        finally:
-            # 清理 SubAgent 可能残留的 overlay
-            try:
-                if infra["cdp_client"] and infra["cdp_client"]._connected:
-                    await infra["cdp_client"].send(
-                        "Runtime.evaluate",
-                        {"expression": "window.__bh_cleanup_all && __bh_cleanup_all()"},
-                        session_id=tab.session_id,
-                        timeout=3,
-                    )
-            except Exception:
-                pass
-
-    @register_action(
-        short_desc="find_unique_selector_by_xy(additional_info, tab_id?, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
-        description="find_unique_selector_by_xy(additional_info, tab_id, x, y) 启动一个临时Agent 在浏览器中探索 DOM，找到用户指向元素的稳定的、唯一的selector。additional_info是额外、帮助Agent定位元素的信息",
-        param_infos={
-            "additional_info": "用户对该元素的描述文字,以及任何有助于定位元素的额外信息",
-            "tab_id": "可选，目标 tab 的 tab_id，不传则使用当前 tab",
-            "x": "用户指向的 x 坐标",
-            "y": "用户指向的 y 坐标",
-        },
-    )
-    async def find_unique_selector_by_xy(self, additional_info: str, tab_id: str = None, x: int = 0, y: int = 0) -> str:
-        from agentmatrix.core.sub_agent import SubAgentShell
-
-        await self._ensure_browser()
-
-        if tab_id:
-            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
-            if not tab:
-                return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
-        else:
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"status": "error", "error": "没有活动的 tab，请先用 open_url() 打开页面"})
-            tab_id = tab.target_id
-
-        prompt = (
-            "你是一个 DOM 元素定位专家。\n"
-            f"背景：用户在页面上用指示器指向了一个位置，坐标 x={x}, y={y}。\n"
-            "我们用 elementFromPoint 获取了该位置的元素并标记为 __bh_marked__，\n"
-            "但 elementFromPoint 返回的是视觉最顶层元素，可能是一个大容器 div 而非用户想指的交互元素。\n"
-            "你的任务：找到用户真正想指的那个交互元素的稳定、唯一的定位表达式（CSS selector 或 XPath）。\n"
-            "可用工具函数（通过 eval_js 调用，必须传 tab_id）：\n"
-            "- __bh_elements_at(x, y) — 获取坐标处从顶到底的所有元素列表（已自动隐藏 UI 层）\n"
-            "- __bh_el_info(el) — 获取元素详情，返回 {tag, id, cls, text, rect, attrs}\n"
-            "- __bh_tag_path(el) — 获取 CSS 路径\n"
-            "- __bh_xpath(el) — 获取 XPath\n"
-            "- __bh_test(selector) — 测试 CSS selector 命中数\n"
-            "- __bh_test_xpath(xpath) — 测试 XPath 命中数\n\n"
-            "工作流程：\n"
-            f"1. 用 __bh_elements_at({x}, {y}) 查看坐标处的元素栈\n"
-            "2. 结合用户描述（additional_info），从栈中确定目标元素（通常是 button/a/input 等交互元素）\n"
-            "3. 为目标元素生成稳定的定位表达式：\n"
-            "- 稳定是指依赖固定、语义的属性和稳定的、固定的结构关系，不依赖动态属性、看上去像变量、哈希值、自增值、随机值的属性值"
-            "- 好的selector 往往也是短的、含义清晰的selector，并且条件数量少的selector（例如单一属性优于多个属性组合，标签+属性优于纯属性）。"
-            "- 优先考虑元素自身的**语义化**的属性"
-            "- 如果本身缺少直接的稳定属性，就去寻找元素的上级、下级或相邻结构中的稳定定位元素，以其为锚点，再通过相对关系来定位目标元素。"
-            "- 一个属性是否是稳定可靠的selector取决于作用域。例如单纯的<a> tag一般无法直接用于定位。但如果其父节点可以稳定定位，parent > a 就是一个简单稳定的定位手段"
-            "- 所以在本身没有稳定属性的情况下，优先找到目标元素层级关系最近的稳定元素，然后在缩小的作用域里进行更简单的定位"
-            "- 避免使用无语义、随机生成的属性来作为定位依据"
-            "4. 用 __bh_test 或 __bh_test_xpath 验证唯一性（count 必须为 1）\n"
-            "5. 不唯一则调整，直到唯一且稳定（不依赖动态、随机的属性、数量关系）\n"
-            "6. 用 return_result(result={\"selector\": \"找到的CSS选择器或XPath\", \"additional_info\": \"元素描述\"}) 返回结果（CSS selector 直接返回，XPath 以 'xpath:' 前缀返回）\n"
-            "用户完全不懂技术，并且缺乏耐心，所以无论你做什么action，都要用 keep_user_from_bored 来说点什么避免用户长时间等待。可以通俗的解释工作，或者说一些相关话题、有趣又有智慧的评论，避免用户觉得无聊"
-        )
-
-        sub = SubAgentShell(
-            parent=self.root_agent,
-            name=f"{self.root_agent.name}_dom_explorer",
-            available_skills=["browser_automation.dom_explorer"],
-            system_prompt=prompt,
-            result_params={"selector": "CSS选择器或XPath", "additional_info": "元素描述"},
-            micro_agent_attrs={"_pinned_tab_id": tab_id},
-        )
-
-        try:
-            result = await sub.execute(
-                task=(
-                    f"用户在页面上指向了一个位置，描述: {additional_info}\n"
-                    f"坐标: x={x}, y={y}\n"
-                    f"当前页面: {tab.url}\n"
-                    f"tab_id: {tab_id}\n\n"
-                    "请找到用户想指的交互元素的稳定唯一定位表达式。"
-                ),
-            )
-            return json.dumps({
-                "status": "ok",
-                "selector": result['selector'],
-                "description": result['additional_info'],
-                "tab_id": tab_id,
-            }, ensure_ascii=False)
-        except Exception as e:
-            return json.dumps({
-                "status": "error",
-                "error": str(e),
-            }, ensure_ascii=False)
-        finally:
-            # 清理 SubAgent 可能残留的 overlay
-            try:
-                if infra["cdp_client"] and infra["cdp_client"]._connected:
-                    await infra["cdp_client"].send(
-                        "Runtime.evaluate",
-                        {"expression": "window.__bh_cleanup_all && __bh_cleanup_all()"},
-                        session_id=tab.session_id,
-                        timeout=3,
-                    )
-            except Exception:
-                pass
-
-    @register_action(
-        short_desc="confirm_element(selector, tab_id?) 在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。",
-        description="在浏览器中高亮指定 selector 匹配的元素，并弹出确认对话框让用户确认。"
-                    "立即返回，用户确认结果通过 element_confirmed 信号异步返回。",
-        param_infos={
-            "selector": "要确认的 CSS selector 或 XPath（XPath 以 'xpath:' 前缀）",
-            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
-        },
-    )
-    async def confirm_element(self, selector: str, tab_id: str = None) -> str:
-        await self._ensure_browser()
-
-        if tab_id:
-            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
-            if not tab:
-                return json.dumps({"status": "error", "error": _tab_not_found_msg(tab_id)})
-        else:
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"status": "error", "error": "没有活动的 tab，请先用 open_url() 打开页面"})
-            tab_id = tab.target_id
-
-        js = f"window.__bh_confirm__ ? window.__bh_confirm__({json.dumps(selector)}) : window.__bh_confirm({json.dumps(selector)})"
-
-        try:
-            await infra["cdp_client"].send(
-                "Runtime.evaluate",
-                {"expression": js},
-                session_id=tab.session_id,
-                timeout=5,
-            )
-            return json.dumps({
-                "status": "ok",
-                "message": "已在页面上高亮元素，等待用户确认",
-                "selector": selector,
-                "tab_id": tab_id,
-            }, ensure_ascii=False)
-        except Exception as e:
-            return json.dumps({
-                "status": "error",
-                "error": str(e),
-            }, ensure_ascii=False)
-        
-    
-    
-
-    @register_action(
-        short_desc="(code, tab_id?)探索、试验js代码，不得用于测试，不得用于正式自动化执行，只用于探索和debug，默认当前tab",
-        description="向当前（或指定）tab 发送 JavaScript 代码并返回执行结果。"
-                    "支持返回 Promise / 使用 await，会等待 resolve 后返回最终值。",
-        param_infos={
-            "code": "要执行的 JavaScript 代码字符串（支持 async/await）",
-            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
-        },
-    )
-    async def try_js_code(self, code: str, tab_id: str = None) -> str:
-        await self._ensure_browser()
-
-        if tab_id:
-            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
-            if not tab:
-                return json.dumps({"error": _tab_not_found_msg(tab_id)})
-        else:
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
-            tab_id = tab.target_id
-
-        try:
-            result = await _cdp_send_with_recovery(
-                "Runtime.evaluate",
-                {
-                    "expression": code,
-                    "returnByValue": True,
-                    "awaitPromise": True,
-                },
-                tab=tab,
-                timeout=15,
-            )
-            res = result.get("result", {})
-
-            # CDP 执行报错
-            if res.get("subtype") == "error":
-                desc = res.get("description", "unknown JS error")
-                logger.warning(f"[eval_js] JS exception: {desc}")
-                return json.dumps({"error": desc})
-
-            value = res.get("value")
-            type_name = res.get("type", "undefined")
-
-            if type_name == "undefined":
-                return json.dumps({"type": "undefined", "value": None})
-            if value is None:
-                return json.dumps({"type": type_name, "value": None})
-
-            # 截断过大返回值，防止撑爆 context
-            _MAX_RETURN_CHARS = 8000
-            if isinstance(value, (dict, list)):
-                text = json.dumps(value, ensure_ascii=False)
-            else:
-                text = str(value)
-            if len(text) > _MAX_RETURN_CHARS:
-                size_kb = len(text.encode("utf-8", errors="replace")) // 1024
-                return (f"eval_js 返回值过大（{size_kb} KB），已截断。"
-                        f"请修改代码只返回需要的信息（如 length、特定字段），"
-                        f"或用脚本将结果写入文件再处理。"
-                        f"前 {_MAX_RETURN_CHARS} 字符预览：\n{text[:_MAX_RETURN_CHARS]}")
-            return text
-        except Exception as e:
-            logger.warning(f"[eval_js] CDP error: {e}")
-            return json.dumps({"error": str(e)})
-
-    @register_action(
-        short_desc="(method, params?, tab_id?) 试验CDP协议指令。params 必须是 dict 对象，不能用于正式执行和测试，只能用于探索试验和debug，不得用于正式自动化执行",
-        description="向浏览器 tab 发送原始 CDP (Chrome DevTools Protocol) 指令并返回结果。"
-                    "可用于执行 Input.dispatchMouseEvent（鼠标事件）、Input.dispatchKeyEvent（键盘事件）、"
-                    "Page.captureScreenshot（截图）等任意 CDP 方法。\n\n"
-                    "params 必须是 dict 对象，示例：\n"
-                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mousePressed", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
-                    '  cdp_command("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": 100, "y": 200, "button": "left", "clickCount": 1})\n'
-                    '  cdp_command("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter", "text": "\\r"})\n\n'
-                    "完整文档参考 https://chromedevtools.github.io/devtools-protocol/",
-        param_infos={
-            "method": "CDP 方法名，如 Input.dispatchMouseEvent",
-            "params": "可选，CDP 参数 dict，如 {\"type\":\"mousePressed\",\"x\":100,\"y\":200}",
-            "tab_id": "可选，目标 tab 的 target_id，不传则使用当前 tab",
-        },
-    )
-    async def try_cdp_command(self, method: str, params=None, tab_id: str = None) -> str:
-        await self._ensure_browser()
-
-        # 兜底：params 可能被框架传成字符串
-        if isinstance(params, str):
-            try:
-                params = json.loads(params)
-            except (ValueError, SyntaxError):
-                try:
-                    params = ast.literal_eval(params)
-                except (ValueError, SyntaxError):
-                    return json.dumps({"error": f"params 无法解析为 dict: {params[:200]}"})
-        if params is None:
-            params = {}
-        if not isinstance(params, dict):
-            return json.dumps({"error": f"params 必须是 dict，实际类型: {type(params).__name__}"})
-
-        if tab_id:
-            tab = infra["tab_manager"]._tabs.get(tab_id) if infra["tab_manager"] else None
-            if not tab:
-                return json.dumps({"error": _tab_not_found_msg(tab_id)})
-        else:
-            tab = self._get_current_tab()
-            if not tab:
-                return json.dumps({"error": "没有活动的 tab，请先用 open_url() 打开页面"})
-
-        try:
-            # Input.* 事件可能被 UI 拦截，自动进入避让模式
-            _is_input = method.startswith("Input.")
-            if _is_input:
-                await _auto_yield_ui(tab)
-            try:
-                result = await _cdp_send_with_recovery(
-                    method, params or {}, tab=tab, timeout=30,
-                )
-                return json.dumps(result, ensure_ascii=False, default=str)
-            finally:
-                if _is_input:
-                    await _auto_restore_ui(tab)
-        except Exception as e:
-            logger.warning(f"[cdp_command] {method} error: {e}")
-            return json.dumps({"error": str(e)})
-
-    # ==========================================
-    # Site Knowledge
-    # ==========================================
-
-    @register_action(
-        short_desc="get_cdp_info() → 获取 CDP 连接信息和示例代码",
-        description="获取当前 CDP 浏览器连接信息。"
-                    "返回示例代码（含完整的 cdp() 函数和 attach 流程）。"
-                    "关键规则："
-                    "1) Python 脚本通过环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 连接浏览器，无需硬编码路径；"
-                    "2) 操作 tab 前必须先调用 Target.attachToTarget(targetId=TAB_ID) 获取 sessionId，不可省略；"
-                    "3) 每次脚本运行都要重新 attach，不要复用旧的 sessionId；"
-                    "4) 一个 socket 连接同一时间只能串行执行（发一个请求，等响应，再发下一个）。",
-    )
-    async def get_cdp_info(self) -> str:
-        """返回 CDP 连接信息，供 Agent 编写 Python 代码直接连接浏览器。"""
-        await self._ensure_browser()
-
-        session_id = self._agent_session_id()
-        if not session_id or not infra["chrome_manager"] or not infra["cdp_client"]:
-            return json.dumps({
-                "status": "error",
-                "error": "Chrome 未启动或 CDP 连接未建立。请尝试重启应用。",
-            }, ensure_ascii=False)
-
-        sock_path = infra["chrome_manager"].start_session_relay(session_id, infra["cdp_client"])
-        tab = self._get_current_tab()
-        tab_id = tab.target_id if tab else ""
-
-        example_code = (
-            "import socket, json, os\n"
-            "\n"
-            "# 从环境变量读取连接信息（系统会自动注入，绝对不可硬编码）\n"
-            "SOCK = os.environ['CDP_SOCKET_PATH']\n"
-            "TAB_ID = os.environ['CDP_CURRENT_TAB_ID']\n"
-            "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
-            "s.connect(SOCK)\n"
-            "\n"
-            "_msg_id = 0\n"
-            "def cdp(method, params=None, session_id=None):\n"
-            "    global _msg_id; _msg_id += 1\n"
-            "    msg = {'id': _msg_id, 'method': method, 'params': params or {}}\n"
-            "    if session_id: msg['sessionId'] = session_id\n"
-            "    s.sendall(json.dumps(msg).encode() + b'\\x00')\n"
-            "    buf = b''\n"
-            "    while b'\\x00' not in buf:\n"
-            "        chunk = s.recv(4096)\n"
-            "        if not chunk: raise ConnectionError('socket closed')\n"
-            "        buf += chunk\n"
-            "    resp = json.loads(buf.split(b'\\x00', 1)[0])\n"
-            "    if 'error' in resp: raise RuntimeError(resp['error'])\n"
-            "    return resp.get('result', {})\n"
-            "\n"
-            "# 【必须】每次脚本运行都要重新 attach，拿到新的 sessionId\， 不可省略\n"
-            "# 不要硬编码或复用旧的 sessionId\n"
-            "# 一个 socket 连接同一时间只能串行执行（发一个请求，等响应，再发下一个）\n"
-            "r = cdp('Target.attachToTarget', {'targetId': TAB_ID, 'flatten': True})\n"
-            "sid = r['sessionId']  # 后续所有 tab 操作都要传 session_id=sid\n"
-            "\n"
-            "cdp('Page.enable', session_id=sid)\n"
-            "cdp('Page.navigate', {'url': 'https://example.com'}, session_id=sid)\n"
-            "r = cdp('Runtime.evaluate', {'expression': 'document.title'}, session_id=sid)\n"
-            "print(r.get('result', {}).get('value'))\n"
-            "s.close()\n"
-        )
-
-        return json.dumps({
-            "status": "ok",
-            "socket_path": sock_path,
-            "current_tab": {
-                "target_id": tab.target_id,
-                "url": tab.url,
-                "title": tab.title,
-            } if tab else None,
-            "example_code": example_code,
-        }, ensure_ascii=False, indent=2)
-
-    
-
-    @register_action(
-        short_desc="(mode)切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。必须根据当前情况切换到合适的模式。",
-        description="切换工作模式。mode='develop' 进入开发构建模式，mode='execute' 进入自动化执行模式。"
-                    "会重建 system prompt（使用 profile 中对应的模式 persona）。",
-        param_infos={"mode": "工作模式：'develop' 或 'execute'"},
-    )
-    async def set_work_mode(self, mode: str) -> str:
-        """切换工作模式，用新 persona 重建 system prompt。"""
-        root = self.root_agent
-        profile = root.profile
-
-        mode_content = profile.get(f"{mode}_mode")
-        if not mode_content:
-            return json.dumps({"error": f"未知模式: {mode}，支持: develop, execute"}, ensure_ascii=False)
-
-        # 用新 persona 重新渲染模板
-        template = root.get_prompt_template("SYSTEM_PROMPT")
-        self.system_prompt = root.render_template(
-            template,
-            user_name=root.runtime.user_agent_name,
-            agent_name=root.name,
-            yellow_pages_section=root.post_office.yellow_page_exclude_me(root.name) or "",
-            persona=mode_content,
-        )
-
-        # 构建完整 system prompt（注入 action list）并更新 messages[0]
-        full_prompt = self._finalize_system_prompt()
-        if self.messages and self.messages[0].get("role") == "system":
-            self.messages[0]["content"] = full_prompt
-
-        root._current_work_mode = mode
-
-        return json.dumps({"status": "ok", "mode": mode}, ensure_ascii=False)
-
-    @register_action(
-        short_desc="(site_key, process_dir_name?) 加载站点知识或具体自动化流程。返回的<site-knowledge>内容已进入上下文，无需额外操作。",
-        description="加载指定站点的知识。只传 site_key 时加载站点 readme 和流程列表；"
-                    "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。"
-                    "返回 <site-knowledge> 包裹的内容，自动进入对话上下文。",
-        param_infos={
-            "site_key": "站点 site_key（格式 url_prefix:desc:dir_name）",
-            "process_dir_name": "可选，自动化流程子目录名称，加载具体流程的详细知识",
-        },
-    )
-    async def load_site_knowledge(self, site_key: str, process_dir_name: str = None) -> str:
-        loader = getattr(self, '_site_knowledge_loader', None)
-        if not loader:
-            return json.dumps({"error": "site knowledge loader 未初始化"})
-        result = loader.set_current_site(site_key, process_dir_name)
-        result_data = json.loads(result)
-        if result_data.get("error"):
-            return result
-
-        # 清除 message history 中所有旧的 <site-knowledge> 块
-        from agentmatrix.desktop.browser_collab_agent import BrowserCollabAgent
-        BrowserCollabAgent._purge_sk_from_messages(self.messages)
-        # 同时清除旧的 <site-knowledge-hint> 块
-        BrowserCollabAgent._purge_sk_hints(self.messages)
-
-        # 生成内容并用 tag 包裹
-        tab = _agent_current_tab.get(self._agent_name())
-        url = tab.url if tab else ""
-        content = loader.load(url)
-        if not content:
-            return json.dumps({"status": "ok", "site_url_prefix": result_data.get("site_url_prefix", site_key)},
-                              ensure_ascii=False)
-        tagged = f"<site-knowledge>\n{content}\n</site-knowledge>"
-        return tagged
-
-    # ==========================================
-    # Cleanup
-    # ==========================================
-
-    async def skill_cleanup(self):
-        """MicroAgent 执行结束时清理。
-
-        MicroAgent 持久化模式下，不注销 agent input_queue。
-        不关闭 tab，不关闭浏览器——这些是跨 MicroAgent 会话保持的。
-        """
-        # 不注销 agent input_queue — agent 生命周期跨 execute 复用
-        logger.info("CDP Browser skill cleanup done (tabs preserved, agent queue kept)")

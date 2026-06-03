@@ -1,0 +1,48 @@
+pageType: final
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: accent-bar-top
+    elementType: shape
+    bounds: [0, 0, 1280, 4]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: final-title
+    elementType: text
+    bounds: [100, 220, 800, 70]
+    content:
+      style: "$title"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Thank You</strong></p>
+
+  - elementId: final-divider
+    elementType: shape
+    bounds: [100, 310, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: final-message
+    elementType: text
+    bounds: [100, 340, 700, 80]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p>Questions and Discussion</p>
+        <p style="margin-top:8px"><span style="color:$textLight;">research@company.com</span></p>
+
+  - elementId: accent-bar-bottom
+    elementType: shape
+    bounds: [0, 716, 1280, 4]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"

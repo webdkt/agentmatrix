@@ -1,0 +1,58 @@
+pageType: cover
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: accent-bar-top
+    elementType: shape
+    bounds: [0, 0, 1280, 4]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: cover-title
+    elementType: text
+    bounds: [100, 240, 800, 140]
+    content:
+      style: "$title"
+      align: [left, top]
+      wrap: false
+      text: |
+        <p><strong>Strategic Market Analysis</strong></p>
+
+  - elementId: cover-subtitle
+    elementType: text
+    bounds: [100, 390, 800, 40]
+    content:
+      style: "$subtitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Q3 2024 Industry Outlook and Competitive Positioning</p>
+
+  - elementId: cover-divider
+    elementType: shape
+    bounds: [100, 460, 120, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: cover-meta
+    elementType: text
+    bounds: [100, 490, 600, 60]
+    content:
+      style: "$caption"
+      align: [left, top]
+      text: |
+        <p>Prepared by Research Division</p>
+        <p>October 2024</p>
+
+  - elementId: accent-bar-bottom
+    elementType: shape
+    bounds: [0, 716, 1280, 4]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"

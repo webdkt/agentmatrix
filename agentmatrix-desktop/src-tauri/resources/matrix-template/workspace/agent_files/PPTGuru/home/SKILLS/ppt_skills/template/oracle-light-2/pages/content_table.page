@@ -1,0 +1,214 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+- elementId: table-title
+  elementType: text
+  bounds:
+  - 81
+  - 19
+  - 1120
+  - 86
+  content:
+    style: "$title"
+    align:
+    - left
+    - middle
+    text: |
+      <p><strong>Data Table Title</strong></p>
+
+- elementId: data-table
+  elementType: table
+  bounds:
+  - 81
+  - 168
+  - 1120
+  - 427
+  columnWidths:
+  - 0.18
+  - 0.14
+  - 0.14
+  - 0.14
+  - 0.14
+  - 0.14
+  - 0.12
+  rowHeights:
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  style: "$default"
+  rows:
+  - - content:
+        text: |
+          <p><strong>Category</strong></p>
+    - content:
+        text: |
+          <p><strong>Metric A</strong></p>
+    - content:
+        text: |
+          <p><strong>Metric B</strong></p>
+    - content:
+        text: |
+          <p><strong>Metric C</strong></p>
+    - content:
+        text: |
+          <p><strong>Metric D</strong></p>
+    - content:
+        text: |
+          <p><strong>Metric E</strong></p>
+    - content:
+        text: |
+          <p><strong>Rank</strong></p>
+  - - content:
+        text: |
+          <p><strong>Item 1</strong></p>
+    - content:
+        text: |
+          <p>518,051</p>
+    - content:
+        text: |
+          <p>15.19</p>
+    - content:
+        text: |
+          <p>13.37%</p>
+    - content:
+        text: |
+          <p>7.99</p>
+    - content:
+        text: |
+          <p>0.13</p>
+    - content:
+        text: |
+          <p>4</p>
+  - - content:
+        text: |
+          <p><strong>Item 2</strong></p>
+    - content:
+        text: |
+          <p>403,599</p>
+    - content:
+        text: |
+          <p>23.27</p>
+    - content:
+        text: |
+          <p>70.81%</p>
+    - content:
+        text: |
+          <p>18.42</p>
+    - content:
+        text: |
+          <p>15.56</p>
+    - content:
+        text: |
+          <p>65</p>
+  - - content:
+        text: |
+          <p><strong>Item 3</strong></p>
+    - content:
+        text: |
+          <p>323,911</p>
+    - content:
+        text: |
+          <p>6.15</p>
+    - content:
+        text: |
+          <p>9.35%</p>
+    - content:
+        text: |
+          <p>3.89</p>
+    - content:
+        text: |
+          <p>0.09</p>
+    - content:
+        text: |
+          <p>3</p>
+  - - content:
+        text: |
+          <p><strong>Item 4</strong></p>
+    - content:
+        text: |
+          <p>268,160</p>
+    - content:
+        text: |
+          <p>14.87</p>
+    - content:
+        text: |
+          <p>77.10%</p>
+    - content:
+        text: |
+          <p>13.54</p>
+    - content:
+        text: |
+          <p>14.51</p>
+    - content:
+        text: |
+          <p>77</p>
+  - - content:
+        text: |
+          <p><strong>Item 5</strong></p>
+    - content:
+        text: |
+          <p>263,907</p>
+    - content:
+        text: |
+          <p>15.5</p>
+    - content:
+        text: |
+          <p>16.91%</p>
+    - content:
+        text: |
+          <p>5.92</p>
+    - content:
+        text: |
+          <p>5.33</p>
+    - content:
+        text: |
+          <p>11</p>
+  - - content:
+        text: |
+          <p><strong>Item 6</strong></p>
+    - content:
+        text: |
+          <p>116,828</p>
+    - content:
+        text: |
+          <p>15.46</p>
+    - content:
+        text: |
+          <p>86.01%</p>
+    - content:
+        text: |
+          <p>12.68</p>
+    - content:
+        text: |
+          <p>6.55</p>
+    - content:
+        text: |
+          <p>77</p>
+  - - content:
+        text: |
+          <p><strong>Item 7</strong></p>
+    - content:
+        text: |
+          <p>69,689</p>
+    - content:
+        text: |
+          <p>15.43</p>
+    - content:
+        text: |
+          <p>78.77%</p>
+    - content:
+        text: |
+          <p>13.62</p>
+    - content:
+        text: |
+          <p>13.97</p>
+    - content:
+        text: |
+          <p>77</p>

@@ -1,0 +1,104 @@
+pageType: table_of_contents
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: toc-title
+    elementType: text
+    bounds: [100, 80, 500, 50]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Executive Overview</strong></p>
+
+  - elementId: toc-divider
+    elementType: shape
+    bounds: [100, 145, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: toc-item-1
+    elementType: text
+    bounds: [100, 200, 1000, 50]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong><span style="color:$primary;">01</span></strong>   <span style="color:$text;">Market Landscape and Growth Drivers</span></p>
+
+  - elementId: toc-line-1
+    elementType: shape
+    bounds: [100, 255, 1000, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: toc-item-2
+    elementType: text
+    bounds: [100, 280, 1000, 50]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong><span style="color:$primary;">02</span></strong>   <span style="color:$text;">Competitive Analysis and Market Share Dynamics</span></p>
+
+  - elementId: toc-line-2
+    elementType: shape
+    bounds: [100, 335, 1000, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: toc-item-3
+    elementType: text
+    bounds: [100, 360, 1000, 50]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong><span style="color:$primary;">03</span></strong>   <span style="color:$text;">Financial Performance and Operational Metrics</span></p>
+
+  - elementId: toc-line-3
+    elementType: shape
+    bounds: [100, 415, 1000, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: toc-item-4
+    elementType: text
+    bounds: [100, 440, 1000, 50]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong><span style="color:$primary;">04</span></strong>   <span style="color:$text;">Strategic Recommendations and Implementation Roadmap</span></p>
+
+  - elementId: toc-line-4
+    elementType: shape
+    bounds: [100, 495, 1000, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>02</p>

@@ -1,0 +1,163 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: header-line
+    elementType: shape
+    bounds: [60, 64, 1160, 1]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$border"
+
+  - elementId: action-title
+    elementType: text
+    bounds: [60, 20, 1160, 40]
+    content:
+      style: "$actionTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>CAC rises 18% while LTV stagnates, compressing unit economics</strong></p>
+
+  - elementId: chart-left
+    elementType: chart
+    bounds: [60, 85, 560, 300]
+    type: combo
+    title:
+      text: "CAC and LTV Trends"
+      fontSize: 14
+      color: "$text"
+    data:
+      - {month: "Jan", cac: 120, ltv: 480}
+      - {month: "Feb", cac: 125, ltv: 485}
+      - {month: "Mar", cac: 128, ltv: 482}
+      - {month: "Apr", cac: 135, ltv: 478}
+      - {month: "May", cac: 138, ltv: 475}
+      - {month: "Jun", cac: 142, ltv: 472}
+    x: month
+    y: [cac, ltv]
+    names: ["CAC ($)", "LTV ($)"]
+    colors: ["$accent", "$primary"]
+    seriesStyle:
+      cac:
+        type: bar
+      ltv:
+        type: line
+        smooth: true
+        width: 3
+        marker:
+          shape: circle
+          size: 5
+    options:
+      fontFamily: "Arial, Microsoft YaHei"
+    legend:
+      show: true
+      position: top
+      fontSize: 12
+    yAxis:
+      title: "Amount ($)"
+      gridLine:
+        color: "#F1F5F9"
+        style: solid
+        width: 1
+      label:
+        fontSize: 12
+        color: "$textLight"
+    xAxis:
+      label:
+        fontSize: 12
+        color: "$textLight"
+
+  - elementId: chart-right
+    elementType: chart
+    bounds: [660, 85, 560, 300]
+    type: bar
+    title:
+      text: "LTV/CAC Ratio by Channel"
+      fontSize: 14
+      color: "$text"
+    data:
+      - {channel: "Organic", ratio: 4.8}
+      - {channel: "Referral", ratio: 4.2}
+      - {channel: "Email", ratio: 3.6}
+      - {channel: "Paid Soc", ratio: 2.8}
+      - {channel: "Display", ratio: 1.9}
+      - {channel: "Paid Search", ratio: 2.1}
+    x: channel
+    y: [ratio]
+    names: ["LTV/CAC Ratio"]
+    colors: ["$primary"]
+    options:
+      fontFamily: "Arial, Microsoft YaHei"
+    legend:
+      show: false
+    dataLabels:
+      show: true
+      fontSize: 12
+      color: "$text"
+    yAxis:
+      min: 0
+      max: 6
+      gridLine:
+        color: "#F1F5F9"
+        style: solid
+        width: 1
+      label:
+        fontSize: 12
+        color: "$textLight"
+    xAxis:
+      label:
+        fontSize: 12
+        color: "$textLight"
+
+  - elementId: analysis-text
+    elementType: text
+    bounds: [60, 405, 1160, 90]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p>LTV/CAC ratio declined from <strong>4.0x</strong> to <strong>3.3x</strong> over 6 months, breaching the 3.0x health threshold. Organic and referral channels remain robust (4.8x, 4.2x), but paid acquisition efficiency deteriorated sharply: Display CAC surged 34% due to iOS privacy changes while conversion rates fell 12%.</p>
+
+  - elementId: action-box
+    elementType: shape
+    bounds: [60, 510, 1160, 90]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$tableAlt"
+    border:
+      style: solid
+      width: 1
+      color: "$border"
+
+  - elementId: action-text
+    elementType: text
+    bounds: [80, 518, 1120, 75]
+    content:
+      style: "$body"
+      align: [left, top]
+      text: |
+        <p><strong>Recommended Actions:</strong> (1) Reallocate 30% of display budget to organic content/SEO; (2) Implement cohort-based LTV modeling to improve targeting precision; (3) Launch referral incentive program to boost lowest-CAC channel share from 15% to 25%.</p>
+
+  - elementId: source-note
+    elementType: text
+    bounds: [60, 660, 1000, 20]
+    content:
+      style: "$footnote"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p>Source: Internal CRM analytics; Marketing attribution model (6-month blended); <a href="https://example.com">Channel performance dashboard</a></p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>07</p>

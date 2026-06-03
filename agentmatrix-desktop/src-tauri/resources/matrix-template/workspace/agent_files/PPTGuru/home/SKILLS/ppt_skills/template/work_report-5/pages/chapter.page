@@ -1,0 +1,52 @@
+pageType: chapter
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: ch-watermark
+    elementType: text
+    bounds: [80, 80, 600, 260]
+    content:
+      fontSize: 200
+      color: "$secondary"  # Use with alpha, e.g., "$secondary" with low opacity or hex8
+      fontFamily: "MiSans"
+      align: [left, middle]
+      wrap: false
+      text: >-
+        <p><strong>01</strong></p>
+
+  - elementId: ch-title
+    elementType: text
+    bounds: [80, 280, 800, 110]
+    content:
+      style: "$chapterTitle"
+      align: [left, middle]
+      text: >-
+        <p><strong>章节标题占位</strong></p>
+
+  - elementId: ch-divider
+    elementType: shape
+    bounds: [80, 400, 120, 3]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$accent"
+
+  - elementId: ch-subtitle
+    elementType: text
+    bounds: [80, 420, 900, 60]
+    content:
+      style: "$subtitle"
+      align: [left, middle]
+      text: >-
+        <p>章节核心问题或挑战摘要占位</p>
+
+  - elementId: ch-pagenum
+    elementType: text
+    bounds: [1160, 680, 80, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: >-
+        <p>3</p>

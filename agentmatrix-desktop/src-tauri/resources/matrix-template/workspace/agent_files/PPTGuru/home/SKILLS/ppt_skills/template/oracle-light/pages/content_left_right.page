@@ -1,0 +1,96 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+- elementId: content-title
+  elementType: text
+  bounds:
+  - 82
+  - 118
+  - 519
+  - 484
+  content:
+    style: "$actionTitle"
+    align:
+    - left
+    - top
+    text: |
+      <p><strong>Main headline goes here</strong></p>
+    fontSize: 32
+
+- elementId: content-subhead
+  elementType: text
+  bounds:
+  - 640
+  - 137
+  - 554
+  - 105
+  content:
+    style: "$caption"
+    align:
+    - left
+    - top
+    text: |
+      <p>Supporting subheadline text that introduces the key points below</p>
+
+- elementId: content-point1-title
+  elementType: text
+  bounds:
+  - 736
+  - 266
+  - 458
+  - 70
+  content:
+    style: "$body"
+    align:
+    - left
+    - top
+    text: |
+      <p><strong>Key Point One</strong></p>
+      <p><span style="font-size:14px">Description of the first key point and its significance</span></p>
+
+- elementId: content-point2-title
+  elementType: text
+  bounds:
+  - 736
+  - 376
+  - 458
+  - 70
+  content:
+    style: "$body"
+    align:
+    - left
+    - top
+    text: |
+      <p><strong>Key Point Two</strong></p>
+      <p><span style="font-size:14px">Description of the second key point and its significance</span></p>
+
+- elementId: content-point3-title
+  elementType: text
+  bounds:
+  - 736
+  - 486
+  - 458
+  - 70
+  content:
+    style: "$body"
+    align:
+    - left
+    - top
+    text: |
+      <p><strong>Key Point Three</strong></p>
+      <p><span style="font-size:14px">Description of the third key point and its significance</span></p>
+
+- elementId: content-divider
+  elementType: shape
+  bounds:
+  - 620
+  - 170
+  - 0
+  - 420
+  shapeName: line
+  border:
+    width: 1
+    color: "$border"
+    style: solid

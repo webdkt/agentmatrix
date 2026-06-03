@@ -1,0 +1,68 @@
+pageType: cover
+background:
+  type: solid
+  color: "$background"
+elements:
+- elementId: cover-title
+  elementType: text
+  bounds:
+  - 83
+  - 226
+  - 672
+  - 134
+  content:
+    style: "$title"
+    align:
+    - left
+    - middle
+    text: |
+      <p><strong>Presentation Title</strong></p>
+    fontSize: 40
+
+- elementId: cover-subtitle
+  elementType: text
+  bounds:
+  - 83
+  - 370
+  - 672
+  - 36
+  content:
+    style: "$subtitle"
+    align:
+    - left
+    - middle
+    text: |
+      <p>Subheadline goes here</p>
+    fontSize: 24
+
+- elementId: cover-name
+  elementType: text
+  bounds:
+  - 83
+  - 477
+  - 533
+  - 28
+  content:
+    style: "$body"
+    align:
+    - left
+    - middle
+    text: |
+      <p>Presenter Name</p>
+
+- elementId: cover-meta
+  elementType: text
+  bounds:
+  - 83
+  - 513
+  - 533
+  - 94
+  content:
+    style: "$body"
+    align:
+    - left
+    - top
+    text: |
+      <p>Presenter's Title</p>
+      <p>Organization, Division or Business Unit</p>
+      <p>Month 00, 2026</p>

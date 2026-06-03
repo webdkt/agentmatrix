@@ -40,6 +40,9 @@ import {
 
   // Planning icons
   ClipboardList, ListChecks,
+
+  // Site Knowledge
+  BookOpen,
 } from 'lucide-vue-next'
 
 export const iconMap = {
@@ -140,4 +143,7 @@ export const iconMap = {
   // ─── Planning ───
   clipboard: ClipboardList,
   'list-checks': ListChecks,
+
+  // ─── Site Knowledge ───
+  'book-open': BookOpen,
 }

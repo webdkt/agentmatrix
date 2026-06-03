@@ -18,6 +18,17 @@ export const useAgentStore = defineStore('agent', () => {
     return agents.value[agentName]?.status || 'IDLE'
   }
 
+  const getAgentSkills = (agentName) => {
+    return agents.value[agentName]?.skills || []
+  }
+
+  const setAgentSkills = (agentName, skills) => {
+    if (!agents.value[agentName]) {
+      agents.value[agentName] = {}
+    }
+    agents.value[agentName].skills = skills
+  }
+
   // Actions
   const updateAgentStatus = (agentName, data) => {
     console.log('📊 [AgentStore] Updating agent status:', agentName, data)
@@ -61,9 +72,11 @@ export const useAgentStore = defineStore('agent', () => {
     agents,
     getAgent,
     getAgentStatus,
+    getAgentSkills,
     getAgentSessionId,
     getAgentUISchema,
     updateAgentStatus,
+    setAgentSkills,
     setAgentUISchema,
     clearAgentStatus
   }

@@ -1,0 +1,92 @@
+pageType: table_of_contents
+background:
+  type: solid
+  color: "$background"
+elements:
+  - elementId: toc-title
+    elementType: text
+    bounds: [100, 80, 500, 45]
+    content:
+      style: "$chapterTitle"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>Outline</strong></p>
+
+  - elementId: toc-divider
+    elementType: shape
+    bounds: [100, 138, 80, 2]
+    shapeName: rect
+    fill:
+      type: solid
+      color: "$primary"
+
+  - elementId: toc-item-1
+    elementType: text
+    bounds: [100, 170, 1000, 40]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>1.</strong>   Introduction and Motivation</p>
+
+  - elementId: toc-item-2
+    elementType: text
+    bounds: [100, 220, 1000, 40]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>2.</strong>   Related Work and Theoretical Foundations</p>
+
+  - elementId: toc-item-3
+    elementType: text
+    bounds: [100, 270, 1000, 40]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>3.</strong>   Proposed Method: Hierarchical Sparse Attention</p>
+
+  - elementId: toc-item-4
+    elementType: text
+    bounds: [100, 320, 1000, 40]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>4.</strong>   Experimental Setup and Results</p>
+
+  - elementId: toc-item-5
+    elementType: text
+    bounds: [100, 370, 1000, 40]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>5.</strong>   Analysis and Discussion</p>
+
+  - elementId: toc-item-6
+    elementType: text
+    bounds: [100, 420, 1000, 40]
+    content:
+      style: "$body"
+      align: [left, middle]
+      wrap: false
+      text: |
+        <p><strong>6.</strong>   Conclusion and Future Work</p>
+
+  - elementId: page-num
+    elementType: text
+    bounds: [1180, 680, 60, 20]
+    content:
+      style: "$pageNumber"
+      align: [right, middle]
+      wrap: false
+      text: |
+        <p>02</p>

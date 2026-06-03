@@ -1,0 +1,50 @@
+pageType: content
+background:
+  type: solid
+  color: "$background"
+elements:
+- elementId: metric-title
+  elementType: text
+  bounds:
+  - 81
+  - 19
+  - 1120
+  - 86
+  content:
+    style: "$title"
+    align:
+    - left
+    - middle
+    text: |
+      <p><strong>Key Metric Title</strong></p>
+
+- elementId: metric-value
+  elementType: text
+  bounds:
+  - 83
+  - 168
+  - 533
+  - 254
+  content:
+    style: "$body"
+    align:
+    - left
+    - middle
+    text: |
+      <p><strong>90%</strong></p>
+    fontSize: 80
+
+- elementId: metric-description
+  elementType: text
+  bounds:
+  - 83
+  - 488
+  - 533
+  - 153
+  content:
+    style: "$body"
+    align:
+    - left
+    - top
+    text: |
+      <p>Description of the key metric and its significance goes here.</p>
