@@ -109,6 +109,11 @@ a = Analysis(
         'email.mime.text',
         'email.mime.multipart',
 
+        # Image processing
+        'PIL',
+        'PIL.Image',
+        'PIL._imaging',
+
         # Other
         'dotenv',
         'aioconsole',
