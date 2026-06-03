@@ -86,6 +86,14 @@ class TodoManager:
         if mode is not None:
             mode = str(mode)
 
+        # 规范化 index：提取数字部分（"1"→"1", "#1"→"1", "第3项"→"3", 1→"1"）
+        if index:
+            _digits = re.sub(r'\D', '', index)
+            if _digits:
+                index = str(int(_digits))  # 去除前导零："01"→"1"
+            else:
+                return f"Invalid index '{index}': no numeric part found. Index must contain a number."
+
         # 清空所有
         if not index and not todo_str and not status:
             if self._todos:
@@ -142,7 +150,7 @@ class TodoManager:
         """在指定位置前/后插入新条目，后续条目 index 递增。"""
         # 插入前先重编号，确保基于连续编号操作
         self._renumber()
-        sorted_keys = sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x)
+        sorted_keys = sorted(self._todos.keys(), key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
         target_num = int(index) if index.isdigit() else len(sorted_keys) + 1
 
         # 从最大 index 开始后移，避免覆盖
@@ -165,7 +173,7 @@ class TodoManager:
 
     def _renumber(self):
         """删除后重编号，使 index 连续。"""
-        sorted_keys = sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x)
+        sorted_keys = sorted(self._todos.keys(), key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
         new_todos = {}
         for i, key in enumerate(sorted_keys, 1):
             new_todos[str(i)] = self._todos[key]
@@ -242,7 +250,7 @@ class TodoManager:
 
         working_items = []
         planned_items = []
-        for idx in sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x):
+        for idx in sorted(self._todos.keys(), key=lambda x: (0, int(x)) if x.isdigit() else (1, x)):
             entry = self._todos[idx]
             if entry["status"] == "working":
                 working_items.append(entry["item"])
@@ -294,7 +302,7 @@ class TodoManager:
         if not self._todos:
             return "<Todo List>No Todo Defined</Todo List>"
 
-        sorted_keys = sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x)
+        sorted_keys = sorted(self._todos.keys(), key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
         lines = []
         for i, key in enumerate(sorted_keys, 1):
             entry = self._todos[key]
@@ -318,7 +326,7 @@ class TodoManager:
             self._agent.logger.warning(f"Todo save failed: {e}")
 
     def _serialize_data(self) -> dict:
-        sorted_keys = sorted(self._todos.keys(), key=lambda x: int(x) if x.isdigit() else x)
+        sorted_keys = sorted(self._todos.keys(), key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
         result = {}
         for i, key in enumerate(sorted_keys, 1):
             result[str(i)] = {"item": self._todos[key]["item"], "status": self._todos[key]["status"]}
