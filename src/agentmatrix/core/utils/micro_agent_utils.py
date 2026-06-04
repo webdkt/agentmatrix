@@ -71,7 +71,7 @@ def parse_actions_from_thought(raw_reply: str) -> dict:
 
 def extract_action_script_block(text: str) -> Tuple[str, str]:
     """
-    从 LLM 输出中提取 <action_script for="...">...</action_script> 块的内容和标签。
+    从 LLM 输出中提取第一个 <action_script for="...">...</action_script> 块的内容和标签。
 
     Returns:
         (content, for_label) — content 为块内文本（不含标签），for_label 为 for 属性值。
@@ -84,6 +84,25 @@ def extract_action_script_block(text: str) -> Tuple[str, str]:
         content = match.group(2).strip()
         return content, for_label
     return "", ""
+
+
+def extract_action_script_blocks(text: str) -> List[Tuple[str, str]]:
+    """
+    从 LLM 输出中提取所有 <action_script for="...">...</action_script> 块。
+
+    每个块的 for 标签独立，块内的函数调用共享同一个 for 标签。
+
+    Returns:
+        [(for_label, content), ...] — 未找到返回空列表
+    """
+    pattern = r'<action_script(?:\s+for="([^"]*)")?\s*>(.*?)</action_script>'
+    results = []
+    for m in re.finditer(pattern, text, re.DOTALL):
+        for_label = (m.group(1) or "").strip()
+        content = m.group(2).strip()
+        if content:
+            results.append((for_label, content))
+    return results
 
 
 def convert_function_blocks_to_action_script(text: str) -> str:
@@ -203,6 +222,7 @@ def parse_function_calls(
             if func_name in action_registry_flat:
                 syntax_errors.append(func_name)
             # 不论是否有效，消费剩余文本防止内部代码被误识别为 action
+            consumed_end = pos
             break
 
         # 标记消费范围：从本调用的开头到闭合括号

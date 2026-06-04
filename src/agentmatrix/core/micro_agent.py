@@ -1277,10 +1277,13 @@ class MicroAgent(AutoLoggerMixin):
         """
         从 <action_script> 块中检测 actions 并完成参数对齐。
 
+        支持多个 <action_script> 块，每个块有独立的 for 标签，
+        块内的函数调用共享同一个 for 标签。
+
         流程：
-        1. 提取 <action_script>...</action_script> 块
+        1. 提取所有 <action_script>...</action_script> 块
         2. 没有块 → 无 action
-        3. 块内解析函数式调用
+        3. 逐块解析函数式调用
         4. 幻觉 → signal 警告
         5. 对每个合法调用：解析参数 → 校验 → 必要时 cerebellum 对齐
         6. 特殊通道：块内只有 action name 但非函数式 → cerebellum 补值
@@ -1294,55 +1297,61 @@ class MicroAgent(AutoLoggerMixin):
             - action_results: [(action_name, params_dict, method, action_label), ...]
               参数已对齐，可直接执行
         """
-        # 提取 <action_script> 块及 for 标签
-        script_block, for_label = _utils.extract_action_script_block(full_text)
-        if not script_block:
+        # 提取所有 <action_script> 块
+        blocks = _utils.extract_action_script_blocks(full_text)
+        if not blocks:
             return [], []
 
-        # 在块内解析函数式调用（含幻觉检测）
-        valid_calls, hallucinations, syntax_errors = _utils.parse_function_calls(
-            script_block, self.action_registry["_flat"]
-        )
+        all_action_results = []
+        all_hallucinations = []
+        all_syntax_errors = []
+
+        for for_label, script_block in blocks:
+            # 在块内解析函数式调用（含幻觉检测）
+            valid_calls, hallucinations, syntax_errors = _utils.parse_function_calls(
+                script_block, self.action_registry["_flat"]
+            )
+
+            all_hallucinations.extend(hallucinations)
+            all_syntax_errors.extend(syntax_errors)
+
+            if valid_calls:
+                # 正常路径：逐个解析参数（跳过有语法错误的 action，让 LLM 修正后重试）
+                syntax_error_set = set(syntax_errors)
+                for action_name, params_text in valid_calls:
+                    if action_name in syntax_error_set:
+                        continue
+                    result = await self._align_action_params(action_name, params_text, action_label_hint=for_label)
+                    if result:
+                        all_action_results.append(result)
+            else:
+                # 特殊通道：块内只有 action name 但不是函数式格式
+                mentioned = self._scan_action_names(script_block)
+                if len(mentioned) == 1 and not hallucinations:
+                    result = await self._align_action_params_via_cerebellum(mentioned[0], action_label_hint=for_label)
+                    if result:
+                        all_action_results.append(result)
 
         # 语法错误处理：括号/字符串未闭合，提示 LLM 修正格式
-        if syntax_errors:
-            error_names = ", ".join(syntax_errors)
+        if all_syntax_errors:
+            error_names = ", ".join(all_syntax_errors)
             self.signal_queue.put_nowait(TextSignal(
                 text=f"[System] action '{error_names}' 的参数包含语法错误（括号或字符串未正确闭合）。",
                 type_name="syntax_error",
             ))
 
         # 幻觉处理：生成 signal 提醒 LLM 纠偏
-        if hallucinations:
-            hallucination_names = ", ".join(hallucinations)
+        if all_hallucinations:
+            hallucination_names = ", ".join(all_hallucinations)
             self.signal_queue.put_nowait(TextSignal(
                 text=f"[System] 以下 action 名称不存在，无法执行：{hallucination_names}。请使用正确的 action 名称。",
                 type_name="hallucination_warning",
             ))
 
-        action_results = []
-
-        if valid_calls:
-            # 正常路径：逐个解析参数（跳过有语法错误的 action，让 LLM 修正后重试）
-            syntax_error_set = set(syntax_errors)
-            for action_name, params_text in valid_calls:
-                if action_name in syntax_error_set:
-                    continue
-                result = await self._align_action_params(action_name, params_text, action_label_hint=for_label)
-                if result:
-                    action_results.append(result)
-        else:
-            # 特殊通道：块内只有 action name 但不是函数式格式
-            mentioned = self._scan_action_names(script_block)
-            if len(mentioned) == 1 and not hallucinations:
-                result = await self._align_action_params_via_cerebellum(mentioned[0], action_label_hint=for_label)
-                if result:
-                    action_results.append(result)
-
-        action_names = [r[0] for r in action_results]
+        action_names = [r[0] for r in all_action_results]
         if action_names:
             self.logger.debug(f"[detect] 函数式调用: {action_names}")
-        return action_names, action_results
+        return action_names, all_action_results
 
     async def _align_action_params(
         self, action_name: str, params_text: str,
