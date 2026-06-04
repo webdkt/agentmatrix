@@ -162,6 +162,8 @@ function connectWebSocket() {
     wsReconnectTimer = null
   }
   if (ws) {
+    ws.onopen = null
+    ws.onmessage = null
     ws.onclose = null
     ws.onerror = null
     ws.close()
@@ -174,7 +176,9 @@ function connectWebSocket() {
     ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'REQUEST_SYSTEM_STATUS' }))
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'REQUEST_SYSTEM_STATUS' }))
+      }
     }
 
     ws.onmessage = (event) => {
