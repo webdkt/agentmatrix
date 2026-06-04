@@ -1,0 +1,61 @@
+title: Master brand/ industries/ cross-pillar title light
+size:
+- 1280
+- 720
+slideWidth: 12192000
+slideHeight: 6858000
+sourceTemplate: template.pptx
+theme:
+  colors:
+    dk1: '#2A2F2F'
+    dk2: '#2A2F2F'
+    lt1: '#FFFFFF'
+    lt2: '#FBF9F8'
+    accent1: '#04536F'
+    accent2: '#6C3F49'
+    accent3: '#C74634'
+    accent4: '#F0CC71'
+    accent5: '#89B2B0'
+    accent6: '#86B596'
+    hlink: '#00688C'
+    folHlink: '#F0CC71'
+  textStyles:
+    title:
+      fontFamily: Georgia
+      fontSize: 36
+      color: $accent1
+    body:
+      fontFamily: Oracle Sans Tab
+      fontSize: 18
+      color: $dk1
+      lineHeight: 1.5
+  tableStyles: {}
+pages:
+- pages/slide_001.page
+- pages/slide_002.page
+- pages/slide_003.page
+- pages/slide_004.page
+- pages/slide_005.page
+- pages/slide_006.page
+- pages/slide_007.page
+- pages/slide_008.page
+- pages/slide_009.page
+- pages/slide_010.page
+- pages/slide_011.page
+- pages/slide_012.page
+- pages/slide_013.page
+- pages/slide_014.page
+- pages/slide_015.page
+- pages/slide_016.page
+- pages/slide_017.page
+- pages/slide_018.page
+- pages/slide_019.page
+- pages/slide_020.page
+- pages/slide_021.page
+- pages/slide_022.page
+- pages/slide_023.page
+- pages/slide_024.page
+- pages/slide_025.page
+- pages/slide_026.page
+- pages/slide_027.page
+- pages/slide_028.page

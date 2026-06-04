@@ -35,6 +35,11 @@ interface Presentation {
   theme: Theme;
   size: [number, number];  // [width, height], recommended [1280, 720] for 16:9, [960, 720] for 4:3
   pages: string[];  // Page file path list (e.g., pages/cover.page, pages/intro.page)
+
+  sourceTemplate?: string;  // Path to original .pptx template (relative to .pptd directory)
+                            // When set, export copies this file as base, preserving slide
+                            // masters, layouts, and theme. Pages can then use layoutIndex
+                            // to select layouts and placeholder to map to layout placeholders.
 }
 ```
 **Example:**
@@ -62,6 +67,11 @@ interface PageFile {
   notes?: string;  // Speaker notes, recommended to leave empty unless explicitly requested by the user
 
   elements: Element[]; // Element list; elements later in the array appear on higher layers
+
+  layoutIndex?: number;  // Slide layout index from sourceTemplate (0-based).
+                         // Selects which layout to use for this page.
+                         // Only meaningful when sourceTemplate is set on the Presentation.
+  layoutName?: string;   // Layout name (documentation only, not used by export)
 }
 ```
 **Example (cover.page):**
@@ -93,6 +103,12 @@ interface ElementBase {
   rotation?: number;  // degrees, default 0
   opacity?: number;   // 0-1, default 1
   flip?: [boolean, boolean];  // [horizontal flip, vertical flip], default no flip
+
+  placeholder?: {      // Maps element to a layout placeholder from sourceTemplate
+    idx: number;       // Placeholder index (matches layout's placeholder idx)
+    type?: string;     // Placeholder type hint: ctrTitle, title, body, subtitle,
+                       // sldNum, ftr, dt, chart, table, clipArt, etc.
+  };
 }
 
 type Element = Text | Shape | Image | Icon | Table | Chart;
@@ -201,7 +217,8 @@ interface Text extends ElementBase {
 interface TextContent {
   text: string;  // Rich text string, see "Rich Text Rules" below
 
-  style?: string;           // Reference to a theme.textStyles key, e.g., "$title"
+  style?: string            // Reference to a theme.textStyles key, e.g., "$title"
+        | TextStyleConfig;  // Or inline style overrides
   color?: string;           // Base text color, can be overridden via <span style="color:...">
   fontSize?: number;        // Base font size (px), can be overridden via <span style="font-size:...">
   fontFamily?: string;      // Base font family; can be overridden via <span style="font-family:...">

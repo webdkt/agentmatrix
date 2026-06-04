@@ -9,8 +9,62 @@ import html
 import unicodedata
 from html.parser import HTMLParser
 
-from pptd_common import NSMAP
+from pptd_common import NSMAP, find_font
 from pptd_color import SCHEME_COLOR_MAP, _parse_color_value
+
+# PIL font measurement (optional, for accurate text width)
+_PIL_AVAILABLE = False
+try:
+    from PIL import ImageFont
+    _PIL_AVAILABLE = True
+except ImportError:
+    pass
+
+_font_cache = {}  # (font_path, size) → PIL Font object
+
+
+_DEFAULT_FONT_PATHS = [
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/Library/Fonts/Arial Unicode.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+]
+
+
+def _load_font(font_family, size_px, bold=False):
+    """Load a PIL font for measurement. Returns Font or None."""
+    if not _PIL_AVAILABLE:
+        return None
+
+    path = None
+    if font_family:
+        # Try bold variant first if bold
+        if bold:
+            result = find_font(f'{font_family} Bold')
+            if not result:
+                result = find_font(font_family)
+        else:
+            result = find_font(font_family)
+        if result:
+            path = result['path']
+
+    # Fallback to default system font
+    if not path:
+        for dp in _DEFAULT_FONT_PATHS:
+            import os
+            if os.path.exists(dp):
+                path = dp
+                break
+    if not path:
+        return None
+
+    key = (path, round(size_px, 1), bold)
+    if key not in _font_cache:
+        try:
+            _font_cache[key] = ImageFont.truetype(path, round(size_px))
+        except Exception:
+            return None
+    return _font_cache[key]
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +460,10 @@ def estimate_text_overflow(html_text, box_width, box_height,
             fs_px = fs_pt * _PT_TO_PX
             bold = style.get('bold', False)
             ls = style.get('letter_spacing', 0)
+            ff = style.get('font_family')
+
+            # Try PIL for accurate per-character widths
+            pil_font = _load_font(ff, fs_px, bold)
 
             # Split on \n within segment
             parts = text.split('\n')
@@ -419,10 +477,20 @@ def estimate_text_overflow(html_text, box_width, box_height,
                 if not part:
                     continue
 
-                # Add characters
-                for ch in part:
-                    w = _char_width_px(ch, fs_px, bold)
-                    para_chars.append(w)
+                if pil_font:
+                    # PIL: accurate per-character width
+                    for ch in part:
+                        w = pil_font.getlength(ch)
+                        if ls:
+                            w += ls
+                        para_chars.append(w)
+                else:
+                    # Fallback: ratio-based estimation
+                    for ch in part:
+                        w = _char_width_px(ch, fs_px, bold)
+                        if ls:
+                            w += ls
+                        para_chars.append(w)
 
         # Wrap remaining characters
         if para_chars:

@@ -1,0 +1,147 @@
+pageType: content
+elements:
+- elementId: text_s1
+  elementType: text
+  bounds:
+  - 81
+  - 19
+  - 499
+  - 86
+  content:
+    text: <p>Title, content and illustration</p>
+  shapeName: rect
+  placeholder:
+    idx: 0
+    type: title
+- elementId: text_s2
+  elementType: text
+  bounds:
+  - 81
+  - 106
+  - 499
+  - 35
+  content:
+    text: <p>On a light slide</p>
+    fontSize: 20
+  shapeName: rect
+  placeholder:
+    idx: 43
+    type: body
+- elementId: img_p3
+  elementType: image
+  bounds:
+  - 640
+  - 0
+  - 640
+  - 720
+  src: /Users/dkt/myprojects/agentmatrix/examples/MyWorld/workspace/agent_files/PPTGuru/work_files/2606031327-方案PPT模板制作-0dcq/output/vO_ppt/images/image43.jpeg
+- elementId: text_s4
+  elementType: text
+  bounds:
+  - 80
+  - 206
+  - 500
+  - 29
+  content:
+    text: <p>Subhead goes here.</p>
+    fontSize: 16
+  shapeName: rect
+  placeholder:
+    idx: 32
+    type: body
+- elementId: text_s5
+  elementType: text
+  bounds:
+  - 80
+  - 242
+  - 500
+  - 48
+  content:
+    text: <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et.</p>
+  shapeName: rect
+  placeholder:
+    idx: 44
+    type: body
+- elementId: text_s6
+  elementType: text
+  bounds:
+  - 80
+  - 338
+  - 500
+  - 29
+  content:
+    text: <p>Subhead goes here.</p>
+    fontSize: 16
+  shapeName: rect
+  placeholder:
+    idx: 38
+    type: body
+- elementId: text_s7
+  elementType: text
+  bounds:
+  - 80
+  - 374
+  - 500
+  - 48
+  content:
+    text: <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et.</p>
+  shapeName: rect
+  placeholder:
+    idx: 45
+    type: body
+- elementId: text_s8
+  elementType: text
+  bounds:
+  - 80
+  - 482
+  - 500
+  - 29
+  content:
+    text: <p>Subhead goes here.</p>
+    fontSize: 16
+  shapeName: rect
+  placeholder:
+    idx: 39
+    type: body
+- elementId: text_s9
+  elementType: text
+  bounds:
+  - 80
+  - 518
+  - 500
+  - 48
+  content:
+    text: <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et.</p>
+  shapeName: rect
+  placeholder:
+    idx: 46
+    type: body
+- elementId: text_s10
+  elementType: text
+  bounds:
+  - 118
+  - 674
+  - 603
+  - 38
+  content:
+    text: '<p>Copyright © 2026, Oracle and/or its affiliates |  Confidential: Internal/Restricted/Highly Restricted</p>'
+    fontSize: 8
+  shapeName: rect
+  placeholder:
+    idx: 48
+    type: ftr
+- elementId: text_s11
+  elementType: text
+  bounds:
+  - 80
+  - 674
+  - 38
+  - 38
+  content:
+    text: <p></p>
+  shapeName: rect
+  placeholder:
+    idx: 49
+    type: sldNum
+layoutIndex: 78
+layoutName: Content + Illustration_Light

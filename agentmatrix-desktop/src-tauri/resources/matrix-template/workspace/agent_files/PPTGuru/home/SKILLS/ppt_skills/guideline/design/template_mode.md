@@ -24,6 +24,12 @@ The user provided their own PPT file as a template. You need to extract the comp
 1. **Convert to PPTD**: Use the convert script to convert the user-uploaded PPTX to the original PPTD file (which also produces `images/`, `fonts/`, and other resource directories)
 2. **Generate screenshots**: Use the screenshot script to convert the PPTX to screenshots, then review them sequentially (if the user's presentation is lengthy, selectively read 8-12 pages)
 
+**Critical metadata from conversion** — the converted PPTD contains layout metadata that MUST be preserved in the generated output:
+
+- **`sourceTemplate`** (root-level): Points to the original `.pptx` file. The export script uses this to copy the template's slide master, layouts, and theme. Without it, all layout formatting (fonts, bullets, spacing inherited from master) is lost.
+- **`layoutIndex`** (per-page): Identifies which slide layout from the template to use for each page. Determines the layout skeleton (title placement, content area, footers).
+- **`placeholder`** (per-element): Maps an element to a layout placeholder via `idx` and `type`. When present, the export script preserves the layout's inherited formatting (bullet styles, indentation, default fonts) instead of creating a plain text box.
+
 Based on the screenshots and original PPTD, systematically analyze the template's visual system:
 
 - **Page type classification**: Analyze each page's category: cover, table_of_contents, chapter, content, final
@@ -122,21 +128,30 @@ Identify pages from the original PPTD that can be directly reused as-is (cover p
 - List .page file names and page types (e.g.: cover page `cover`, chapter page `chapter_01`, closing page `final`)
 - During generation, these pages' structures and elements are **directly extracted from the original PPTD**, with text content replaced and text box positions/text styles slightly adjusted based on new content to ensure highly consistent page styling
 
+**Layout metadata preservation (mandatory)**:
+
+When reusing template pages, the following metadata MUST be carried over to the generated .pptd and .page files:
+
+1. **Root-level `sourceTemplate`**: The generated `.pptd` MUST declare `sourceTemplate: <filename>.pptx` pointing to the original template PPTX. This is the single most important field — without it, the export creates a blank PPTX and all layout formatting is lost.
+2. **Per-page `layoutIndex`**: Each reused page MUST retain its `layoutIndex` value from the converted template. This selects the correct slide layout (title positioning, footer area, content placeholder structure) from the template's master.
+3. **Per-element `placeholder`**: Elements that correspond to layout placeholders MUST retain `placeholder.idx` and `placeholder.type`. This allows the export script to preserve inherited formatting (bullet styles, indentation, default fonts) rather than creating plain text boxes.
+
 ### 6. Content Page Common Elements (User-Uploaded Template Only)
 
 List common elements reused across content pages, **recording each element's complete attributes** to ensure strict replication during generation:
 
 - List each common element's elementId and type (e.g., header bar, navigation bar, page number, logo, decorative color band, etc.)
 - **Record key attributes**: bounds (position and size), fill (solid/gradient), border (border style), text content and style (if any), image reference path (if any)
+- **Record `placeholder` metadata**: For elements that map to layout placeholders (especially page numbers, footers, headers), record `placeholder.idx` and `placeholder.type`
 - During content page generation, these common elements are **copied verbatim** without modifying position, style, or image references; only the content area is filled
 
 ### 7. Content Page Structure Specification
 
 Define the **fixed framework** for content pages; all newly generated content pages must fill content within this framework:
 
-- **Title area**: Extract the page title's fixed position (bounds), font size, color, font, and alignment from the template
-- **Content area**: Specify the content area's bounds range (i.e., the usable space after removing common elements and the title area); all content elements must be laid out within this range
-- **Footer area** (if any): Fixed position and style for page numbers, footnotes, data sources, etc.
+- **Title area**: Extract the page title's fixed position (bounds), font size, color, font, and alignment from the template. If the title element has `placeholder` metadata, record its `idx` and `type` for reuse.
+- **Content area**: Specify the content area's bounds range (i.e., the usable space after removing common elements and the title area); all content elements must be laid out within this range. If the content area maps to a layout placeholder (e.g., `type: body`), record the `placeholder.idx` so new content elements can inherit the layout's bullet/indent formatting.
+- **Footer area** (if any): Fixed position and style for page numbers, footnotes, data sources, etc. Footer elements typically have `placeholder` metadata (e.g., `type: ftr`, `type: sldNum`) — these MUST be preserved.
 
 > The purpose of this specification is to ensure that every newly generated content page has title position, content area, and common decorative elements identical to the template, with only the specific elements within the content area varying due to different content.
 
@@ -199,6 +214,8 @@ Based on this PPT's scenario, style, and layout characteristics, extract **the p
   - **Do not ignore existing template pages and design from scratch** — must prioritize reusing the template's built-in .page files; custom layouts are only allowed when all template pages have been used or no suitable page exists
   - **Do not completely restructure template pages** — must not change the overall layout direction (e.g., horizontal → vertical), remove common elements, or significantly adjust content area bounds
   - **Do not treat templates merely as "style references"** — template pages are directly reusable layout skeletons, not just style examples for reference
+  - **Do not omit `sourceTemplate`** — the generated `.pptd` MUST declare `sourceTemplate` pointing to the original template PPTX; without it the export creates a blank PPTX and all layout formatting is lost
+  - **Do not drop `layoutIndex` or `placeholder` metadata** — when reusing template pages, preserve `layoutIndex` on each page and `placeholder.idx`/`placeholder.type` on elements that map to layout placeholders
 
 Only list prohibitions that are **genuinely relevant** to this PPT; do not generically list all universal prohibitions.
 
@@ -243,6 +260,40 @@ theme:
         width: 1
         color: "#e0e0e0"
 ```
+
+### 12. Template Metadata for Generated .pptd (User-Uploaded Template Only)
+
+When generating the final `.pptd` file, the following metadata fields MUST be included to ensure the exported PPTX retains the template's layout formatting:
+
+```yaml
+# Root-level — points to the original template PPTX
+sourceTemplate: template.pptx
+
+# Per-page — selects the slide layout from the template
+pages:
+  - pages/cover.page     # page file with layoutIndex inside
+```
+
+Per-page `.page` files MUST include `layoutIndex`:
+```yaml
+pageType: cover
+layoutIndex: 1          # ← selects layout[1] from the template PPTX
+layoutName: Title Slide  # ← optional, for documentation
+```
+
+Elements that map to layout placeholders MUST include `placeholder`:
+```yaml
+- elementId: coverTitle
+  elementType: text
+  bounds: [83, 226, 672, 134]
+  placeholder:           # ← preserves layout-inherited formatting
+    idx: 0
+    type: ctrTitle
+  content:
+    text: <p>My Title</p>
+```
+
+**Why this matters**: The export script uses `sourceTemplate` to copy the template PPTX (preserving slide masters, layouts, and theme). `layoutIndex` selects the correct layout for each page. `placeholder` maps elements to layout placeholders, preserving inherited formatting (bullet styles, indentation, default fonts). Without these, the export creates a blank PPTX and all layout formatting is lost.
 
 ---
 

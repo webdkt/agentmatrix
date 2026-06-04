@@ -24,7 +24,6 @@ class Browser_controlSkillMixin(BrowserCommonMixin):
 
     _skill_description = """浏览器控制操作
     通过 CDP (Chrome DevTools Protocol) 控制浏览器，可以打开网页、管理标签页、执行 JavaScript 和 CDP 指令。
-    不包含 DOM 探索、站点知识、自动化脚本执行等高级功能。
     """
 
     # ── Action 薄壳：@register_action + 调用 mixin 实现 ──────────

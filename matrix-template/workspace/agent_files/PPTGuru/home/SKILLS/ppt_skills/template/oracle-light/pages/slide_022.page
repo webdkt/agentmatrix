@@ -1,0 +1,866 @@
+pageType: content
+elements:
+- elementId: text_s1
+  elementType: text
+  bounds:
+  - 81
+  - 19
+  - 1120
+  - 86
+  content:
+    text: <p>Example on a light table slide </p>
+  shapeName: rect
+  placeholder:
+    idx: 0
+    type: title
+- elementId: table_gf2
+  elementType: table
+  bounds:
+  - 80
+  - 141
+  - 1143
+  - 422
+  columnWidths:
+  - 0.1777
+  - 0.1309
+  - 0.1417
+  - 0.1492
+  - 0.1367
+  - 0.1392
+  - 0.1246
+  rowHeights:
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  - 0.125
+  rows:
+  - - content:
+        text: <p style="text-align:left"><strong><span style="font-size:14px; color:#2A2F2F; font-family:Oracle Sans Tab">Heading</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 0
+        style: none
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><strong><span style="font-size:14px; color:#2A2F2F; font-family:Oracle Sans Tab">Heading</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 0
+        style: none
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><strong><span style="font-size:14px; color:#2A2F2F; font-family:Oracle Sans Tab">Heading</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 0
+        style: none
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><strong><span style="font-size:14px; color:#2A2F2F; font-family:Oracle Sans Tab">Heading</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 0
+        style: none
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><strong><span style="font-size:14px; color:#2A2F2F; font-family:Oracle Sans Tab">Heading</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 0
+        style: none
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><strong><span style="font-size:14px; color:#2A2F2F; font-family:Oracle Sans Tab">Heading</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 0
+        style: none
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><strong><span style="font-size:14px; color:#2A2F2F; font-family:Oracle Sans Tab">Heading</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 0
+        style: none
+      - width: 0
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+  - - content:
+        text: <p style="text-align:left"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Topic</span></strong></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">518,051</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">15.19</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">13.37</span><span style="font-size:12px; font-family:Oracle Sans Tab">%</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">7.99</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">0.13</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">4</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+  - - content:
+        text: <p style="text-align:left"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Topic</span></strong></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">403,599</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">23.27</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">70.81</span><span style="font-size:12px; font-family:Oracle Sans Tab">%</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">18.42</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">15.56</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">65</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+  - - content:
+        text: <p style="text-align:left; line-height:1.0"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Topic</span></strong></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">323,911</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">6.15</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">9.35</span><span style="font-size:12px; font-family:Oracle Sans Tab">%</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">3.89</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">0.09</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">3</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+  - - content:
+        text: <p style="text-align:left; line-height:1.0"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Topic</span></strong></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">268,160</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">14.87</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">77.10</span><span style="font-size:12px; font-family:Oracle Sans Tab">%</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">13.54</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">14.51</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">77</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+  - - content:
+        text: <p style="text-align:left"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Topic</span></strong></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">263,907</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">15.5</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">16.91</span><span style="font-size:12px; font-family:Oracle Sans Tab">%</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">5.92</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">5.33</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">11</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+  - - content:
+        text: <p style="text-align:left"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Topic</span></strong></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">116,828</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">15.46</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">86.01</span><span style="font-size:12px; font-family:Oracle Sans Tab">%</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">12.68</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">6.55</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">77</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+  - - content:
+        text: <p style="text-align:left"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Topic</span></strong></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 0
+        style: none
+      - width: 0
+        style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">69,689</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 0
+        style: none
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">15.43</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 0
+        style: none
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">78.77</span><span style="font-size:12px; font-family:Oracle Sans Tab">%</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 0
+        style: none
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">13.62</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 0
+        style: none
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">13.97</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - style: none
+      - width: 0
+        style: none
+      - style: none
+    - content:
+        text: <p style="text-align:right"><span style="font-size:12px; font-family:Oracle Sans Tab">77</span></p>
+        align:
+        - center
+        - middle
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 0
+        style: none
+      - width: 0
+        style: none
+      - style: none
+  tableStyleId: '{7E9639D4-E3E2-4D34-9284-5A2195B3D0D7}'
+- elementId: text_s3
+  elementType: text
+  bounds:
+  - 80
+  - 674
+  - 38
+  - 38
+  content:
+    text: <p></p>
+  shapeName: rect
+  placeholder:
+    idx: 40
+    type: sldNum
+- elementId: text_s4
+  elementType: text
+  bounds:
+  - 118
+  - 674
+  - 603
+  - 38
+  content:
+    text: '<p>Copyright © 2026, Oracle and/or its affiliates |  Confidential: Internal/Restricted/Highly Restricted</p>'
+    fontSize: 8
+  shapeName: rect
+  placeholder:
+    idx: 39
+    type: ftr
+layoutIndex: 58
+layoutName: Light - Title
+background:
+  type: solid
+  color: '#FBF9F8'

@@ -61,6 +61,18 @@ Based on the user requirements analyzed in step2, determine which working mode t
   2. Then generate .page files in page order: Starting from page 1, generate sequentially according to the page order in outline.md, without skipping or reordering
   * The reason: The .pptd main file defines the global theme and page list, serving as the contextual foundation for all page files. Sequential generation ensures content continuity and style consistency between pages, avoiding context breaks caused by page skipping.
 
+#### Template Metadata (When Using User-Uploaded Template)
+
+When generating a presentation based on a user-uploaded template (template mode), the generated `.pptd` and `.page` files MUST preserve layout metadata from the converted template:
+
+1. **`sourceTemplate`** (root-level `.pptd`): MUST declare `sourceTemplate: <filename>.pptx` pointing to the original template PPTX. The export script copies this file as the base, preserving slide masters, layouts, and theme. Without this field, the export creates a blank PPTX and all layout formatting (inherited fonts, bullets, spacing, footers) is lost.
+
+2. **`layoutIndex`** (per-page `.page`): Each page MUST retain its `layoutIndex` from the converted template. This selects the correct slide layout (title position, content placeholder structure, footer area) from the template's master.
+
+3. **`placeholder`** (per-element): Elements that correspond to layout placeholders (titles, body content, page numbers, footers) MUST retain `placeholder.idx` and `placeholder.type`. This allows the export to preserve inherited formatting (bullet styles, indentation, default fonts) instead of creating plain text boxes.
+
+4. **New content elements**: When adding new elements that don't map to existing placeholders, create them as regular elements (without `placeholder`). Only reuse `placeholder` metadata for elements that directly correspond to template placeholders.
+
 #### Image Supplementation Strategy
 1. Prioritize extracting suitable images from user-uploaded content (such as Word, PDF, PPTX, etc.) as presentation illustrations
 2. If the user has not provided sufficient and suitable images, and has not explicitly requested no additional images, you should by default use image search, image generation tools, etc. to prepare appropriate illustrations for the presentation

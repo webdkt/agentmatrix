@@ -49,18 +49,16 @@ theme:
       color: $textLight
   tableStyles:
     default:
+      fontSize: 14
       headerFill: $highlight
-      headerFont:
-        bold: true
-        color: $text
-        fontSize: 14
-      bodyFont:
-        color: $text
-        fontSize: 14
+      headerColor: $text
+      headerBold: true
+      bodyColor: $text
+      bodyFill:
+      - $tableAlt
       border:
         color: $border
         width: 1
-      altRowFill: $tableAlt
 pages:
 - pages/cover.page
 - pages/table_of_contents.page

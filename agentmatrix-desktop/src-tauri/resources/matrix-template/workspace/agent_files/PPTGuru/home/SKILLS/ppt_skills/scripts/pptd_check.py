@@ -15,6 +15,19 @@ from pptd_common import (
 )
 from pptd_color import is_valid_hex_color, resolve_theme_ref, resolve_color, contrast_ratio, get_contrast_threshold
 from pptd_text import rich_text_to_plain_text, estimate_text_width_px, estimate_text_height_px, estimate_text_overflow
+from pptd_syntax import (
+    validate_fields, check_element_type_fields, check_text_level,
+    ROOT_SCHEMA, PAGE_SCHEMA, ELEMENT_BASE_SCHEMA, ELEMENT_TYPE_FIELDS,
+    TEXT_CONTENT_SCHEMA,
+    FILL_SOLID_SCHEMA, FILL_GRADIENT_SCHEMA, FILL_IMAGE_SCHEMA,
+    BORDER_SCHEMA, SHADOW_SCHEMA, TABLE_CELL_SCHEMA,
+    CHART_OPTIONS_SCHEMA, SERIES_STYLE_SCHEMA, AXIS_CONFIG_SCHEMA,
+    LEGEND_CONFIG_SCHEMA, DATA_LABEL_CONFIG_SCHEMA,
+    COLOR_STOP_SCHEMA, IMAGE_FIT_SCHEMA, IMAGE_CROP_SCHEMA,
+    MARKER_CONFIG_SCHEMA, CHART_TITLE_CONFIG_SCHEMA,
+    AXIS_LABEL_CONFIG_SCHEMA, AXIS_LINE_CONFIG_SCHEMA, AXIS_TITLE_CONFIG_SCHEMA,
+    THEME_TEXT_STYLE_SCHEMA, THEME_TABLE_STYLE_SCHEMA,
+)
 
 
 class Colors:
@@ -82,6 +95,7 @@ class PPTDChecker:
                 self.add_error('main file', f'{field} must be a number (EMU)')
 
         # Optional source template
+        self.is_template_mode = (self.base_dir / 'template.pptx').exists()
         source_template = self.data.get('sourceTemplate')
         if source_template is not None:
             if not isinstance(source_template, str):
@@ -90,6 +104,12 @@ class PPTDChecker:
                 template_path = self.base_dir / source_template
                 if not template_path.exists():
                     self.add_warning('main file', f'sourceTemplate not found: {template_path}')
+        elif self.is_template_mode:
+            self.add_warning(
+                'main file',
+                'template.pptx found but sourceTemplate not declared. '
+                'Add "sourceTemplate: template.pptx" to preserve layout formatting on export'
+            )
 
         if 'pages' not in self.data:
             self.add_error('main file', 'Missing required field: pages')
@@ -101,6 +121,9 @@ class PPTDChecker:
                 for i, p in enumerate(pages):
                     if not isinstance(p, str):
                         self.add_error('main file', f'pages[{i}] must be a string path')
+
+        # Syntax validation: unknown fields + types at root level
+        validate_fields(self.data, ROOT_SCHEMA, self.add_error, 'main file')
 
         return len(self.errors) == 0
 
@@ -122,6 +145,7 @@ class PPTDChecker:
         if isinstance(text_styles, dict):
             for key, val in text_styles.items():
                 if isinstance(val, dict):
+                    validate_fields(val, THEME_TEXT_STYLE_SCHEMA, self.add_error, f'theme.textStyles.{key}')
                     color = val.get('color')
                     if color and isinstance(color, str):
                         if color.startswith('$'):
@@ -135,6 +159,7 @@ class PPTDChecker:
         if isinstance(table_styles, dict):
             for key, val in table_styles.items():
                 if isinstance(val, dict):
+                    validate_fields(val, THEME_TABLE_STYLE_SCHEMA, self.add_error, f'theme.tableStyles.{key}')
                     for field in ['headerFill', 'headerColor', 'bodyColor', 'firstColumnFill', 'firstColumnColor']:
                         v = val.get(field)
                         if v and isinstance(v, str):
@@ -168,6 +193,9 @@ class PPTDChecker:
                 self.add_error(f'page: {page_path}', 'Root must be a YAML mapping')
                 continue
 
+            # Syntax validation: unknown fields + types at page level
+            validate_fields(page_data, PAGE_SCHEMA, self.add_error, f'page: {page_path}')
+
             # Validate page type
             page_type = page_data.get('pageType')
             valid_types = {'cover', 'table_of_contents', 'chapter', 'content', 'final'}
@@ -178,6 +206,10 @@ class PPTDChecker:
             layout_idx = page_data.get('layoutIndex')
             if layout_idx is not None and not isinstance(layout_idx, int):
                 self.add_error(f'page: {page_path}', 'layoutIndex must be an integer')
+
+            # Template mode checks
+            if self.is_template_mode and layout_idx is None:
+                self.add_warning(f'page: {page_path}', 'template.pptx exists but layoutIndex missing; export will use blank layout')
 
             # Validate background
             background = page_data.get('background')
@@ -203,6 +235,17 @@ class PPTDChecker:
                     continue
                 self._validate_element(elem, page_path, i)
 
+            # Template mode: check placeholder coverage on text elements
+            if self.is_template_mode:
+                text_elems = [e for e in elements if isinstance(e, dict) and e.get('elementType') == 'text']
+                elems_with_ph = [e for e in text_elems if isinstance(e.get('placeholder'), dict)]
+                if text_elems and not elems_with_ph:
+                    self.add_warning(
+                        f'page: {page_path}',
+                        f'template.pptx exists but none of the {len(text_elems)} text elements have placeholder; '
+                        f'layout formatting (bullets, fonts, indentation) will not be inherited'
+                    )
+
             # Check for text occlusions, bounds overflow, and contrast
             self._check_occlusions(page_path, elements)
             self._check_bounds_overflow(page_path, elements)
@@ -222,6 +265,21 @@ class PPTDChecker:
     def _validate_element(self, elem, page_path, idx):
         element_id = elem.get('elementId')
         loc = f'page: {page_path} element: {element_id or f"[{idx}]"}'
+
+        # Syntax validation: combined base+type schema, text-level check
+        elem_type = elem.get('elementType') if isinstance(elem, dict) else None
+        if elem_type and elem_type in ELEMENT_TYPE_FIELDS:
+            combined = dict(ELEMENT_BASE_SCHEMA)
+            combined = {
+                'required': set(ELEMENT_BASE_SCHEMA['required']),
+                'optional': dict(ELEMENT_BASE_SCHEMA['optional']),
+            }
+            for f in ELEMENT_TYPE_FIELDS[elem_type]:
+                combined['optional'][f] = None  # type already checked by specific validators
+            validate_fields(elem, combined, self.add_error, loc)
+        else:
+            validate_fields(elem, ELEMENT_BASE_SCHEMA, self.add_error, loc)
+        check_text_level(elem, self.add_error, loc)
 
         if not element_id:
             self.add_error(loc, 'Missing required field: elementId')
@@ -356,6 +414,10 @@ class PPTDChecker:
         if fill_type not in ('solid', 'gradient', 'image'):
             self.add_error(loc, f'Invalid fill type: {fill_type}')
             return
+
+        # Syntax validation: per-type schema
+        type_schemas = {'solid': FILL_SOLID_SCHEMA, 'gradient': FILL_GRADIENT_SCHEMA, 'image': FILL_IMAGE_SCHEMA}
+        validate_fields(fill, type_schemas.get(fill_type, {}), self.add_error, loc)
         if fill_type == 'solid':
             color = fill.get('color')
             if color:
@@ -373,6 +435,7 @@ class PPTDChecker:
                 for i, stop in enumerate(stops):
                     if not isinstance(stop, dict):
                         continue
+                    validate_fields(stop, COLOR_STOP_SCHEMA, self.add_error, f'{loc}.stops[{i}]')
                     pos = stop.get('position')
                     if pos is not None and (not isinstance(pos, (int, float)) or pos < 0 or pos > 1):
                         self.add_error(loc, f'Invalid gradient stop position at index {i}: {pos}')
@@ -391,10 +454,17 @@ class PPTDChecker:
             src = fill.get('src')
             if not src:
                 self.add_error(loc, 'image fill requires src')
+            fit = fill.get('fit')
+            if fit and isinstance(fit, dict):
+                validate_fields(fit, IMAGE_FIT_SCHEMA, self.add_error, f'{loc}.fit')
+            crop = fill.get('crop')
+            if crop and isinstance(crop, dict):
+                validate_fields(crop, IMAGE_CROP_SCHEMA, self.add_error, f'{loc}.crop')
 
     def _validate_border(self, border, loc):
         if not isinstance(border, dict):
             return
+        validate_fields(border, BORDER_SCHEMA, self.add_error, loc)
         style = border.get('style')
         if style and style not in ('solid', 'dash', 'dot', 'none'):
             self.add_error(loc, f'Invalid border style: {style}')
@@ -410,6 +480,7 @@ class PPTDChecker:
     def _validate_shadow(self, shadow, loc):
         if not isinstance(shadow, dict):
             return
+        validate_fields(shadow, SHADOW_SCHEMA, self.add_error, loc)
         if 'blur' not in shadow:
             self.add_error(loc, 'shadow requires blur')
         color = shadow.get('color')
@@ -426,20 +497,32 @@ class PPTDChecker:
     # ------------------------------------------------------------------
 
     def _validate_text_content(self, content, bounds, loc):
+        validate_fields(content, TEXT_CONTENT_SCHEMA, self.add_error, loc)
         text = content.get('text', '')
         if not text:
             return
 
-        # Style reference
+        # Style reference (string = theme ref, dict = inline style)
         style_ref = content.get('style')
         if style_ref and isinstance(style_ref, str) and style_ref.startswith('$'):
             _, ok = resolve_theme_ref(style_ref, self.theme, 'textStyles')
             if not ok:
                 self.add_error(loc, f'Undefined text style reference: {style_ref}')
+        elif style_ref and isinstance(style_ref, dict):
+            style_color = style_ref.get('color')
+            if style_color and isinstance(style_color, str):
+                if style_color.startswith('$'):
+                    _, ok = resolve_theme_ref(style_color, self.theme, 'colors')
+                    if not ok:
+                        self.add_error(loc, f'Undefined color reference in style: {style_color}')
+                elif not is_valid_hex_color(style_color):
+                    self.add_error(loc, f'Invalid color in style: {style_color}')
 
         # Resolve font size
         font_size = content.get('fontSize')
-        if font_size is None and style_ref:
+        if font_size is None and isinstance(style_ref, dict):
+            font_size = style_ref.get('fontSize')
+        if font_size is None and isinstance(style_ref, str) and style_ref:
             resolved, ok = resolve_theme_ref(style_ref, self.theme, 'textStyles')
             if ok and isinstance(resolved, dict):
                 font_size = resolved.get('fontSize')
@@ -560,6 +643,7 @@ class PPTDChecker:
                     if isinstance(row, list):
                         for j, cell in enumerate(row):
                             if isinstance(cell, dict):
+                                validate_fields(cell, TABLE_CELL_SCHEMA, self.add_error, f'{loc}.rows[{i}][{j}]')
                                 rs = cell.get('rowSpan', 1)
                                 cs = cell.get('colSpan', 1)
                                 if rs < 1 or cs < 1:
@@ -626,17 +710,61 @@ class PPTDChecker:
 
         options = elem.get('options')
         if options and isinstance(options, dict):
+            validate_fields(options, CHART_OPTIONS_SCHEMA, self.add_error, f'{loc}.options')
             inner_radius = options.get('innerRadius')
             if inner_radius is not None and (not isinstance(inner_radius, (int, float)) or inner_radius < 0 or inner_radius > 1):
                 self.add_error(loc, f'options.innerRadius must be in [0,1]: {inner_radius}')
 
-        # Validate seriesStyle keys
+        # Validate seriesStyle keys and structure
         series_style = elem.get('seriesStyle')
         if series_style and isinstance(series_style, dict):
             y_list = y_fields if isinstance(y_fields, list) else ([y_fields] if isinstance(y_fields, str) else [])
-            for key in series_style:
+            for key, ss_val in series_style.items():
                 if key != '*' and key not in y_list:
                     self.add_warning(loc, f"seriesStyle key '{key}' does not match any y field")
+                if isinstance(ss_val, dict):
+                    validate_fields(ss_val, SERIES_STYLE_SCHEMA, self.add_error, f'{loc}.seriesStyle.{key}')
+
+        # Validate axis configs
+        for axis_field in ('xAxis', 'yAxis', 'secondaryAxis'):
+            axis_val = elem.get(axis_field)
+            if axis_val and isinstance(axis_val, dict):
+                validate_fields(axis_val, AXIS_CONFIG_SCHEMA, self.add_error, f'{loc}.{axis_field}')
+
+        # Validate legend
+        legend = elem.get('legend')
+        if legend and isinstance(legend, dict):
+            validate_fields(legend, LEGEND_CONFIG_SCHEMA, self.add_error, f'{loc}.legend')
+
+        # Validate dataLabels
+        data_labels = elem.get('dataLabels')
+        if data_labels and isinstance(data_labels, dict):
+            validate_fields(data_labels, DATA_LABEL_CONFIG_SCHEMA, self.add_error, f'{loc}.dataLabels')
+
+        # Validate chart title (when dict)
+        title = elem.get('title')
+        if title and isinstance(title, dict):
+            validate_fields(title, CHART_TITLE_CONFIG_SCHEMA, self.add_error, f'{loc}.title')
+
+        # Validate axis sub-objects (label, axisLine, gridLine, title)
+        for axis_field in ('xAxis', 'yAxis', 'secondaryAxis'):
+            axis_val = elem.get(axis_field)
+            if axis_val and isinstance(axis_val, dict):
+                for sub_field, sub_schema in [('label', AXIS_LABEL_CONFIG_SCHEMA),
+                                               ('axisLine', AXIS_LINE_CONFIG_SCHEMA),
+                                               ('gridLine', AXIS_LINE_CONFIG_SCHEMA),
+                                               ('title', AXIS_TITLE_CONFIG_SCHEMA)]:
+                    sub_val = axis_val.get(sub_field)
+                    if sub_val and isinstance(sub_val, dict):
+                        validate_fields(sub_val, sub_schema, self.add_error, f'{loc}.{axis_field}.{sub_field}')
+
+        # Validate seriesStyle marker sub-objects
+        if series_style and isinstance(series_style, dict):
+            for key, ss_val in series_style.items():
+                if isinstance(ss_val, dict):
+                    marker = ss_val.get('marker')
+                    if marker and isinstance(marker, dict):
+                        validate_fields(marker, MARKER_CONFIG_SCHEMA, self.add_error, f'{loc}.seriesStyle.{key}.marker')
 
     # ------------------------------------------------------------------
     # Occlusion detection
@@ -649,7 +777,11 @@ class PPTDChecker:
         if fs is not None:
             return fs
         style_ref = content.get('style')
-        if style_ref and isinstance(style_ref, str) and style_ref.startswith('$'):
+        if isinstance(style_ref, dict):
+            fs = style_ref.get('fontSize')
+            if fs is not None:
+                return fs
+        elif isinstance(style_ref, str) and style_ref.startswith('$'):
             resolved, ok = resolve_theme_ref(style_ref, self.theme, 'textStyles')
             if ok and isinstance(resolved, dict):
                 fs = resolved.get('fontSize')
@@ -792,7 +924,11 @@ class PPTDChecker:
             return resolve_color(color, self.theme)
         # Check style reference
         style_ref = content.get('style')
-        if style_ref and isinstance(style_ref, str) and style_ref.startswith('$'):
+        if style_ref and isinstance(style_ref, dict):
+            color = style_ref.get('color')
+            if color:
+                return resolve_color(color, self.theme)
+        elif style_ref and isinstance(style_ref, str) and style_ref.startswith('$'):
             resolved, ok = resolve_theme_ref(style_ref, self.theme, 'textStyles')
             if ok and isinstance(resolved, dict):
                 color = resolved.get('color')

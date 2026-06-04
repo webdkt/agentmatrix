@@ -61,9 +61,9 @@ Based on the user requirements analyzed in step2, determine which working mode t
   2. Then generate .page files in page order: Starting from page 1, generate sequentially according to the page order in outline.md, without skipping or reordering
   * The reason: The .pptd main file defines the global theme and page list, serving as the contextual foundation for all page files. Sequential generation ensures content continuity and style consistency between pages, avoiding context breaks caused by page skipping.
 
-#### Template Metadata (When Using User-Uploaded Template)
+#### Template Metadata (When Template Has Layout Metadata)
 
-When generating a presentation based on a user-uploaded template (template mode), the generated `.pptd` and `.page` files MUST preserve layout metadata from the converted template:
+When the template has a `template.pptx` file (either user-uploaded or preset), the generated `.pptd` and `.page` files MUST preserve layout metadata:
 
 1. **`sourceTemplate`** (root-level `.pptd`): MUST declare `sourceTemplate: <filename>.pptx` pointing to the original template PPTX. The export script copies this file as the base, preserving slide masters, layouts, and theme. Without this field, the export creates a blank PPTX and all layout formatting (inherited fonts, bullets, spacing, footers) is lost.
 

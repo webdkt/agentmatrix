@@ -1,0 +1,230 @@
+pageType: content
+elements:
+- elementId: text_s1
+  elementType: text
+  bounds:
+  - 81
+  - 19
+  - 1120
+  - 86
+  content:
+    text: <p>Date timeline</p>
+  shapeName: rect
+  placeholder:
+    idx: 0
+    type: title
+- elementId: text_s2
+  elementType: text
+  bounds:
+  - 80
+  - 674
+  - 38
+  - 38
+  content:
+    text: <p></p>
+  shapeName: rect
+  placeholder:
+    idx: 40
+    type: sldNum
+- elementId: text_s3
+  elementType: text
+  bounds:
+  - 118
+  - 674
+  - 603
+  - 38
+  content:
+    text: '<p>Copyright © 2026, Oracle and/or its affiliates |  Confidential: Internal/Restricted/Highly Restricted</p>'
+    fontSize: 8
+  shapeName: rect
+  placeholder:
+    idx: 39
+    type: ftr
+- elementId: connector_cx4
+  elementType: shape
+  bounds:
+  - 110
+  - 212
+  - 0
+  - 157
+  shapeName: line
+  border:
+    width: 2
+    color: '#2A2F2F'
+    style: solid
+  flip:
+  - false
+  - true
+- elementId: text_s5
+  elementType: text
+  bounds:
+  - 110
+  - 206
+  - 200
+  - 70
+  content:
+    text: '<p style="line-height:1.0"><strong><span style="font-size:14px">Date 1</span></strong></p>
+
+      <p style="line-height:1.0"><span style="font-size:14px">Brief details go here</span></p>'
+    fontSize: 14
+  shapeName: rect
+- elementId: connector_cx6
+  elementType: shape
+  bounds:
+  - 292
+  - 360
+  - 0
+  - 129
+  shapeName: line
+  border:
+    width: 2
+    color: '#2A2F2F'
+    style: solid
+  flip:
+  - false
+  - true
+- elementId: text_s7
+  elementType: text
+  bounds:
+  - 293
+  - 424
+  - 200
+  - 70
+  content:
+    text: '<p style="line-height:1.0"><strong><span style="font-size:14px">Date 2</span></strong></p>
+
+      <p style="line-height:1.0"><span style="font-size:14px">Brief details go here</span></p>'
+    fontSize: 14
+  shapeName: rect
+- elementId: connector_cx8
+  elementType: shape
+  bounds:
+  - 473
+  - 206
+  - 0
+  - 129
+  shapeName: line
+  border:
+    width: 2
+    color: '#2A2F2F'
+    style: solid
+  flip:
+  - false
+  - true
+- elementId: text_s9
+  elementType: text
+  bounds:
+  - 473
+  - 207
+  - 200
+  - 70
+  content:
+    text: '<p style="line-height:1.0"><strong><span style="font-size:14px">Date 3</span></strong></p>
+
+      <p style="line-height:1.0"><span style="font-size:14px">Brief details go here</span></p>'
+    fontSize: 14
+  shapeName: rect
+- elementId: connector_cx10
+  elementType: shape
+  bounds:
+  - 835
+  - 211
+  - 0
+  - 129
+  shapeName: line
+  border:
+    width: 2
+    color: '#2A2F2F'
+    style: solid
+  flip:
+  - false
+  - true
+- elementId: text_s11
+  elementType: text
+  bounds:
+  - 835
+  - 206
+  - 200
+  - 70
+  content:
+    text: '<p style="line-height:1.0"><strong><span style="font-size:14px">Date 5</span></strong></p>
+
+      <p style="line-height:1.0"><span style="font-size:14px">Brief details go here</span></p>'
+    fontSize: 14
+  shapeName: rect
+- elementId: connector_cx12
+  elementType: shape
+  bounds:
+  - 654
+  - 336
+  - 0
+  - 140
+  shapeName: line
+  border:
+    width: 2
+    color: '#2A2F2F'
+    style: solid
+  flip:
+  - false
+  - true
+- elementId: text_s13
+  elementType: text
+  bounds:
+  - 654
+  - 424
+  - 200
+  - 70
+  content:
+    text: '<p style="line-height:1.0"><strong><span style="font-size:14px">Date 4</span></strong></p>
+
+      <p style="line-height:1.0"><span style="font-size:14px">Brief details go here</span></p>'
+    fontSize: 14
+  shapeName: rect
+- elementId: connector_cx14
+  elementType: shape
+  bounds:
+  - 1016
+  - 360
+  - 0
+  - 129
+  shapeName: line
+  border:
+    width: 2
+    color: '#2A2F2F'
+    style: solid
+  flip:
+  - false
+  - true
+- elementId: text_s15
+  elementType: text
+  bounds:
+  - 1016
+  - 424
+  - 200
+  - 70
+  content:
+    text: '<p style="line-height:1.0"><strong><span style="font-size:14px">Date 6</span></strong></p>
+
+      <p style="line-height:1.0"><span style="font-size:14px">Brief details go here</span></p>'
+    fontSize: 14
+  shapeName: rect
+- elementId: shape_s16
+  elementType: shape
+  bounds:
+  - 0
+  - 328
+  - 1280
+  - 71
+  shapeName: custom
+  path: 12188952,672401;M0,527004 C1767144,203274 3563300,45549 5358124,8062 C7644124,-39540 9936598,122547 12188952,523844 L12188952,672402 C10369561,341022 8520522,179252 6674023,150488 C4439953,113823 2200804,276605 0,672402 C0,623915 0,575491 0,527004 Z
+  fill:
+    type: image
+    src: /Users/dkt/myprojects/agentmatrix/examples/MyWorld/workspace/agent_files/PPTGuru/work_files/2606031327-方案PPT模板制作-0dcq/output/vO_ppt/images/image51.png
+  border:
+    width: 0
+    style: solid
+layoutIndex: 58
+layoutName: Light - Title
+background:
+  type: solid
+  color: '#FBF9F8'

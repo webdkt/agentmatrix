@@ -325,7 +325,7 @@ def _parse_image_crop(blip_fill_elem):
     return crop if crop else None
 
 
-def _parse_text_element(sp, shape_id, bounds, scheme_map, media_map, slide_rels, layout_lst=None):
+def _parse_text_element(sp, shape_id, bounds, scheme_map, media_map, slide_rels, layout_lst=None, master_ph_styles=None):
     """Parse a shape with text into a PPTD text element."""
     txBody = sp.find('p:txBody', NSMAP)
     if txBody is None:
@@ -374,7 +374,15 @@ def _parse_text_element(sp, shape_id, bounds, scheme_map, media_map, slide_rels,
                             inherited_sz = def_rpr.get('sz')
                             if inherited_sz:
                                 content['fontSize'] = int(int(inherited_sz) / 100)
+                                found_sz = True
                                 break
+            # Fallback to master's placeholder font size (by type)
+            if not found_sz and master_ph_styles:
+                ph = sp.find('.//p:nvSpPr/p:nvPr/p:ph', NSMAP)
+                if ph is not None:
+                    ph_type = ph.get('type')
+                    if ph_type and ph_type in master_ph_styles:
+                        content['fontSize'] = master_ph_styles[ph_type]
 
         latin = first_rPr.find('a:latin', NSMAP)
         ea = first_rPr.find('a:ea', NSMAP)
@@ -1766,7 +1774,7 @@ def _extract_chart_values(parent):
 # ---------------------------------------------------------------------------
 
 def _parse_group_shapes(grp_sp, elements, counter, scheme_map, media_map, slide_rels, z,
-                        layout_ph_bounds=None, layout_ph_styles=None, parent_offset=None):
+                        layout_ph_bounds=None, layout_ph_styles=None, parent_offset=None, master_ph_styles=None):
     """Recursively parse p:grpSp and its children."""
     # Extract group fill for grpFill resolution
     grp_sp_pr = grp_sp.find('p:grpSpPr', NSMAP)
@@ -1809,7 +1817,8 @@ def _parse_group_shapes(grp_sp, elements, counter, scheme_map, media_map, slide_
                       parent_offset=offset,
                       layout_ph_bounds=layout_ph_bounds,
                       layout_ph_styles=layout_ph_styles,
-                      group_fill_elem=group_fill_elem)
+                      group_fill_elem=group_fill_elem,
+                      master_ph_styles=master_ph_styles)
         elif tag == 'pic':
             _parse_pic(child, elements, counter, media_map, slide_rels,
                        parent_offset=offset, scheme_map=scheme_map)
@@ -1819,7 +1828,8 @@ def _parse_group_shapes(grp_sp, elements, counter, scheme_map, media_map, slide_
         elif tag == 'grpSp':
             _parse_group_shapes(child, elements, counter, scheme_map, media_map, slide_rels, z,
                                 layout_ph_bounds=layout_ph_bounds,
-                                layout_ph_styles=layout_ph_styles, parent_offset=offset)
+                                layout_ph_styles=layout_ph_styles, parent_offset=offset,
+                                master_ph_styles=master_ph_styles)
         elif tag == 'cxnSp':
             shape_id = child.get('id', f'cx{counter["next"]()}')
             xfrm = child.find('p:spPr/a:xfrm', NSMAP)
@@ -1859,7 +1869,7 @@ def _parse_connector(cxns_sp, shape_id, bounds, scheme_map):
 # Individual element parsers (with group offset support)
 # ---------------------------------------------------------------------------
 
-def _parse_sp(sp, elements, counter, scheme_map, media_map, slide_rels, z, parent_offset=None, layout_ph_bounds=None, layout_ph_styles=None, group_fill_elem=None):
+def _parse_sp(sp, elements, counter, scheme_map, media_map, slide_rels, z, parent_offset=None, layout_ph_bounds=None, layout_ph_styles=None, group_fill_elem=None, master_ph_styles=None):
     """Parse a p:sp into elements list."""
     shape_id = sp.get('id', f's{counter["next"]()}')
     nv_sp = sp.find('p:nvSpPr', NSMAP)
@@ -1915,7 +1925,7 @@ def _parse_sp(sp, elements, counter, scheme_map, media_map, slide_rels, z, paren
                     ph_idx = ph_elem.get('idx')
                     ph_idx_int = int(ph_idx) if ph_idx is not None else 0
                     layout_lst = layout_ph_styles.get(ph_idx_int)
-        elem = _parse_text_element(sp, shape_id, bounds, scheme_map, media_map, slide_rels, layout_lst=layout_lst)
+        elem = _parse_text_element(sp, shape_id, bounds, scheme_map, media_map, slide_rels, layout_lst=layout_lst, master_ph_styles=master_ph_styles)
         if elem:
             # Add fill/border/shadow from spPr
             if spPr is not None:
@@ -2107,6 +2117,7 @@ def _parse_slide(z, slide_file, slide_idx, total_slides, scheme_map, media_map):
     # map to actual scheme colors (dk1, lt1, dk2, lt2).
     # Dark layouts use overrideClrMapping to swap bg↔tx.
     effective_scheme_map = scheme_map  # default: use global scheme_map
+    master_ph_styles = {}  # {type: font_size_pt} from master's placeholder lstStyle
     try:
         # Read master's clrMap
         master_clr_map = None
@@ -2126,6 +2137,27 @@ def _parse_slide(z, slide_file, slide_idx, total_slides, scheme_map, media_map):
                                 master_root = ET.fromstring(master_xml)
                                 master_clr_map_elem = master_root.find('p:clrMap', NSMAP)
                                 master_clr_map = build_clr_map(master_clr_map_elem)
+                                # Extract font sizes from master's placeholders (by type)
+                                master_sp_tree = master_root.find('.//p:cSld/p:spTree', NSMAP)
+                                if master_sp_tree is not None:
+                                    for m_sp in master_sp_tree.findall('p:sp', NSMAP):
+                                        m_ph = m_sp.find('.//p:nvSpPr/p:nvPr/p:ph', NSMAP)
+                                        if m_ph is not None:
+                                            m_type = m_ph.get('type')
+                                            if m_type:
+                                                m_tx = m_sp.find('p:txBody', NSMAP)
+                                                if m_tx is not None:
+                                                    m_lst = m_tx.find('a:lstStyle', NSMAP)
+                                                    if m_lst is not None:
+                                                        for lvl_tag in ('a:lvl1pPr', 'a:lvl2pPr', 'a:lvl3pPr'):
+                                                            m_lvl = m_lst.find(lvl_tag, NSMAP)
+                                                            if m_lvl is not None:
+                                                                m_defr = m_lvl.find('a:defRPr', NSMAP)
+                                                                if m_defr is not None:
+                                                                    m_sz = m_defr.get('sz')
+                                                                    if m_sz:
+                                                                        master_ph_styles[m_type] = int(int(m_sz) / 100)
+                                                                        break
                         break
 
         if master_clr_map is not None:
@@ -2182,7 +2214,8 @@ def _parse_slide(z, slide_file, slide_idx, total_slides, scheme_map, media_map):
             tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
             if tag == 'sp':
                 _parse_sp(child, elements, counter, effective_scheme_map, media_map, slide_rels, z,
-                          layout_ph_bounds=layout_ph_bounds, layout_ph_styles=layout_ph_styles)
+                          layout_ph_bounds=layout_ph_bounds, layout_ph_styles=layout_ph_styles,
+                          master_ph_styles=master_ph_styles)
             elif tag == 'pic':
                 _parse_pic(child, elements, counter, media_map, slide_rels,
                            scheme_map=effective_scheme_map)
@@ -2192,7 +2225,8 @@ def _parse_slide(z, slide_file, slide_idx, total_slides, scheme_map, media_map):
             elif tag == 'grpSp':
                 _parse_group_shapes(child, elements, counter, effective_scheme_map, media_map,
                                     slide_rels, z, layout_ph_bounds=layout_ph_bounds,
-                                    layout_ph_styles=layout_ph_styles)
+                                    layout_ph_styles=layout_ph_styles,
+                                    master_ph_styles=master_ph_styles)
             elif tag == 'cxnSp':
                 # Connector shape
                 shape_id = child.get('id', f'cx{counter["next"]()}')
