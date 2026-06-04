@@ -69,11 +69,36 @@ def parse_actions_from_thought(raw_reply: str) -> dict:
     return {"status": "success", "content": content}
 
 
+def _parse_action_script_attrs(attrs_str: str) -> str:
+    """
+    解析 <action_script> 标签的属性字符串，提取 for 值，忽略其他属性并发出 warning。
+
+    Args:
+        attrs_str: 标签内的属性字符串，如 ' for="step1" timeout="180"'
+
+    Returns:
+        for 属性值，无则返回 ""
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    for_match = re.search(r'for="([^"]*)"', attrs_str)
+    for_label = for_match.group(1).strip() if for_match else ""
+
+    # 检测除 for 以外的其他属性
+    all_attrs = re.findall(r'(\w+)=["\']', attrs_str)
+    unknown = [a for a in all_attrs if a != "for"]
+    if unknown:
+        logger.warning(f"action_script 包含未知属性（已忽略）: {unknown}")
+
+    return for_label
+
+
 def extract_action_script_block(text: str) -> Tuple[str, str]:
     """
     从 LLM 输出中提取第一个 <action_script>...</action_script> 块的内容和标签。
 
-    支持任意属性组合（for, timeout 等），只提取 for 属性值。
+    支持任意属性组合（for, timeout 等），只提取 for 属性值，其他属性忽略并 warning。
 
     Returns:
         (content, for_label) — content 为块内文本（不含标签），for_label 为 for 属性值。
@@ -84,8 +109,7 @@ def extract_action_script_block(text: str) -> Tuple[str, str]:
     if match:
         attrs = match.group(1) or ""
         content = match.group(2).strip()
-        for_match = re.search(r'for="([^"]*)"', attrs)
-        for_label = for_match.group(1).strip() if for_match else ""
+        for_label = _parse_action_script_attrs(attrs)
         return content, for_label
     return "", ""
 
@@ -94,7 +118,7 @@ def extract_action_script_blocks(text: str) -> List[Tuple[str, str]]:
     """
     从 LLM 输出中提取所有 <action_script>...</action_script> 块。
 
-    支持任意属性组合（for, timeout 等），只提取 for 属性值。
+    支持任意属性组合（for, timeout 等），只提取 for 属性值，其他属性忽略并 warning。
     块内的函数调用共享同一个 for 标签。
 
     Returns:
@@ -105,9 +129,7 @@ def extract_action_script_blocks(text: str) -> List[Tuple[str, str]]:
     for m in re.finditer(pattern, text, re.DOTALL):
         attrs = m.group(1) or ""
         content = m.group(2).strip()
-        # 提取 for 属性值
-        for_match = re.search(r'for="([^"]*)"', attrs)
-        for_label = for_match.group(1).strip() if for_match else ""
+        for_label = _parse_action_script_attrs(attrs)
         if content:
             results.append((for_label, content))
     return results
