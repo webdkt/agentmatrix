@@ -71,35 +71,43 @@ def parse_actions_from_thought(raw_reply: str) -> dict:
 
 def extract_action_script_block(text: str) -> Tuple[str, str]:
     """
-    从 LLM 输出中提取第一个 <action_script for="...">...</action_script> 块的内容和标签。
+    从 LLM 输出中提取第一个 <action_script>...</action_script> 块的内容和标签。
+
+    支持任意属性组合（for, timeout 等），只提取 for 属性值。
 
     Returns:
         (content, for_label) — content 为块内文本（不含标签），for_label 为 for 属性值。
         未找到返回 ("", "")
     """
-    pattern = r'<action_script(?:\s+for="([^"]*)")?\s*>(.*?)</action_script>'
+    pattern = r'<action_script\b([^>]*)>(.*?)</action_script>'
     match = re.search(pattern, text, re.DOTALL)
     if match:
-        for_label = match.group(1) or ""
+        attrs = match.group(1) or ""
         content = match.group(2).strip()
+        for_match = re.search(r'for="([^"]*)"', attrs)
+        for_label = for_match.group(1).strip() if for_match else ""
         return content, for_label
     return "", ""
 
 
 def extract_action_script_blocks(text: str) -> List[Tuple[str, str]]:
     """
-    从 LLM 输出中提取所有 <action_script for="...">...</action_script> 块。
+    从 LLM 输出中提取所有 <action_script>...</action_script> 块。
 
-    每个块的 for 标签独立，块内的函数调用共享同一个 for 标签。
+    支持任意属性组合（for, timeout 等），只提取 for 属性值。
+    块内的函数调用共享同一个 for 标签。
 
     Returns:
         [(for_label, content), ...] — 未找到返回空列表
     """
-    pattern = r'<action_script(?:\s+for="([^"]*)")?\s*>(.*?)</action_script>'
+    pattern = r'<action_script\b([^>]*)>(.*?)</action_script>'
     results = []
     for m in re.finditer(pattern, text, re.DOTALL):
-        for_label = (m.group(1) or "").strip()
+        attrs = m.group(1) or ""
         content = m.group(2).strip()
+        # 提取 for 属性值
+        for_match = re.search(r'for="([^"]*)"', attrs)
+        for_label = for_match.group(1).strip() if for_match else ""
         if content:
             results.append((for_label, content))
     return results
