@@ -959,8 +959,12 @@ class BrowserCommonMixin:
             "import socket, json, os\n"
             "\n"
             "# 从环境变量读取连接信息（系统会自动注入，绝对不可硬编码）\n"
-            "SOCK = os.environ['CDP_SOCKET_PATH']\n"
-            "TAB_ID = os.environ['CDP_CURRENT_TAB_ID']\n"
+            "SOCK = os.environ.get('CDP_SOCKET_PATH', '')\n"
+            "TAB_ID = os.environ.get('CDP_CURRENT_TAB_ID', '')\n"
+            "if not SOCK or not TAB_ID:\n"
+            "    # 环境变量为空说明 CDP 连接未就绪或 shell 已重启，需先调用 get_cdp_info() 获取连接信息，\n"
+            "    # 再通过 bash 执行 export 设置环境变量后重新运行脚本。不要等待或重试旧的空值。\n"
+            "    raise RuntimeError('CDP 环境变量未设置，请先调用 get_cdp_info() 并 export 后重试')\n"
             "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
             "s.connect(SOCK)\n"
             "\n"
@@ -992,6 +996,16 @@ class BrowserCommonMixin:
             "s.close()\n"
         )
 
+        notes = (
+            "注意事项：\\n"
+            "- 一个 socket 连接同一时间只能有一个未完成的请求（发一个，等响应，再发下一个）\\n"
+            "- 操作 tab 必须先 Target.attachToTarget 拿到 sessionId，每次脚本运行都要重新 attach，不可复用旧的 sessionId\\n"
+            "- CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 已自动注入环境变量，直接从 os.environ 读取，不要硬编码\\n"
+            "- 如果脚本运行时发现环境变量为空或不存在：说明 CDP 连接未就绪或 shell 已重启。应先调用 get_cdp_info() 获取 socket_path 和 target_id，然后通过 bash 执行 export 设置环境变量，再重新运行脚本。不要等待、不要重试旧值\\n"
+            "- Chrome 重启后 socket 会重建，脚本重连即可\\n"
+            "- 刷新页面：不要用 location.reload()（会触发 beforeunload 弹窗导致 CDP session 阻塞），应使用 CDP 命令 Page.navigate 到当前 URL，或 Page.reload（绕过 beforeunload）"
+        )
+
         return json.dumps({
             "status": "ok",
             "socket_path": sock_path,
@@ -1001,6 +1015,7 @@ class BrowserCommonMixin:
                 "title": tab.title,
             } if tab else None,
             "example_code": example_code,
+            "notes": notes,
         }, ensure_ascii=False, indent=2)
 
     async def set_work_mode(self, mode: str) -> str:

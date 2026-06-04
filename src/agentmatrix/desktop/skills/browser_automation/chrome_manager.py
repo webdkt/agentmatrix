@@ -189,7 +189,10 @@ class ChromeManager:
         relay_info = self._session_relays.get(session_id)
         try:
             while True:
-                data = conn.recv(65536)
+                try:
+                    data = conn.recv(65536)
+                except socket.timeout:
+                    continue
                 if not data:
                     break
                 cdp_client.write_from_relay(session_id, data)
@@ -200,10 +203,13 @@ class ChromeManager:
                 conn.close()
             except OSError:
                 pass
-            cdp_client.unregister_relay(session_id)
-            relay_info = self._session_relays.get(session_id)
-            if relay_info:
-                relay_info["client_conn"] = None
+            # 只有当前连接仍是已注册的 relay 时才清理，避免新连接被旧清理误删
+            current_relay = cdp_client._relay_sessions.get(session_id)
+            if current_relay and current_relay["conn"] is conn:
+                cdp_client.unregister_relay(session_id)
+                relay_info = self._session_relays.get(session_id)
+                if relay_info:
+                    relay_info["client_conn"] = None
 
     def stop_session_relay(self, session_id: str):
         """Stop and clean up a session's relay."""

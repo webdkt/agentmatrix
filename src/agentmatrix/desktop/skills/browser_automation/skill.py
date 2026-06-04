@@ -72,55 +72,8 @@ class Browser_automationSkillMixin(BrowserCommonMixin):
     ### site_knowledge 文件规范
     #### Python自动化脚本
     Python 脚本通过 Unix Domain Socket 与 Chrome 通信，协议为 null-terminated JSON（JSON + b'\\0'）。
-    环境变量：CDP_SOCKET_PATH（socket路径）、CDP_CURRENT_TAB_ID（当前tab的target_id）。
-    脚本示例：
-
-    ```python
-    import socket, json, os
-
-    SOCK = os.environ.get("CDP_SOCKET_PATH", "/tmp/agentmatrix_chrome_cdp.sock")
-    TAB_ID = os.environ.get("CDP_CURRENT_TAB_ID", "")
-
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(SOCK)
-
-    _msg_id = 0
-    def cdp(method, params=None, session_id=None):
-        '''发送 CDP 命令并等待响应'''
-        global _msg_id; _msg_id += 1
-        msg = {"id": _msg_id, "method": method, "params": params or {}}
-        if session_id: msg["sessionId"] = session_id
-        s.sendall(json.dumps(msg).encode() + b'\\x00')
-        buf = b''
-        while b'\\x00' not in buf:
-            chunk = s.recv(4096)
-            if not chunk: raise ConnectionError("socket closed")
-            buf += chunk
-        resp = json.loads(buf.split(b'\\x00', 1)[0])
-        if "error" in resp: raise RuntimeError(resp["error"])
-        return resp.get("result", {})
-
-    # 操作 tab 需先 attach
-    r = cdp("Target.attachToTarget", {"targetId": TAB_ID, "flatten": True})
-    sid = r.get("sessionId", "")
-    cdp("Page.enable", session_id=sid)
-
-    # 导航
-    cdp("Page.navigate", {"url": "https://example.com"}, session_id=sid)
-
-    # 执行 JS
-    r = cdp("Runtime.evaluate", {"expression": "document.title"}, session_id=sid)
-    print(r.get("result", {}).get("value"))
-
-    s.close()
-    ```
-    注意事项：
-    - 一个 socket 连接同一时间只能有一个未完成的请求（发一个，等响应，再发下一个），多脚本需串行执行
-    - 操作 tab 必须先 Target.attachToTarget 拿到 sessionId，每次脚本运行都要重新 attach，不可复用旧的 sessionId
-    - 环境变量 CDP_SOCKET_PATH 和 CDP_CURRENT_TAB_ID 已自动注入，直接从 os.environ 读取，不要硬编码
-    - **如果脚本运行时发现环境变量为空或不存在**：说明 CDP 连接尚未就绪或 shell 会话已重启。应先调用 get_cdp_info() 获取 socket_path 和 current_tab.target_id，然后通过 bash 执行 `export CDP_SOCKET_PATH="..." && export CDP_CURRENT_TAB_ID="..."` 设置环境变量，再重新运行脚本。不要等待、不要重试旧的空值。
-    - Chrome 重启后 socket 会重建，脚本重连即可
-    - **刷新页面**：不要用 `location.reload()`（会触发 beforeunload 弹窗导致 CDP session 阻塞），应使用 CDP 命令 `Page.navigate` 到当前 URL，或 `Page.reload`（绕过 beforeunload）
+    环境变量：CDP_SOCKET_PATH（socket路径）、CDP_CURRENT_TAB_ID（当前tab的target_id）会自动注入环境变量，脚本直接从 os.environ 读取，无需硬编码。
+    **编写脚本前务必先调用 get_cdp_info() 查看完整代码示例和注意事项。**
     
     #### Javascript: No Console Output
     eval_js 不会返回console的输出。只会返回脚本 return的结果。

@@ -182,9 +182,7 @@ class CDPClient:
     # --- Relay Management (per-session UDS sockets) ---
 
     def register_relay(self, session_id: str, conn: socket.socket, id_offset: int):
-        """Register a session relay. CDP responses with IDs in [id_offset+1, id_offset+9999] will be forwarded to conn."""
-        # 写超时 5 秒：客户端不读数据时，sendall 不会永久阻塞
-        conn.settimeout(5)
+        """Register a session relay. CDP responses with IDs in [id_offset, id_offset+9999] will be forwarded to conn."""
         self._relay_sessions[session_id] = {"id_offset": id_offset, "conn": conn}
         logger.debug(f"Relay registered: session={session_id}, id_offset={id_offset}")
 
@@ -243,7 +241,7 @@ class CDPClient:
                         # Check relay sessions — route by ID range
                         for sid, relay_info in dict(self._relay_sessions).items():
                             offset = relay_info["id_offset"]
-                            if offset < msg_id < offset + 10000:
+                            if offset <= msg_id < offset + 10000:
                                 original_id = msg_id - offset
                                 msg["id"] = original_id
                                 conn = relay_info["conn"]
@@ -253,6 +251,8 @@ class CDPClient:
                                     None, self._relay_send, conn, payload
                                 )
                                 break
+                        else:
+                            logger.warning(f"CDP response with unknown id={msg_id}, dropping")
                     continue
 
                 # Event
@@ -289,11 +289,7 @@ class CDPClient:
         try:
             conn.sendall(data)
         except (OSError, BrokenPipeError) as e:
-            logger.warning(f"Relay send failed, closing client: {e}")
-            try:
-                conn.close()
-            except OSError:
-                pass
+            logger.warning(f"Relay send failed: {e}")
 
     # --- Status ---
 
