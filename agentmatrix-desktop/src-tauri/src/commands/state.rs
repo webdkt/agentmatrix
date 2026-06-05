@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
+
+use crate::ws::types::{AgentStatusData, WsConnectionStatus};
 
 /// 当前会话的全局状态，所有窗口共享
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -25,6 +28,10 @@ pub struct UIActionResult {
 pub struct AppState {
     pub current_session: Mutex<CurrentSession>,
     pub ui_action_result: Mutex<UIActionResult>,
+    /// Agent statuses populated by WS SYSTEM_STATUS + AGENT_STATUS_UPDATE
+    pub agent_statuses: Mutex<HashMap<String, AgentStatusData>>,
+    /// WS connection status for frontend status indicator
+    pub ws_status: Mutex<WsConnectionStatus>,
 }
 
 #[tauri::command]

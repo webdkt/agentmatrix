@@ -22,11 +22,6 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      // 🔑 关键：代理 WebSocket
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true,
-      },
     },
   },
   // Tauri expects a fixed directory structure

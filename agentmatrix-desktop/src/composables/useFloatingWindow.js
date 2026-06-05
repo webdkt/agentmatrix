@@ -6,7 +6,7 @@ import { useConfigStore } from '@/stores/config'
 
 /**
  * Floating Window 管理器
- * 管理浮动窗口的创建/销毁。浮动窗口自己连 WebSocket，不需要转发。
+ * 管理浮动窗口的创建/销毁。所有窗口通过 Tauri 事件接收后端 WS 数据（单一 Rust WS 连接）。
  */
 const isActive = ref(false)
 let unlistenRestore = null

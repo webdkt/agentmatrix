@@ -7,7 +7,7 @@ import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
 import { useUIStore } from '@/stores/ui'
 import { useWebSocketStore } from '@/stores/websocket'
-import { useWebSocket } from '@/composables/useWebSocket'
+import { listen } from '@tauri-apps/api/event'
 import ViewSelector from '@/components/view-selector/ViewSelector.vue'
 import ViewContainer from '@/components/view-container/ViewContainer.vue'
 import ColdStartWizard from '@/components/wizard/ColdStartWizard.vue'
@@ -22,7 +22,8 @@ const configStore = useConfigStore()
 const sessionStore = useSessionStore()
 const uiStore = useUIStore()
 const websocketStore = useWebSocketStore()
-const { isConnected, connect, onMessage } = useWebSocket()
+const isConnected = ref(false)
+let unlistenFns = []
 
 const appState = ref('loading')
 
@@ -49,21 +50,26 @@ async function handleEmailToastClick(emailData) {
   uiStore.emailToast.show = false
 }
 
-let messageHandlerCleanup = null
+async function initializeEventListeners() {
+  // Connection status (emitted by Rust update_ws_status)
+  unlistenFns.push(await listen('ws:connection-status', (event) => {
+    const status = event.payload
+    isConnected.value = status === 'Connected' || (status && status.state === 'Connected')
+  }))
 
-async function initializeWebSocket() {
-  // Backend is guaranteed running at this point (initializeBackend blocks until ready)
-  connect()
-
-  // 清理旧的 handler（如果有）
-  if (messageHandlerCleanup) {
-    messageHandlerCleanup()
+  // Forward all WS events to websocketStore.handle_message()
+  // Payload is the raw JSON from backend (no field loss)
+  for (const eventName of [
+    'ws:session-event', 'ws:agent-status-update', 'ws:system-status',
+    'ws:new-user-session', 'ws:ui-action-result', 'ws:collab-bash-output',
+  ]) {
+    unlistenFns.push(await listen(eventName, (event) => {
+      websocketStore.handle_message(event.payload)
+    }))
   }
 
-  // 注册新的 handler 并保存清理函数
-  messageHandlerCleanup = onMessage((data) => {
-    websocketStore.handle_message(data)
-  })
+  // Request initial system status
+  await invoke('request_system_status')
 }
 
 async function handleWizardComplete() {
@@ -87,12 +93,14 @@ onMounted(async () => {
   }
   // Main window: backend is already running (started by Rust setup)
   await backendStore.initializeBackend()
-  await initializeWebSocket()
+  await initializeEventListeners()
   appState.value = 'ready'
 })
 
 onUnmounted(() => {
   backendStore.stopHealthMonitoring()
+  unlistenFns.forEach(fn => fn())
+  unlistenFns = []
 })
 </script>
 

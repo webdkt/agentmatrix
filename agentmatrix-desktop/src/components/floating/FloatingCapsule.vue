@@ -146,6 +146,7 @@ async function handleSwitchSession() {
 let unlistenStatus = null
 let unlistenReloadSession = null
 let unlistenUIResult = null
+let unlistenInputClosed = null
 
 onMounted(async () => {
   invoke('clip_window_rounded', { label: 'floating-capsule', radius: 20 })
@@ -157,7 +158,7 @@ onMounted(async () => {
   })
 
   // Sync input window state when closed from InputPanel
-  await listen('input:closed', () => {
+  unlistenInputClosed = await listen('input:closed', () => {
     isInputWindowOpen = false
   })
 
@@ -184,6 +185,7 @@ onUnmounted(() => {
   if (unlistenStatus) unlistenStatus()
   if (unlistenReloadSession) unlistenReloadSession()
   if (unlistenUIResult) unlistenUIResult()
+  if (unlistenInputClosed) unlistenInputClosed()
 })
 </script>
 

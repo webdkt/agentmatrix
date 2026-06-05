@@ -206,6 +206,10 @@ export function useTerminal({ agentName } = {}) {
     })
   })
 
+  onUnmounted(() => {
+    websocketStore.unregisterListener('COLLAB_BASH_OUTPUT', handleBashOutput)
+  })
+
   return {
     terminalLines,
     terminalContainer,

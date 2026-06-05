@@ -151,54 +151,16 @@ async function broadcastStatus(data) {
   }
 }
 
-// ---- Direct WebSocket connection ----
-let ws = null
-let wsReconnectTimer = null
+// ---- Tauri event listeners (replaces direct WebSocket) ----
+let unlistenWsSession = null
+let unlistenWsStatus = null
 
-function connectWebSocket() {
-  // Clean up existing connection before creating a new one
-  if (wsReconnectTimer) {
-    clearTimeout(wsReconnectTimer)
-    wsReconnectTimer = null
-  }
-  if (ws) {
-    ws.onopen = null
-    ws.onmessage = null
-    ws.onclose = null
-    ws.onerror = null
-    ws.close()
-    ws = null
-  }
-
-  invoke('get_backend_port').then(port => {
-    if (!port) return
-    const wsUrl = `ws://localhost:${port}/ws`
-    ws = new WebSocket(wsUrl)
-
-    ws.onopen = () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'REQUEST_SYSTEM_STATUS' }))
-      }
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        handleWsMessage(data)
-      } catch (e) {
-        console.error('[Stream] WS parse error:', e)
-      }
-    }
-
-    ws.onclose = () => {
-      wsReconnectTimer = setTimeout(connectWebSocket, 3000)
-    }
-
-    ws.onerror = (e) => {
-      console.error('[Stream] WebSocket error:', e)
-    }
-  }).catch(e => {
-    console.error('[Stream] Failed to get backend port:', e)
+async function setupEventListeners() {
+  unlistenWsSession = await listen('ws:session-event', (event) => {
+    handleWsMessage(event.payload)
+  })
+  unlistenWsStatus = await listen('ws:agent-status-update', (event) => {
+    handleWsMessage(event.payload)
   })
 }
 
@@ -239,7 +201,7 @@ let unlistenReloadSession = null
 onMounted(async () => {
   invoke('clip_window_rounded', { label: 'floating-stream', radius: 16 })
   await loadSessionFromGlobal()
-  connectWebSocket()
+  await setupEventListeners()
 
   unlistenReloadSession = await listen('session-changed', async () => {
     await loadSessionFromGlobal()
@@ -247,8 +209,6 @@ onMounted(async () => {
     reset()
     currentAction.value = null
     loadHistory()
-    // Reconnect WebSocket to ensure connection (onMounted may have run before backend was ready)
-    connectWebSocket()
   })
 
   unlistenDetail = await listen('detail:closed', () => {
@@ -259,15 +219,8 @@ onMounted(async () => {
 onUnmounted(() => {
   if (unlistenDetail) unlistenDetail()
   if (unlistenReloadSession) unlistenReloadSession()
-  if (wsReconnectTimer) {
-    clearTimeout(wsReconnectTimer)
-    wsReconnectTimer = null
-  }
-  if (ws) {
-    ws.onclose = null
-    ws.close()
-    ws = null
-  }
+  if (unlistenWsSession) unlistenWsSession()
+  if (unlistenWsStatus) unlistenWsStatus()
 })
 </script>
 

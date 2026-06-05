@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod ws;
 
 use std::process::{Command, Child};
 use std::sync::Mutex;
@@ -325,8 +326,14 @@ async fn start_backend(app: tauri::AppHandle, state: State<'_, BackendState>) ->
 }
 
 #[tauri::command]
-async fn stop_backend(state: State<'_, BackendState>) -> Result<String, String> {
+async fn stop_backend(app: tauri::AppHandle, state: State<'_, BackendState>) -> Result<String, String> {
     println!("Stopping Python backend...");
+
+    // Shutdown and abort WS task
+    if let Some(handle) = app.try_state::<ws::WsHandle>() {
+        let _ = handle.shutdown_tx.send(true);
+        handle.task_handle.abort();
+    }
 
     if let Some(mut child) = state.child.lock().unwrap().take() {
         kill_process_group(&mut child);
@@ -443,6 +450,24 @@ async fn wizard_complete(app: tauri::AppHandle, state: State<'_, BackendState>) 
                 let _ = main.show();
                 let _ = main.set_focus();
             }
+
+            // Abort old WS manager if restarting
+            if let Some(old) = app.try_state::<ws::WsHandle>() {
+                let _ = old.shutdown_tx.send(true);
+                old.task_handle.abort();
+            }
+            // Spawn WS manager (backend is now healthy)
+            let (ws_cmd_tx, _) = tokio::sync::broadcast::channel::<ws::types::WsCommand>(64);
+            let (ws_shutdown_tx, ws_shutdown_rx) = tokio::sync::watch::channel(false);
+            let handle_for_state = ws_cmd_tx.clone();
+            let app_for_ws = app.clone();
+            let task_handle = ws::client::spawn_ws_manager(app_for_ws, ws_cmd_tx, ws_shutdown_rx);
+            app.manage(ws::WsHandle {
+                cmd_tx: handle_for_state,
+                shutdown_tx: ws_shutdown_tx,
+                task_handle,
+            });
+
             Ok(())
         }
         Err(e) => {
@@ -483,6 +508,8 @@ fn main() {
         .manage(commands::state::AppState {
             current_session: std::sync::Mutex::new(commands::state::CurrentSession::default()),
             ui_action_result: std::sync::Mutex::new(commands::state::UIActionResult::default()),
+            agent_statuses: std::sync::Mutex::new(std::collections::HashMap::new()),
+            ws_status: std::sync::Mutex::new(ws::types::WsConnectionStatus::Disconnected),
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -564,6 +591,23 @@ fn main() {
                                             let _ = window.show();
                                             let _ = window.set_focus();
                                         }
+
+                                        // Abort old WS manager if restarting
+                                        if let Some(old) = app_handle.try_state::<ws::WsHandle>() {
+                                            let _ = old.shutdown_tx.send(true);
+                                            old.task_handle.abort();
+                                        }
+                                        // Spawn WS manager
+                                        let (ws_cmd_tx, _) = tokio::sync::broadcast::channel::<ws::types::WsCommand>(64);
+                                        let (ws_shutdown_tx, ws_shutdown_rx) = tokio::sync::watch::channel(false);
+                                        let handle_for_state = ws_cmd_tx.clone();
+                                        let app_for_ws = app_handle.clone();
+                                        let task_handle = ws::client::spawn_ws_manager(app_for_ws, ws_cmd_tx, ws_shutdown_rx);
+                                        app_handle.manage(ws::WsHandle {
+                                            cmd_tx: handle_for_state,
+                                            shutdown_tx: ws_shutdown_tx,
+                                            task_handle,
+                                        });
                                     }
                                     Err(e) => {
                                         eprintln!("Tray: Failed to start backend: {}", e);
@@ -578,6 +622,11 @@ fn main() {
                         }
                         "stop_backend" => {
                             println!("Tray: Stop Backend requested");
+                            // Shutdown and abort WS task
+                            if let Some(handle) = app.try_state::<ws::WsHandle>() {
+                                let _ = handle.shutdown_tx.send(true);
+                                handle.task_handle.abort();
+                            }
                             let state = app.state::<BackendState>();
                             if let Some(mut child) = state.child.lock().unwrap().take() {
                                 kill_process_group(&mut child);
@@ -595,6 +644,11 @@ fn main() {
                             // Hide window first so user sees it close immediately
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.hide();
+                            }
+                            // Shutdown and abort WS task
+                            if let Some(handle) = app.try_state::<ws::WsHandle>() {
+                                let _ = handle.shutdown_tx.send(true);
+                                handle.task_handle.abort();
                             }
                             // Stop backend in a separate thread so hide() can render
                             let app_handle = app.clone();
@@ -793,6 +847,23 @@ fn main() {
                                 let _ = main.show();
                                 let _ = main.set_focus();
                             }
+
+                            // Abort old WS manager if restarting
+                            if let Some(old) = app_handle.try_state::<ws::WsHandle>() {
+                                let _ = old.shutdown_tx.send(true);
+                                old.task_handle.abort();
+                            }
+                            // Spawn WS manager (backend is now healthy)
+                            let (ws_cmd_tx, _) = tokio::sync::broadcast::channel::<ws::types::WsCommand>(64);
+                            let (ws_shutdown_tx, ws_shutdown_rx) = tokio::sync::watch::channel(false);
+                            let handle_for_state = ws_cmd_tx.clone();
+                            let app_for_ws = app_handle.clone();
+                            let task_handle = ws::client::spawn_ws_manager(app_for_ws, ws_cmd_tx, ws_shutdown_rx);
+                            app_handle.manage(ws::WsHandle {
+                                cmd_tx: handle_for_state,
+                                shutdown_tx: ws_shutdown_tx,
+                                task_handle,
+                            });
                         }
                         Err(e) => {
                             eprintln!("Failed to start environment: {}", e);
@@ -862,6 +933,9 @@ fn main() {
             commands::state::set_ui_action_result,
             commands::python_env::ensure_python_env,
             commands::python_env::check_python_env,
+            commands::backend::request_system_status,
+            commands::backend::get_ws_status,
+            commands::backend::get_agent_statuses,
         ])
         .build(tauri::generate_context!())
         .expect("error with building tauri application")

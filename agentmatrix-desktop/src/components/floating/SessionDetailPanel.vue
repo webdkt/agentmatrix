@@ -170,48 +170,16 @@ function onScroll() {
   isAutoScrolling.value = atBottom
 }
 
-// ---- WebSocket ----
-let ws = null
-let wsReconnectTimer = null
+// ---- Tauri event listeners (replaces direct WebSocket) ----
+let unlistenWsSession = null
+let unlistenWsStatus = null
 
-function connectWebSocket() {
-  if (wsReconnectTimer) {
-    clearTimeout(wsReconnectTimer)
-    wsReconnectTimer = null
-  }
-  if (ws) {
-    ws.onclose = null
-    ws.close()
-    ws = null
-  }
-
-  invoke('get_backend_port').then(port => {
-    if (!port) return
-    const wsUrl = `ws://localhost:${port}/ws`
-    ws = new WebSocket(wsUrl)
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'REQUEST_SYSTEM_STATUS' }))
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        handleWsMessage(data)
-      } catch (e) {
-        console.error('[Detail] WS parse error:', e)
-      }
-    }
-
-    ws.onclose = () => {
-      wsReconnectTimer = setTimeout(connectWebSocket, 3000)
-    }
-
-    ws.onerror = (e) => {
-      console.error('[Detail] WebSocket error:', e)
-    }
-  }).catch(e => {
-    console.error('[Detail] Failed to get backend port:', e)
+async function setupEventListeners() {
+  unlistenWsSession = await listen('ws:session-event', (event) => {
+    handleWsMessage(event.payload)
+  })
+  unlistenWsStatus = await listen('ws:agent-status-update', (event) => {
+    handleWsMessage(event.payload)
   })
 }
 
@@ -408,6 +376,7 @@ let unlistenStatus = null
 onMounted(async () => {
   await loadSessionFromGlobal()
   await setupDragDrop()
+  await setupEventListeners()
 
   unlistenReloadSession = await listen('session-changed', async () => {
     const oldAgentName = agentName.value
@@ -421,7 +390,6 @@ onMounted(async () => {
       if (isValidSession.value && !sessionInitialized) {
         sessionInitialized = true
         await loadHistory()
-        connectWebSocket()
       }
     }
   })
@@ -436,22 +404,14 @@ watch(isValidSession, async (valid) => {
   if (!valid || sessionInitialized) return
   sessionInitialized = true
   await loadHistory()
-  connectWebSocket()
 }, { immediate: true })
 
 onUnmounted(() => {
   if (unlistenReloadSession) unlistenReloadSession()
   if (unlistenStatus) unlistenStatus()
   if (unlistenDragDrop) unlistenDragDrop()
-  if (wsReconnectTimer) {
-    clearTimeout(wsReconnectTimer)
-    wsReconnectTimer = null
-  }
-  if (ws) {
-    ws.onclose = null
-    ws.close()
-    ws = null
-  }
+  if (unlistenWsSession) unlistenWsSession()
+  if (unlistenWsStatus) unlistenWsStatus()
 })
 </script>
 
