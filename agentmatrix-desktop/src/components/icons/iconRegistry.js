@@ -41,7 +41,7 @@ import {
   // Planning icons
   ClipboardList, ListChecks,
 
-  // Site Knowledge
+  // Automation Spec
   BookOpen,
 } from 'lucide-vue-next'
 
@@ -144,6 +144,6 @@ export const iconMap = {
   clipboard: ClipboardList,
   'list-checks': ListChecks,
 
-  // ─── Site Knowledge ───
+  // ─── Automation Spec ───
   'book-open': BookOpen,
 }

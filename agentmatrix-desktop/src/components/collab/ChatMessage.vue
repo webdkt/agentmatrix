@@ -347,7 +347,7 @@ const handleAttachmentClick = async (attachment) => {
 .chat-msg {
   display: flex;
   flex-direction: column;
-  max-width: 68%;
+  max-width: 85%;
   animation: fadeIn 250ms var(--ease-out);
 }
 
@@ -359,6 +359,7 @@ const handleAttachmentClick = async (attachment) => {
 .chat-msg--user {
   align-self: flex-end;
   align-items: flex-end;
+  max-width: 68%;
 }
 
 .chat-msg:not(.chat-msg--user):not(.chat-msg--thought-row) {
@@ -453,7 +454,7 @@ const handleAttachmentClick = async (attachment) => {
   display: flex;
   flex-direction: column;
   align-self: flex-start;
-  max-width: 68%;
+  max-width: 85%;
   background: var(--surface-secondary);
   border-left: 3px solid var(--accent);
   border-radius: 6px;
@@ -601,7 +602,7 @@ const handleAttachmentClick = async (attachment) => {
 /* ===== Thought (inner monologue, natural display) ===== */
 .chat-msg--thought-row {
   align-self: flex-start;
-  max-width: 68%;
+  max-width: 85%;
 }
 
 .chat-msg__body--thought {

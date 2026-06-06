@@ -15,7 +15,7 @@ Agent Actions:
 - try_cdp_command(method, params?) → 发送 CDP 指令
 - get_cdp_info()               → 获取 CDP 连接信息和示例代码
 - set_work_mode(mode)          → 切换 develop/execute 模式
-- load_site_knowledge(...)     → 加载站点知识
+- load_spec(...)               → 加载自动化系统/流程知识
 """
 
 from agentmatrix.core.action import register_action
@@ -35,50 +35,29 @@ class Browser_automationSkillMixin(BrowserCommonMixin):
     """
 
     _skill_description = """浏览器自动化开发：浏览器自动化流程和自动化脚本的生成、管理和运行
-    `~/site_knowledge`目录是网站自动化代码仓库。
-    ### ~/site_knowledge 的结构
-    - 根目录（~/site_knowledge)
-        - index.txt: 
-            - 网站列表，每行格式 `url_prefix:说明:子目录名` （整行是一个唯一的site key）
-            - url_prefix 可能重复，但说明和子目录名必须不同（因为有些单体站点可能包含多个不同的子系统，结构和元素差异较大）
-            - 使用 load_site_knowledge(site_key) 来加载对应站点的概览和流程列表
-        - 子目录（site 目录）
-            - 每个site_key对应一个子目录(site 目录），存放该站点的所有自动化知识和脚本，site目录内有：
-            - readme.md: 网站说明，必须的结构如下
-                ```markdown
-                # 站点说明
-                {{简短说明该站点的用途}}
-                ## 🚀 快速开始 (Quick Start)
-                **首次使用？按以下顺序操作：**
-                1. **确定你的业务场景**：
-                - {{场景A}} → 使用 `{{流程A目录名}}` 流程
-                - {{场景B}} → 使用 `{{流程B目录名}}` 流程
-                2. **阅读流程文档**：
-                - 前往对应的流程目录（如 `{{流程A目录名}}/`）
-                - **首先阅读该目录下的 `readme.md`** - 了解流程概述、业务规则和步骤索引
-                - **然后按 `step-00-*.md` → `step-01-*.md` → ... 的顺序执行**
-
-                3. **重要提醒**：
-                - {{列出该站点需要特别注意的事项，如前置条件、特殊阶段等}}
-                - 请严格按照流程文档中的步骤顺序执行，不要跳过任何步骤
-                ```
-            - 流程子目录（process 目录），针对特定工作流程的子目录，内含该流程说明和针对该流程的自动化脚本，目录的名称即流程的名称
-            - 使用 load_site_knowledge(site_key, process_dir_name) 来加载对应流程的自动化步骤和脚本列表
-            - 每个流程子目录的结构
+    `~/automation_knowledge`目录是自动化流程知识仓库，按系统名称组织。
+    ### ~/automation_knowledge 的结构
+    - 根目录（~/automation_knowledge)
+        - 系统子目录（system 目录），每个系统一个子目录，目录名即系统名称
+            - readme.md: 系统说明（可选）
+            - 流程子目录（process 目录），针对特定工作流程的子目录，内含该流程说明和自动化脚本
                 - readme.md: 业务流程和规则的简要说明
-                - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档，包含该步骤的具体自动化步骤。
+                - step-{{step_index}}-{{step_name}}.md: 每个阶段每个步骤的说明文档
                 - scripts/ 目录：存放针对该流程的自动化脚本。自动化脚本有3类，.json (cdp命令）.js (注入浏览器执行的js脚本）,.py (python自动化脚本）
-        
-    ### site_knowledge 文件规范
+    ### 加载知识
+    - 使用 load_spec(system_name) 来加载系统概览和流程列表
+    - 使用 load_spec(system_name, process_name) 来加载具体流程的自动化步骤和脚本列表
+
+    ### 文件规范
     #### Python自动化脚本
     Python 脚本通过 Unix Domain Socket 与 Chrome 通信，协议为 null-terminated JSON（JSON + b'\\0'）。
     环境变量：CDP_SOCKET_PATH（socket路径）、CDP_CURRENT_TAB_ID（当前tab的target_id）会自动注入环境变量，脚本直接从 os.environ 读取，无需硬编码。
     **编写脚本前务必先调用 get_cdp_info() 查看完整代码示例和注意事项。**
-    
+
     #### Javascript: No Console Output
     eval_js 不会返回console的输出。只会返回脚本 return的结果。
     #### 正式脚本 vs 探索脚本
-    ~/site_knowledge 下只能存放正式的脚本。探索脚本放在 ~/current_task/tmp 下。
+    ~/automation_knowledge 下只能存放正式的脚本。探索脚本放在 ~/current_task/tmp 下。
     #### 流程文档 step-{{index}}-{{step_name}}.md
     - 流程文档本质上是一个执行手册，是一份"代码"
     - 流程文档的基本结构
@@ -90,7 +69,7 @@ class Browser_automationSkillMixin(BrowserCommonMixin):
     - 不进行全局撒网式的探索
     - 必须包含判断所在页面、当前状态的明确规则
     - 操作元素前必须等待其可交互
-    - 流程知识更新后，执行load_site_knowledge，重新加载知识
+    - 流程知识更新后，执行load_spec，重新加载知识
   """
 
     # ── Action 薄壳：@register_action + 调用 mixin 实现 ──────────
@@ -207,17 +186,17 @@ class Browser_automationSkillMixin(BrowserCommonMixin):
         return await super().set_work_mode(mode)
 
     @register_action(
-        short_desc="(site_key, process_dir_name?) 加载站点知识或具体自动化流程。返回的<site-knowledge>内容已进入上下文，无需额外操作。",
-        description="加载指定站点的知识。只传 site_key 时加载站点 readme 和流程列表；"
-                    "同时传 process_dir_name 时加载具体流程的 readme 和步骤列表。"
-                    "返回 <site-knowledge> 包裹的内容，自动进入对话上下文。",
+        short_desc="(system_name, process_name?) 加载自动化系统知识或具体流程。",
+        description="加载指定自动化系统的知识。只传 system_name 时加载系统 readme 和流程列表；"
+                    "同时传 process_name 时加载具体流程的 readme 和步骤列表。"
+                    "返回 <automation-spec> 包裹的内容，自动进入对话上下文。",
         param_infos={
-            "site_key": "站点 site_key（格式 url_prefix:desc:dir_name）",
-            "process_dir_name": "可选，自动化流程子目录名称，加载具体流程的详细知识",
+            "system_name": "自动化系统名称（对应 ~/automation_knowledge/ 下的子目录名）",
+            "process_name": "可选，自动化流程子目录名称，加载具体流程的详细知识",
         },
     )
-    async def load_site_knowledge(self, site_key: str, process_dir_name: str = None) -> str:
-        return await super().load_site_knowledge(site_key, process_dir_name)
+    async def load_spec(self, system_name: str, process_name: str = None) -> str:
+        return await super().load_spec(system_name, process_name)
 
     # ── Internal (not registered) ────────────────────────────
 

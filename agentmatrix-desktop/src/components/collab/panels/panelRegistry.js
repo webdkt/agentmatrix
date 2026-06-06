@@ -2,7 +2,7 @@ import { markRaw } from 'vue'
 import WhiteboardView from '../WhiteboardView.vue'
 import TodoView from '../TodoView.vue'
 import TaskFilesPanel from '../TaskFilesPanel.vue'
-import SiteKnowledgePanel from './SiteKnowledgePanel.vue'
+import AutomationSpecPanel from './AutomationSpecPanel.vue'
 
 export const panelRegistry = {
   whiteboard: {
@@ -26,11 +26,11 @@ export const panelRegistry = {
     component: markRaw(TaskFilesPanel),
     requires: [],
   },
-  siteKnowledge: {
-    id: 'siteKnowledge',
-    label: 'Site Knowledge',
+  automationSpec: {
+    id: 'automationSpec',
+    label: 'Automation Specs',
     icon: 'book-open',
-    component: markRaw(SiteKnowledgePanel),
+    component: markRaw(AutomationSpecPanel),
     requires: { skills: ['browser_automation'] },
   },
 }

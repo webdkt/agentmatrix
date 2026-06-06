@@ -81,7 +81,7 @@ const panelCounts = computed(() => ({
   whiteboard: entryCount.value || null,
   todo: todoCount.value || null,
   files: null,
-  siteKnowledge: null,
+  automationSpec: null,
 }))
 
 // ---- Per-panel props ----

@@ -1,10 +1,26 @@
 # agentmatrix-core
 
-**Core execution engine for building AI agent applications.**
-
 **Let LLMs think. Don't make them write JSON.**
 
-AgentMatrix separates reasoning from formatting. The large model thinks in natural language. A smaller model (Cerebellum) translates intent into executable parameters. Two models, each doing what they're best at.
+A Python execution engine for building AI agent applications. Separates reasoning from formatting: the large model thinks in natural language, a dedicated module handles the structured output.
+
+---
+
+## What It Is
+
+`agentmatrix-core` provides the execution engine behind AgentMatrix. It includes:
+
+- **MicroAgent** — A task execution engine with think-negotiate-act loop
+- **AgentShell Protocol** — Clean boundary between execution and I/O
+- **Cerebellum** — Intent parsing and parameter negotiation
+- **Action System** — Pluggable skill registry and execution
+- **SessionStore** — Conversation persistence
+- **Auto-Compression** — Working Notes for arbitrarily long tasks
+- **Signal System** — Event-driven communication
+
+The core knows nothing about desktop apps, file systems, or networks. All external interaction goes through the `AgentShell` protocol, which you implement for your target environment.
+
+---
 
 ## Install
 
@@ -14,120 +30,67 @@ pip install agentmatrix-core
 
 Requires Python 3.12+.
 
+---
+
+## Quick Example
+
+```python
+from agentmatrix import AgentMatrix, Email
+
+# Create the runtime
+matrix = AgentMatrix("./MatrixWorld")
+
+# Send an email to an agent
+email = Email(
+    sender="User",
+    recipient="Researcher",
+    subject="Search for Python 3.13 features",
+    body="Find and summarize the major new features in Python 3.13"
+)
+
+# Dispatch via PostOffice
+await matrix.post_office.dispatch(email)
+```
+
+For a complete minimal example implementing `AgentShell`, see the CLI tutorial in the repository.
+
+---
+
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-│  App Layer     Your Application             │
+│  Your App (Desktop / CLI / Server)          │
 ├─────────────────────────────────────────────┤
-│  Shell Layer   AgentShell Protocol           │
-│                (interface you implement)     │
+│  AgentShell Protocol (you implement this)   │
 ├─────────────────────────────────────────────┤
-│  Core Layer    MicroAgent Engine             │
-│                (this package)                │
+│  MicroAgent Engine (this package)           │
+│  - Brain (reasoning in natural language)    │
+│  - Cerebellum (intent → action params)      │
+│  - Action Registry                          │
+│  - SessionStore                             │
 └─────────────────────────────────────────────┘
 ```
 
-- **Core Layer** — `MicroAgent` is the execution engine. Pure reasoning loop: think, detect actions, execute, repeat. No I/O, no UI.
-- **Shell Layer** — `AgentShell` is the protocol you implement to connect Core to the outside world (LLM clients, prompt templates, session storage, etc.).
-- **App Layer** — Your application that wires everything together.
+---
 
-This separation means the same core agent behavior runs anywhere — desktop, terminal, or cloud.
+## Key Design
 
-## Quick Start
+- **No JSON output required** — Brain reasons in plain text
+- **Dynamic skill composition** — Mixins assembled at runtime per task
+- **Checkpoint-based pause/resume** — Cooperative, not forced interruption
+- **Auto context compression** — LLM-generated Working Notes prevent overflow
+- **Nested MicroAgents** — Tasks can spawn sub-tasks with different skill sets
 
-### 1. Implement AgentShell
+---
 
-`AgentShell` is the interface between the Core engine and your application:
+## Documentation
 
-```python
-from agentmatrix.core.agent_shell import AgentShell
-from agentmatrix.core.micro_agent import MicroAgent
+- Full docs: https://github.com/webdkt/agentmatrix/docs
+- CLI tutorial: https://github.com/webdkt/agentmatrix/tree/main/tutorial/cli-agent
 
-class MyShell(AgentShell):
-    # Implement the required methods:
-    # - get_llm_client()    → your LLM backend
-    # - get_system_prompt() → prompt template
-    # - get_session_store() → session persistence
-    # - on_action_result()  → handle action outputs
-    # - on_agent_message()  → handle agent responses
-    ...
-```
+---
 
-### 2. Create a MicroAgent and Run
+## License
 
-```python
-agent = MicroAgent(
-    name="my-agent",
-    shell=my_shell,
-    skills=["file","web-search"],
-)
-
-# Start the reasoning loop
-await agent.run("List files in the current directory")
-```
-
-### 3. See a Working Example
-
-A complete terminal agent (~200 lines) is available in the repository:
-
-```bash
-git clone https://github.com/webdkt/agentmatrix.git
-cd tutorial/cli-agent
-
-export OPENAI_API_KEY=sk-xxx
-python main.py -m https://endpoint-url:deepseek-v4-pro
-```
-
-## Key Modules
-
-| Module | Description |
-|--------|-------------|
-| `core.micro_agent` | The execution engine — think, detect actions, execute, repeat |
-| `core.agent_shell` | Shell protocol — implement this for your app |
-| `core.cerebellum` | Intent-to-action parameter negotiation |
-| `core.action` | Action registry and execution |
-| `core.session_store` | Session persistence interface |
-| `core.signals` | Event-driven communication (pause, resume, stop) |
-
-## Key Features
-
-### Natural Language Reasoning
-
-The agent's "Brain" reasons entirely in natural language. No JSON output required, no format constraints. A separate "Cerebellum" translates intent into executable parameters.
-
-### Pause, Resume, Stop
-
-Any running agent can be paused, resumed, or stopped via signals. State is preserved at safe checkpoints.
-
-### Context Auto-Compression
-
-When conversation history grows too large, the system automatically compresses it into "Working Notes" — a dynamic state snapshot generated by the LLM. Tasks can run for hours; the context window never overflows.
-
-### Action System
-
-Actions are detected from natural language output via `<action_script>` blocks. The Cerebellum negotiates parameters with the Brain, handles ambiguity, and executes.
-
-### Skill System
-
-Built-in Python skill mixins:
-
-- **base** — Date/time utilities
-- **file** — File read/write, search
-- **shell** — Shell command execution
-
-Extend with custom Python skills or Markdown-based procedural knowledge.
-
-## Dependencies
-
-- `pyyaml>=6.0`
-- `python-dotenv>=1.0.0`
-- `requests>=2.31.0`
-- `aiohttp>=3.8.0`
-
-## Links
-
-- **Repository**: https://github.com/webdkt/agentmatrix
-- **Tutorial**: [tutorial/cli-agent/](https://github.com/webdkt/agentmatrix/tree/main/tutorial/cli-agent)
-- **Documentation**: [docs/](https://github.com/webdkt/agentmatrix/tree/main/docs)
-- **License**: Apache License 2.0
+Apache License 2.0

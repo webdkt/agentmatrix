@@ -1,0 +1,442 @@
+pageType: content
+elements:
+- elementId: text_s1
+  elementType: text
+  bounds:
+  - 81
+  - 19
+  - 1120
+  - 86
+  content:
+    text: <p>Title for a from/to slide</p>
+  shapeName: rect
+  placeholder:
+    idx: 0
+    type: title
+- elementId: table_gf2
+  elementType: table
+  bounds:
+  - 83
+  - 139
+  - 749
+  - 493
+  columnWidths:
+  - 0.4359
+  - 0.1282
+  - 0.4359
+  rowHeights:
+  - 0.0845
+  - 0.1831
+  - 0.1831
+  - 0.1831
+  - 0.1831
+  - 0.1831
+  rows:
+  - - content:
+        text: <p style="text-align:left; line-height:1.0"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Problem</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+    - content:
+        text: <p style="text-align:left; line-height:1.0"></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 3
+        style: none
+      - width: 1
+        style: none
+    - content:
+        text: <p style="text-align:left; line-height:1.0"><strong><span style="font-size:12px; color:#2A2F2F; font-family:Oracle Sans Tab">Solution</span></strong></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+  - - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Pain owner </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">(people or division)</span></p>
+
+          <p style="text-align:left; line-height:16.0px"><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Challenge 1</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+    - content:
+        text: <p></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 3
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+    - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Solution 1: </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Details here</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+  - - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Pain owner </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">(people or division)</span></p>
+
+          <p style="text-align:left; line-height:16.0px"><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Challenge 2</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+    - content:
+        text: <p></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+    - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Solution 2: </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Details here</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+  - - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Pain owner </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">(people or division)</span></p>
+
+          <p style="text-align:left; line-height:16.0px"><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Challenge 3</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+    - content:
+        text: <p></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+    - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Solution 3: </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Details here</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+  - - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Pain owner </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">(people or division)</span></p>
+
+          <p style="text-align:left; line-height:16.0px"><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Challenge 4</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+    - content:
+        text: <p></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+    - content:
+        text: <p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Solution 4:</span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab"> Details here</span></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+  - - content:
+        text: '<p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Pain owner </span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">(people or division)</span></p>
+
+          <p style="text-align:left; line-height:16.0px"><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Challenge 5</span></p>'
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 2
+        style: none
+      - width: 1
+        style: none
+    - content:
+        text: <p></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+      - width: 1
+        style: none
+    - content:
+        text: <p style="text-align:left; line-height:16.0px"><strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab">Solution 5:</span></strong><span style="font-size:11px; color:#2A2F2F; font-family:Oracle Sans Tab"> Details here</span></p>
+        align:
+        - center
+        - middle
+      fill: none
+      border:
+      - width: 1
+        style: solid
+        color: '#8B8580'
+      - width: 1
+        style: none
+      - width: 2
+        style: none
+      - width: 1
+        style: none
+  tableStyleId: '{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}'
+- elementId: connector_cx3
+  elementType: shape
+  bounds:
+  - 435
+  - 224
+  - 65
+  - 0
+  shapeName: straightConnector1
+  border:
+    width: 1
+    color: '#2A2F2F'
+    style: solid
+  arrow:
+  - null
+  - arrow
+- elementId: connector_cx4
+  elementType: shape
+  bounds:
+  - 435
+  - 314
+  - 65
+  - 0
+  shapeName: straightConnector1
+  border:
+    width: 1
+    color: '#2A2F2F'
+    style: solid
+  arrow:
+  - null
+  - arrow
+- elementId: connector_cx5
+  elementType: shape
+  bounds:
+  - 435
+  - 586
+  - 65
+  - 0
+  shapeName: straightConnector1
+  border:
+    width: 1
+    color: '#2A2F2F'
+    style: solid
+  arrow:
+  - null
+  - arrow
+- elementId: connector_cx6
+  elementType: shape
+  bounds:
+  - 435
+  - 495
+  - 65
+  - 0
+  shapeName: straightConnector1
+  border:
+    width: 1
+    color: '#2A2F2F'
+    style: solid
+  arrow:
+  - null
+  - arrow
+- elementId: connector_cx7
+  elementType: shape
+  bounds:
+  - 435
+  - 405
+  - 65
+  - 0
+  shapeName: straightConnector1
+  border:
+    width: 1
+    color: '#2A2F2F'
+    style: solid
+  arrow:
+  - null
+  - arrow
+- elementId: text_s8
+  elementType: text
+  bounds:
+  - 80
+  - 674
+  - 38
+  - 38
+  content:
+    text: <p></p>
+  shapeName: rect
+  placeholder:
+    idx: 40
+    type: sldNum
+- elementId: text_s9
+  elementType: text
+  bounds:
+  - 118
+  - 674
+  - 603
+  - 38
+  content:
+    text: '<p>Copyright © 2026, Oracle and/or its affiliates |  Confidential: Internal/Restricted/Highly Restricted</p>'
+    fontSize: 8
+  shapeName: rect
+  placeholder:
+    idx: 39
+    type: ftr
+layoutIndex: 58
+layoutName: Light - Title
+background:
+  type: solid
+  color: '#FBF9F8'

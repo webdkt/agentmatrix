@@ -744,7 +744,7 @@ class MicroAgent(AutoLoggerMixin):
 
             if self.messages:
                 # 已有会话：直接复用，不重建 system prompt
-                # （运行时可能有动态注入的内容如 site_knowledge，不能覆盖）
+                # （运行时可能有动态注入的内容如 automation_spec，不能覆盖）
                 if self.task:
                     self._add_message("user", self._format_task_message())
             else:

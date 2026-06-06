@@ -52,8 +52,9 @@ The user specified a preset template name. You need to read the template file an
 
 1. Based on the user-specified template name, look up the corresponding template file and style file in the preset template index table
 2. Read the `template/{name}/{name}.pptd` template file to understand the existing page structure and visual system
-3. **Read all .page files one by one**: Read each .page file under the template's `pages/` directory to understand the layout characteristics of the template
-4. Read the `guideline/design/profiles/{profile}.md` style file to understand style requirements and content expression strategy
+3. **Check for `template.pptx`**: If `template/{name}/template.pptx` exists, this template has layout metadata (slide masters, layouts, placeholders). All template metadata requirements (sections 5, 6, 12) apply — the generated `.pptd` MUST declare `sourceTemplate`, pages MUST preserve `layoutIndex`, and elements MUST preserve `placeholder`.
+4. **Read all .page files one by one**: Read each .page file under the template's `pages/` directory to understand the layout characteristics of the template
+5. Read the `guideline/design/profiles/{profile}.md` style file to understand style requirements and content expression strategy
 
 #### step2. Determine Whether Style Adjustments Are Needed
 
@@ -122,7 +123,7 @@ From the template's PPTD source files and screenshots, systematically extract **
 Output only when the user has additional style requirements inconsistent with the template:
 - List each adjustment inconsistent with the template/profile, with rationale
 
-### 5. Reusable Pages (User-Uploaded Template Only)
+### 5. Reusable Pages (When Template Has Layout Metadata)
 
 Identify pages from the original PPTD that can be directly reused as-is (cover pages, table of contents pages, chapter pages, closing pages):
 - List .page file names and page types (e.g.: cover page `cover`, chapter page `chapter_01`, closing page `final`)
@@ -136,7 +137,7 @@ When reusing template pages, the following metadata MUST be carried over to the 
 2. **Per-page `layoutIndex`**: Each reused page MUST retain its `layoutIndex` value from the converted template. This selects the correct slide layout (title positioning, footer area, content placeholder structure) from the template's master.
 3. **Per-element `placeholder`**: Elements that correspond to layout placeholders MUST retain `placeholder.idx` and `placeholder.type`. This allows the export script to preserve inherited formatting (bullet styles, indentation, default fonts) rather than creating plain text boxes.
 
-### 6. Content Page Common Elements (User-Uploaded Template Only)
+### 6. Content Page Common Elements (When Template Has Layout Metadata)
 
 List common elements reused across content pages, **recording each element's complete attributes** to ensure strict replication during generation:
 
@@ -210,7 +211,7 @@ Based on this PPT's scenario, style, and layout characteristics, extract **the p
 
 - Font size prohibitions: **Explicitly list font size constraints for each element type**, such as minimum body font size, minimum title font size, minimum auxiliary text/annotation font size, minimum table/chart label font size, etc. to prevent excessively small font sizes during generation that affect readability
 
-- **Template reuse prohibitions** (applicable to user-uploaded templates):
+- **Template reuse prohibitions** (applicable when template has `template.pptx` / layout metadata):
   - **Do not ignore existing template pages and design from scratch** — must prioritize reusing the template's built-in .page files; custom layouts are only allowed when all template pages have been used or no suitable page exists
   - **Do not completely restructure template pages** — must not change the overall layout direction (e.g., horizontal → vertical), remove common elements, or significantly adjust content area bounds
   - **Do not treat templates merely as "style references"** — template pages are directly reusable layout skeletons, not just style examples for reference
@@ -261,7 +262,7 @@ theme:
         color: "#e0e0e0"
 ```
 
-### 12. Template Metadata for Generated .pptd (User-Uploaded Template Only)
+### 12. Template Metadata for Generated .pptd (When Template Has Layout Metadata)
 
 When generating the final `.pptd` file, the following metadata fields MUST be included to ensure the exported PPTX retains the template's layout formatting:
 

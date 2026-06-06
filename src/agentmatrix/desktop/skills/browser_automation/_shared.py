@@ -1046,29 +1046,25 @@ class BrowserCommonMixin:
 
         return json.dumps({"status": "ok", "mode": mode}, ensure_ascii=False)
 
-    async def load_site_knowledge(self, site_key: str, process_dir_name: str = None) -> str:
-        loader = getattr(self, '_site_knowledge_loader', None)
+    async def load_spec(self, system_name: str, process_name: str = None) -> str:
+        loader = getattr(self, '_automation_spec_loader', None)
         if not loader:
-            return json.dumps({"error": "site knowledge loader 未初始化"})
-        result = loader.set_current_site(site_key, process_dir_name)
+            return json.dumps({"error": "automation spec loader 未初始化"})
+        result = loader.set_current(system_name, process_name)
         result_data = json.loads(result)
         if result_data.get("error"):
             return result
 
-        # 清除 message history 中所有旧的 <site-knowledge> 块
+        # 清除 message history 中所有旧的 <automation-spec> 块
         from agentmatrix.desktop.browser_collab_agent import BrowserCollabAgent
-        BrowserCollabAgent._purge_sk_from_messages(self.messages)
-        # 同时清除旧的 <site-knowledge-hint> 块
-        BrowserCollabAgent._purge_sk_hints(self.messages)
+        BrowserCollabAgent._purge_spec_from_messages(self.messages)
 
         # 生成内容并用 tag 包裹
-        tab = _agent_current_tab.get(self._agent_name())
-        url = tab.url if tab else ""
-        content = loader.load(url)
+        content = loader.load()
         if not content:
-            return json.dumps({"status": "ok", "site_url_prefix": result_data.get("site_url_prefix", site_key)},
+            return json.dumps({"status": "ok", "system_name": result_data.get("system_name", system_name)},
                               ensure_ascii=False)
-        tagged = f"<site-knowledge>\n{content}\n</site-knowledge>"
+        tagged = f"<automation-spec>\n{content}\n</automation-spec>"
         return tagged
 
     async def skill_cleanup(self):

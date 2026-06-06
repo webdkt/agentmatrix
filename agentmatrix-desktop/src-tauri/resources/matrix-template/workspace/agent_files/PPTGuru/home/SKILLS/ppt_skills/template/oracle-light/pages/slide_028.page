@@ -1,0 +1,23 @@
+pageType: final
+elements:
+- elementId: text_s1
+  elementType: text
+  bounds:
+  - 81
+  - -86
+  - 1120
+  - 86
+  content:
+    text: <p>An end slide on light showing an Oracle logo</p>
+    align:
+    - left
+    - bottom
+  shapeName: rect
+  placeholder:
+    idx: 4294967295
+    type: title
+layoutIndex: 108
+layoutName: Light - Closing Slide
+background:
+  type: solid
+  color: '#FBF9F8'

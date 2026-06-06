@@ -1,0 +1,128 @@
+pageType: content
+elements:
+- elementId: text_s1
+  elementType: text
+  bounds:
+  - 82
+  - 118
+  - 519
+  - 484
+  content:
+    text: <p>Headline copy on <br>32 point light slide</p>
+    fontSize: 32
+  shapeName: rect
+  placeholder:
+    idx: 0
+    type: title
+- elementId: text_s2
+  elementType: text
+  bounds:
+  - 640
+  - 137
+  - 554
+  - 105
+  content:
+    text: <p>Intro copy or subhead lead in copy goes here, do not exceed 3 lines</p>
+    fontSize: 16
+  shapeName: rect
+  placeholder:
+    idx: 12
+    type: body
+- elementId: img_p3
+  elementType: image
+  bounds:
+  - 640
+  - 250
+  - 70
+  - 70
+  src: /Users/dkt/myprojects/agentmatrix/examples/MyWorld/workspace/agent_files/PPTGuru/work_files/2606031327-方案PPT模板制作-0dcq/output/vO_ppt/images/image48.svg
+- elementId: text_s4
+  elementType: text
+  bounds:
+  - 736
+  - 266
+  - 502
+  - 70
+  content:
+    text: <p>Add body copy here, do not exceed 2 lines</p>
+    fontSize: 16
+  shapeName: rect
+  placeholder:
+    idx: 14
+    type: body
+- elementId: img_p5
+  elementType: image
+  bounds:
+  - 640
+  - 360
+  - 70
+  - 70
+  src: /Users/dkt/myprojects/agentmatrix/examples/MyWorld/workspace/agent_files/PPTGuru/work_files/2606031327-方案PPT模板制作-0dcq/output/vO_ppt/images/image49.svg
+- elementId: text_s6
+  elementType: text
+  bounds:
+  - 736
+  - 376
+  - 502
+  - 70
+  content:
+    text: <p>Add body copy here, do not exceed 2 lines</p>
+    fontSize: 16
+  shapeName: rect
+  placeholder:
+    idx: 16
+    type: body
+- elementId: img_p7
+  elementType: image
+  bounds:
+  - 640
+  - 470
+  - 70
+  - 70
+  src: /Users/dkt/myprojects/agentmatrix/examples/MyWorld/workspace/agent_files/PPTGuru/work_files/2606031327-方案PPT模板制作-0dcq/output/vO_ppt/images/image50.svg
+- elementId: text_s8
+  elementType: text
+  bounds:
+  - 736
+  - 486
+  - 502
+  - 70
+  content:
+    text: <p>Add body copy here, do not exceed 2 lines</p>
+    fontSize: 16
+  shapeName: rect
+  placeholder:
+    idx: 18
+    type: body
+- elementId: text_s9
+  elementType: text
+  bounds:
+  - 80
+  - 674
+  - 38
+  - 38
+  content:
+    text: <p></p>
+  shapeName: rect
+  placeholder:
+    idx: 40
+    type: sldNum
+- elementId: text_s10
+  elementType: text
+  bounds:
+  - 118
+  - 674
+  - 603
+  - 38
+  content:
+    text: '<p>Copyright © 2026, Oracle and/or its affiliates |  Confidential: Internal/Restricted/Highly Restricted</p>'
+    fontSize: 8
+  shapeName: rect
+  placeholder:
+    idx: 39
+    type: ftr
+layoutIndex: 56
+layoutName: Title + 3points Light
+background:
+  type: solid
+  color: '#FBF9F8'
