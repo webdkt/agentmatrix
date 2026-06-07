@@ -87,6 +87,8 @@ function handleResume(process) {
       :state="av.state.value"
       :selected-system="av.selectedSystem.value"
       :selected-process="av.selectedProcess.value"
+      :system-display-name="av.selectedSystemDisplayName.value"
+      :process-display-name="av.selectedProcessDisplayName.value"
       @navigate="handleNavigate"
     />
 
@@ -121,8 +123,8 @@ function handleResume(process) {
     <!-- Sending -->
     <AutomationSendingOverlay
       v-else-if="av.state.value === 'sending'"
-      :system-name="av.selectedSystem.value"
-      :process-name="av.selectedProcess.value"
+      :system-name="av.selectedSystemDisplayName.value"
+      :process-name="av.selectedProcessDisplayName.value"
     />
 
     <!-- Session (AgentSessionPanel embedded) -->

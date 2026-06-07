@@ -1,6 +1,33 @@
 import { ref, watch, toValue } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
+// Convert directory name to display name: replace _/- with spaces, title case
+function formatDisplayName(dirName) {
+  return dirName
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// Simple flat YAML parser for meta.yml (key: value only, no nesting)
+function parseSimpleYaml(text) {
+  const result = {}
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(\w+)\s*:\s*(.+)$/)
+    if (m) result[m[1]] = m[2].trim()
+  }
+  return result
+}
+
+// Read meta.yml from a directory, return parsed object or null
+async function readMeta(dirPath) {
+  try {
+    const content = await invoke('read_text_file', { path: `${dirPath}/meta.yml` })
+    return parseSimpleYaml(content)
+  } catch {
+    return null
+  }
+}
+
 export function useAutomationSpec({ agentName }) {
   const systems = ref([])
   const isInitialLoad = ref(false)
@@ -27,10 +54,20 @@ export function useAutomationSpec({ agentName }) {
       rootDir.value = `${worldPath}/workspace/agent_files/${aName}/home/automation_knowledge`
 
       const entries = await listDir(rootDir.value)
-      systems.value = entries.filter(e => e.is_dir).map(e => ({
-        name: e.name,
-        path: e.path,
-      }))
+      const dirs = entries.filter(e => e.is_dir)
+
+      // Read meta.yml for each system in parallel
+      const metas = await Promise.all(dirs.map(d => readMeta(d.path)))
+      systems.value = dirs.map((d, i) => {
+        const meta = metas[i] || {}
+        return {
+          name: d.name,
+          displayName: meta.display_name || formatDisplayName(d.name),
+          description: meta.description || '',
+          icon: meta.icon || null,
+          path: d.path,
+        }
+      })
     } catch (e) {
       if (e && String(e).includes('not found')) {
         if (systems.value.length > 0) systems.value = []
@@ -63,7 +100,21 @@ export function useAutomationSpec({ agentName }) {
   async function loadSystemProcesses(systemName) {
     const systemDir = `${rootDir.value}/${systemName}`
     const entries = await listDir(systemDir)
-    return entries.filter(e => e.is_dir)
+    const dirs = entries.filter(e => e.is_dir)
+
+    // Read meta.yml for each process in parallel
+    const metas = await Promise.all(dirs.map(d => readMeta(d.path)))
+    return dirs.map((d, i) => {
+      const meta = metas[i] || {}
+      return {
+        name: d.name,
+        displayName: meta.display_name || formatDisplayName(d.name),
+        description: meta.description || '',
+        icon: meta.icon || null,
+        path: d.path,
+        is_dir: true,
+      }
+    })
   }
 
   async function loadProcessSteps(systemName, processName) {

@@ -106,7 +106,8 @@ function getStatusClass(system) {
             {{ getStatusLabel(system) }}
           </span>
         </div>
-        <h3 class="system-card__name">{{ system.name }}</h3>
+        <h3 class="system-card__name">{{ system.displayName }}</h3>
+        <p v-if="system.description" class="system-card__desc">{{ system.description }}</p>
         <p v-if="system.taskCount > 0" class="system-card__meta">
           {{ t('automation.systems.tasks', system.taskCount) }}
         </p>
@@ -370,7 +371,18 @@ function getStatusClass(system) {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  margin: 0 0 2px 0;
+}
+
+.system-card__desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
   margin: 0 0 4px 0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .system-card__meta {

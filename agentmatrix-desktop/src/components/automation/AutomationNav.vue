@@ -8,6 +8,8 @@ const props = defineProps({
   state: { type: String, required: true },
   selectedSystem: { type: String, default: null },
   selectedProcess: { type: String, default: null },
+  systemDisplayName: { type: String, default: null },
+  processDisplayName: { type: String, default: null },
 })
 
 const emit = defineEmits(['navigate'])
@@ -35,14 +37,14 @@ function goSystem() {
         @click="goSystem"
       >
         <MIcon name="globe" class="automation-nav__icon" />
-        <span>{{ selectedSystem }}</span>
+        <span>{{ systemDisplayName || selectedSystem }}</span>
       </button>
     </template>
     <template v-if="selectedProcess && (state === 'session' || state === 'sending')">
       <MIcon name="chevron-right" class="automation-nav__separator" />
       <span class="automation-nav__item automation-nav__item--current">
         <MIcon name="folder" class="automation-nav__icon" />
-        <span>{{ selectedProcess }}</span>
+        <span>{{ processDisplayName || selectedProcess }}</span>
       </span>
     </template>
   </nav>

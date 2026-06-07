@@ -115,13 +115,17 @@ export function useAutomationView() {
   const filteredSystems = computed(() => {
     const q = systemSearch.value.toLowerCase().trim()
     if (!q) return systemsWithStatus.value
-    return systemsWithStatus.value.filter(s => s.name.toLowerCase().includes(q))
+    return systemsWithStatus.value.filter(s =>
+      s.name.toLowerCase().includes(q) || (s.displayName && s.displayName.toLowerCase().includes(q))
+    )
   })
 
   const filteredProcesses = computed(() => {
     const q = processSearch.value.toLowerCase().trim()
     if (!q) return processesWithStatus.value
-    return processesWithStatus.value.filter(p => p.name.toLowerCase().includes(q))
+    return processesWithStatus.value.filter(p =>
+      p.name.toLowerCase().includes(q) || (p.displayName && p.displayName.toLowerCase().includes(q))
+    )
   })
 
   // Abort flag for sending-state navigation
@@ -322,6 +326,16 @@ export function useAutomationView() {
     await loadAutomationTasks()
   }
 
+  // Display names for breadcrumb (fallback to raw name)
+  const selectedSystemDisplayName = computed(() => {
+    const sys = systemsWithStatus.value.find(s => s.name === selectedSystem.value)
+    return sys?.displayName || selectedSystem.value
+  })
+  const selectedProcessDisplayName = computed(() => {
+    const proc = processesWithStatus.value.find(p => p.name === selectedProcess.value)
+    return proc?.displayName || selectedProcess.value
+  })
+
   return {
     // State
     state,
@@ -338,6 +352,8 @@ export function useAutomationView() {
     isInitialLoad: spec.isInitialLoad,
     loadError: spec.error,
     sendError,
+    selectedSystemDisplayName,
+    selectedProcessDisplayName,
     // Search
     systemSearch,
     processSearch,

@@ -112,7 +112,8 @@ function getStatusClass(process) {
             {{ getStatusLabel(process) }}
           </span>
         </div>
-        <h3 class="process-card__name">{{ process.name }}</h3>
+        <h3 class="process-card__name">{{ process.displayName }}</h3>
+        <p v-if="process.description" class="process-card__desc">{{ process.description }}</p>
 
         <!-- Actions -->
         <div class="process-card__actions">
@@ -409,7 +410,18 @@ function getStatusClass(process) {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  margin: 0 0 2px 0;
+}
+
+.process-card__desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
   margin: 0 0 12px 0;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .process-card__actions {
