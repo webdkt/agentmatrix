@@ -1155,6 +1155,10 @@ class MicroAgent(AutoLoggerMixin):
                     if hasattr(self, '_before_exit_hook') and self._before_exit_hook:
                         should_exit = await self._before_exit_hook()
                         if not should_exit:
+                            # Cancel exit verification task to prevent ghost signal injection
+                            if self._exit_verification_task and not self._exit_verification_task.done():
+                                self._exit_verification_task.cancel()
+                            self._exit_verification_task = None
                             continue  # hook 注入了信号，继续下一轮
 
                     self.logger.info("Loop exit: no actions detected, no running actions")

@@ -1059,6 +1059,18 @@ class BrowserCommonMixin:
         from agentmatrix.desktop.browser_collab_agent import BrowserCollabAgent
         BrowserCollabAgent._purge_spec_from_messages(self.messages)
 
+        # Create automation_tasks record when loading a specific process
+        if process_name:
+            try:
+                session = self.root_agent.current_session
+                if session:
+                    db = self.root_agent.runtime.post_office.email_db
+                    session_id = session.get("session_id", "")
+                    agent_name = self.root_agent.name
+                    await db.create_automation_task(session_id, agent_name, system_name, process_name)
+            except Exception as e:
+                logger.warning(f"Failed to create automation task record: {e}")
+
         # 生成内容并用 tag 包裹
         content = loader.load()
         if not content:

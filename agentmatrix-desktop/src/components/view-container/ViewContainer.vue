@@ -10,6 +10,7 @@ import SessionList from '@/components/session/SessionList.vue'
 import AgentSessionPanel from '@/components/collab/AgentSessionPanel.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
+import AutomationView from '@/components/automation/AutomationView.vue'
 
 const props = defineProps({
   currentView: {
@@ -97,6 +98,11 @@ onMounted(async () => {
     <!-- Agents View -->
     <div v-else-if="currentView === 'agents'" class="view-container__content">
       <AgentsView />
+    </div>
+
+    <!-- Automation View -->
+    <div v-else-if="currentView === 'automation'" class="view-container__content view-container__content--full">
+      <AutomationView />
     </div>
 
   </main>

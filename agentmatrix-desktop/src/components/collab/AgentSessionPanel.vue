@@ -94,7 +94,8 @@ const navigateToAgentSession = (otherSessionId) => {
 // ---- Collab file ----
 
 // ---- Collab draft message (provide/inject for cross-component communication) ----
-const collabDraftMessage = ref('')
+// Re-use parent's ref if already provided (e.g. AutomationView), otherwise create local one
+const collabDraftMessage = inject('collabDraftMessage', ref(''))
 provide('collabDraftMessage', collabDraftMessage)
 
 // ---- UI State ----
@@ -280,12 +281,14 @@ function getDropZone(position) {
   return zone?.getAttribute('data-drop-zone') || null
 }
 
+const _closeGroup = () => { openGroup.value = null }
+
 onMounted(async () => {
   updateMiddleSize()
   window.addEventListener('resize', updateMiddleSize)
 
   // Click outside to close group dropdown
-  document.addEventListener('click', () => { openGroup.value = null })
+  document.addEventListener('click', _closeGroup)
 
   setupDragDrop()
 })
@@ -305,6 +308,7 @@ const updateMiddleSize = () => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateMiddleSize)
+  document.removeEventListener('click', _closeGroup)
   if (unlistenDragDrop) unlistenDragDrop()
 })
 

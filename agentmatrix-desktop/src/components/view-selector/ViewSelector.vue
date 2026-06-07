@@ -19,6 +19,7 @@ const { t } = useI18n()
 
 const views = [
   { id: 'collab', icon: 'message-circle', label: 'views.collab.title' },
+  { id: 'automation', icon: 'bolt', label: 'views.automation.title' },
   { id: 'agents', icon: 'grid', label: 'views.agents.title' },
   { id: 'settings', icon: 'settings', label: 'views.settings.title' }
 ]

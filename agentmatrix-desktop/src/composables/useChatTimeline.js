@@ -15,6 +15,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   const isLoading = ref(false)
   const isLoadingMore = ref(false)
   const isAutoFilling = ref(false)
+  const hasMoreOlder = ref(true)
   const error = ref(null)
   const messagesContainer = ref(null)
   const answer = ref('')
@@ -99,6 +100,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
 
     isLoading.value = true
     error.value = null
+    hasMoreOlder.value = true
 
     try {
       const result = await sessionAPI.getSessionEvents(agentName, agentSessionId, 200)
@@ -131,7 +133,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   }
 
   const loadOlderEvents = async () => {
-    if (isLoadingMore.value || !currentSession.value) return false
+    if (isLoadingMore.value || !hasMoreOlder.value || !currentSession.value) return false
 
     const session = currentSession.value
     const agentName = session.agent_name || session.name
@@ -152,12 +154,14 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       const olderEvents = (result.events || []).map(parseEvent).filter(e => e.renderType !== 'skip')
 
       if (olderEvents.length === 0) {
+        hasMoreOlder.value = false
         return false
       }
 
       events.value = [...olderEvents, ...events.value]
 
-      // Preserve scroll position
+      // Preserve scroll position (double nextTick for browser layout reflow)
+      await nextTick()
       await nextTick()
       if (container) {
         container.scrollTop = container.scrollHeight - prevScrollHeight
@@ -172,12 +176,17 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     }
   }
 
+  let _scrollRaf = null
   const onScroll = () => {
-    const container = messagesContainer.value
-    if (!container) return
-    if (container.scrollTop <= 50 && !isLoadingMore.value && !isAutoFilling.value) {
-      loadOlderEvents()
-    }
+    if (_scrollRaf) return
+    _scrollRaf = requestAnimationFrame(() => {
+      _scrollRaf = null
+      const container = messagesContainer.value
+      if (!container) return
+      if (container.scrollTop <= 50 && !isLoadingMore.value && !isAutoFilling.value && hasMoreOlder.value) {
+        loadOlderEvents()
+      }
+    })
   }
 
   // ---- Scroll ----
@@ -193,6 +202,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
   watch(currentSession, async (newSession) => {
     events.value = []
     totalEventCount.value = 0
+    hasMoreOlder.value = true
 
     if (newSession) {
       await loadEvents(newSession)

@@ -12,6 +12,7 @@ from .skills import router as skills_router
 from .llm_configs import router as llm_configs_router
 from .email_proxy import router as email_proxy_router
 from .proxy import router as proxy_router
+from .automation import router as automation_router
 
 
 def register_all_routes(app):
@@ -26,3 +27,4 @@ def register_all_routes(app):
     app.include_router(llm_configs_router)
     app.include_router(email_proxy_router)
     app.include_router(proxy_router)
+    app.include_router(automation_router)

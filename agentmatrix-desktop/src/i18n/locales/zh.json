@@ -48,10 +48,66 @@
       "title": "智能体",
       "icon": "ti-agent"
     },
+    "automation": {
+      "title": "自动化"
+    },
     "settings": {
       "title": "设置",
       "icon": "ti-settings"
     }
+  },
+  "automation": {
+    "systems": {
+      "title": "自动化系统",
+      "desc": "选择一个系统来管理和运行自动化流程。每个系统包含一个或多个可由自动化智能体执行的流程。",
+      "searchPlaceholder": "搜索系统...",
+      "newSystem": "新建系统",
+      "loading": "加载系统中...",
+      "loadFailed": "加载系统失败",
+      "noSystems": "未找到自动化系统",
+      "noSystemsHint": "在 {dir} 下创建系统目录即可开始使用。",
+      "tasks": "{count} 个任务 | {count} 个任务"
+    },
+    "processes": {
+      "title": "{name}",
+      "desc": "选择一个流程运行，或继续之前的任务。",
+      "back": "返回",
+      "searchPlaceholder": "搜索流程...",
+      "newProcess": "新建流程",
+      "loading": "加载流程中...",
+      "noProcesses": "未找到流程",
+      "noProcessesHint": "在系统目录下创建流程目录即可开始使用。",
+      "continue": "继续",
+      "newTask": "新任务",
+      "lastTask": "上次任务",
+      "start": "开始"
+    },
+    "status": {
+      "working": "运行中",
+      "waiting": "等待你",
+      "completed": "已完成",
+      "failed": "失败",
+      "stopped": "已停止",
+      "last": "上次: {status}"
+    },
+    "sending": {
+      "title": "正在启动自动化",
+      "messages": [
+        "正在发送自动化请求...",
+        "正在准备任务环境...",
+        "等待智能体响应...",
+        "即将就绪...",
+        "仍在处理中，请稍候...",
+        "正在设置工作空间..."
+      ]
+    },
+    "nav": {
+      "automation": "自动化"
+    },
+    "error": {
+      "sessionTimeout": "请求已发送但未检测到会话。请检查任务列表或稍后尝试「上次任务」。"
+    },
+    "emailBody": "准备开始 {system} 系统的 {process} 流程，先加载好自动化知识。"
   },
   "sessions": {
     "title": "会话",

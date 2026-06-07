@@ -320,11 +320,21 @@ class BrowserCollabAgent(BaseAgent):
             self._loaded_process_name = metadata.get("sk_process_name") or metadata.get("sk_process_dir")
             from .skills.browser_automation._shared import _agent_env_callbacks
             _agent_env_callbacks.pop(self.name, None)
+
+        # Clear exit prompt flag so the hook prompts again on next idle exit
+        metadata = session.get("metadata", {})
+        metadata.pop("_exit_status_prompted", None)
         try:
             if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
                 await self.active_micro_agent._ensure_browser()
         except Exception as e:
             logger.warning(f"Auto CDP init failed (will retry in actions): {e}")
+
+    def _start_session_task(self, session: dict):
+        """Override: clear exit-prompt flag so the hook prompts again on each new task cycle."""
+        metadata = session.get("metadata", {})
+        metadata.pop("_exit_status_prompted", None)
+        super()._start_session_task(session)
 
     def _create_micro_agent(self):
         """创建 MicroAgent，设置 automation spec loader。"""
@@ -487,3 +497,54 @@ class BrowserCollabAgent(BaseAgent):
 
     async def set_execute_mode(self):
         return await self._switch_work_mode("execute")
+
+    # ==========================================
+    # Exit Hook — Project Status Confirmation
+    # ==========================================
+
+    _STATUS_PROMPT_TAG = "system-auto-status"
+
+    async def _on_before_exit(self) -> bool:
+        """Override: always prompt agent to confirm project status before exiting automation sessions."""
+        # 1. Run parent check first (reply_tracker)
+        if not await super()._on_before_exit():
+            return False
+
+        # 2. Check if this is an automation session
+        session = self.current_session
+        if not session:
+            return True
+
+        metadata = session.get("metadata", {})
+        system_name = metadata.get("sk_system_name")
+        process_name = metadata.get("sk_process_name")
+
+        if not system_name or not process_name:
+            return True  # Not an automation session
+
+        # 3. Guard: already prompted this exit cycle → allow exit (prevents infinite loop)
+        if metadata.get("_exit_status_prompted"):
+            return True
+
+        # 4. Check micro agent exists before injecting signal
+        if not self.active_micro_agent:
+            return True
+
+        # 5. Set flag and inject signal
+        metadata["_exit_status_prompted"] = True
+        current_status = metadata.get("project_status", "not set")
+        prompt_text = (
+            f"<{self._STATUS_PROMPT_TAG}>"
+            f"Current project status: {current_status}. "
+            "Please confirm or update the project status before finishing. "
+            "Call set_project_status with one of: COMPLETED, WAITING_FOR_USER, STOPPED, FAILED, IN_PROGRESS."
+            f"</{self._STATUS_PROMPT_TAG}>"
+        )
+        from ..core.signals import TextSignal
+        signal = TextSignal(
+            text=prompt_text,
+            type_name="status_prompt",
+        )
+        self.active_micro_agent.signal_queue.put_nowait(signal)
+        logger.info(f"Injected project status prompt for session {session.get('session_id')}")
+        return False  # Block exit, let agent respond

@@ -48,10 +48,66 @@
       "title": "Agents",
       "icon": "ti-agent"
     },
+    "automation": {
+      "title": "Automation"
+    },
     "settings": {
       "title": "Settings",
       "icon": "ti-settings"
     }
+  },
+  "automation": {
+    "systems": {
+      "title": "Automation Systems",
+      "desc": "Select a system to manage and run automation processes. Each system contains one or more processes that can be executed by the automation agent.",
+      "searchPlaceholder": "Search systems...",
+      "newSystem": "New System",
+      "loading": "Loading systems...",
+      "loadFailed": "Failed to load systems",
+      "noSystems": "No automation systems found",
+      "noSystemsHint": "Create a system directory under {dir} to get started.",
+      "tasks": "{count} task | {count} tasks"
+    },
+    "processes": {
+      "title": "{name}",
+      "desc": "Select a process to run, or continue a previous task.",
+      "back": "Back",
+      "searchPlaceholder": "Search processes...",
+      "newProcess": "New Process",
+      "loading": "Loading processes...",
+      "noProcesses": "No processes found",
+      "noProcessesHint": "Create a process directory under the system folder to get started.",
+      "continue": "Continue",
+      "newTask": "New Task",
+      "lastTask": "Last Task",
+      "start": "Start"
+    },
+    "status": {
+      "working": "Working",
+      "waiting": "Waiting for you",
+      "completed": "Completed",
+      "failed": "Failed",
+      "stopped": "Stopped",
+      "last": "Last: {status}"
+    },
+    "sending": {
+      "title": "Starting Automation",
+      "messages": [
+        "Sending automation request...",
+        "Preparing task environment...",
+        "Waiting for agent to respond...",
+        "Almost ready...",
+        "Still working, please wait...",
+        "Setting up the workspace..."
+      ]
+    },
+    "nav": {
+      "automation": "Automation"
+    },
+    "error": {
+      "sessionTimeout": "Request sent but session not detected. Check the task list or try \"Last Task\" later."
+    },
+    "emailBody": "Preparing to start the {process} process in the {system} system. Loading automation knowledge first."
   },
   "sessions": {
     "title": "Sessions",
@@ -65,7 +121,7 @@
   },
   "collab": {
     "pickAgentTitle": "Pick an Agent for Task",
-    "pickAgentSubtitle": "选择一个 Agent",
+    "pickAgentSubtitle": "Pick an Agent",
     "loadingAgents": "Loading agents...",
     "noAgentsAvailable": "No agents available",
     "status": {

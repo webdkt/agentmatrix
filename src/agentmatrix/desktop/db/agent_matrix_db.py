@@ -127,6 +127,20 @@ class AgentMatrixDB(AutoLoggerMixin):
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        await self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS automation_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                system_name TEXT NOT NULL,
+                process_name TEXT NOT NULL,
+                project_status TEXT DEFAULT 'IN_PROGRESS',
+                started_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT,
+                UNIQUE(session_id)
+            )
+        """)
         await self.conn.commit()
         await self._create_indexes()
         await self._migrate()
@@ -168,6 +182,11 @@ class AgentMatrixDB(AutoLoggerMixin):
             CREATE INDEX IF NOT EXISTS idx_session_events_lookup
             ON session_events(owner, session_id, timestamp)
         """)
+        await self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_automation_tasks_agent
+            ON automation_tasks(agent_name, system_name, process_name)
+        """)
+        # Note: session_id already has an implicit index from UNIQUE(session_id)
         await self.conn.commit()
 
     async def _migrate(self):
@@ -186,6 +205,18 @@ class AgentMatrixDB(AutoLoggerMixin):
                     f"ALTER TABLE user_sessions ADD COLUMN {col_name} {col_type}"
                 )
         await self.conn.commit()
+
+        # Migrate automation_tasks table (add columns that may not exist on older installs)
+        try:
+            cursor = await self.conn.execute("PRAGMA table_info(automation_tasks)")
+            auto_columns = {row[1] for row in await cursor.fetchall()}
+            if auto_columns and "agent_name" not in auto_columns:
+                await self.conn.execute(
+                    "ALTER TABLE automation_tasks ADD COLUMN agent_name TEXT NOT NULL DEFAULT ''"
+                )
+                await self.conn.commit()
+        except Exception:
+            pass  # Table doesn't exist yet — will be created by init_db
 
     # ===== Email Pipeline =====
 
@@ -826,3 +857,84 @@ class AgentMatrixDB(AutoLoggerMixin):
         row = await cursor.fetchone()
         await cursor.close()
         return row[0] if row else None
+
+    # ===== Automation Tasks =====
+
+    async def create_automation_task(
+        self, session_id: str, agent_name: str, system_name: str, process_name: str,
+    ) -> int:
+        """Create or update an automation task record. Returns the row id."""
+        now = datetime.now().isoformat()
+        cursor = await self.conn.execute(
+            """INSERT INTO automation_tasks
+               (session_id, agent_name, system_name, process_name, project_status, started_at, updated_at)
+               VALUES (?, ?, ?, ?, 'IN_PROGRESS', ?, ?)
+               ON CONFLICT(session_id) DO UPDATE SET
+                 agent_name = excluded.agent_name,
+                 system_name = excluded.system_name,
+                 process_name = excluded.process_name,
+                 project_status = 'IN_PROGRESS',
+                 completed_at = NULL,
+                 updated_at = excluded.updated_at""",
+            (session_id, agent_name, system_name, process_name, now, now),
+        )
+        await self.conn.commit()
+        return cursor.lastrowid
+
+    async def update_automation_task_status(self, session_id: str, status: str) -> bool:
+        """Update project_status for an automation task. Returns True if a row was updated."""
+        now = datetime.now().isoformat()
+        terminal_statuses = ('COMPLETED', 'STOPPED', 'FAILED')
+        if status in terminal_statuses:
+            cursor = await self.conn.execute(
+                "UPDATE automation_tasks SET project_status = ?, updated_at = ?, completed_at = ? WHERE session_id = ?",
+                (status, now, now, session_id),
+            )
+        else:
+            cursor = await self.conn.execute(
+                "UPDATE automation_tasks SET project_status = ?, updated_at = ?, completed_at = NULL WHERE session_id = ?",
+                (status, now, session_id),
+            )
+        await self.conn.commit()
+        return cursor.rowcount > 0
+
+    async def get_automation_tasks(
+        self, agent_name: str = None, system_name: str = None,
+        process_name: str = None, status: str = None,
+        limit: int = 50, offset: int = 0,
+    ) -> list:
+        """Query automation tasks with optional filters."""
+        query = "SELECT * FROM automation_tasks WHERE 1=1"
+        params = []
+        if agent_name:
+            query += " AND agent_name = ?"
+            params.append(agent_name)
+        if system_name:
+            query += " AND system_name = ?"
+            params.append(system_name)
+        if process_name:
+            query += " AND process_name = ?"
+            params.append(process_name)
+        if status:
+            query += " AND project_status = ?"
+            params.append(status)
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        cursor = await self.conn.execute(query, params)
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [dict(r) for r in rows]
+
+    async def get_latest_automation_task(
+        self, agent_name: str, system_name: str, process_name: str,
+    ) -> Optional[dict]:
+        """Get the most recent automation task for a specific agent/system/process."""
+        cursor = await self.conn.execute(
+            """SELECT * FROM automation_tasks
+               WHERE agent_name = ? AND system_name = ? AND process_name = ?
+               ORDER BY updated_at DESC LIMIT 1""",
+            (agent_name, system_name, process_name),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
