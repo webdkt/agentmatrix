@@ -78,9 +78,8 @@
       "noProcesses": "No processes found",
       "noProcessesHint": "Create a process directory under the system folder to get started.",
       "continue": "Continue",
-      "newTask": "New Task",
       "lastTask": "Last Task",
-      "start": "Start"
+      "startNew": "Start New"
     },
     "status": {
       "working": "Working",

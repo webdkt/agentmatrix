@@ -99,7 +99,7 @@ function getStatusClass(system) {
       >
         <div class="system-card__header">
           <div class="system-card__icon">
-            <MIcon name="globe" />
+            <MIcon :name="system.icon || 'globe'" />
           </div>
           <span v-if="getStatusLabel(system)" :class="['system-card__status', getStatusClass(system)]">
             <span v-if="system.hasActive" class="system-card__status-dot"></span>

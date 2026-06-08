@@ -202,6 +202,11 @@ class MatrixPaths:
         """
         return self.browser_profile_dir / agent_name
 
+    @property
+    def wiki_dir(self) -> Path:
+        """知识库根目录: workspace/wiki/"""
+        return self.workspace_dir / "wiki"
+
     def get_skills_dir(self) -> Path:
         """
         获取workspace的skills目录（共享）
@@ -253,6 +258,7 @@ class MatrixPaths:
             self.get_skills_dir(),
             self.backup_dir,
             self.agent_backup_dir,
+            self.wiki_dir,
         ]
 
         for directory in directories:

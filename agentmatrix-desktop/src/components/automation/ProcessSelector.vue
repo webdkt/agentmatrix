@@ -6,6 +6,7 @@ const { t } = useI18n()
 
 const props = defineProps({
   systemName: { type: String, required: true },
+  systemDisplayName: { type: String, default: '' },
   processes: { type: Array, default: () => [] },
   search: { type: String, default: '' },
   loading: { type: Boolean, default: false },
@@ -54,7 +55,7 @@ function getStatusClass(process) {
         <span>{{ t('automation.processes.back') }}</span>
       </button>
       <div>
-        <h2 class="process-selector__title">{{ systemName }}</h2>
+        <h2 class="process-selector__title">{{ systemDisplayName || systemName }}</h2>
         <p class="process-selector__desc">{{ t('automation.processes.desc') }}</p>
       </div>
     </div>
@@ -105,7 +106,7 @@ function getStatusClass(process) {
       >
         <div class="process-card__header">
           <div class="process-card__icon">
-            <MIcon :name="process.hasActive ? 'loader' : 'folder'" :class="{ 'spin': process.hasActive && process.activeTask.project_status === 'IN_PROGRESS' }" />
+            <MIcon :name="process.hasActive ? 'loader' : (process.icon || 'folder')" :class="{ 'spin': process.hasActive && process.activeTask.project_status === 'IN_PROGRESS' }" />
           </div>
           <span v-if="getStatusLabel(process)" :class="['process-card__status', getStatusClass(process)]">
             <span v-if="process.hasActive" class="process-card__status-dot"></span>
@@ -117,19 +118,26 @@ function getStatusClass(process) {
 
         <!-- Actions -->
         <div class="process-card__actions">
-          <button
-            v-if="process.hasActive"
-            class="process-card__btn process-card__btn--primary"
-            @click="emit('resume', process)"
-          >
-            {{ t('automation.processes.continue') }}
-          </button>
-          <template v-else-if="process.hasHistory">
+          <template v-if="process.hasActive">
             <button
               class="process-card__btn process-card__btn--primary"
+              @click="emit('resume', process)"
+            >
+              {{ t('automation.processes.continue') }}
+            </button>
+            <button
+              class="process-card__btn process-card__btn--secondary"
               @click="emit('select', process.name)"
             >
-              {{ t('automation.processes.newTask') }}
+              {{ t('automation.processes.startNew') }}
+            </button>
+          </template>
+          <template v-else-if="process.hasHistory">
+            <button
+              class="process-card__btn process-card__btn--secondary"
+              @click="emit('select', process.name)"
+            >
+              {{ t('automation.processes.startNew') }}
             </button>
             <button
               class="process-card__btn process-card__btn--secondary"
@@ -140,10 +148,10 @@ function getStatusClass(process) {
           </template>
           <button
             v-else
-            class="process-card__btn process-card__btn--primary"
+            class="process-card__btn process-card__btn--secondary"
             @click="emit('select', process.name)"
           >
-            {{ t('automation.processes.start') }}
+            {{ t('automation.processes.startNew') }}
           </button>
         </div>
       </div>

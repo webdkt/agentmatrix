@@ -248,6 +248,12 @@ class AgentMatrix(AutoLoggerMixin):
         )
         self.echo(">>> TaskScheduler Loaded.")
 
+        # 🆕 初始化 WikiMaintenanceService（知识库后台维护）
+        from .wiki_maintenance_service import WikiMaintenanceService
+
+        self.wiki_maintenance = WikiMaintenanceService(runtime=self)
+        self.echo(">>> WikiMaintenanceService Loaded.")
+
     def _prepare_agents(self):
         # 使用新的agent配置目录
         loader = AgentLoader(
@@ -485,7 +491,16 @@ class AgentMatrix(AutoLoggerMixin):
         # 🔧 事件驱动模式：无需停止广播任务
 
         if hasattr(self, "task_scheduler"):
-            await self.task_scheduler.stop()
+            try:
+                await self.task_scheduler.stop()
+            except Exception as e:
+                self.echo(f">>> TaskScheduler stop error: {e}")
+
+        if hasattr(self, "wiki_maintenance"):
+            try:
+                await self.wiki_maintenance.stop()
+            except Exception as e:
+                self.echo(f">>> WikiMaintenanceService stop error: {e}")
 
         # 3. 取消所有正在运行的agent任务
         if self.running_agent_tasks:
@@ -529,6 +544,14 @@ class AgentMatrix(AutoLoggerMixin):
             self.echo(">>> Browser infrastructure stopped")
         except Exception as e:
             self.echo(f">>> Browser infrastructure stop error: {e}")
+
+        # 6.5 关闭所有知识库命名空间的数据库连接
+        try:
+            from agentmatrix.desktop.skills.knowledge_base._shared import NamespaceRegistry
+            await NamespaceRegistry.shutdown_all()
+            self.echo(">>> Knowledge base namespaces shut down")
+        except Exception as e:
+            self.echo(f">>> Knowledge base shutdown error: {e}")
 
         # 7. 清理资源
         self.running = False
@@ -621,6 +644,10 @@ class AgentMatrix(AutoLoggerMixin):
         # 5. 启动 TaskScheduler
         if hasattr(self, "task_scheduler"):
             self.scheduler_task = asyncio.ensure_future(self.task_scheduler.start())
+
+        # 5.5 启动 WikiMaintenanceService
+        if hasattr(self, "wiki_maintenance"):
+            self.wiki_maintenance_task = asyncio.ensure_future(self.wiki_maintenance.start())
 
         self.echo(">>> 系统启动完成，继续运行！")
         yellow_page = self.post_office.yellow_page()

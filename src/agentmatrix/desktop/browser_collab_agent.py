@@ -225,6 +225,9 @@ class BrowserCollabAgent(BaseAgent):
     _loaded_system_name: str = None
     _loaded_process_name: str = None
 
+    # Exit status check: skip if no actions executed since last check
+    _actions_executed_since_status_check: bool = False
+
     # ==========================================
     # Automation Spec 静态工具方法
     # ==========================================
@@ -321,9 +324,8 @@ class BrowserCollabAgent(BaseAgent):
             from .skills.browser_automation._shared import _agent_env_callbacks
             _agent_env_callbacks.pop(self.name, None)
 
-        # Clear exit prompt flag so the hook prompts again on next idle exit
-        metadata = session.get("metadata", {})
-        metadata.pop("_exit_status_prompted", None)
+        # Reset action tracking for exit status check
+        self._actions_executed_since_status_check = False
         try:
             if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
                 await self.active_micro_agent._ensure_browser()
@@ -331,9 +333,8 @@ class BrowserCollabAgent(BaseAgent):
             logger.warning(f"Auto CDP init failed (will retry in actions): {e}")
 
     def _start_session_task(self, session: dict):
-        """Override: clear exit-prompt flag so the hook prompts again on each new task cycle."""
-        metadata = session.get("metadata", {})
-        metadata.pop("_exit_status_prompted", None)
+        """Override: reset action tracking for exit status check."""
+        self._actions_executed_since_status_check = False
         super()._start_session_task(session)
 
     def _create_micro_agent(self):
@@ -350,8 +351,123 @@ class BrowserCollabAgent(BaseAgent):
 
         micro = super()._create_micro_agent()
         micro._automation_spec_loader = spec_loader
+        micro._before_action_hook = self._on_before_action
+        micro._after_action_hook = self._on_after_action
 
         return micro
+
+    async def _on_before_action(self, action_name: str, params: dict):
+        """Called before each micro agent action executes. Return False to skip."""
+        pass
+
+    async def _on_after_action(self, action_name: str, params: dict, result):
+        """Called after each micro agent action completes."""
+        self._actions_executed_since_status_check = True
+        readme_dir = self._detect_readme_write(action_name, params)
+        if readme_dir:
+            asyncio.create_task(self._update_meta_yml(readme_dir))
+
+    def _detect_readme_write(self, action_name: str, params: dict) -> str | None:
+        """Check if action wrote to a README in the current system/process dir.
+        Returns the directory path containing the README, or None."""
+        session = self.current_session
+        if not session:
+            return None
+        metadata = session.get("metadata", {})
+        system_name = metadata.get("sk_system_name")
+        process_name = metadata.get("sk_process_name")
+        if not system_name:
+            return None
+
+        root = f"{self.runtime.paths.workspace_dir}/agent_files/{self.name}/home/automation_knowledge"
+        system_dir = f"{root}/{system_name}"
+        process_dir = f"{root}/{system_name}/{process_name}" if process_name else None
+
+        target_path = None
+
+        if action_name in ("file.write", "write"):
+            target_path = params.get("file_path", "")
+
+        elif action_name in ("file.bash", "bash"):
+            # Extract file from first line redirect: echo/cat/tee ... > file
+            first_line = (params.get("command") or "").split("\n")[0]
+            m = re.search(r'>\s*(\S+)', first_line)
+            if m:
+                target_path = m.group(1)
+
+        if not target_path:
+            return None
+
+        target_lower = target_path.lower()
+        if not (target_lower.endswith("/readme.md") or target_lower == "readme.md"):
+            return None
+
+        # Normalize: resolve relative paths against system dir
+        if not target_path.startswith("/"):
+            target_path = f"{system_dir}/{target_path}"
+
+        # Determine which directory this readme belongs to
+        target_dir = target_path.rsplit("/", 1)[0]
+        if process_dir and target_dir == process_dir:
+            return process_dir
+        if target_dir == system_dir:
+            return system_dir
+        return None
+
+    @staticmethod
+    def _parse_meta_response(raw: str) -> dict:
+        """Parser for think_with_retry: extract JSON with required fields."""
+        # Find first {...} block in the response
+        m = re.search(r'\{[^{}]+\}', raw, re.DOTALL)
+        if not m:
+            raise ValueError("No JSON object found in response")
+        data = json.loads(m.group())
+        for key in ("display_name", "description", "icon"):
+            if key not in data or not data[key]:
+                raise ValueError(f"Missing required key: {key}")
+        return {
+            "display_name": str(data["display_name"])[:30],
+            "description": str(data["description"])[:80],
+            "icon": str(data["icon"]),
+        }
+
+    async def _update_meta_yml(self, target_dir: str):
+        """Read README in target_dir, use cerebellum to generate/update meta.yml."""
+        from pathlib import Path
+        try:
+            readme_path = Path(target_dir) / "readme.md"
+            if not readme_path.exists():
+                readme_path = Path(target_dir) / "README.md"
+            if not readme_path.exists():
+                return
+
+            content = readme_path.read_text(encoding="utf-8")
+            if not content.strip():
+                return
+
+            prompt = (
+                "Based on the following README, generate a short metadata summary.\n"
+                "Return a JSON object with these keys:\n"
+                '- "display_name": a concise display name (max 30 chars)\n'
+                '- "description": a one-line description (max 80 chars)\n'
+                '- "icon": an icon name from Lucide Icons (lucide.dev)\n\n'
+                f"[README content]\n{content[:3000]}"
+            )
+
+            result = await self.cerebellum.backend.think_with_retry(
+                prompt, self._parse_meta_response
+            )
+            if not result:
+                return
+
+            # Write as YAML for meta.yml format
+            import yaml
+            meta_path = Path(target_dir) / "meta.yml"
+            meta_path.write_text(yaml.dump(result, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+            logger.info(f"Auto-generated meta.yml for {target_dir}")
+
+        except Exception as e:
+            logger.warning(f"Failed to auto-update meta.yml for {target_dir}: {e}")
 
     # ==========================================
     # 消息压缩保护
@@ -502,15 +618,70 @@ class BrowserCollabAgent(BaseAgent):
     # Exit Hook — Project Status Confirmation
     # ==========================================
 
-    _STATUS_PROMPT_TAG = "system-auto-status"
+    _STATUS_PROMPT = (
+        "You are a bystander observing a conversation between a user and an automation agent. "
+        "Based on the conversation below, what is the most likely current project status?\n\n"
+        "Valid statuses:\n"
+        "- COMPLETED: All requested work is done successfully\n"
+        "- WAITING_FOR_USER: Agent is waiting for user input or decision\n"
+        "- IN_PROGRESS: Work is still ongoing\n"
+        "- STOPPED: Work was intentionally stopped\n"
+        "- FAILED: Work encountered an unrecoverable error\n"
+        "- UNKNOWN: Cannot determine from the conversation\n\n"
+        "Choose the status that best fits the evidence. "
+        "Only use UNKNOWN if the conversation truly provides no clue.\n\n"
+        "Respond with ONLY a JSON object: {\"status\": \"<STATUS>\", \"reason\": \"<brief reason>\"}"
+    )
+
+    @staticmethod
+    def _parse_status_response(text: str) -> dict | None:
+        """Extract status JSON from LLM response."""
+        m = re.search(r'\{[^{}]+\}', text)
+        if not m:
+            return None
+        try:
+            obj = json.loads(m.group())
+            status = obj.get("status", "").upper().strip()
+            valid = ("COMPLETED", "WAITING_FOR_USER", "IN_PROGRESS", "STOPPED", "FAILED", "UNKNOWN")
+            if status in valid:
+                return {"status": status, "reason": obj.get("reason", "")}
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        return None
+
+    @staticmethod
+    def _format_messages_for_status(messages: list, max_count: int = 10) -> str:
+        """Format last N messages as plain text conversation."""
+        recent = messages[-max_count:] if len(messages) > max_count else messages
+        lines = []
+        for msg in recent:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                continue
+            # Strip system tags and spec blocks for cleaner context
+            content = re.sub(r'<automation-spec>.*?</automation-spec>', '', content, flags=re.DOTALL).strip()
+            content = re.sub(r'<system-[^>]+>.*?</system-[^>]+>', '', content, flags=re.DOTALL).strip()
+            if not content:
+                continue
+            # Truncate very long messages
+            if len(content) > 500:
+                content = content[:500] + "..."
+            label = "User" if role == "user" else "Agent"
+            lines.append(f"{label}: {content}")
+        return "\n\n".join(lines)
 
     async def _on_before_exit(self) -> bool:
-        """Override: always prompt agent to confirm project status before exiting automation sessions."""
+        """Override: infer project status via LLM before exiting automation sessions."""
         # 1. Run parent check first (reply_tracker)
         if not await super()._on_before_exit():
             return False
 
-        # 2. Check if this is an automation session
+        # 2. Skip if no actions executed this loop — nothing to judge
+        if not self._actions_executed_since_status_check:
+            return True
+
+        # 3. Check if this is an automation session
         session = self.current_session
         if not session:
             return True
@@ -522,29 +693,37 @@ class BrowserCollabAgent(BaseAgent):
         if not system_name or not process_name:
             return True  # Not an automation session
 
-        # 3. Guard: already prompted this exit cycle → allow exit (prevents infinite loop)
-        if metadata.get("_exit_status_prompted"):
+        # 4. Get messages from active micro agent
+        micro = self.active_micro_agent
+        if not micro or not micro.messages:
             return True
 
-        # 4. Check micro agent exists before injecting signal
-        if not self.active_micro_agent:
-            return True
+        # 5. Infer status via LLM (offline, no signal injection)
+        self._actions_executed_since_status_check = False
+        try:
+            conversation = self._format_messages_for_status(micro.messages)
+            prompt = f"{self._STATUS_PROMPT}\n\n---\n{conversation}"
+            result = await self.cerebellum.backend.think_with_retry(
+                initial_messages=[{"role": "user", "content": prompt}],
+                parser=self._parse_status_response,
+                max_retries=3,
+            )
+            if result and result.get("status") and result["status"] != "UNKNOWN":
+                new_status = result["status"]
+                reason = result.get("reason", "")
+                logger.info(f"Exit status inferred: {new_status} ({reason})")
 
-        # 5. Set flag and inject signal
-        metadata["_exit_status_prompted"] = True
-        current_status = metadata.get("project_status", "not set")
-        prompt_text = (
-            f"<{self._STATUS_PROMPT_TAG}>"
-            f"Current project status: {current_status}. "
-            "Please confirm or update the project status before finishing. "
-            "Call set_project_status with one of: COMPLETED, WAITING_FOR_USER, STOPPED, FAILED, IN_PROGRESS."
-            f"</{self._STATUS_PROMPT_TAG}>"
-        )
-        from ..core.signals import TextSignal
-        signal = TextSignal(
-            text=prompt_text,
-            type_name="status_prompt",
-        )
-        self.active_micro_agent.signal_queue.put_nowait(signal)
-        logger.info(f"Injected project status prompt for session {session.get('session_id')}")
-        return False  # Block exit, let agent respond
+                # Write to session metadata
+                metadata["project_status"] = new_status
+
+                # Write to DB
+                try:
+                    db = self.runtime.post_office.email_db
+                    session_id = session.get("session_id", "")
+                    await db.update_automation_task_status(session_id, new_status)
+                except Exception as e:
+                    logger.warning(f"Failed to sync status to DB: {e}")
+        except Exception as e:
+            logger.warning(f"Exit status inference failed: {e}")
+
+        return True

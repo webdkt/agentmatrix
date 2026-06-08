@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import * as LucideIcons from 'lucide-vue-next'
 import { iconMap } from './iconRegistry.js'
 
 const props = defineProps({
@@ -13,7 +14,17 @@ const props = defineProps({
   },
 })
 
-const component = computed(() => iconMap[props.name] || null)
+// kebab-case → PascalCase: "file-search" → "FileSearch"
+function toPascalCase(str) {
+  return str.replace(/(^|-)(\w)/g, (_, _sep, c) => c.toUpperCase())
+}
+
+const component = computed(() => {
+  // Check alias registry first (logo, agent, dispatch, etc.)
+  if (iconMap[props.name]) return iconMap[props.name]
+  // Auto-lookup from all Lucide icons
+  return LucideIcons[toPascalCase(props.name)] || null
+})
 </script>
 
 <template>

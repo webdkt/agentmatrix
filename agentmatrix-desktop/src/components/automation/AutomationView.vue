@@ -109,6 +109,7 @@ function handleResume(process) {
     <ProcessSelector
       v-else-if="av.state.value === 'process-select'"
       :system-name="av.selectedSystem.value"
+      :system-display-name="av.selectedSystemDisplayName.value"
       :processes="av.filteredProcesses.value"
       :search="av.processSearch.value"
       :loading="av.processesLoading.value"

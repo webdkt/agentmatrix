@@ -142,6 +142,8 @@ class MicroAgent(AutoLoggerMixin):
         self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
         self._before_think_hook = None  # Shell 层注入的 think 前回调
         self._before_exit_hook = None  # Shell 层注入的退出前回调
+        self._before_action_hook = None  # (action_name, params) -> None or False to skip
+        self._after_action_hook = None   # (action_name, params, result) -> None
         self._should_exit: bool = False  # action 设置此 flag 触发退出
 
         # 日志
@@ -1545,6 +1547,7 @@ class MicroAgent(AutoLoggerMixin):
         ):
             self._emit_event("action", "started", {
                 "action_name": action_name,
+                "params": params,
                 "step_count": self.step_count,
             })
             try:
@@ -1571,7 +1574,8 @@ class MicroAgent(AutoLoggerMixin):
                 self._emit_event("action", "completed", {
                     "action_name": action_name,
                     "action_label": action_label,
-                    "result_preview": str(result)[:500] if result else None,
+                    "params": params,
+                    "result": str(result) if result else None,
                     "status": "ok",
                 })
             except asyncio.CancelledError:
@@ -1582,6 +1586,7 @@ class MicroAgent(AutoLoggerMixin):
                 self._running_actions.pop(action_id, None)
                 self._emit_event("action", "completed", {
                     "action_name": action_name,
+                    "params": params,
                     "status": "canceled",
                 })
                 # 标记后续所有 action 为 canceled
@@ -1601,6 +1606,7 @@ class MicroAgent(AutoLoggerMixin):
                 self._running_actions.pop(action_id, None)
                 self._emit_event("action", "error", {
                     "action_name": action_name,
+                    "params": params,
                     "error_message": str(e)[:500],
                 })
 
@@ -1663,6 +1669,15 @@ class MicroAgent(AutoLoggerMixin):
                 f"请使用 {action_name}({param_hints}) 格式提供参数。"
             )
 
+        # Pre-action hook
+        if self._before_action_hook:
+            try:
+                proceed = await self._before_action_hook(action_name, params)
+                if proceed is False:
+                    return f"[{action_name}] Skipped by hook."
+            except Exception as e:
+                self.logger.debug(f"_before_action_hook error: {e}")
+
         # 执行方法
         self._log(
             logging.INFO,
@@ -1675,6 +1690,13 @@ class MicroAgent(AutoLoggerMixin):
         finally:
             # 记录最后执行的 action 名字
             self.last_action_name = action_name
+
+        # Post-action hook
+        if self._after_action_hook:
+            try:
+                await self._after_action_hook(action_name, params, result)
+            except Exception as e:
+                self.logger.debug(f"_after_action_hook error: {e}")
 
         return result
 

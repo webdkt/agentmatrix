@@ -78,9 +78,8 @@
       "noProcesses": "未找到流程",
       "noProcessesHint": "在系统目录下创建流程目录即可开始使用。",
       "continue": "继续",
-      "newTask": "新任务",
       "lastTask": "上次任务",
-      "start": "开始"
+      "startNew": "开始新任务"
     },
     "status": {
       "working": "运行中",
