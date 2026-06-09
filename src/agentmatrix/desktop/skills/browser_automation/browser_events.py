@@ -20,7 +20,7 @@ from typing import Optional
 from agentmatrix.desktop.signals import BrowserSignal
 
 from .cdp_client import CDPClient
-from .tab_manager import TabManager
+from .tab_manager import TabInfo, TabManager
 
 logger = logging.getLogger(__name__)
 
@@ -587,9 +587,10 @@ class BrowserEventListener:
     def _on_target_created(self, params):
         """处理浏览器创建的新 tab。
 
-        两种情况：
-        1. 有 openerId → 自动继承父 tab 的 agent（原有逻辑）
-        2. 无 openerId → 记录为 orphan tab，等待分配
+        三种情况：
+        1. TabManager.create_tab 正在创建 → 直接归属对应 agent
+        2. 有 openerId → 自动继承父 tab 的 agent
+        3. 无 openerId → 记录为 orphan tab，等待分配
         """
         if not self.active:
             return
@@ -606,6 +607,19 @@ class BrowserEventListener:
 
         # 跳过已追踪的 tab
         if target_id in self.tab_mgr._tabs:
+            return
+
+        # ── 情况 0：API 创建（create_tab 正在执行）→ 直接归属 ──
+        creating_agent = self.tab_mgr._creating_agent
+        if creating_agent:
+            tab = TabInfo(
+                target_id=target_id,
+                url=url,
+                agent_name=creating_agent,
+            )
+            self.tab_mgr._tabs[target_id] = tab
+            self.tab_mgr._agent_tabs.setdefault(creating_agent, set()).add(target_id)
+            logger.info(f"API-created tab {target_id} assigned to agent '{creating_agent}' (url={url})")
             return
 
         # ── 情况 1：有 openerId → 继承父 tab ──

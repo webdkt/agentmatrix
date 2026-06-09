@@ -59,6 +59,9 @@ class TabManager:
         self._tabs: Dict[str, TabInfo] = {}
         # agent_name → set of target_ids
         self._agent_tabs: Dict[str, Set[str]] = {}
+        # 用于 create_tab 和 _on_target_created 之间的同步：
+        # create_tab 在调用 cdp.create_target 前设置，_on_target_created 消费后清除
+        self._creating_agent: str = ""
 
     async def create_tab(self, agent_name: str, url: str = "about:blank") -> TabInfo:
         """
@@ -71,21 +74,34 @@ class TabManager:
         Returns:
             TabInfo with target_id and session_id.
         """
-        target_id = await self.cdp.create_target(url)
-        session_id = await self.cdp.attach_to_target(target_id)
-        await self.cdp.enable_domains(session_id)
+        # 通知 _on_target_created 这个 tab 属于哪个 agent（解决竞态条件）
+        self._creating_agent = agent_name
+        try:
+            target_id = await self.cdp.create_target(url)
+        finally:
+            self._creating_agent = ""
 
-        tab = TabInfo(
-            target_id=target_id,
-            session_id=session_id,
-            url=url,
-            agent_name=agent_name,
-        )
+        # _on_target_created 可能已经把 tab 注册到 _tabs（但没有 session_id）
+        tab = self._tabs.get(target_id)
+        if tab:
+            # 事件处理器已注册，补上 session_id
+            tab.session_id = await self.cdp.attach_to_target(target_id)
+            await self.cdp.enable_domains(tab.session_id)
+            logger.info(f"Created tab {target_id} for agent '{agent_name}' (url={url}, event-registered)")
+        else:
+            # 事件处理器未注册（不应发生，但做防御）
+            session_id = await self.cdp.attach_to_target(target_id)
+            await self.cdp.enable_domains(session_id)
+            tab = TabInfo(
+                target_id=target_id,
+                session_id=session_id,
+                url=url,
+                agent_name=agent_name,
+            )
+            self._tabs[target_id] = tab
+            self._agent_tabs.setdefault(agent_name, set()).add(target_id)
+            logger.info(f"Created tab {target_id} for agent '{agent_name}' (url={url})")
 
-        self._tabs[target_id] = tab
-        self._agent_tabs.setdefault(agent_name, set()).add(target_id)
-
-        logger.info(f"Created tab {target_id} for agent '{agent_name}' (url={url})")
         return tab
 
     async def close_tab(self, target_id: str):
