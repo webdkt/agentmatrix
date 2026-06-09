@@ -265,8 +265,7 @@ const handleAttachmentClick = async (attachment) => {
 
   <!-- Agent chat bubble (left-aligned, parchment) -->
   <div v-else-if="message.type === 'bubble-agent'" class="chat-msg">
-    <div v-if="message.data?.exitMsgType === 'question'" class="chat-msg__exit-badge chat-msg__exit-badge--question">?</div>
-    <div v-else-if="message.data?.exitMsgType === 'statement'" class="chat-msg__exit-badge chat-msg__exit-badge--statement"></div>
+    <div v-if="message.data?.detail?.msg_type === 'question'" class="chat-msg__exit-badge chat-msg__exit-badge--question">?</div>
     <div class="chat-msg__bubble">
       <div class="chat-msg__body markdown-content" v-html="renderedBody" @click="handleContentClick"></div>
       <div v-if="attachments.length > 0" class="chat-msg__attachments">

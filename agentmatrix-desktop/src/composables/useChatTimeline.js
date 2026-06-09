@@ -76,6 +76,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       return 'agent-comm'
     }
     if (type === 'think') return 'thought'
+    if (type === 'chat-msg') return 'bubble-agent'
     if (type === 'action') {
       if (name === 'detected') return 'skip'
       if (detail.action_name === 'send_internal_mail') return 'skip'
@@ -83,7 +84,7 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
     }
     if (type === 'session') {
       if (name === 'activated' || name === 'deactivated') return 'session-time'
-      return 'skip'
+      return 'skip'  // exit_msg also skipped — chat-msg handles display directly
     }
     return 'system'
   }
@@ -221,21 +222,6 @@ export function useChatTimeline({ userAgentName = ref('User') } = {}) {
       ? (evt.agent_name === agentName && evt.session_id === agentSessionId)
       : (evt.agent_name === agentName)
     if (!isMatch) return
-
-    // exit_msg: mutate the last thought event's display mode instead of appending a new event
-    if (evt.data.event_type === 'session' && evt.data.event_name === 'exit_msg') {
-      const exitMsgType = evt.data.event_detail?.exit_msg_type
-      if (exitMsgType) {
-        for (let i = events.value.length - 1; i >= 0; i--) {
-          if (events.value[i].renderType === 'thought') {
-            events.value[i].renderType = 'bubble-agent'
-            events.value[i].exitMsgType = exitMsgType
-            break
-          }
-        }
-      }
-      return
-    }
 
     const parsed = parseEvent(evt.data)
     if (parsed.renderType === 'skip') return

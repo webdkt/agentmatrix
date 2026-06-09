@@ -630,24 +630,24 @@ class BrowserCollabAgent(BaseAgent):
         "- UNKNOWN: Cannot determine from the conversation\n\n"
         "Choose the status that best fits the evidence. "
         "Only use UNKNOWN if the conversation truly provides no clue.\n\n"
-        "Respond with ONLY a JSON object: {\"status\": \"<STATUS>\", \"reason\": \"<brief reason>\"}"
+        "Respond with ONLY a JSON object: {\"status\": \"<STATUS>\"}"
     )
 
     @staticmethod
-    def _parse_status_response(text: str) -> dict | None:
-        """Extract status JSON from LLM response."""
+    def _parse_status_response(text: str) -> dict:
+        """Extract status from LLM JSON response. Follows parser contract."""
         m = re.search(r'\{[^{}]+\}', text)
         if not m:
-            return None
+            return {"status": "error", "message": "No JSON found"}
         try:
             obj = json.loads(m.group())
             status = obj.get("status", "").upper().strip()
             valid = ("COMPLETED", "WAITING_FOR_USER", "IN_PROGRESS", "STOPPED", "FAILED", "UNKNOWN")
             if status in valid:
-                return {"status": status, "reason": obj.get("reason", "")}
+                return {"status": "success", "content": status}
+            return {"status": "error", "message": f"Invalid status: {status}"}
         except (json.JSONDecodeError, AttributeError):
-            pass
-        return None
+            return {"status": "error", "message": "JSON parse failed"}
 
     @staticmethod
     def _format_messages_for_status(messages: list, max_count: int = 10) -> str:
@@ -679,6 +679,7 @@ class BrowserCollabAgent(BaseAgent):
 
         # 2. Skip if no actions executed this loop — nothing to judge
         if not self._actions_executed_since_status_check:
+            logger.debug("[StatusCheck] Skipped: no actions executed this loop")
             return True
 
         # 3. Check if this is an automation session
@@ -691,39 +692,42 @@ class BrowserCollabAgent(BaseAgent):
         process_name = metadata.get("sk_process_name")
 
         if not system_name or not process_name:
-            return True  # Not an automation session
-
-        # 4. Get messages from active micro agent
-        micro = self.active_micro_agent
-        if not micro or not micro.messages:
+            logger.debug("[StatusCheck] Skipped: not an automation session")
             return True
 
-        # 5. Infer status via LLM (offline, no signal injection)
+        # 4. Infer status via LLM (offline, no signal injection)
         self._actions_executed_since_status_check = False
+        logger.info(f"[StatusCheck] Inferring status for {system_name}/{process_name}...")
         try:
-            conversation = self._format_messages_for_status(micro.messages)
+            conversation = self._format_messages_for_status(self.active_micro_agent.messages)
             prompt = f"{self._STATUS_PROMPT}\n\n---\n{conversation}"
-            result = await self.cerebellum.backend.think_with_retry(
+            new_status = await self.cerebellum.backend.think_with_retry(
                 initial_messages=[{"role": "user", "content": prompt}],
                 parser=self._parse_status_response,
                 max_retries=3,
             )
-            if result and result.get("status") and result["status"] != "UNKNOWN":
-                new_status = result["status"]
-                reason = result.get("reason", "")
-                logger.info(f"Exit status inferred: {new_status} ({reason})")
+            if not new_status:
+                logger.info("[StatusCheck] LLM returned no parseable result")
+                return True
 
-                # Write to session metadata
-                metadata["project_status"] = new_status
+            if new_status == "UNKNOWN":
+                logger.info("[StatusCheck] LLM returned UNKNOWN, skipping")
+                return True
 
-                # Write to DB
-                try:
-                    db = self.runtime.post_office.email_db
-                    session_id = session.get("session_id", "")
-                    await db.update_automation_task_status(session_id, new_status)
-                except Exception as e:
-                    logger.warning(f"Failed to sync status to DB: {e}")
+            logger.info(f"[StatusCheck] Inferred: {new_status}")
+
+            # Write to session metadata
+            metadata["project_status"] = new_status
+
+            # Write to DB
+            try:
+                db = self.runtime.post_office.email_db
+                session_id = session.get("session_id", "")
+                await db.update_automation_task_status(session_id, new_status)
+                logger.info(f"[StatusCheck] DB updated: {new_status}")
+            except Exception as e:
+                logger.warning(f"[StatusCheck] DB sync failed: {e}")
         except Exception as e:
-            logger.warning(f"Exit status inference failed: {e}")
+            logger.warning(f"[StatusCheck] Inference failed: {e}")
 
         return True

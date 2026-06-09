@@ -1208,17 +1208,37 @@ Start generating the Working Notes now. Remember: wrap your output in <working_n
 
         elif event.event_type == "think" and event.event_name == "brain":
             detail = event.detail or {}
-            display_text = self._strip_action_script(detail.get("raw_reply", ""))
-            if display_text:
-                await self._log_session_event(
-                    session_id=session_id,
-                    event_type="think",
-                    event_name="brain",
-                    event_detail={
-                        "step_count": detail.get("step_count"),
-                        "thought": display_text,
-                    },
-                )
+            raw_reply = detail.get("raw_reply", "")
+            has_actions = bool(re.search(r'<action_script[^>]*>', raw_reply))
+
+            if has_actions:
+                # Has action blocks → strip scripts, log remaining as thought
+                display_text = self._strip_action_script(raw_reply)
+                if display_text:
+                    await self._log_session_event(
+                        session_id=session_id,
+                        event_type="think",
+                        event_name="brain",
+                        event_detail={
+                            "step_count": detail.get("step_count"),
+                            "thought": display_text,
+                        },
+                    )
+            else:
+                # No action blocks → chat message from the agent
+                text = raw_reply.strip()
+                if text:
+                    msg_type = "question" if re.search(r'[?？❓？]\s*$', text) else "statement"
+                    await self._log_session_event(
+                        session_id=session_id,
+                        event_type="chat-msg",
+                        event_name="agent",
+                        event_detail={
+                            "step_count": detail.get("step_count"),
+                            "text": text,
+                            "msg_type": msg_type,
+                        },
+                    )
 
         elif event.event_type == "session" and event.event_name == "exit_msg":
             detail = event.detail or {}
