@@ -132,6 +132,7 @@
     "resources": [
       "resources/matrix-template/**/*",
       "resources/python_dist/**/*",
+      "resources/python_standalone/**/*",
       "resources/shared_env_requirements.txt"
     ],
     "externalBin": [],
