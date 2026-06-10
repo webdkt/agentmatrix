@@ -64,7 +64,7 @@
       "title": "Automation Systems",
       "desc": "Select a system to manage and run automation processes. Each system contains one or more processes that can be executed by the automation agent.",
       "searchPlaceholder": "Search systems...",
-      "newSystem": "New System",
+      "newSystem": "New Automation TargetSystem",
       "loading": "Loading systems...",
       "loadFailed": "Failed to load systems",
       "noSystems": "No automation systems found",

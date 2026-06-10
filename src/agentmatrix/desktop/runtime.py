@@ -547,9 +547,9 @@ class AgentMatrix(AutoLoggerMixin):
 
         # 6.5 关闭所有知识库命名空间的数据库连接
         try:
-            from agentmatrix.desktop.skills.knowledge_base._shared import NamespaceRegistry
-            await NamespaceRegistry.shutdown_all()
-            self.echo(">>> Knowledge base namespaces shut down")
+            from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry
+            await KBRegistry.shutdown_all()
+            self.echo(">>> Knowledge bases shut down")
         except Exception as e:
             self.echo(f">>> Knowledge base shutdown error: {e}")
 

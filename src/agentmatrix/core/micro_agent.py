@@ -142,7 +142,7 @@ class MicroAgent(AutoLoggerMixin):
         self._exit_verification_task: asyncio.Task = None  # 异步退出验证任务
         self._before_think_hook = None  # Shell 层注入的 think 前回调
         self._before_exit_hook = None  # Shell 层注入的退出前回调
-        self._before_action_hook = None  # (action_name, params) -> None or False to skip
+        self._before_action_hook = None  # (action_name, params, action_label) -> None or False to skip
         self._after_action_hook = None   # (action_name, params, result) -> None
         self._should_exit: bool = False  # action 设置此 flag 触发退出
 
@@ -1672,7 +1672,7 @@ class MicroAgent(AutoLoggerMixin):
         # Pre-action hook
         if self._before_action_hook:
             try:
-                proceed = await self._before_action_hook(action_name, params)
+                proceed = await self._before_action_hook(action_name, params, action_label)
                 if proceed is False:
                     return f"[{action_name}] Skipped by hook."
             except Exception as e:

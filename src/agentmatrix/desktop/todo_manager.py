@@ -179,6 +179,20 @@ class TodoManager:
             new_todos[str(i)] = self._todos[key]
         self._todos = new_todos
 
+    # ==================== 状态更新（供 hook 调用）====================
+
+    def set_status_by_index(self, index: str, status: str) -> bool:
+        """按 index 更新 todo 状态，不改变 todo_str。返回是否成功。"""
+        index = str(index)
+        if index not in self._todos:
+            return False
+        if status not in _VALID_STATUSES:
+            return False
+        self._todos[index]["status"] = status
+        self._change_counter += 1
+        self._save_memory_to_file()
+        return True
+
     # ==================== 文件同步（think 前）====================
 
     def sync_from_file(self, micro: "MicroAgent"):

@@ -1138,6 +1138,21 @@ Start generating the Working Notes now. Remember: wrap your output in <working_n
         # 绑定退出前 hook
         micro._before_exit_hook = self._on_before_exit
 
+        # 绑定 action 前 hook：自动将 for_label 引用的 todo 设为 working
+        async def _before_action_hook(action_name: str, params: dict, action_label: str = ""):
+            if not action_label:
+                return
+            m = re.match(r'^#?(\d+)', action_label)
+            if not m:
+                return
+            index = m.group(1)
+            if self.todo_manager.data.get(index):
+                self.todo_manager.set_status_by_index(index, "working")
+                self.todo_manager.update_first_user_message(micro)
+                self.todo_manager.update_task_reminder(micro)
+
+        micro._before_action_hook = _before_action_hook
+
         # 注册 system prompt 热刷新 + whiteboard/todo 管理 hook：每轮 think 前执行
         async def _before_think_hook():
             # 1. 同步 whiteboard 文件（用户协同编辑检测）

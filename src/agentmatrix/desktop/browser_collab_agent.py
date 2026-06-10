@@ -351,14 +351,9 @@ class BrowserCollabAgent(BaseAgent):
 
         micro = super()._create_micro_agent()
         micro._automation_spec_loader = spec_loader
-        micro._before_action_hook = self._on_before_action
         micro._after_action_hook = self._on_after_action
 
         return micro
-
-    async def _on_before_action(self, action_name: str, params: dict):
-        """Called before each micro agent action executes. Return False to skip."""
-        pass
 
     async def _on_after_action(self, action_name: str, params: dict, result):
         """Called after each micro agent action completes."""
@@ -695,39 +690,43 @@ class BrowserCollabAgent(BaseAgent):
             logger.debug("[StatusCheck] Skipped: not an automation session")
             return True
 
-        # 4. Infer status via LLM (offline, no signal injection)
+        # 4. Infer status via LLM — fire-and-forget, 不阻塞退出
         self._actions_executed_since_status_check = False
+        # 快照 messages，避免后台任务读到已清理的状态
+        messages_snapshot = list(self.active_micro_agent.messages)
+        session_id = session.get("session_id", "")
+        asyncio.create_task(
+            self._infer_and_write_status(system_name, process_name, session_id, metadata, messages_snapshot)
+        )
+
+        return True
+
+    async def _infer_and_write_status(
+        self, system_name: str, process_name: str,
+        session_id: str, metadata: dict, messages: list,
+    ):
+        """后台推断 project_status 并写入 metadata + DB。"""
         logger.info(f"[StatusCheck] Inferring status for {system_name}/{process_name}...")
         try:
-            conversation = self._format_messages_for_status(self.active_micro_agent.messages)
+            conversation = self._format_messages_for_status(messages)
             prompt = f"{self._STATUS_PROMPT}\n\n---\n{conversation}"
             new_status = await self.cerebellum.backend.think_with_retry(
                 initial_messages=[{"role": "user", "content": prompt}],
                 parser=self._parse_status_response,
                 max_retries=3,
             )
-            if not new_status:
-                logger.info("[StatusCheck] LLM returned no parseable result")
-                return True
-
-            if new_status == "UNKNOWN":
-                logger.info("[StatusCheck] LLM returned UNKNOWN, skipping")
-                return True
+            if not new_status or new_status == "UNKNOWN":
+                logger.info(f"[StatusCheck] Skipped: {new_status}")
+                return
 
             logger.info(f"[StatusCheck] Inferred: {new_status}")
-
-            # Write to session metadata
             metadata["project_status"] = new_status
 
-            # Write to DB
             try:
                 db = self.runtime.post_office.email_db
-                session_id = session.get("session_id", "")
                 await db.update_automation_task_status(session_id, new_status)
                 logger.info(f"[StatusCheck] DB updated: {new_status}")
             except Exception as e:
                 logger.warning(f"[StatusCheck] DB sync failed: {e}")
         except Exception as e:
             logger.warning(f"[StatusCheck] Inference failed: {e}")
-
-        return True
