@@ -76,7 +76,7 @@ else
         mkdir -p /tmp/python-standalone
         tar xzf /tmp/python-standalone.tar.gz -C /tmp/python-standalone
         rm -rf "$PYTHON_STANDALONE_DIR"
-        cp -r /tmp/python-standalone/python/install "$PYTHON_STANDALONE_DIR"
+        cp -r /tmp/python-standalone/python "$PYTHON_STANDALONE_DIR"
         rm -rf /tmp/python-standalone /tmp/python-standalone.tar.gz
         echo "  ✅ python_standalone: $(du -sh "$PYTHON_STANDALONE_DIR" | awk '{print $1}')"
     fi

@@ -66,8 +66,8 @@ jobs:
           curl -L -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
           mkdir -p /tmp/python-standalone
           tar xzf /tmp/python-standalone.tar.gz -C /tmp/python-standalone
-          # Copy the install directory to resources
-          cp -r /tmp/python-standalone/python/install agentmatrix-desktop/src-tauri/resources/python_standalone
+          # Copy the python directory to resources (install_only tarballs extract to python/)
+          cp -r /tmp/python-standalone/python agentmatrix-desktop/src-tauri/resources/python_standalone
           echo "=== Standalone Python ==="
           ls -lh agentmatrix-desktop/src-tauri/resources/python_standalone/bin/python3
           du -sh agentmatrix-desktop/src-tauri/resources/python_standalone
@@ -166,8 +166,8 @@ jobs:
           curl -L -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
           mkdir -p /tmp/python-standalone
           tar xzf /tmp/python-standalone.tar.gz -C /tmp/python-standalone
-          # Copy the install directory to resources
-          cp -r /tmp/python-standalone/python/install agentmatrix-desktop/src-tauri/resources/python_standalone
+          # Copy the python directory to resources (install_only tarballs extract to python/)
+          cp -r /tmp/python-standalone/python agentmatrix-desktop/src-tauri/resources/python_standalone
           echo "=== Standalone Python ==="
           ls -lh agentmatrix-desktop/src-tauri/resources/python_standalone/python.exe
           du -sh agentmatrix-desktop/src-tauri/resources/python_standalone
