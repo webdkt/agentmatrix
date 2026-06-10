@@ -28,12 +28,12 @@
   --text-tertiary: #A1A1AA;
   --text-quaternary: #D4D4D8;
 
-  /* Accent — clean indigo-blue */
-  --accent: #4F6EF7;
-  --accent-hover: #3B5DE6;
-  --accent-muted: rgba(79,110,247,0.06);
-  --accent-soft: rgba(79,110,247,0.06);
-  --accent-medium: rgba(79,110,247,0.12);
+  /* Accent — deep gray */
+  --accent: #3A3A3C;
+  --accent-hover: #2C2C2E;
+  --accent-muted: rgba(58,58,60,0.06);
+  --accent-soft: rgba(58,58,60,0.06);
+  --accent-medium: rgba(58,58,60,0.12);
 
   /* Semantic */
   --success: #7D9B76;

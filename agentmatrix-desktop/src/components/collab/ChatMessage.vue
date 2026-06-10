@@ -1,10 +1,10 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { marked } from 'marked'
 import { invoke } from '@tauri-apps/api/core'
 import MIcon from '@/components/icons/MIcon.vue'
 import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
 import { isContainerPath, containerPathToHost } from '@/utils/pathHelper'
+import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps({
   message: {
@@ -32,39 +32,6 @@ onMounted(async () => {
     console.error('Failed to get config for path resolution:', e)
   }
 })
-
-// ---- Custom marked renderer: make container paths clickable ----
-
-function escapeHtml(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-function escapeAttr(s) {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function renderMarkdownWithPaths(text) {
-  if (!text) return ''
-  const renderer = new marked.Renderer()
-  renderer.codespan = function (token) {
-    const raw = token.text || token
-    if (isContainerPath(raw)) {
-      return `<code class="container-path" data-path="${escapeAttr(raw)}">${escapeHtml(raw)}</code>`
-    }
-    return `<code>${escapeHtml(raw)}</code>`
-  }
-  renderer.code = function (token) {
-    const raw = token.text || token
-    const lang = token.lang || ''
-    const langAttr = lang ? ` data-lang="${escapeAttr(lang)}"` : ''
-    return `<pre class="code-block"${langAttr}><button class="code-block__copy" title="Copy">Copy</button><code>${escapeHtml(raw)}</code></pre>`
-  }
-  try {
-    return marked.parse(String(text), { renderer }).trim()
-  } catch {
-    return text
-  }
-}
 
 // ---- Path click handler ----
 
@@ -120,7 +87,7 @@ const renderedBody = computed(() => {
   // bubble-agent: text from chat-msg, body_preview from emails, or thought text from exit_msg upgraded thoughts
   const body = props.message.data?.detail?.text || props.message.data?.detail?.body_preview || props.message.data?.detail?.thought
   if (!body) return ''
-  return renderMarkdownWithPaths(body)
+  return renderMarkdown(body)
 })
 
 // ---- Pill (action events) ----
@@ -179,7 +146,7 @@ const agentCommBody = computed(() => {
   if (props.message.type !== 'agent-comm') return ''
   const body = props.message.data?.detail?.body_preview
   if (!body) return ''
-  try { return renderMarkdownWithPaths(body) } catch { return body }
+  try { return renderMarkdown(body) } catch { return body }
 })
 
 // ---- System event ----
@@ -649,97 +616,7 @@ const handleAttachmentClick = async (attachment) => {
 }
 
 /* ===== Markdown styles ===== */
-.markdown-content :deep(p) {
-  margin-bottom: var(--spacing-1);
-}
-
-.markdown-content :deep(ul),
-.markdown-content :deep(ol) {
-  margin-left: var(--spacing-4);
-  margin-bottom: var(--spacing-1);
-}
-
-.markdown-content :deep(li) {
-  margin-bottom: 2px;
-}
-
-.markdown-content :deep(code) {
-  background: var(--surface-hover);
-  color: var(--accent);
-  padding: 1px 4px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-xs);
-}
-
-.markdown-content :deep(code.container-path) {
-  cursor: pointer;
-  transition: background 0.12s ease, text-decoration 0.12s ease;
-}
-
-.markdown-content :deep(code.container-path:hover) {
-  background: var(--accent-soft);
-  text-decoration: underline;
-}
-
-.markdown-content :deep(pre.code-block) {
-  position: relative;
-  background: var(--surface-secondary);
-  border: 1px solid var(--border-light);
-  color: var(--text-primary);
-  padding: var(--spacing-2);
-  padding-top: 28px;
-  border-radius: var(--radius-md);
-  overflow-x: auto;
-  margin-bottom: var(--spacing-1);
-}
-
-.markdown-content :deep(.code-block__copy) {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: transparent;
-  border: none;
-  color: var(--text-quaternary);
-  font-size: 11px;
-  font-family: inherit;
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-.markdown-content :deep(.code-block__copy:hover) {
-  background: var(--surface-hover);
-  color: var(--text-secondary);
-}
-
-.markdown-content :deep(pre.code-block code) {
-  background: transparent;
-  color: inherit;
-  padding: 0;
-}
-
-.markdown-content :deep(blockquote) {
-  border-left: 3px solid var(--text-quaternary);
-  padding-left: var(--spacing-2);
-  font-style: italic;
-  color: var(--text-tertiary);
-  margin-bottom: var(--spacing-1);
-}
-
-.markdown-content :deep(a) {
-  color: var(--info);
-  text-decoration: underline;
-}
-
-.markdown-content :deep(h1),
-.markdown-content :deep(h2),
-.markdown-content :deep(h3) {
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  margin-bottom: var(--spacing-1);
-  margin-top: var(--spacing-1);
-}
+@import '@/styles/markdown.css';
 
 /* ===== Attachments (zen-v2-dot style) ===== */
 .chat-msg__attachments {

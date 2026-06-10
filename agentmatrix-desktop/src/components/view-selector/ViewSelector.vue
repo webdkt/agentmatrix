@@ -43,10 +43,10 @@ const handleViewClick = (viewId) => {
         v-for="view in views"
         :key="view.id"
         :class="['view-selector__item', { 'view-selector__item--active': currentView === view.id }]"
-        :title="t(view.label)"
         @click="handleViewClick(view.id)"
       >
         <MIcon :name="view.icon" />
+        <span class="view-selector__label">{{ t(view.label) }}</span>
         <span
           v-if="view.id === 'collab' && sessionStore.hasUnreadSessions"
           class="view-selector__badge"
@@ -72,10 +72,18 @@ const handleViewClick = (viewId) => {
   align-items: center;
   padding: var(--spacing-4) 0;
   flex-shrink: 0;
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.view-selector:hover {
+  width: 180px;
+  align-items: flex-start;
 }
 
 .view-selector__logo {
   margin-bottom: var(--spacing-6);
+  padding: 0 8px;
 }
 
 .logo-icon {
@@ -111,8 +119,14 @@ const handleViewClick = (viewId) => {
   transition: all var(--duration-base) var(--ease-out);
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 12px;
   position: relative;
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+
+.view-selector:hover .view-selector__item {
+  width: 100%;
 }
 
 .view-selector__item:hover {
@@ -121,8 +135,8 @@ const handleViewClick = (viewId) => {
 }
 
 .view-selector__item--active {
-  background: var(--surface-base);
-  color: var(--accent);
+  background: rgba(184, 169, 201, 0.35);
+  color: var(--text-primary);
 }
 
 .view-selector__item--active::before {
@@ -135,11 +149,24 @@ const handleViewClick = (viewId) => {
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 
-.view-selector__icon {
-  font-size: var(--icon-lg);
+/* Label: hidden by default, revealed on hover */
+.view-selector__label {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0;
+  max-width: 0;
+  transition: opacity 0.15s ease, max-width 0.2s ease;
+  color: inherit;
 }
 
-/* Unread badge on email icon */
+.view-selector:hover .view-selector__label {
+  opacity: 1;
+  max-width: 100px;
+}
+
+/* Unread badge */
 .view-selector__badge {
   position: absolute;
   top: 8px;
@@ -156,28 +183,5 @@ const handleViewClick = (viewId) => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-1);
-}
-
-/* Tooltip styles */
-.view-selector__item[title]:hover::after {
-  content: attr(title);
-  position: absolute;
-  left: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%);
-  background: var(--text-primary);
-  color: white;
-  padding: var(--spacing-1) var(--spacing-2);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-xs);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration-fast) var(--ease-out);
-  z-index: var(--z-tooltip);
-}
-
-.view-selector__item[title]:hover::after {
-  opacity: 1;
 }
 </style>
