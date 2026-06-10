@@ -72,6 +72,22 @@ fn expand_path(path: &str) -> PathBuf {
 }
 
 
+/// Read the last N lines of a log file for error diagnostics.
+fn read_log_tail(path: &std::path::Path, max_lines: usize) -> String {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => return format!("<unable to read log: {}>", e),
+    };
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join("\n")
+}
+
+/// Convenience: read last 50 lines of log file
+fn read_log_tail_50(path: &std::path::Path) -> String {
+    read_log_tail(path, 50)
+}
+
 // Backend state management
 struct BackendState {
     child: Mutex<Option<Child>>,
@@ -259,6 +275,23 @@ async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Re
         println!("Working directory: {:?}", project_root);
     }
 
+    // Capture server stdout/stderr to a log file for diagnostics
+    let log_file_path = matrix_world.join(".matrix").join("server.log");
+    // Ensure .matrix directory exists
+    if let Some(parent) = log_file_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file_path)
+        .map_err(|e| format!("Failed to open server log file {:?}: {}", log_file_path, e))?;
+    let log_file_stderr = log_file.try_clone()
+        .map_err(|e| format!("Failed to clone log file handle: {}", e))?;
+    cmd.stdout(std::process::Stdio::from(log_file));
+    cmd.stderr(std::process::Stdio::from(log_file_stderr));
+    println!("Server log file: {:?}", log_file_path);
+
     // Put sidecar in its own process group so we can kill the entire tree
     #[cfg(unix)]
     cmd.process_group(0);
@@ -267,6 +300,9 @@ async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Re
             eprintln!("Failed to start backend: {}", e);
             format!("Failed to start backend: {}", e)
         })?;
+
+    let child_pid = child.id();
+    println!("Backend process spawned, PID: {}", child_pid);
 
     {
         *state.child.lock().unwrap() = Some(child);
@@ -278,6 +314,7 @@ async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Re
     let _ = std::fs::remove_file(&port_file);
     println!("Waiting for port file: {:?}", port_file);
     let mut attempt = 0u32;
+    let max_port_wait = 240u32; // 120 seconds
     let port = loop {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         attempt += 1;
@@ -288,6 +325,29 @@ async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Re
                     break port;
                 }
             }
+        }
+        // Check if child process exited unexpectedly
+        {
+            let mut guard = state.child.lock().unwrap();
+            if let Some(ref mut child) = *guard {
+                if let Ok(Some(status)) = child.try_wait() {
+                    eprintln!("Backend process (PID {}) exited prematurely with status: {}", child_pid, status);
+                    *guard = None;
+                    // Read last lines of log file for error context
+                    let log_tail = read_log_tail_50(&log_file_path);
+                    return Err(format!(
+                        "Backend process exited unexpectedly (status: {}).\n\nServer log ({}):\n{}",
+                        status, log_file_path.display(), log_tail
+                    ));
+                }
+            }
+        }
+        if attempt >= max_port_wait {
+            let log_tail = read_log_tail_50(&log_file_path);
+            return Err(format!(
+                "Timed out waiting for backend after {}s.\n\nServer log ({}):\n{}",
+                max_port_wait / 2, log_file_path.display(), log_tail
+            ));
         }
         if attempt % 20 == 0 {
             println!("Still waiting for port file ({}s)...", attempt / 2);
@@ -302,6 +362,7 @@ async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Re
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     attempt = 0;
+    let max_health_wait = 120u32; // 60 seconds
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         attempt += 1;
@@ -311,6 +372,28 @@ async fn start_backend_logic(app: &tauri::AppHandle, state: &BackendState) -> Re
             println!("Backend healthy on port {} after {} health checks", port, attempt);
             state.port.store(port, Ordering::SeqCst);
             return Ok(port);
+        }
+        // Check if child process exited during health check
+        {
+            let mut guard = state.child.lock().unwrap();
+            if let Some(ref mut child) = *guard {
+                if let Ok(Some(status)) = child.try_wait() {
+                    eprintln!("Backend process (PID {}) exited during health check: {}", child_pid, status);
+                    *guard = None;
+                    let log_tail = read_log_tail_50(&log_file_path);
+                    return Err(format!(
+                        "Backend exited during health check (status: {}).\n\nServer log ({}):\n{}",
+                        status, log_file_path.display(), log_tail
+                    ));
+                }
+            }
+        }
+        if attempt >= max_health_wait {
+            let log_tail = read_log_tail_50(&log_file_path);
+            return Err(format!(
+                "Backend started but health check timed out after {}s on port {}.\n\nServer log ({}):\n{}",
+                max_health_wait / 2, port, log_file_path.display(), log_tail
+            ));
         }
         if attempt % 20 == 0 {
             println!("Still waiting for backend health check on port {} ({}s)...", port, attempt / 2);
