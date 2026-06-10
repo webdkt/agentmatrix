@@ -149,33 +149,7 @@ fn find_system_python() -> Option<String> {
     None
 }
 
-// ==================== Micromamba Download ====================
-
-/// Get the micromamba download URL for the current platform
-fn get_micromamba_url() -> Option<&'static str> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => Some("https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-osx-arm64"),
-        ("macos", "x86_64") => Some("https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-osx-64"),
-        ("linux", "x86_64") => Some("https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64"),
-        ("windows", "x86_64") => Some("https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-win-64.exe"),
-        _ => None,
-    }
-}
-
-/// Download a file from URL to the given path
-fn download_file(url: &str, dest: &Path) -> Result<(), String> {
-    let output = StdCommand::new("curl")
-        .args(["-L", "-f", "-o", dest.to_str().unwrap(), url])
-        .output()
-        .map_err(|e| format!("Failed to run curl: {}. Please install curl.", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Download failed: {}", stderr));
-    }
-
-    Ok(())
-}
+// ==================== Venv Creation ====================
 
 /// Create venv using a Python executable
 fn create_venv(python_path: &str, venv_path: &Path) -> Result<(), String> {
@@ -293,6 +267,43 @@ fn verify_venv(venv_path: &Path) -> Result<String, String> {
     Ok(python_path.to_string_lossy().to_string())
 }
 
+// ==================== Bundled Python (production) ====================
+
+/// Get the path to the bundled standalone Python in app resources.
+/// In production, this Python is packaged by CI and MUST exist.
+/// In dev mode, returns None (use system Python instead).
+fn get_bundled_python() -> Option<String> {
+    if cfg!(dev) {
+        return None;
+    }
+
+    // Production: use Tauri resource dir
+    // Note: we can't use tauri::AppHandle here, so resolve resource dir from executable path
+    let exe_dir = std::env::current_exe().ok()?
+        .parent()?
+        .to_path_buf();
+
+    // On macOS .app bundle: <App>.app/Contents/Resources/resources/python_standalone/
+    // The Tauri resource_dir is typically Contents/Resources/
+    let candidates = vec![
+        exe_dir.join("../Resources/resources/python_standalone"),
+        exe_dir.join("resources/python_standalone"),
+    ];
+
+    for base in candidates {
+        let python_path = if cfg!(target_os = "windows") {
+            base.join("python.exe")
+        } else {
+            base.join("bin").join("python3")
+        };
+        if python_path.exists() {
+            return Some(python_path.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}
+
 // ==================== Tauri Commands ====================
 
 /// Check if the shared Python environment already exists
@@ -314,8 +325,8 @@ pub async fn check_python_env() -> Result<Option<String>, String> {
 ///
 /// Strategy:
 /// 1. Check if venv already exists → return
-/// 2. Find system Python >= 3.12 → use it to create venv
-/// 3. No suitable Python → download micromamba, create conda env, then venv
+/// 2. Production: use bundled standalone Python (from resources/python_standalone/)
+/// 3. Dev: find system Python >= 3.12
 #[tauri::command]
 pub async fn ensure_python_env(app: tauri::AppHandle) -> Result<String, String> {
     let config = AppConfig::load()?;
@@ -331,88 +342,37 @@ pub async fn ensure_python_env(app: tauri::AppHandle) -> Result<String, String> 
         println!("[python_env] Existing env invalid, recreating...");
     }
 
-    // 2. Try to find system Python
-    emit_progress(&app, "detecting", "Searching for Python >= 3.12...");
+    // 2. Find Python source for venv creation
+    emit_progress(&app, "detecting", "Preparing Python environment...");
 
-    let python_path = if let Some(path) = find_system_python() {
-        emit_progress(&app, "detecting", &format!("Found system Python: {}", path));
+    let python_path = if let Some(path) = get_bundled_python() {
+        // Production: use the bundled standalone Python
+        emit_progress(&app, "detecting", &format!("Using bundled Python: {}", path));
         path
+    } else if cfg!(dev) {
+        // Dev mode: find system Python
+        emit_progress(&app, "detecting", "Searching for system Python >= 3.12...");
+        if let Some(path) = find_system_python() {
+            emit_progress(&app, "detecting", &format!("Found system Python: {}", path));
+            path
+        } else {
+            return Err(
+                "No Python >= 3.12 found on this system.\n\n\
+                 In dev mode, please install Python 3.12+ (e.g. `brew install python@3.12`)."
+                    .to_string(),
+            );
+        }
     } else {
-        // 3. No system Python — download micromamba
-        emit_progress(&app, "downloading", "No suitable Python found. Downloading micromamba...");
-
-        let micromamba_url = get_micromamba_url()
-            .ok_or("Unsupported platform for micromamba download")?;
-
-        let tools_dir = workspace.join(".agentmatrix_python");
-        fs::create_dir_all(&tools_dir)
-            .map_err(|e| format!("Failed to create tools directory: {}", e))?;
-
-        let micromamba_path = if cfg!(target_os = "windows") {
-            tools_dir.join("micromamba.exe")
-        } else {
-            tools_dir.join("micromamba")
-        };
-
-        // Download if not already present
-        if !micromamba_path.exists() {
-            download_file(micromamba_url, &micromamba_path)?;
-            // Make executable on Unix
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = fs::metadata(&micromamba_path)
-                    .map_err(|e| format!("Failed to get micromamba permissions: {}", e))?
-                    .permissions();
-                perms.set_mode(0o755);
-                fs::set_permissions(&micromamba_path, perms)
-                    .map_err(|e| format!("Failed to set micromamba permissions: {}", e))?;
-            }
-            emit_progress(&app, "downloading", "micromamba downloaded successfully.");
-        } else {
-            emit_progress(&app, "downloading", "Using existing micromamba.");
-        }
-
-        // Create conda environment with Python 3.12
-        let conda_env_path = tools_dir.join("env");
-        emit_progress(&app, "installing", "Creating Python 3.12 environment with micromamba (this may take a few minutes)...");
-
-        let micromamba_str = micromamba_path.to_string_lossy().to_string();
-        let conda_env_str = conda_env_path.to_string_lossy().to_string();
-
-        let output = StdCommand::new(&micromamba_str)
-            .args([
-                "create", "-p", &conda_env_str,
-                "python=3.12", "-c", "conda-forge", "-y",
-            ])
-            .output()
-            .map_err(|e| format!("Failed to run micromamba: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(format!(
-                "micromamba create failed:\nstdout: {}\nstderr: {}", stdout, stderr
-            ));
-        }
-
-        emit_progress(&app, "installing", "Python 3.12 environment created.");
-
-        // Find the python in the conda env
-        let conda_python = if cfg!(target_os = "windows") {
-            conda_env_path.join("python.exe")
-        } else {
-            conda_env_path.join("bin").join("python3")
-        };
-
-        if !conda_python.exists() {
-            return Err(format!("Python not found in conda env: {:?}", conda_python));
-        }
-
-        conda_python.to_string_lossy().to_string()
+        // Production but bundled Python missing — this is a build error
+        return Err(
+            "Bundled Python not found in app resources.\n\n\
+             This is a BUILD ERROR: the app was not packaged correctly.\n\
+             Expected: resources/python_standalone/bin/python3"
+                .to_string(),
+        );
     };
 
-    // 4. Create shared venv
+    // 3. Create shared venv
     emit_progress(&app, "creating_venv", &format!("Creating shared venv from {}...", python_path));
 
     // Remove existing venv if present (invalid state)
@@ -423,11 +383,11 @@ pub async fn ensure_python_env(app: tauri::AppHandle) -> Result<String, String> 
 
     create_venv(&python_path, &shared_env)?;
 
-    // 5. Verify
+    // 4. Verify
     let venv_python = verify_venv(&shared_env)?;
     emit_progress(&app, "done", &format!("Shared Python environment ready: {}", venv_python));
 
-    // 5.5. Install packages into the shared venv (non-blocking on failure)
+    // 5. Install packages into the shared venv (non-blocking on failure)
     if let Ok(req_path) = get_requirements_path(&app) {
         if let Err(e) = install_packages(&app, &venv_python, &req_path) {
             eprintln!("[python_env] Package installation error: {}", e);

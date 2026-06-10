@@ -8,6 +8,8 @@ on:
 
 env:
   PYTHON_VERSION: '3.12'
+  PYTHON_STANDALONE_VERSION: '3.12.13+20260602'
+  PYTHON_STANDALONE_RELEASE: '20260602'
 
 jobs:
   # Job 1: Build macOS ARM64
@@ -55,6 +57,20 @@ jobs:
           echo "=== Verification ==="
           ls -lh agentmatrix-desktop/src-tauri/resources/python_dist/server
           du -sh agentmatrix-desktop/src-tauri/resources/python_dist
+
+      # ==================== Bundle Standalone Python for venv creation ====================
+      - name: Download standalone Python 3.12
+        run: |
+          PYTHON_URL="https://github.com/indygreg/python-build-standalone/releases/download/${{ env.PYTHON_STANDALONE_RELEASE }}/cpython-${{ env.PYTHON_STANDALONE_VERSION }}-aarch64-apple-darwin-install_only_stripped.tar.gz"
+          echo "Downloading: $PYTHON_URL"
+          curl -L -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
+          mkdir -p /tmp/python-standalone
+          tar xzf /tmp/python-standalone.tar.gz -C /tmp/python-standalone
+          # Copy the install directory to resources
+          cp -r /tmp/python-standalone/python/install agentmatrix-desktop/src-tauri/resources/python_standalone
+          echo "=== Standalone Python ==="
+          ls -lh agentmatrix-desktop/src-tauri/resources/python_standalone/bin/python3
+          du -sh agentmatrix-desktop/src-tauri/resources/python_standalone
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
@@ -140,6 +156,21 @@ jobs:
           echo "=== Verification ==="
           ls -lh agentmatrix-desktop/src-tauri/resources/python_dist/server.exe
           du -sh agentmatrix-desktop/src-tauri/resources/python_dist
+
+      # ==================== Bundle Standalone Python for venv creation ====================
+      - name: Download standalone Python 3.12
+        shell: bash
+        run: |
+          PYTHON_URL="https://github.com/indygreg/python-build-standalone/releases/download/${{ env.PYTHON_STANDALONE_RELEASE }}/cpython-${{ env.PYTHON_STANDALONE_VERSION }}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+          echo "Downloading: $PYTHON_URL"
+          curl -L -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
+          mkdir -p /tmp/python-standalone
+          tar xzf /tmp/python-standalone.tar.gz -C /tmp/python-standalone
+          # Copy the install directory to resources
+          cp -r /tmp/python-standalone/python/install agentmatrix-desktop/src-tauri/resources/python_standalone
+          echo "=== Standalone Python ==="
+          ls -lh agentmatrix-desktop/src-tauri/resources/python_standalone/python.exe
+          du -sh agentmatrix-desktop/src-tauri/resources/python_standalone
 
       # ==================== Frontend Build ====================
       - name: Install Node.js
