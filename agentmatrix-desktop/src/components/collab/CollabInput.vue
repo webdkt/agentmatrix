@@ -67,10 +67,7 @@ const sendReply = async () => {
 
     replyBody.value = ''
 
-    const response = await sessionAPI.sendEmail(
-      props.currentSession.session_id,
-      emailData
-    )
+    const response = await sessionAPI.sendReply(props.currentSession, emailData.body)
 
     removePendingEmail(placeholderObj.id)
     emit('sent', { response, placeholderId: placeholderObj.id })

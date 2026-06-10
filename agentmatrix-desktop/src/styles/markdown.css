@@ -1,23 +1,29 @@
 /* ===== Markdown content styles =====
  * 共享样式，用于所有渲染 markdown 的地方。
  * 在组件中配合 class="markdown-content" 使用。
+ * 注意：此文件通过非 scoped <style> 引入，不使用 :deep()。
  */
 
-.markdown-content :deep(p) {
+.markdown-content p {
   margin-bottom: var(--spacing-1);
 }
 
-.markdown-content :deep(ul),
-.markdown-content :deep(ol) {
-  margin-left: var(--spacing-4);
-  margin-bottom: var(--spacing-1);
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 20px;
+  margin: 2px 0;
 }
 
-.markdown-content :deep(li) {
+.markdown-content li {
   margin-bottom: 2px;
 }
 
-.markdown-content :deep(code) {
+.markdown-content li > ul,
+.markdown-content li > ol {
+  margin: 2px 0 0;
+}
+
+.markdown-content code {
   background: var(--surface-hover);
   color: var(--accent);
   padding: 1px 4px;
@@ -25,17 +31,17 @@
   font-size: var(--font-xs);
 }
 
-.markdown-content :deep(code.container-path) {
+.markdown-content code.container-path {
   cursor: pointer;
   transition: background 0.12s ease, text-decoration 0.12s ease;
 }
 
-.markdown-content :deep(code.container-path:hover) {
+.markdown-content code.container-path:hover {
   background: var(--accent-soft);
   text-decoration: underline;
 }
 
-.markdown-content :deep(pre.code-block) {
+.markdown-content pre.code-block {
   position: relative;
   background: var(--surface-secondary);
   border: 1px solid var(--border-light);
@@ -47,7 +53,7 @@
   margin-bottom: var(--spacing-1);
 }
 
-.markdown-content :deep(.code-block__copy) {
+.markdown-content .code-block__copy {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -62,18 +68,18 @@
   transition: background 0.12s ease, color 0.12s ease;
 }
 
-.markdown-content :deep(.code-block__copy:hover) {
+.markdown-content .code-block__copy:hover {
   background: var(--surface-hover);
   color: var(--text-secondary);
 }
 
-.markdown-content :deep(pre.code-block code) {
+.markdown-content pre.code-block code {
   background: transparent;
   color: inherit;
   padding: 0;
 }
 
-.markdown-content :deep(blockquote) {
+.markdown-content blockquote {
   border-left: 3px solid var(--text-quaternary);
   padding-left: var(--spacing-2);
   font-style: italic;
@@ -81,26 +87,26 @@
   margin-bottom: var(--spacing-1);
 }
 
-.markdown-content :deep(a) {
+.markdown-content a {
   color: var(--info);
   text-decoration: underline;
 }
 
-.markdown-content :deep(h1) {
+.markdown-content h1 {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 14px 0 6px;
   line-height: 1.3;
 }
-.markdown-content :deep(h2) {
+.markdown-content h2 {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 12px 0 4px;
   line-height: 1.35;
 }
-.markdown-content :deep(h3) {
+.markdown-content h3 {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
@@ -108,23 +114,23 @@
 }
 
 /* ---- Markdown tables ---- */
-.markdown-content :deep(table) {
+.markdown-content table {
   border-collapse: collapse;
   width: 100%;
   margin: 8px 0;
   font-size: 13px;
 }
-.markdown-content :deep(th),
-.markdown-content :deep(td) {
+.markdown-content th,
+.markdown-content td {
   border: 1px solid var(--border);
   padding: 5px 10px;
   text-align: left;
 }
-.markdown-content :deep(th) {
+.markdown-content th {
   background: var(--surface-secondary);
   font-weight: 600;
   color: var(--text-primary);
 }
-.markdown-content :deep(tr:nth-child(even)) {
+.markdown-content tr:nth-child(even) {
   background: var(--surface-secondary);
 }

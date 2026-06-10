@@ -616,7 +616,6 @@ const handleAttachmentClick = async (attachment) => {
 }
 
 /* ===== Markdown styles ===== */
-@import '@/styles/markdown.css';
 
 /* ===== Attachments (zen-v2-dot style) ===== */
 .chat-msg__attachments {
@@ -671,4 +670,8 @@ const handleAttachmentClick = async (attachment) => {
   margin-left: auto;
 }
 
+</style>
+
+<style>
+@import '@/styles/markdown.css';
 </style>

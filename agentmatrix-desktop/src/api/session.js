@@ -131,4 +131,23 @@ export const sessionAPI = {
     if (before) params.before = before
     return API.get(`/api/agents/${agentName}/sessions/${sessionId}/events`, { params })
   },
+
+  /**
+   * 根据 session 对象构造回复邮件的 emailData 并发送。
+   * CollabInput 和 CreateKBWizard 共用。
+   * @param {object} session - sessionStore.currentSession
+   * @param {string} body - 消息内容
+   * @returns {Promise} sendEmail 的返回值
+   */
+  async sendReply(session, body) {
+    const emailData = {
+      recipient: session.agent_name,
+      subject: '',
+      body,
+      task_id: session.task_id || session.session_id,
+      in_reply_to: session.last_email_id || undefined,
+      recipient_session_id: session.agent_session_id || undefined,
+    }
+    return this.sendEmail(session.session_id, emailData)
+  },
 }
