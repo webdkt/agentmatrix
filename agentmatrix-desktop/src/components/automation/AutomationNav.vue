@@ -9,7 +9,9 @@ const props = defineProps({
   selectedSystem: { type: String, default: null },
   selectedProcess: { type: String, default: null },
   systemDisplayName: { type: String, default: null },
+  systemIcon: { type: String, default: null },
   processDisplayName: { type: String, default: null },
+  processIcon: { type: String, default: null },
 })
 
 const emit = defineEmits(['navigate'])
@@ -36,14 +38,14 @@ function goSystem() {
         :class="{ 'automation-nav__item--current': state === 'process-select' }"
         @click="goSystem"
       >
-        <MIcon name="globe" class="automation-nav__icon" />
+        <MIcon :name="systemIcon || 'globe'" class="automation-nav__icon" />
         <span>{{ systemDisplayName || selectedSystem }}</span>
       </button>
     </template>
     <template v-if="selectedProcess && (state === 'session' || state === 'sending')">
       <MIcon name="chevron-right" class="automation-nav__separator" />
       <span class="automation-nav__item automation-nav__item--current">
-        <MIcon name="folder" class="automation-nav__icon" />
+        <MIcon :name="processIcon || 'folder'" class="automation-nav__icon" />
         <span>{{ processDisplayName || selectedProcess }}</span>
       </span>
     </template>
@@ -54,23 +56,22 @@ function goSystem() {
 .automation-nav {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
+  gap: 6px;
+  padding: 12px 24px;
   background: var(--surface-secondary);
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
-  min-height: 36px;
 }
 
 .automation-nav__item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
+  gap: 6px;
+  padding: 4px 8px;
   border: none;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 500;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -89,12 +90,12 @@ function goSystem() {
 }
 
 .automation-nav__icon {
-  font-size: 12px;
+  font-size: 16px;
   opacity: 0.6;
 }
 
 .automation-nav__separator {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-quaternary);
 }
 </style>

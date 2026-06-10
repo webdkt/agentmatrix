@@ -43,11 +43,8 @@ function getStatusClass(system) {
 
 <template>
   <div class="system-selector">
-    <!-- Header -->
-    <div class="system-selector__header">
-      <h2 class="system-selector__title">{{ t('automation.systems.title') }}</h2>
-      <p class="system-selector__desc">{{ t('automation.systems.desc') }}</p>
-    </div>
+    <!-- Description -->
+    <p class="system-selector__desc">{{ t('automation.systems.desc') }}</p>
 
     <!-- Search + New -->
     <div class="system-selector__toolbar">
@@ -125,21 +122,10 @@ function getStatusClass(system) {
   overflow-y: auto;
 }
 
-.system-selector__header {
-  margin-bottom: 20px;
-}
-
-.system-selector__title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 6px 0;
-}
-
 .system-selector__desc {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 16px 0;
   line-height: 1.5;
 }
 
@@ -284,14 +270,14 @@ function getStatusClass(system) {
 
 .system-selector__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
 }
 
 .system-card {
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: 20px;
   background: var(--surface-base);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -313,14 +299,14 @@ function getStatusClass(system) {
 }
 
 .system-card__icon {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-sm);
   background: var(--surface-hover);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 18px;
   color: var(--accent);
 }
 
@@ -375,12 +361,12 @@ function getStatusClass(system) {
 }
 
 .system-card__desc {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin: 0 0 4px 0;
-  line-height: 1.4;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 8px 0;
+  line-height: 1.5;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

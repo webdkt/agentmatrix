@@ -2,7 +2,7 @@ import { ref, watch, toValue } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
 // Convert directory name to display name: replace _/- with spaces, title case
-function formatDisplayName(dirName) {
+export function formatDisplayName(dirName) {
   return dirName
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase())

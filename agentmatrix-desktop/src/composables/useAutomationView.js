@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { API } from '@/api/client'
 import { sessionAPI } from '@/api/session'
 import { useSessionStore } from '@/stores/session'
-import { useAutomationSpec } from '@/composables/useAutomationSpec'
+import { useAutomationSpec, formatDisplayName } from '@/composables/useAutomationSpec'
 import i18n from '@/i18n'
 
 // Task ID generator matching Python format: {YYMMDDHHMM}-{subject}-{4char_rand}
@@ -205,9 +205,11 @@ export function useAutomationView() {
 
   async function startAutomation(systemName, processName) {
     const taskId = generateAutomationTaskId(systemName, processName)
+    const procObj = processesWithStatus.value.find(p => p.name === processName)
+    const subject = procObj?.displayName || formatDisplayName(processName)
     const emailData = {
       recipient: targetAgentName.value,
-      subject: `auto-${systemName}-${processName}`,
+      subject,
       body: i18n.global.t('automation.emailBody', { system: systemName, process: processName }),
       task_id: taskId,
     }
@@ -269,22 +271,22 @@ export function useAutomationView() {
   }
 
   async function resumeTask(task) {
-    let session = sessionStore.sessions.find(s => s.session_id === task.session_id)
+    const sid = task.session_id
+    let session = sessionStore.sessions.find(s => s.task_id === sid || s.session_id === sid)
     if (!session) {
-      // Sessions may not be loaded yet; try fetching
       try {
         await sessionStore.fetchSessions()
-        session = sessionStore.sessions.find(s => s.session_id === task.session_id)
+        session = sessionStore.sessions.find(s => s.task_id === sid || s.session_id === sid)
       } catch {}
     }
-    if (session) {
-      sessionStore.selectSession(session)
-      selectedSystem.value = task.system_name
-      selectedProcess.value = task.process_name
-      state.value = 'session'
-    } else {
-      console.warn(`[AutomationView] Session not found for task ${task.session_id}`)
+    if (!session) {
+      // Session not in loaded page; use minimal object with fields needed by AgentSessionPanel
+      session = { session_id: sid, agent_name: task.agent_name, agent_session_id: sid }
     }
+    sessionStore.selectSession(session)
+    selectedSystem.value = task.system_name
+    selectedProcess.value = task.process_name
+    state.value = 'session'
   }
 
   async function goBack() {
@@ -327,14 +329,27 @@ export function useAutomationView() {
   }
 
   // Display names for breadcrumb (fallback to raw name)
-  const selectedSystemDisplayName = computed(() => {
-    const sys = systemsWithStatus.value.find(s => s.name === selectedSystem.value)
-    return sys?.displayName || selectedSystem.value
-  })
-  const selectedProcessDisplayName = computed(() => {
-    const proc = processesWithStatus.value.find(p => p.name === selectedProcess.value)
-    return proc?.displayName || selectedProcess.value
-  })
+  const selectedSystemObj = computed(() =>
+    systemsWithStatus.value.find(s => s.name === selectedSystem.value)
+  )
+  const selectedProcessObj = computed(() =>
+    processesWithStatus.value.find(p => p.name === selectedProcess.value)
+  )
+  const selectedSystemDisplayName = computed(() =>
+    selectedSystemObj.value?.displayName || selectedSystem.value
+  )
+  const selectedSystemDescription = computed(() =>
+    selectedSystemObj.value?.description || ''
+  )
+  const selectedSystemIcon = computed(() =>
+    selectedSystemObj.value?.icon || null
+  )
+  const selectedProcessDisplayName = computed(() =>
+    selectedProcessObj.value?.displayName || selectedProcess.value
+  )
+  const selectedProcessIcon = computed(() =>
+    selectedProcessObj.value?.icon || null
+  )
 
   return {
     // State
@@ -353,7 +368,10 @@ export function useAutomationView() {
     loadError: spec.error,
     sendError,
     selectedSystemDisplayName,
+    selectedSystemDescription,
+    selectedSystemIcon,
     selectedProcessDisplayName,
+    selectedProcessIcon,
     // Search
     systemSearch,
     processSearch,

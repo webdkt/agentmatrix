@@ -88,7 +88,9 @@ function handleResume(process) {
       :selected-system="av.selectedSystem.value"
       :selected-process="av.selectedProcess.value"
       :system-display-name="av.selectedSystemDisplayName.value"
+      :system-icon="av.selectedSystemIcon.value"
       :process-display-name="av.selectedProcessDisplayName.value"
+      :process-icon="av.selectedProcessIcon.value"
       @navigate="handleNavigate"
     />
 
@@ -108,15 +110,13 @@ function handleResume(process) {
     <!-- Process Select -->
     <ProcessSelector
       v-else-if="av.state.value === 'process-select'"
-      :system-name="av.selectedSystem.value"
-      :system-display-name="av.selectedSystemDisplayName.value"
+      :system-description="av.selectedSystemDescription.value"
       :processes="av.filteredProcesses.value"
       :search="av.processSearch.value"
       :loading="av.processesLoading.value"
       :send-error="av.sendError.value"
       @select="av.selectProcess"
       @resume="handleResume"
-      @back="av.goBack"
       @update:search="v => av.processSearch.value = v"
       @new-process="handleNewProcess"
     />

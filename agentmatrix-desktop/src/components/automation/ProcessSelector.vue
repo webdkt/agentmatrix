@@ -5,15 +5,14 @@ import MIcon from '@/components/icons/MIcon.vue'
 const { t } = useI18n()
 
 const props = defineProps({
-  systemName: { type: String, required: true },
-  systemDisplayName: { type: String, default: '' },
+  systemDescription: { type: String, default: '' },
   processes: { type: Array, default: () => [] },
   search: { type: String, default: '' },
   loading: { type: Boolean, default: false },
   sendError: { type: String, default: '' },
 })
 
-const emit = defineEmits(['select', 'resume', 'back', 'update:search', 'new-process'])
+const emit = defineEmits(['select', 'resume', 'update:search', 'new-process'])
 
 function getStatusLabel(process) {
   if (process.hasActive) {
@@ -48,17 +47,8 @@ function getStatusClass(process) {
 
 <template>
   <div class="process-selector">
-    <!-- Header -->
-    <div class="process-selector__header">
-      <button class="process-selector__back" @click="emit('back')">
-        <MIcon name="arrow-left" />
-        <span>{{ t('automation.processes.back') }}</span>
-      </button>
-      <div>
-        <h2 class="process-selector__title">{{ systemDisplayName || systemName }}</h2>
-        <p class="process-selector__desc">{{ t('automation.processes.desc') }}</p>
-      </div>
-    </div>
+    <!-- Description -->
+    <p v-if="systemDescription" class="process-selector__desc">{{ systemDescription }}</p>
 
     <!-- Search + New -->
     <div class="process-selector__toolbar">
@@ -168,45 +158,10 @@ function getStatusClass(process) {
   overflow-y: auto;
 }
 
-.process-selector__header {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-
-.process-selector__back {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.12s;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.process-selector__back:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
-}
-
-.process-selector__title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 4px 0;
-}
-
 .process-selector__desc {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 16px 0;
 }
 
 .process-selector__toolbar {
@@ -334,14 +289,14 @@ function getStatusClass(process) {
 
 .process-selector__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
 }
 
 .process-card {
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: 20px;
   background: var(--surface-base);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -360,14 +315,14 @@ function getStatusClass(process) {
 }
 
 .process-card__icon {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-sm);
   background: var(--surface-hover);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 18px;
   color: var(--accent);
 }
 
@@ -422,12 +377,12 @@ function getStatusClass(process) {
 }
 
 .process-card__desc {
-  font-size: 11px;
-  color: var(--text-tertiary);
+  font-size: 12px;
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
-  line-height: 1.4;
+  line-height: 1.5;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
