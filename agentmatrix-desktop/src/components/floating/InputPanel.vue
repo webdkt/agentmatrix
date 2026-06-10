@@ -184,7 +184,7 @@ onUnmounted(() => {
 }
 
 .input-panel__textarea:focus {
-  border-color: var(--accent, #A67B7B);
+  border-color: var(--accent, #4F6EF7);
 }
 
 .input-panel__textarea::placeholder {
@@ -202,7 +202,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 10px 20px;
   border: none;
-  background: var(--accent, #A67B7B);
+  background: var(--accent, #4F6EF7);
   color: white;
   border-radius: 10px;
   font-size: 14px;

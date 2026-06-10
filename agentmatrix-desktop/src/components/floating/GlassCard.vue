@@ -103,7 +103,7 @@ function onBodyMouseDown(e) {
           <MIcon name="send" />
         </button>
         <button class="glass-card__icon-btn glass-card__icon-btn--menu" @mousedown.stop @click.stop="$emit('toggle-menu')" title="Actions">
-          <MIcon name="dots-vertical" />
+          <MIcon name="more-vertical" />
         </button>
       </div>
     </div>

@@ -38,34 +38,30 @@ const todo = useTodo({
 // ---- Dynamic panel list based on agent skills ----
 const visiblePanels = computed(() => resolvePanels(props.agentSkills))
 
-// ---- Accordion ----
-const expandedSection = ref('whiteboard')
+// ---- Active tab ----
+const activeTab = ref('whiteboard')
 
 watch(visiblePanels, (panels) => {
   if (panels.length === 0) {
-    expandedSection.value = null
+    activeTab.value = null
     return
   }
   const ids = panels.map(p => p.id)
-  if (expandedSection.value && !ids.includes(expandedSection.value)) {
-    expandedSection.value = ids[0]
+  if (activeTab.value && !ids.includes(activeTab.value)) {
+    activeTab.value = ids[0]
   }
 }, { immediate: true })
 
-function toggleSection(name) {
-  expandedSection.value = expandedSection.value === name ? null : name
-}
-
 function switchTab(name) {
-  expandedSection.value = name
+  activeTab.value = name
 }
 
 // ---- Auto-switch tab on file change ----
 watch(() => whiteboard.version.value, (v) => {
-  if (v > 0 && expandedSection.value !== 'whiteboard') expandedSection.value = 'whiteboard'
+  if (v > 0 && activeTab.value !== 'whiteboard') activeTab.value = 'whiteboard'
 })
 watch(() => todo.version.value, (v) => {
-  if (v > 0 && expandedSection.value !== 'todo') expandedSection.value = 'todo'
+  if (v > 0 && activeTab.value !== 'todo') activeTab.value = 'todo'
 })
 
 const entryCount = computed(() => {
@@ -140,10 +136,10 @@ function onPanelEvent(panelId, eventName, ...args) {
   }
 }
 
-// ---- Auto-refresh files when tab is expanded ----
+// ---- Auto-refresh files when tab is active ----
 let filesRefreshTimer = null
 
-watch(expandedSection, (section) => {
+watch(activeTab, (section) => {
   if (filesRefreshTimer) { clearInterval(filesRefreshTimer); filesRefreshTimer = null }
   if (section === 'files') {
     emit('load-files')
@@ -155,69 +151,53 @@ onUnmounted(() => {
   if (filesRefreshTimer) clearInterval(filesRefreshTimer)
 })
 
+// ---- First tab detection (for content corner radius) ----
+const isFirstTabActive = computed(() => {
+  if (!visiblePanels.value.length) return false
+  return activeTab.value === visiblePanels.value[0].id
+})
+
 defineExpose({ switchTab })
 </script>
 
 <template>
   <div class="task-info-panel">
-    <div
-      v-for="panel in visiblePanels"
-      :key="panel.id"
-      class="tip-section"
-      :class="{ 'tip-section--collapsed': expandedSection !== panel.id }"
-    >
-      <button class="tip-section__header" @click="toggleSection(panel.id)">
-        <span class="tip-section__header-icon"><MIcon :name="panel.icon" /></span>
-        <span class="tip-section__header-label">{{ panel.label }}</span>
-        <span v-if="panelCounts[panel.id]" class="tip-section__header-count">{{ panelCounts[panel.id] }}</span>
-        <MIcon name="chevron-down" class="tip-section__chevron" />
+    <!-- Tab Bar -->
+    <div class="tip-tabs">
+      <button
+        v-for="panel in visiblePanels"
+        :key="panel.id"
+        class="tip-tab"
+        :class="{ 'tip-tab--active': activeTab === panel.id }"
+        @click="activeTab = panel.id"
+      >
+        <MIcon :name="panel.icon" class="tip-tab__icon" />
+        <span class="tip-tab__label">{{ panel.label }}</span>
+        <span v-if="panelCounts[panel.id]" class="tip-tab__badge">{{ panelCounts[panel.id] }}</span>
       </button>
-      <div v-if="expandedSection === panel.id" class="tip-section__body">
-        <!-- Whiteboard (needs composable data + save event) -->
+    </div>
+
+    <!-- Active Panel Content -->
+    <div class="tip-content" :class="{ 'tip-content--first-active': isFirstTabActive }">
+      <!-- Whiteboard -->
+      <template v-for="panel in visiblePanels" :key="panel.id">
         <component
+          v-if="activeTab === panel.id"
           :is="panel.component"
-          v-if="panel.id === 'whiteboard'"
-          :sections="whiteboard.sections.value"
-          :is-loaded="whiteboard.isLoaded.value"
-          :agent-name="agentName"
-          @save="whiteboard.replaceAll"
+          v-bind="getPanelProps(panel.id)"
+          v-on="{
+            'load-files': (...a) => onPanelEvent(panel.id, 'load-files', ...a),
+            'open-entry': (...a) => onPanelEvent(panel.id, 'open-entry', ...a),
+            'go-up': (...a) => onPanelEvent(panel.id, 'go-up', ...a),
+            'go-root': (...a) => onPanelEvent(panel.id, 'go-root', ...a),
+            'select-file': (...a) => onPanelEvent(panel.id, 'select-file', ...a),
+            'contextmenu': (...a) => onPanelEvent(panel.id, 'contextmenu', ...a),
+            'hide-context-menu': (...a) => onPanelEvent(panel.id, 'hide-context-menu', ...a),
+            'menu-action': (...a) => onPanelEvent(panel.id, 'menu-action', ...a),
+            'save': (...a) => onPanelEvent(panel.id, 'save', ...a),
+          }"
         />
-        <!-- Todo (needs composable data) -->
-        <component
-          :is="panel.component"
-          v-else-if="panel.id === 'todo'"
-          :todos="todo.todos.value"
-          :is-loaded="todo.isLoaded.value"
-        />
-        <!-- Files (needs many props from parent) -->
-        <component
-          :is="panel.component"
-          v-else-if="panel.id === 'files'"
-          :files="files"
-          :files-loading="filesLoading"
-          :current-dir="currentDir"
-          :root-dir="rootDir"
-          :is-at-root="isAtRoot"
-          :relative-path="relativePath"
-          :selected-files="selectedFiles"
-          :context-menu="contextMenu"
-          @load-files="emit('load-files')"
-          @open-entry="(entry) => emit('open-entry', entry)"
-          @go-up="emit('go-up')"
-          @go-root="emit('go-root')"
-          @select-file="(entry, event) => emit('select-file', entry, event)"
-          @contextmenu="(entry, event) => emit('contextmenu', entry, event)"
-          @hide-context-menu="emit('hide-context-menu')"
-          @menu-action="(action) => emit('menu-action', action)"
-        />
-        <!-- Generic panels (receive agentName + sessionId) -->
-        <component
-          :is="panel.component"
-          v-else
-          :agent-name="agentName"
-          :session-id="sessionId"
-        />
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -227,93 +207,118 @@ defineExpose({ switchTab })
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
-  font-size: 12px;
-  padding-bottom: 42px;
+  overflow: visible;
+  font-size: 14px;
+  padding-top: 6px;
 }
 
-.tip-section {
+/* ---- Tab Bar ---- */
+.tip-tabs {
   display: flex;
-  flex-direction: column;
-  min-height: 0;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 0 0 0;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
-.tip-section--collapsed { flex-shrink: 0; }
-.tip-section:not(.tip-section--collapsed) { flex: 1; min-height: 0; }
 
-/* ---- Unified tab header ---- */
-.tip-section__header {
+/* ---- Tab (inactive = behind) ---- */
+.tip-tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  width: 100%;
-  border: none;
-  border-left: 2px solid transparent;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-  color: var(--text-secondary);
-  background: transparent;
-  transition: all 0.15s ease;
-}
-.tip-section__header:hover {
-  color: var(--text-primary);
-  background: rgba(0, 0, 0, 0.03);
-}
-
-/* Collapsed: subtle divider */
-.tip-section + .tip-section > .tip-section__header {
-  border-top: 1px solid var(--border);
-}
-
-/* Active: left accent + emphasis */
-.tip-section:not(.tip-section--collapsed) > .tip-section__header {
-  border-left-color: var(--text-secondary);
-  color: var(--text-primary);
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.tip-section__header-icon {
-  display: flex;
-  font-size: 14px;
-  opacity: 0.55;
-  transition: opacity 0.15s ease;
-}
-.tip-section:not(.tip-section--collapsed) > .tip-section__header .tip-section__header-icon {
-  opacity: 0.85;
-}
-
-.tip-section__header-label { flex: 1; text-align: left; }
-
-.tip-section__header-count {
-  font-size: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  padding: 1px 7px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.05);
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1.5px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--surface-secondary);
   color: var(--text-tertiary);
-  transition: all 0.15s ease;
-}
-.tip-section:not(.tip-section--collapsed) > .tip-section__header .tip-section__header-count {
-  background: rgba(0, 0, 0, 0.07);
-  color: var(--text-secondary);
-}
-
-.tip-section__chevron {
   font-size: 12px;
-  opacity: 0.4;
-  transition: transform 0.2s ease, opacity 0.15s ease;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
-.tip-section--collapsed .tip-section__chevron { transform: rotate(-90deg); }
-.tip-section:not(.tip-section--collapsed) > .tip-section__header .tip-section__chevron { opacity: 0.6; }
 
-.tip-section__body { flex: 1; min-height: 0; overflow-y: auto; }
-.tip-section__placeholder {
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px; color: var(--text-quaternary); font-size: 12px;
+.tip-tab:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+/* ---- Active tab = connects to content, thick black outline ---- */
+.tip-tab--active {
+  border: 2px solid var(--text-primary);
+  border-bottom: 2px solid var(--surface-base);
+  border-radius: 10px 10px 0 0;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-weight: 600;
+  z-index: 3;
+  margin-bottom: -2px;
+  padding-bottom: 7px;
+  background-clip: padding-box;
+}
+
+.tip-tab--active:hover {
+  color: var(--text-primary);
+  background: var(--surface-base);
+}
+
+.tip-tab__icon {
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+/* Label hidden by default, shown on hover/active */
+.tip-tab__label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width 0.2s ease, opacity 0.15s ease;
+}
+
+.tip-tab:hover .tip-tab__label,
+.tip-tab--active .tip-tab__label {
+  max-width: 120px;
+  opacity: 1;
+}
+
+.tip-tab__badge {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tip-tab--active .tip-tab__badge {
+  background: var(--text-primary);
+  color: var(--surface-base);
+}
+
+/* ---- Content Area = thick black outline, square right corners ---- */
+.tip-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface-base);
+  border: 2px solid var(--text-primary);
+  border-radius: 10px 0 0 10px;
+}
+
+/* First tab active: top-left square so it aligns with the tab's bottom-left */
+.tip-content--first-active {
+  border-radius: 0 0 0 10px;
 }
 </style>

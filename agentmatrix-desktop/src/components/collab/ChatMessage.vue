@@ -117,8 +117,8 @@ const renderedBody = computed(() => {
     if (!body) return ''
     return body
   }
-  // bubble-agent: body_preview from emails, or thought text from exit_msg upgraded thoughts
-  const body = props.message.data?.detail?.body_preview || props.message.data?.detail?.thought
+  // bubble-agent: text from chat-msg, body_preview from emails, or thought text from exit_msg upgraded thoughts
+  const body = props.message.data?.detail?.text || props.message.data?.detail?.body_preview || props.message.data?.detail?.thought
   if (!body) return ''
   return renderMarkdownWithPaths(body)
 })

@@ -152,7 +152,8 @@ const adjustHeight = () => {
 }
 
 .collab-input__container:focus-within {
-  border-color: var(--text-primary);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
 .collab-input__textarea {
@@ -216,8 +217,8 @@ const adjustHeight = () => {
 }
 
 .collab-input__hint-text {
-  font-size: 10px;
-  color: var(--text-quaternary);
+  font-size: 11px;
+  color: var(--text-tertiary);
   line-height: 1;
 }
 

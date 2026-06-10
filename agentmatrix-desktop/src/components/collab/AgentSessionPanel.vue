@@ -671,11 +671,11 @@ function onDividerMouseUp() {
         </div>
       </div>
 
-      <!-- Resizable Divider -->
+      <!-- Resize Handle -->
       <div
         v-if="currentAgentName && currentSessionId"
-        class="agent-session-panel__divider"
-        :class="{ 'agent-session-panel__divider--active': isDraggingDivider }"
+        class="agent-session-panel__resize-handle"
+        :class="{ 'agent-session-panel__resize-handle--active': isDraggingDivider }"
         @mousedown="onDividerMouseDown"
       />
 
@@ -811,7 +811,7 @@ function onDividerMouseUp() {
   justify-content: space-between;
   padding: 0 28px;
   background: var(--surface-base);
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border);
 }
 
 .agent-session-panel__agent-info {
@@ -888,11 +888,11 @@ function onDividerMouseUp() {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   background: var(--surface-secondary);
-  border: 1px solid var(--surface-hover);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
   animation: fadeIn 200ms var(--ease-out);
   transition: all 0.3s ease;
@@ -1046,28 +1046,38 @@ function onDividerMouseUp() {
   min-width: 0;
 }
 
-/* ---- Resizable Divider ---- */
-.agent-session-panel__divider {
-  width: 7px;
+/* ---- Resize Handle ---- */
+.agent-session-panel__resize-handle {
+  width: 5px;
   flex-shrink: 0;
   cursor: col-resize;
-  background: transparent;
   position: relative;
   z-index: 3;
   transition: background 0.15s ease;
-  margin: 0 -1px;
 }
-
-.agent-session-panel__divider:hover,
-.agent-session-panel__divider--active {
+.agent-session-panel__resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.agent-session-panel__resize-handle:hover::after,
+.agent-session-panel__resize-handle--active::after {
+  opacity: 1;
   background: var(--accent);
 }
 
 /* ---- TaskInfo Panel (default 5:3, resizable) ---- */
 .agent-session-panel__task-info {
   flex: 3 1 0%;
-  overflow: hidden;
-  background: var(--surface-base);
+  overflow: visible;
   z-index: 2;
   min-width: 200px;
 }

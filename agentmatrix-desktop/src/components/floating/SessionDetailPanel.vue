@@ -861,7 +861,7 @@ onUnmounted(() => {
 }
 
 .session-detail-panel__textarea:focus {
-  border-color: var(--accent, #A67B7B);
+  border-color: var(--accent, #4F6EF7);
 }
 
 .session-detail-panel__textarea::placeholder {
@@ -876,7 +876,7 @@ onUnmounted(() => {
   width: 36px;
   height: 36px;
   border: none;
-  background: var(--accent, #A67B7B);
+  background: var(--accent, #4F6EF7);
   color: white;
   border-radius: 50%;
   font-size: 16px;
@@ -921,7 +921,7 @@ onUnmounted(() => {
 
 .session-detail-panel__drop-overlay .iconify {
   font-size: 32px;
-  color: var(--accent, #A67B7B);
+  color: var(--accent, #4F6EF7);
 }
 
 @keyframes spin {

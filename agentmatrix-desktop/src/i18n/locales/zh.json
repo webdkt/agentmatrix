@@ -51,6 +51,9 @@
     "automation": {
       "title": "自动化"
     },
+    "knowledge": {
+      "title": "知识库"
+    },
     "settings": {
       "title": "设置",
       "icon": "ti-settings"

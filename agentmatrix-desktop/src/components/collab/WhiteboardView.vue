@@ -104,19 +104,22 @@ const editSectionList = computed(() => Object.keys(editSections.value))
     </div>
 
     <!-- 只读展示 -->
-    <div v-else class="whiteboard-view__sections">
+    <div v-else class="whiteboard-view__content">
       <div v-for="sec in sectionNames" :key="sec" class="wb-section">
-        <div class="wb-section__title">{{ sec }}</div>
+        <div class="wb-section__header">
+          <span class="wb-section__dot"></span>
+          <span class="wb-section__name">{{ sec }}</span>
+        </div>
         <div class="wb-section__entries">
           <div v-for="(entry, key) in sections[sec]" :key="key" class="wb-entry">
             <span class="wb-entry__key">{{ key }}</span>
-            <span class="wb-entry__content">{{ entry.content }}</span>
+            <span class="wb-entry__val">{{ entry.content }}</span>
           </div>
         </div>
       </div>
     </div>
 
-    <div v-if="isLoaded" class="whiteboard-view__hint">双击编辑</div>
+    <div v-if="isLoaded && sectionNames.length" class="whiteboard-view__hint">双击编辑</div>
 
     <!-- ========== 编辑弹窗 ========== -->
     <Teleport to="body">
@@ -203,58 +206,94 @@ const editSectionList = computed(() => Object.keys(editSections.value))
 
 <style scoped>
 .whiteboard-view {
-  padding: 8px 10px;
+  padding: 10px 14px;
   min-height: 40px;
   user-select: none;
 }
 .whiteboard-view__loading {
   display: flex; align-items: center; justify-content: center;
-  padding: 16px; color: var(--text-quaternary); font-size: 12px;
+  padding: 20px; color: var(--text-tertiary); font-size: 13px;
 }
 .whiteboard-view__empty {
-  color: var(--text-quaternary); font-size: 11px;
-  text-align: center; padding: 20px 0; font-style: italic;
+  color: var(--text-tertiary); font-size: 13px;
+  text-align: center; padding: 24px 0; font-style: italic;
 }
 .whiteboard-view__hint {
-  margin-top: 8px; font-size: 10px;
+  margin-top: 10px; font-size: 11px;
   color: var(--text-quaternary); text-align: center; opacity: 0.5;
 }
 
-/* ---- 只读展示 ---- */
-.whiteboard-view__sections {
-  display: flex; flex-direction: column; gap: 8px;
+/* ---- 只读展示：紧凑列表 ---- */
+.whiteboard-view__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
+
 .wb-section {
-  background: var(--surface-secondary);
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.wb-section__title {
-  padding: 5px 8px;
-  font-size: 10px; font-weight: 700;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-  letter-spacing: 0.03em;
+
+.wb-section__header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.wb-section__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.wb-section__name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
 .wb-section__entries {
-  padding: 4px 8px 6px;
-  display: flex; flex-direction: column; gap: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 13px;  /* align with dot center */
 }
+
 .wb-entry {
-  display: flex; align-items: baseline; gap: 4px;
-  font-size: 12px; line-height: 1.4;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.5;
+  font-size: 13px;
 }
+
 .wb-entry__key {
-  font-size: 11px; font-weight: 600;
-  color: var(--text-secondary);
-  white-space: nowrap; flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 0;
 }
-.wb-entry__key::after { content: ':'; }
-.wb-entry__content {
+.wb-entry__key::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+}
+
+.wb-entry__val {
   color: var(--text-primary);
-  white-space: pre-wrap; word-break: break-word;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
 }
 
 /* ========== 编辑弹窗 ========== */
