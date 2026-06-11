@@ -68,12 +68,27 @@
       color: #1A1A1A;
       margin-right: 4px;
     }
+
+    /* 详细进度行 */
+    .detail {
+      font-size: 11px;
+      color: #999;
+      text-align: center;
+      min-height: 16px;
+      max-width: 340px;
+      line-height: 1.4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
   </style>
 </head>
 <body>
   <div class="title">AgentMatrix</div>
   <div class="thinking-bar"></div>
   <div class="status" id="status">正在启动...</div>
+  <div class="detail" id="detail"></div>
 
   <script>
     console.log('🔍 Splash screen loaded');
@@ -130,7 +145,8 @@
 
     function updatePythonEnvStatus(progress) {
       const statusEl = document.getElementById('status');
-      const { stage, message } = progress;
+      const detailEl = document.getElementById('detail');
+      const { stage, message, detail } = progress;
 
       const stageMessages = {
         'detecting': '正在检测 Python 环境...',
@@ -149,10 +165,15 @@
 
       if (stage === 'done') {
         statusEl.innerHTML = '✅ ' + text;
+        detailEl.textContent = '';
       } else if (stage === 'error') {
         statusEl.innerHTML = '⚠️ ' + text;
+        detailEl.textContent = '';
       } else {
         statusEl.innerHTML = text;
+        if (detail) {
+          detailEl.textContent = detail;
+        }
       }
     }
   </script>
