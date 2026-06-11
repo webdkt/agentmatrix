@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command as StdCommand;
+use std::process::{Command as StdCommand, Stdio};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
@@ -12,12 +13,19 @@ use crate::config::AppConfig;
 pub struct PythonEnvProgress {
     pub stage: String,  // "detecting", "downloading", "installing", "creating_venv", "done", "error"
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 fn emit_progress(app: &tauri::AppHandle, stage: &str, message: &str) {
+    emit_progress_with_detail(app, stage, message, None);
+}
+
+fn emit_progress_with_detail(app: &tauri::AppHandle, stage: &str, message: &str, detail: Option<&str>) {
     let progress = PythonEnvProgress {
         stage: stage.to_string(),
         message: message.to_string(),
+        detail: detail.map(|s| s.to_string()),
     };
     // Try splash window first, fall back to global emit
     if let Some(splash) = app.get_webview_window("splash") {
@@ -25,7 +33,7 @@ fn emit_progress(app: &tauri::AppHandle, stage: &str, message: &str) {
     } else {
         let _ = app.emit("python-env-progress", &progress);
     }
-    println!("[python_env] {} - {}", stage, message);
+    println!("[python_env] {} - {} (detail: {:?})", stage, message, detail);
 }
 
 // ==================== Python Detection ====================
@@ -212,24 +220,45 @@ fn install_packages(app: &tauri::AppHandle, venv_python: &str, requirements_path
         return Ok(());
     }
 
-    emit_progress(&app, "installing_packages", "Installing packages into shared environment...");
+    emit_progress(&app, "installing_packages", "正在安装依赖包...");
 
     let requirements_str = requirements_path.to_string_lossy().to_string();
-    let output = StdCommand::new(&pip_path)
+    let mut child = StdCommand::new(&pip_path)
         .args(["install", "--no-cache-dir", "-r", &requirements_str])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to run pip: {}", e))?;
 
-    if output.status.success() {
-        emit_progress(&app, "installing_packages", "Packages installed successfully.");
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        eprintln!(
-            "[python_env] pip install failed (non-blocking):\nstdout: {}\nstderr: {}",
-            stdout, stderr
-        );
-        emit_progress(&app, "installing_packages", "Some packages failed to install, continuing...");
+    // Stream stdout line by line
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    if let Some(stdout) = stdout {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            if !line.is_empty() {
+                emit_progress_with_detail(&app, "installing_packages", "正在安装依赖包...", Some(&line));
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("Failed to wait for pip: {}", e))?;
+
+    if !status.success() {
+        // Also dump stderr for debugging
+        if let Some(stderr) = stderr {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().flatten() {
+                eprintln!("[python_env] pip stderr: {}", line);
+            }
+        }
+        eprintln!("[python_env] pip install failed (non-blocking)");
+        emit_progress(&app, "installing_packages", "部分包安装失败，继续启动...");
     }
 
     Ok(())
