@@ -12,6 +12,7 @@ import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
 import AutomationView from '@/components/automation/AutomationView.vue'
 import KnowledgeBaseView from '@/components/knowledge/KnowledgeBaseView.vue'
+import ServicesView from '@/components/services/ServicesView.vue'
 
 const props = defineProps({
   currentView: {
@@ -79,6 +80,13 @@ provide('collabDraftMessage', collabDraftMessage)
 onMounted(async () => {
   await setupAppAfterBackend()
 })
+
+// Refresh session list when switching back to CollabView
+watch(() => props.currentView, (newView) => {
+  if (newView === 'collab') {
+    sessionStore.fetchSessions()
+  }
+})
 </script>
 
 <template>
@@ -109,6 +117,11 @@ onMounted(async () => {
     <!-- Knowledge Base View -->
     <div v-else-if="currentView === 'knowledge'" class="view-container__content view-container__content--full">
       <KnowledgeBaseView />
+    </div>
+
+    <!-- Services View -->
+    <div v-else-if="currentView === 'services'" class="view-container__content view-container__content--full">
+      <ServicesView />
     </div>
 
   </main>

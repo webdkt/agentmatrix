@@ -1,28 +1,12 @@
 import { API } from './client'
 
 export const knowledgeAPI = {
-  async listKBs() {
-    return API.get('/api/knowledge/kbs')
-  },
-
   async createKB(name, description, schema) {
     return API.post('/api/knowledge/kbs', { name, description, schema })
   },
 
-  async getKB(name) {
-    return API.get(`/api/knowledge/kbs/${name}`)
-  },
-
   async updateSchema(name, content) {
     return API.put(`/api/knowledge/kbs/${name}/schema`, { content })
-  },
-
-  async listPages(name) {
-    return API.get(`/api/knowledge/kbs/${name}/pages`)
-  },
-
-  async getPage(name, path) {
-    return API.get(`/api/knowledge/kbs/${name}/pages/${path}`)
   },
 
   async listSources(name) {

@@ -54,6 +54,9 @@
     "knowledge": {
       "title": "知识库"
     },
+    "services": {
+      "title": "服务"
+    },
     "settings": {
       "title": "设置",
       "icon": "ti-settings"
@@ -276,6 +279,42 @@
       "set_execute_mode": "执行模式",
       "show_indicator": "指给Agent看",
       "show_range_selector": "选择范围给Agent"
+    }
+  },
+  "services": {
+    "title": "服务",
+    "loading": "加载中...",
+    "noServices": "暂无服务",
+    "status": {
+      "running": "运行中",
+      "stopped": "已停止"
+    },
+    "workers": {
+      "title": "Worker",
+      "noWorkers": "暂无 Worker",
+      "name": "名称",
+      "status": "状态",
+      "currentTask": "当前任务",
+      "queue": "队列"
+    },
+    "events": {
+      "loading": "加载事件...",
+      "noEvents": "暂无事件",
+      "scan_started": "扫描开始",
+      "scan_completed": "扫描完成（{submitted} 个文件，{duration_sec}秒）",
+      "scan_skipped": "扫描跳过（已在运行）",
+      "scan_error": "扫描出错",
+      "source_received": "新 source：{source_path}",
+      "task_failed": "Ingest 失败：{file}"
+    },
+    "detail": {
+      "scanning": "扫描中",
+      "inflight": "处理中",
+      "actions": "操作",
+      "activity": "活动日志",
+      "backToActivity": "返回活动日志",
+      "yes": "是",
+      "no": "否"
     }
   }
 }

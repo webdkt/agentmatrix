@@ -138,9 +138,12 @@ class Cerebellum(AutoLoggerMixin):
             # 问 Brain 补值
             param_names = ", ".join(current_params.keys()) if current_params else "(无)"
             missing_names = ", ".join(missing)
+            missing_hint = "，".join(f"{m}=<值>" for m in missing)
             question = (
-                f"你要执行的：{action_name}({param_names})，"
-                f"缺少 {missing_names} 参数，请重新输出完整 action 语句"
+                f"刚才调用 {action_name}({param_names}) 时参数不全，缺少：{missing_names}。\n"
+                f"请重新输出完整的 action 调用，**必须使用参数名=值 格式明确写出每个参数**"
+                f"（不要只写位置参数值，否则参数会填错位置）。形如：\n"
+                f"{action_name}({missing_hint})"
             )
             answer = await brain_callback(question)
             self.logger.debug(f"[Brain 回复]: {answer}")

@@ -34,29 +34,45 @@ class KnowledgeBaseAgent(BaseAgent):
     """
 
     _current_kb: str = ""
-    _cached_wiki_stats: dict = None
+    _cached_wiki_stats: dict = None  # tree summary string
 
     @property
     def wiki_root(self) -> Path:
         return self.runtime.paths.wiki_dir
 
     async def _on_activate_session(self, session, first_signal=None):
-        """会话激活时：检查知识库状态 + 缓存统计信息"""
+        """会话激活时：从 task_id 或 metadata 恢复 current_kb，缓存统计信息"""
         await super()._on_activate_session(session, first_signal)
 
-        available = KBRegistry.list_all(self.wiki_root)
-        if available and not self._current_kb:
-            self._current_kb = available[0]
+        task_id = session.get("task_id", "")
+        metadata = session.setdefault("metadata", {})
 
+        # 1. 从 task_id 解析 KB 名（kb-chat-{kbName} 模式）
+        if task_id.startswith("kb-chat-"):
+            self._current_kb = task_id[len("kb-chat-"):]
+        # 2. 从 metadata 恢复
+        elif metadata.get("current_kb"):
+            self._current_kb = metadata["current_kb"]
+        # 3. fallback：自动选第一个
+        elif not self._current_kb:
+            available = KBRegistry.list_all(self.wiki_root)
+            if available:
+                self._current_kb = available[0]
+
+        # 持久化到 metadata
+        if self._current_kb:
+            metadata["current_kb"] = self._current_kb
+
+        # 缓存 wiki 目录摘要（供 system prompt 使用）
         if self._current_kb:
             try:
                 ns = await KBRegistry.get_or_create(self._current_kb, self.wiki_root)
-                self._cached_wiki_stats = await ns.db.get_stats()
+                self._cached_wiki_stats = ns.wiki_manager.get_tree_summary()
             except Exception as e:
-                logger.warning(f"缓存 wiki 统计失败: {e}")
-                self._cached_wiki_stats = {"total": 0}
+                logger.warning(f"缓存 wiki 目录摘要失败: {e}")
+                self._cached_wiki_stats = "（无法读取知识库目录）"
         else:
-            self._cached_wiki_stats = {"total": 0}
+            self._cached_wiki_stats = ""
 
     def _create_micro_agent(self):
         """创建 MicroAgent 时注入当前知识库信息"""
@@ -65,7 +81,7 @@ class KnowledgeBaseAgent(BaseAgent):
         return micro
 
     def _assemble_system_prompt(self, micro_agent):
-        """在 system prompt 中注入 wiki context（当前知识库的 schema）"""
+        """在 system prompt 中注入 wiki context（知识库根目录、Schema、目录概览、问答工作流）"""
         prompt = super()._assemble_system_prompt(micro_agent)
 
         if not self._current_kb:
@@ -79,17 +95,32 @@ class KnowledgeBaseAgent(BaseAgent):
             schema = ns.wiki_manager.read_schema()
         except OSError:
             schema = ""
-        stats = self._cached_wiki_stats or {"total": 0}
 
         schema_text = schema if schema else "（知识库尚无 Schema，请先创建知识库）"
+        wiki_root_path = str(ns.wiki_manager.wiki_root)
+        tree_summary = self._cached_wiki_stats or "（无法读取目录概览）"
 
-        stats_lines = []
-        for cat, count in stats.items():
-            if cat != "total":
-                stats_lines.append(f"- {cat}: {count} 个页面")
-        stats_text = "\n".join(stats_lines) if stats_lines else "暂无页面"
-
-        context = f"\n<wiki-context>\n## 当前知识库: {self._current_kb}\n## 知识库 Schema\n{schema_text}\n## 统计\n{stats_text}\n</wiki-context>\n"
+        context = (
+            f"\n<wiki-context>\n"
+            f"## 当前知识库: {self._current_kb}\n"
+            f"## 知识库根目录: {wiki_root_path}\n"
+            f"## 知识库 Schema\n{schema_text}\n"
+            f"## 目录概览\n{tree_summary}\n\n"
+            f"## 知识库问答工作流\n"
+            f"知识库的目录结构是按 Schema 组织的——每个目录对应 Schema 中定义的信息类型。"
+            f"利用这个结构来高效定位信息：\n\n"
+            f"1. 根据问题主题和 Schema，判断答案可能在哪些目录\n"
+            f"2. 用 list_dir 浏览目标目录，根据文件名确定候选页面\n"
+            f"3. 阅读候选页面寻找答案：\n"
+            f"   - 短页面用 read_txt_file 直接读\n"
+            f"   - 长页面或只需提取特定信息时，用 sub_agent_reader 隔离上下文"
+            f"（read_instruction 要尽量完备，包含需要什么信息、相关上下文、期望格式，"
+            f"避免子Agent因信息不足而无法完成任务）\n"
+            f"4. 如果通过目录和文件名无法定位，再用 grep 在具体子目录中搜索"
+            f"（缩小范围，不要在根目录全量搜索）\n"
+            f"5. 综合信息回答，标注来源页面路径；没找到就如实告知\n"
+            f"</wiki-context>\n"
+        )
         return context + prompt
 
     async def compress_messages(self, agent) -> None:

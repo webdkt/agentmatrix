@@ -117,7 +117,6 @@ class MicroAgent(AutoLoggerMixin):
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
         
-        self.whiteboard: dict = {}  # 白板数据（由 BaseAgent 的 WhiteboardManager 管理）
 
         # ========== 压缩相关 ==========
         self.compression_token_threshold = compression_token_threshold
@@ -151,7 +150,7 @@ class MicroAgent(AutoLoggerMixin):
             f"MicroAgent '{self.name}' initialized (parent: {parent.name})"
         )
 
-    
+
 
     def _create_dynamic_class(self, available_skills: List[str]) -> type:
         """
@@ -1755,6 +1754,7 @@ class MicroAgent(AutoLoggerMixin):
             event_type=event_type,
             event_name=event_name,
             detail=detail or {},
+            source=self.name,
         ))
 
     def _get_log_context(self) -> dict:

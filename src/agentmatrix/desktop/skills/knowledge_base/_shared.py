@@ -9,7 +9,6 @@ resolve_user_path: 用户路径解析
 """
 
 import os
-import json
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -28,7 +27,6 @@ def resolve_user_path(path: str) -> Path:
 
 
 BINARY_EXTENSIONS_WARN = {
-    ".pdf", ".doc", ".docx", ".pptx", ".xlsx", ".xls",
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".ico", ".webp", ".svgz",
     ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
     ".mp3", ".mp4", ".avi", ".mov", ".wav", ".flac",
@@ -78,71 +76,44 @@ class KnowledgeDB:
                 source_type TEXT DEFAULT 'directory',
                 auto_scan   INTEGER DEFAULT 1,
                 last_scanned  TEXT,
-                last_processed TEXT,
                 created_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
             )
         """)
         await self._conn.execute("""
             CREATE TABLE IF NOT EXISTS source_files (
-                id          INTEGER PRIMARY KEY,
-                source_id   INTEGER REFERENCES sources(id) ON DELETE CASCADE,
-                rel_path    TEXT NOT NULL,
-                mtime       TEXT,
-                size        INTEGER,
-                status      TEXT DEFAULT 'new',
-                wiki_refs   TEXT DEFAULT '[]',
-                created_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
+                id                INTEGER PRIMARY KEY,
+                source_id         INTEGER REFERENCES sources(id) ON DELETE CASCADE,
+                rel_path          TEXT NOT NULL,
+                mtime             TEXT,
+                size              INTEGER,
+                last_ingested_at  TEXT,
+                ingested_mtime    TEXT,
+                created_at        TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
                 UNIQUE(source_id, rel_path)
             )
         """)
-        await self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS wiki_pages (
-                id          INTEGER PRIMARY KEY,
-                rel_path    TEXT UNIQUE NOT NULL,
-                title       TEXT,
-                summary     TEXT,
-                category    TEXT,
-                source_refs TEXT DEFAULT '[]',
-                created_at  TEXT,
-                updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
-            )
-        """)
-        await self._migrate_source_files()
         await self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_source_files_source
             ON source_files(source_id)
         """)
         await self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_source_files_status
-            ON source_files(source_id, status)
-        """)
-        await self._conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_source_files_mtime
             ON source_files(source_id, mtime)
         """)
-        await self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_wiki_pages_category
-            ON wiki_pages(category)
-        """)
         await self._conn.commit()
-
-    async def _migrate_source_files(self):
-        """迁移旧的 processed 列到新的 status 列（如果存在）"""
-        try:
-            await self._conn.execute("SELECT processed FROM source_files LIMIT 1")
-        except aiosqlite.OperationalError:
-            return
-        try:
-            await self._conn.execute(
-                "ALTER TABLE source_files ADD COLUMN status TEXT DEFAULT 'new'"
-            )
-        except aiosqlite.OperationalError as e:
-            if "duplicate column" not in str(e).lower():
-                raise
-            return
-        await self._conn.execute(
-            "UPDATE source_files SET status = CASE WHEN processed = 1 THEN 'done' ELSE 'new' END"
-        )
+        # 迁移：为旧表补缺失的列
+        cursor = await self._conn.execute("PRAGMA table_info(source_files)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        for col_name, col_def in [
+            ("mtime", "TEXT"),
+            ("size", "INTEGER"),
+            ("last_ingested_at", "TEXT"),
+            ("ingested_mtime", "TEXT"),
+        ]:
+            if col_name not in columns:
+                await self._conn.execute(
+                    f"ALTER TABLE source_files ADD COLUMN {col_name} {col_def}"
+                )
         await self._conn.commit()
 
     # ==================== sources ====================
@@ -163,6 +134,41 @@ class KnowledgeDB:
             return result["id"]
         return -1
 
+    async def check_and_prepare_source_path(self, abs_path: str):
+        """检查路径冲突并预处理。
+        返回 None 表示无冲突（已准备好），
+        返回字符串表示冲突原因（调用方应拒绝）。
+        如果新路径是已有 source 的父目录，会自动删除被覆盖的子 source。"""
+        abs_resolved = Path(abs_path).resolve()
+        cursor = await self._conn.execute("SELECT id, path, source_type FROM sources")
+        sources = [dict(r) for r in await cursor.fetchall()]
+
+        child_ids = []
+        for src in sources:
+            src_resolved = Path(src["path"]).resolve()
+            # 完全相同
+            if abs_resolved == src_resolved:
+                return f"该路径已注册 (ID: {src['id']})"
+            # 被 parent 覆盖
+            try:
+                abs_resolved.relative_to(src_resolved)
+                return f"已被已有 source 覆盖: {src['path']}"
+            except ValueError:
+                pass
+            # 是已有 source 的父目录 → 记录待删除的 child
+            try:
+                src_resolved.relative_to(abs_resolved)
+                child_ids.append(src["id"])
+            except ValueError:
+                pass
+
+        if child_ids:
+            for cid in child_ids:
+                await self._conn.execute("DELETE FROM source_files WHERE source_id = ?", (cid,))
+                await self._conn.execute("DELETE FROM sources WHERE id = ?", (cid,))
+            await self._conn.commit()
+        return None
+
     async def get_all_sources(self) -> list:
         cursor = await self._conn.execute("SELECT * FROM sources ORDER BY id")
         rows = await cursor.fetchall()
@@ -173,23 +179,10 @@ class KnowledgeDB:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
-    async def update_source_timestamps(self, source_id: int,
-                                        scanned: bool = False,
-                                        processed: bool = False):
+    async def update_source_timestamps(self, source_id: int):
         now = datetime.now().isoformat()
-        sets = []
-        params = []
-        if scanned:
-            sets.append("last_scanned = ?")
-            params.append(now)
-        if processed:
-            sets.append("last_processed = ?")
-            params.append(now)
-        if not sets:
-            return
-        params.append(source_id)
         await self._conn.execute(
-            f"UPDATE sources SET {', '.join(sets)} WHERE id = ?", params
+            "UPDATE sources SET last_scanned = ? WHERE id = ?", (now, source_id)
         )
         await self._conn.commit()
 
@@ -210,7 +203,7 @@ class KnowledgeDB:
             return []
 
         cursor = await self._conn.execute(
-            "SELECT rel_path, mtime, size, status FROM source_files WHERE source_id = ?",
+            "SELECT rel_path, mtime, size FROM source_files WHERE source_id = ?",
             (source_id,),
         )
         existing_rows = [dict(r) for r in await cursor.fetchall()]
@@ -219,7 +212,12 @@ class KnowledgeDB:
         new_or_changed = []
         current_rels = set()
         for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
+            # 跳过隐藏目录（.git, .DS_Store 等）
+            dirnames[:] = [d for d in dirnames if not d.startswith('.')]
             for fname in filenames:
+                # 跳过 dotfile（.DS_Store, ._, .gitignore 等系统元数据）
+                if fname.startswith('.'):
+                    continue
                 fpath = Path(dirpath) / fname
                 if fpath.suffix.lower() in BINARY_EXTENSIONS_WARN:
                     continue
@@ -235,14 +233,14 @@ class KnowledgeDB:
                     old = existing_map[rel]
                     if old["mtime"] != mtime or old["size"] != size:
                         await self._conn.execute(
-                            "UPDATE source_files SET mtime = ?, size = ?, status = 'new' WHERE source_id = ? AND rel_path = ? AND status IN ('done', 'new')",
+                            "UPDATE source_files SET mtime = ?, size = ? WHERE source_id = ? AND rel_path = ?",
                             (mtime, size, source_id, rel),
                         )
                         new_or_changed.append({"rel_path": rel, "mtime": mtime, "size": size, "status": "changed"})
                 else:
                     await self._conn.execute(
-                        """INSERT OR IGNORE INTO source_files (source_id, rel_path, mtime, size, status)
-                           VALUES (?, ?, ?, ?, 'new')""",
+                        """INSERT OR IGNORE INTO source_files (source_id, rel_path, mtime, size)
+                           VALUES (?, ?, ?, ?)""",
                         (source_id, rel, mtime, size),
                     )
                     new_or_changed.append({"rel_path": rel, "mtime": mtime, "size": size, "status": "new"})
@@ -250,82 +248,41 @@ class KnowledgeDB:
         for existing_rel in existing_map:
             if existing_rel not in current_rels:
                 await self._conn.execute(
-                    "DELETE FROM source_files WHERE source_id = ? AND rel_path = ? AND status != 'processing'",
+                    "DELETE FROM source_files WHERE source_id = ? AND rel_path = ?",
                     (source_id, existing_rel),
                 )
 
         await self._conn.commit()
-        await self.update_source_timestamps(source_id, scanned=True)
+        await self.update_source_timestamps(source_id)
         return new_or_changed
 
-    async def get_unprocessed_files(self, source_id: Optional[int] = None) -> list:
-        if source_id is not None:
-            cursor = await self._conn.execute(
-                "SELECT * FROM source_files WHERE source_id = ? AND status = 'new'",
-                (source_id,),
-            )
-        else:
-            cursor = await self._conn.execute(
-                "SELECT * FROM source_files WHERE status = 'new'"
-            )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+    async def get_needs_ingest_files(self, source_id: int) -> list:
+        """返回需要 ingest 的文件：从未 ingest 过，或 mtime 与上次 ingest 时不一致。
 
-    async def get_changed_files(self, source_id: int) -> list:
+        用 ingested_mtime（ingest 时的实际 mtime）与当前 mtime 比较，
+        避免文件在 ingest 期间被修改后修改丢失的问题。
+        """
         cursor = await self._conn.execute(
-            """SELECT sf.* FROM source_files sf
-               JOIN sources s ON sf.source_id = s.id
-               WHERE s.id = ? AND (sf.status = 'new' OR sf.mtime > s.last_processed)""",
+            """SELECT * FROM source_files
+               WHERE source_id = ?
+                 AND (ingested_mtime IS NULL OR ingested_mtime != mtime)""",
             (source_id,),
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
-    async def mark_file_status(self, file_id: int, status: str, wiki_refs: Optional[list] = None) -> bool:
-        if wiki_refs is not None:
-            refs_json = json.dumps(wiki_refs, ensure_ascii=False)
-            cursor = await self._conn.execute(
-                "UPDATE source_files SET status = ?, wiki_refs = ? WHERE id = ? AND status = 'processing'",
-                (status, refs_json, file_id),
-            )
-        else:
-            cursor = await self._conn.execute(
-                "UPDATE source_files SET status = ? WHERE id = ? AND status = 'processing'",
-                (status, file_id),
-            )
-        await self._safe_commit()
-        return cursor.rowcount > 0
+    async def mark_ingested(self, file_id: int, mtime: str):
+        """标记文件已成功 ingest，记录 ingest 时的 mtime。
 
-    async def claim_file(self, file_id: int) -> bool:
-        cursor = await self._conn.execute(
-            "UPDATE source_files SET status = 'processing' WHERE id = ? AND status = 'new'",
-            (file_id,),
-        )
-        await self._safe_commit()
-        return cursor.rowcount > 0
-
-    async def reset_processing_files(self):
-        """将所有卡在 processing 的文件重置为 new（用于崩溃恢复）。"""
+        mtime 参数是 ingest 时文件的 mtime（来自 file_row["mtime"]），
+        下次 get_needs_ingest_files 会用它与当前 mtime 比较。
+        """
+        now = datetime.now().isoformat()
         await self._conn.execute(
-            "UPDATE source_files SET status = 'new' WHERE status = 'processing'"
+            "UPDATE source_files SET last_ingested_at = ?, ingested_mtime = ? WHERE id = ?",
+            (now, mtime, file_id),
         )
         await self._safe_commit()
-
-    async def claim_and_mark_done(self, file_id: int, wiki_refs: Optional[list] = None) -> bool:
-        """原子操作：从 new 直接转为 done（用于直接 ingest，跳过 processing 中间态）。"""
-        if wiki_refs is not None:
-            refs_json = json.dumps(wiki_refs, ensure_ascii=False)
-            cursor = await self._conn.execute(
-                "UPDATE source_files SET status = 'done', wiki_refs = ? WHERE id = ? AND status = 'new'",
-                (refs_json, file_id),
-            )
-        else:
-            cursor = await self._conn.execute(
-                "UPDATE source_files SET status = 'done' WHERE id = ? AND status = 'new'",
-                (file_id,),
-            )
-        await self._safe_commit()
-        return cursor.rowcount > 0
 
     async def get_source_files(self, source_id: int) -> list:
         cursor = await self._conn.execute(
@@ -363,107 +320,6 @@ class KnowledgeDB:
                 results.extend(dict(r) for r in rows)
         return results
 
-    # ==================== wiki_pages ====================
-
-    async def upsert_page(self, rel_path: str, title: str = "",
-                          summary: str = "", category: str = "",
-                          source_refs: Optional[list] = None) -> int:
-        now = datetime.now().isoformat()
-        new_refs = source_refs or []
-
-        cursor = await self._conn.execute(
-            "SELECT id, source_refs FROM wiki_pages WHERE rel_path = ?", (rel_path,)
-        )
-        row = await cursor.fetchone()
-
-        merged_refs = new_refs
-        if row:
-            try:
-                old_refs = json.loads(row["source_refs"]) if row["source_refs"] else []
-            except (json.JSONDecodeError, TypeError):
-                old_refs = []
-            seen = set()
-            merged_refs = []
-            for ref in old_refs + new_refs:
-                if ref not in seen:
-                    seen.add(ref)
-                    merged_refs.append(ref)
-
-        refs_json = json.dumps(merged_refs, ensure_ascii=False)
-
-        await self._conn.execute(
-            """INSERT INTO wiki_pages (rel_path, title, summary, category, source_refs, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(rel_path) DO UPDATE SET
-                 title = excluded.title,
-                 summary = excluded.summary,
-                 category = excluded.category,
-                 source_refs = excluded.source_refs,
-                 updated_at = excluded.updated_at""",
-            (rel_path, title, summary, category, refs_json, now, now),
-        )
-        await self._conn.commit()
-
-        cursor = await self._conn.execute(
-            "SELECT id FROM wiki_pages WHERE rel_path = ?", (rel_path,)
-        )
-        row = await cursor.fetchone()
-        return row["id"] if row else -1
-
-    async def get_page(self, rel_path: str) -> Optional[dict]:
-        cursor = await self._conn.execute(
-            "SELECT * FROM wiki_pages WHERE rel_path = ?", (rel_path,)
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-
-    async def get_pages_by_category(self, category: str) -> list:
-        cursor = await self._conn.execute(
-            "SELECT * FROM wiki_pages WHERE category = ? ORDER BY title", (category,)
-        )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-
-    async def get_all_pages(self) -> list:
-        cursor = await self._conn.execute("SELECT * FROM wiki_pages ORDER BY category, title")
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-
-    async def delete_page(self, rel_path: str):
-        await self._conn.execute("DELETE FROM wiki_pages WHERE rel_path = ?", (rel_path,))
-        await self._conn.commit()
-
-    async def get_stats(self) -> dict:
-        cursor = await self._conn.execute(
-            "SELECT category, COUNT(*) as cnt FROM wiki_pages GROUP BY category"
-        )
-        rows = await cursor.fetchall()
-        stats = {}
-        total = 0
-        for r in rows:
-            cat = r["category"] or "(uncategorized)"
-            stats[cat] = r["cnt"]
-            total += r["cnt"]
-        stats["total"] = total
-        return stats
-
-    async def search_pages(self, keywords: list) -> list:
-        if not keywords:
-            return []
-        conditions = []
-        params = []
-        for kw in keywords:
-            escaped = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            conditions.append("(title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\' OR rel_path LIKE ? ESCAPE '\\')")
-            pattern = f"%{escaped}%"
-            params.extend([pattern, pattern, pattern])
-        where = " OR ".join(conditions)
-        cursor = await self._conn.execute(
-            f"SELECT * FROM wiki_pages WHERE {where} ORDER BY category, title",
-            params,
-        )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
 
 
 # ==================== Knowledge Base ====================
@@ -578,50 +434,6 @@ class WikiManager:
         schema_path = self.wiki_root / "_schema.md"
         schema_path.write_text(schema_content, encoding="utf-8")
 
-    # ==================== index.md 自动生成 ====================
-
-    async def regenerate_index(self):
-        if not self.wiki_root.is_dir():
-            return
-
-        pages = await self.db.get_all_pages()
-        stats = await self.db.get_stats()
-
-        categories = set()
-        for child in self.wiki_root.iterdir():
-            if child.is_dir() and not child.name.startswith("_") and child.name not in ("log_archive", "raw"):
-                categories.add(child.name)
-
-        lines = [
-            "# 知识库目录\n",
-            "> 此文件由系统自动维护，请勿手动编辑。\n",
-        ]
-
-        for cat_key in sorted(categories):
-            cat_pages = [p for p in pages if p.get("category") == cat_key]
-            lines.append(f"\n## {cat_key}/\n")
-            if cat_pages:
-                for p in cat_pages:
-                    summary = p.get("summary", "") or ""
-                    summary_line = f" — {summary}" if summary else ""
-                    lines.append(f"- [{p.get('title', p['rel_path'])}]({p['rel_path']}){summary_line}")
-            else:
-                lines.append("> 暂无页面\n")
-
-        uncategorized = [p for p in pages if p.get("category") not in categories]
-        if uncategorized:
-            lines.append("\n## 其他\n")
-            for p in uncategorized:
-                summary = p.get("summary", "") or ""
-                summary_line = f" — {summary}" if summary else ""
-                lines.append(f"- [{p.get('title', p['rel_path'])}]({p['rel_path']}){summary_line}")
-
-        total = stats.get("total", 0)
-        lines.append(f"\n---\n*共 {total} 个页面*")
-
-        index_path = self.wiki_root / "index.md"
-        index_path.write_text("\n".join(lines), encoding="utf-8")
-
     # ==================== log.md ====================
 
     def append_log(self, entry_type: str, title: str, details: str = ""):
@@ -697,65 +509,68 @@ class WikiManager:
         content = schema_path.read_text(encoding="utf-8").strip()
         return bool(content)
 
-    # ==================== 页面操作 ====================
+    def get_tree_summary(self) -> str:
+        """生成 wiki 目录的精简摘要（top-level overview）。
 
-    def _safe_path(self, rel_path: str) -> Path:
-        p = (self.wiki_root / rel_path).resolve()
-        if not p.is_relative_to(self.wiki_root.resolve()):
-            raise ValueError(f"Path traversal blocked: {rel_path}")
-        return p
+        返回格式：
+        - 列出每个 top-level 目录
+        - 子项 ≤5 个时直接展开列出
+        - 子项 >5 个时显示 "N 个文件, M 个子目录" 摘要
+        - 跳过 _ 开头的系统目录和 raw/
+        """
+        if not self.wiki_root.exists():
+            return "（知识库目录不存在）"
 
-    def write_page(self, rel_path: str, content: str):
-        page_path = self._safe_path(rel_path)
-        page_path.parent.mkdir(parents=True, exist_ok=True)
-        page_path.write_text(content, encoding="utf-8")
+        SKIP_DIRS = {"raw", "log_archive", "__pycache__"}
 
-    def read_page(self, rel_path: str) -> Optional[str]:
-        page_path = self._safe_path(rel_path)
-        if page_path.exists():
-            return page_path.read_text(encoding="utf-8")
-        return None
-
-    def page_exists(self, rel_path: str) -> bool:
-        return self._safe_path(rel_path).exists()
-
-    def list_page_files(self) -> list:
-        pages = []
-        for md_file in self.wiki_root.rglob("*.md"):
-            if md_file.name.startswith("_"):
-                continue
-            if md_file.parent.name == "log_archive":
-                continue
-            if md_file.name == "log.md" or md_file.name == "index.md":
-                continue
-            pages.append(str(md_file.relative_to(self.wiki_root)))
-        return sorted(pages)
-
-    async def create_page(self, rel_path: str, content: str, title: str = "",
-                          summary: str = "", category: str = "",
-                          source_refs: Optional[list] = None):
-        self.write_page(rel_path, content)
-        try:
-            await self.db.upsert_page(
-                rel_path=rel_path,
-                title=title,
-                summary=summary,
-                category=category,
-                source_refs=source_refs,
-            )
-        except Exception:
+        def _summarize_dir(path: Path) -> str:
+            """返回目录下直接子项的摘要或列表。"""
             try:
-                page_path = self._safe_path(rel_path)
-                if page_path.exists():
-                    page_path.unlink()
-            except (ValueError, OSError):
-                pass
-            raise
-        await self.regenerate_index()
+                entries = sorted(path.iterdir())
+            except (PermissionError, OSError):
+                return "  (无法读取)"
 
-    async def delete_page(self, rel_path: str):
-        page_path = self._safe_path(rel_path)
-        if page_path.exists():
-            page_path.unlink()
-        await self.db.delete_page(rel_path)
-        await self.regenerate_index()
+            files = [e.name for e in entries
+                     if e.is_file() and not e.name.startswith("_")
+                     and e.suffix == ".md"
+                     and e.name not in ("index.md", "log.md")]
+            dirs = [e for e in entries
+                    if e.is_dir() and e.name not in SKIP_DIRS
+                    and not e.name.startswith("_")]
+
+            total = len(files) + len(dirs)
+            if total == 0:
+                return "  (空)"
+            if total <= 5:
+                items = [d.name + "/" for d in dirs] + files
+                return "\n".join(f"  - {item}" for item in items)
+
+            parts = []
+            if files:
+                parts.append(f"{len(files)} 个文件")
+            if dirs:
+                parts.append(f"{len(dirs)} 个子目录")
+            return f"  ({', '.join(parts)})"
+
+        # Top-level directories
+        try:
+            top_dirs = sorted(
+                d for d in self.wiki_root.iterdir()
+                if d.is_dir() and d.name not in SKIP_DIRS and not d.name.startswith("_")
+            )
+        except (PermissionError, OSError):
+            top_dirs = []
+
+        if not top_dirs:
+            return "（知识库暂无页面目录）"
+
+        lines = []
+        for d in top_dirs:
+            sub = _summarize_dir(d)
+            lines.append(f"{d.name}/")
+            lines.append(sub)
+
+        lines.append("")
+        lines.append("（以上仅为顶层目录概览，子目录内容未展开。用 list_dir 查看具体目录内容。）")
+        return "\n".join(lines)
+

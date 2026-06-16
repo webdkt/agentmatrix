@@ -5,7 +5,7 @@ class_name: agentmatrix.desktop.knowledge_base_agent.KnowledgeBaseAgent
 session_type: local
 
 skills:
-  - knowledge_base
+  - knowledge_base.agent
   - file
   - markdown
   - email
@@ -39,24 +39,15 @@ persona: |
   4. 好的查询回答应该沉淀回知识库，而不是消失在对话中
   5. Schema 随领域理解加深而演进（evolve_schema）
   6. 用户的外部源目录不复制，只引用。wiki 页面底部标注来源路径
-  7. 每次操作后自动更新 index.md 和 log.md
+  
 
   # 知识库操作
   - 创建知识库 → create_kb（首次使用必须）
-  - 列出知识库 → list_kbs
   - 更新 Schema → update_schema
-  - 检测变更 → scan_source_changes
-  - 接入资料 → ingest_source
-  - 回答问题 → query_knowledge
-  - 健康检查 → lint_wiki
-  - 搜索页面 → search_wiki
-  - 列出结构 → list_wiki
-  - 更新页面 → update_page
-  - 演化结构 → evolve_schema
+  
 
   # 知识库文件结构
   - _schema.md：知识库 Schema（关注什么信息、类型关系、目录结构）
-  - index.md：所有页面的目录（系统自动维护）
-  - log.md：最近 50 条变更记录
+  - index.md：知识库首页（系统自动维护）
   - raw/：上传的原始资料
   - 其他目录由 Schema 的"目录结构及用途"定义，Agent 自行管理创建

@@ -73,31 +73,6 @@ def _is_blocked_path(abs_path: str) -> bool:
 
 # --- Endpoints ---
 
-@router.get("/kbs")
-async def list_kbs():
-    from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry
-    wiki_dir = _get_wiki_dir()
-    names = KBRegistry.list_all(wiki_dir)
-
-    result = []
-    for name in names:
-        try:
-            ns = await KBRegistry.get_or_create(name, wiki_dir)
-            has_schema = ns.wiki_manager.has_schema()
-            stats = await ns.db.get_stats()
-            page_count = stats.get("total", 0)
-        except Exception:
-            has_schema = False
-            page_count = 0
-        result.append({
-            "name": name,
-            "has_schema": has_schema,
-            "page_count": page_count,
-        })
-
-    return {"kbs": result}
-
-
 @router.post("/kbs")
 async def create_kb(req: CreateKBRequest):
     from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry
@@ -116,36 +91,6 @@ async def create_kb(req: CreateKBRequest):
     return {"name": req.name, "has_schema": bool(req.schema)}
 
 
-@router.get("/kbs/{name}")
-async def get_kb(name: str):
-    from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry
-
-    _validate_kb_name(name)
-    wiki_dir = _get_wiki_dir()
-    ns = KBRegistry.get(name)
-    if ns is None:
-        try:
-            ns = await KBRegistry.get_or_create(name, wiki_dir)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    has_schema = ns.wiki_manager.has_schema()
-    schema = ns.wiki_manager.read_schema()
-
-    try:
-        stats = await ns.db.get_stats()
-        page_count = stats.get("total", 0)
-    except Exception:
-        page_count = 0
-
-    return {
-        "name": name,
-        "has_schema": has_schema,
-        "schema": schema,
-        "page_count": page_count,
-    }
-
-
 @router.put("/kbs/{name}/schema")
 async def update_schema(name: str, req: UpdateSchemaRequest):
     from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry
@@ -156,51 +101,6 @@ async def update_schema(name: str, req: UpdateSchemaRequest):
 
     ns.wiki_manager.init_with_schema(req.content)
     return {"name": name, "has_schema": True}
-
-
-@router.get("/kbs/{name}/pages")
-async def list_pages(name: str):
-    from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry
-
-    _validate_kb_name(name)
-    wiki_dir = _get_wiki_dir()
-    ns = await KBRegistry.get_or_create(name, wiki_dir)
-
-    file_pages = ns.wiki_manager.list_page_files()
-
-    try:
-        db_pages = await ns.db.get_all_pages()
-    except Exception:
-        db_pages = []
-
-    db_map = {p["rel_path"]: p for p in db_pages}
-
-    result = []
-    for rel_path in file_pages:
-        db_info = db_map.get(rel_path, {})
-        result.append({
-            "path": rel_path,
-            "title": db_info.get("title", ""),
-            "summary": db_info.get("summary", ""),
-            "category": db_info.get("category", ""),
-        })
-
-    return {"pages": result}
-
-
-@router.get("/kbs/{name}/pages/{path:path}")
-async def get_page(name: str, path: str):
-    from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry
-
-    _validate_kb_name(name)
-    wiki_dir = _get_wiki_dir()
-    ns = await KBRegistry.get_or_create(name, wiki_dir)
-
-    content = ns.wiki_manager.read_page(path)
-    if content is None:
-        raise HTTPException(status_code=404, detail=f"Page '{path}' not found")
-
-    return {"path": path, "content": content}
 
 
 @router.get("/kbs/{name}/sources")
@@ -218,6 +118,7 @@ async def list_sources(name: str):
 @router.post("/kbs/{name}/sources")
 async def create_source(name: str, req: CreateSourceRequest):
     from agentmatrix.desktop.skills.knowledge_base._shared import KBRegistry, resolve_user_path
+    from agentmatrix.desktop.signals import DataSignal
 
     _validate_kb_name(name)
     wiki_dir = _get_wiki_dir()
@@ -230,24 +131,23 @@ async def create_source(name: str, req: CreateSourceRequest):
     if _is_blocked_path(abs_path):
         raise HTTPException(status_code=403, detail=f"Blocked path: {abs_path}")
 
+    conflict = await ns.db.check_and_prepare_source_path(abs_path)
+    if conflict:
+        raise HTTPException(status_code=409, detail=conflict)
+
     source_type = "directory" if os.path.isdir(abs_path) else "file"
     source_id = await ns.db.register_source(abs_path, req.description, source_type)
 
-    if source_type == "directory":
-        changed = await ns.db.scan_source_directory(source_id, abs_path)
-        await ns.db.update_source_timestamps(source_id, scanned=True)
-        file_count = len(await ns.db.get_source_files(source_id))
-    else:
-        changed = []
-        file_count = 0
+    # 通知 WikiMaintenanceService 扫描新 source
+    runtime = server_state.matrix_runtime
+    if runtime and hasattr(runtime, 'wiki_maintenance') and runtime.wiki_maintenance:
+        signal = DataSignal(
+            type_name="source_added",
+            data={"kb_name": name, "source_id": source_id},
+        )
+        await runtime.wiki_maintenance.receive_signal(signal)
 
-    return {
-        "source_id": source_id,
-        "path": abs_path,
-        "type": source_type,
-        "file_count": file_count,
-        "new_files": len(changed),
-    }
+    return {"source_id": source_id, "path": abs_path, "type": source_type}
 
 
 @router.delete("/kbs/{name}/sources/{source_id}")

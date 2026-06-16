@@ -236,17 +236,21 @@ export function useAutomationView() {
     const maxWait = 15000
     const startTime = Date.now()
 
-    // Backend returns { success, email: { task_id, ... } }
-    const task_id = sendResponse?.email?.task_id
+    // Backend returns { success, email: { task_id, sender_session_id, ... } }
+    const taskId = sendResponse?.email?.task_id
+    const senderSessionId = sendResponse?.email?.sender_session_id
 
     while (Date.now() - startTime < maxWait) {
       if (abortToken.aborted) return
 
       await sessionStore.fetchSessions()
 
-      const match = task_id
-        ? sessionStore.sessions.find(s => s.session_id === task_id || s.readable_id === task_id)
-        : null
+      // Try to match by task_id (preferred) or sender_session_id
+      const match = taskId
+        ? sessionStore.sessions.find(s => s.task_id === taskId || s.session_id === senderSessionId)
+        : senderSessionId
+          ? sessionStore.sessions.find(s => s.session_id === senderSessionId)
+          : null
 
       // Fallback: detect any new session appeared
       const newSession = !match && sessionStore.sessions.length > prevSessionCount
@@ -271,17 +275,33 @@ export function useAutomationView() {
   }
 
   async function resumeTask(task) {
-    const sid = task.session_id
-    let session = sessionStore.sessions.find(s => s.task_id === sid || s.session_id === sid)
+    const agentSessionId = task.session_id  // automation_tasks.session_id is agent_session_id
+    let session = sessionStore.sessions.find(s => s.agent_session_id === agentSessionId || s.task_id === agentSessionId)
     if (!session) {
       try {
         await sessionStore.fetchSessions()
-        session = sessionStore.sessions.find(s => s.task_id === sid || s.session_id === sid)
+        session = sessionStore.sessions.find(s => s.agent_session_id === agentSessionId || s.task_id === agentSessionId)
       } catch {}
     }
     if (!session) {
-      // Session not in loaded page; use minimal object with fields needed by AgentSessionPanel
-      session = { session_id: sid, agent_name: task.agent_name, agent_session_id: sid }
+      // Session not in loaded page; look up via backend by agent_session_id
+      try {
+        const result = await sessionAPI.getSessionByAgentSession(agentSessionId)
+        if (result?.session) {
+          session = result.session
+        }
+      } catch (e) {
+        console.warn('[AutomationView] Failed to look up session by agent_session_id:', e)
+      }
+    }
+    if (!session) {
+      // Last resort: minimal object (events can still load via agent_session_id)
+      session = {
+        session_id: agentSessionId,
+        agent_name: task.agent_name,
+        agent_session_id: agentSessionId,
+        task_id: agentSessionId,
+      }
     }
     sessionStore.selectSession(session)
     selectedSystem.value = task.system_name

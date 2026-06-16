@@ -54,6 +54,9 @@
     "knowledge": {
       "title": "Knowledge"
     },
+    "services": {
+      "title": "Services"
+    },
     "settings": {
       "title": "Settings",
       "icon": "ti-settings"
@@ -276,6 +279,42 @@
       "set_execute_mode": "Execute Mode",
       "show_indicator": "Point to Agent",
       "show_range_selector": "Select Range for Agent"
+    }
+  },
+  "services": {
+    "title": "Services",
+    "loading": "Loading services...",
+    "noServices": "No services found",
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped"
+    },
+    "workers": {
+      "title": "Workers",
+      "noWorkers": "No workers",
+      "name": "Name",
+      "status": "Status",
+      "currentTask": "Current Task",
+      "queue": "Queue"
+    },
+    "events": {
+      "loading": "Loading events...",
+      "noEvents": "No events yet",
+      "scan_started": "Scan started",
+      "scan_completed": "Scan completed ({submitted} files, {duration_sec}s)",
+      "scan_skipped": "Scan skipped (already running)",
+      "scan_error": "Scan error",
+      "source_received": "New source: {source_path}",
+      "task_failed": "Ingest failed: {file}"
+    },
+    "detail": {
+      "scanning": "Scanning",
+      "inflight": "In-flight",
+      "actions": "Actions",
+      "activity": "Activity",
+      "backToActivity": "Back to Activity",
+      "yes": "Yes",
+      "no": "No"
     }
   }
 }

@@ -11,6 +11,32 @@ from typing import Any, Dict, Optional
 
 
 @dataclass
+class DataSignal:
+    """结构化数据信号 — 携带 type_name + dict data，遵循 Signal 协议。
+
+    用于服务间通信（如 source_added），比 TextSignal 更适合携带结构化元数据。
+    """
+    type_name: str
+    data: dict = field(default_factory=dict)
+    _signal_id: Optional[str] = None
+
+    @property
+    def signal_type(self) -> str:
+        return self.type_name
+
+    @property
+    def signal_id(self) -> Optional[str]:
+        return self._signal_id
+
+    def to_text(self) -> str:
+        import json
+        return json.dumps({"type": self.type_name, **self.data}, ensure_ascii=False)
+
+    def log_detail(self) -> Dict[str, Any]:
+        return {"signal_type": self.type_name, "data_keys": list(self.data.keys())}
+
+
+@dataclass
 class BrowserSignal:
     """浏览器事件信号 — 前端 UI 交互产生，遵循 Signal 协议。"""
     agent_name: str
