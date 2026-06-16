@@ -248,6 +248,7 @@ fn handle_incoming_message(app: &AppHandle, text: &str) {
         "NEW_USER_SESSION" => "ws:new-user-session",
         "UI_ACTION_RESULT" => "ws:ui-action-result",
         "COLLAB_BASH_OUTPUT" => "ws:collab-bash-output",
+        "SERVICE_EVENT" => "ws:service-event",
         "runtime_event" => "ws:runtime-event",
         "echo" | "error" => return, // protocol-level, no frontend interest
         _ => "ws:message", // BUG 8: forward unknown types instead of silently dropping

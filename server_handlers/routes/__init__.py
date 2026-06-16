@@ -14,6 +14,7 @@ from .email_proxy import router as email_proxy_router
 from .proxy import router as proxy_router
 from .automation import router as automation_router
 from .knowledge import router as knowledge_router
+from .services import router as services_router
 
 
 def register_all_routes(app):
@@ -30,3 +31,4 @@ def register_all_routes(app):
     app.include_router(proxy_router)
     app.include_router(automation_router)
     app.include_router(knowledge_router)
+    app.include_router(services_router)

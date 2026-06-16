@@ -1,17 +1,28 @@
 use std::collections::HashMap;
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::ws::types::{AgentStatusData, WsCommand, WsConnectionStatus};
 use crate::ws::WsHandle;
 use crate::commands::state::AppState;
 
 /// Request system status from the backend via the WS connection.
+/// Uses AppHandle + try_state so it gracefully handles the case where
+/// WsHandle hasn't been managed yet (e.g. during startup).
 #[tauri::command]
-pub async fn request_system_status(ws: State<'_, WsHandle>) -> Result<(), String> {
-    ws.cmd_tx
-        .send(WsCommand::SendSystemStatusRequest)
-        .map_err(|e| format!("Failed to send WS command: {}", e))?;
-    Ok(())
+pub async fn request_system_status(app: tauri::AppHandle) -> Result<(), String> {
+    let ws = app.try_state::<WsHandle>();
+    match ws {
+        Some(ws) => {
+            ws.cmd_tx
+                .send(WsCommand::SendSystemStatusRequest)
+                .map_err(|e| format!("Failed to send WS command: {}", e))?;
+            Ok(())
+        }
+        None => {
+            // WS not yet initialized — silently ignore, will be requested again later
+            Ok(())
+        }
+    }
 }
 
 /// Get current WS connection status.

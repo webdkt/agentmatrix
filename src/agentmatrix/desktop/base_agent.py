@@ -478,8 +478,6 @@ Start generating the Working Notes now. Remember: wrap your output in <working_n
         # 重置变更计数器（不清空数据）
         self.whiteboard_manager.reset_change_counter()
         self.todo_manager.reset_change_counter()
-        # 同步到 MicroAgent 属性
-        agent.whiteboard = self.whiteboard_manager.data_as_legacy_format()
 
     def is_llm_available(self) -> bool:
         """检查 LLM 服务是否可用。"""

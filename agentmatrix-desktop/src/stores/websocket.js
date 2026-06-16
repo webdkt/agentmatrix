@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { useSessionStore } from './session'
 import { useAgentStore } from './agent'
 import { useConfigStore } from './config'
+import { useServiceStore } from './service'
 
 /**
  * WebSocket 事件管理 Store
@@ -62,6 +63,10 @@ export const useWebSocketStore = defineStore('websocket', {
       // 处理 Agent 状态增量更新（Agent 状态变化时推送）
       else if (data.type === 'AGENT_STATUS_UPDATE') {
         this.handleAgentStatusUpdate(data)
+      }
+      // 处理 Service 事件（Worker 状态变化、worker event 等）
+      else if (data.type === 'SERVICE_EVENT') {
+        this.handleServiceEvent(data)
       }
     },
 
@@ -189,6 +194,19 @@ export const useWebSocketStore = defineStore('websocket', {
 
       // 更新 agent store 中的状态
       agentStore.updateAgentStatus(agent_name, data)
+    },
+
+    /**
+     * 处理 SERVICE_EVENT — 所有 service 相关事件的统一入口
+     *
+     * 事件类型：
+     * - worker_status: worker 状态变化 → 更新 worker table
+     * - service: service 级事件（scan_started, task_failed 等）→ activity feed
+     * - think/action: worker 的 MicroAgent 事件 → worker event timeline
+     */
+    handleServiceEvent(message) {
+      const serviceStore = useServiceStore()
+      serviceStore.handleServiceEvent(message)
     },
 
     /**

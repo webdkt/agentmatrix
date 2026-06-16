@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { knowledgeAPI } from '@/api/knowledge'
 
 export const useKnowledgeStore = defineStore('knowledge', () => {
   // State
   const kbs = ref([])
   const currentKB = ref(null)
-  const pages = ref([])
   const sources = ref([])
   const currentPage = ref(null)
   const loading = ref(false)
@@ -14,13 +14,37 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   const schemaDraft = ref('')
   const schemaDraftLoading = ref(false)
 
-  // Actions
+  // ==================== KB 列表（Tauri 扫目录）====================
+
   async function fetchKBs() {
     loading.value = true
     error.value = null
     try {
-      const data = await knowledgeAPI.listKBs()
-      kbs.value = data.kbs || []
+      const config = await invoke('get_config')
+      const wikiDir = `${config.matrix_world_path}/workspace/wiki`
+      let entries
+      try {
+        entries = await invoke('read_directory', { path: wikiDir })
+      } catch {
+        entries = []
+      }
+
+      const result = []
+      for (const entry of entries) {
+        if (!entry.is_dir) continue
+        // 检查 _schema.md 是否存在且非空
+        let hasSchema = false
+        try {
+          const schemaContent = await invoke('read_text_file', {
+            path: `${wikiDir}/${entry.name}/_schema.md`
+          })
+          hasSchema = !!schemaContent.trim()
+        } catch {
+          hasSchema = false
+        }
+        result.push({ name: entry.name, has_schema: hasSchema })
+      }
+      kbs.value = result
     } catch (e) {
       error.value = e.message
     } finally {
@@ -28,13 +52,25 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
   }
 
+  // ==================== 选择 KB ====================
+
   async function selectKB(name) {
     loading.value = true
     error.value = null
+    currentPage.value = null
     try {
-      const data = await knowledgeAPI.getKB(name)
-      currentKB.value = data
-      await fetchPages()
+      // KB 基本信息（Tauri 读文件系统）
+      const config = await invoke('get_config')
+      const wikiDir = `${config.matrix_world_path}/workspace/wiki`
+      let hasSchema = false
+      let schema = ''
+      try {
+        schema = await invoke('read_text_file', { path: `${wikiDir}/${name}/_schema.md` })
+        hasSchema = !!schema.trim()
+      } catch {
+        hasSchema = false
+      }
+      currentKB.value = { name, has_schema: hasSchema, schema }
       await fetchSources()
     } catch (e) {
       error.value = e.message
@@ -43,28 +79,21 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
   }
 
-  async function fetchPages() {
+  // ==================== 页面内容（Tauri 读文件）====================
+
+  async function selectPage(relPath) {
     if (!currentKB.value) return
     try {
-      const data = await knowledgeAPI.listPages(currentKB.value.name)
-      pages.value = data.pages || []
+      const config = await invoke('get_config')
+      const fullPath = `${config.matrix_world_path}/workspace/wiki/${currentKB.value.name}/${relPath}`
+      const content = await invoke('read_text_file', { path: fullPath })
+      currentPage.value = { path: relPath, content }
     } catch (e) {
-      pages.value = []
+      error.value = e.message
     }
   }
 
-  async function selectPage(path) {
-    if (!currentKB.value) return
-    loading.value = true
-    try {
-      const data = await knowledgeAPI.getPage(currentKB.value.name, path)
-      currentPage.value = data
-    } catch (e) {
-      error.value = e.message
-    } finally {
-      loading.value = false
-    }
-  }
+  // ==================== Sources（后端 API — DB 操作）====================
 
   async function fetchSources() {
     if (!currentKB.value) return
@@ -88,6 +117,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     await fetchSources()
   }
 
+  // ==================== Schema Draft ====================
+
   async function fetchSchemaDraft(taskId) {
     schemaDraftLoading.value = true
     try {
@@ -95,7 +126,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
       if (data.exists) {
         schemaDraft.value = data.content
       }
-    } catch (e) {
+    } catch {
       // ignore
     } finally {
       schemaDraftLoading.value = false
@@ -104,7 +135,6 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   function clearCurrent() {
     currentKB.value = null
-    pages.value = []
     sources.value = []
     currentPage.value = null
   }
@@ -114,9 +144,10 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   }
 
   return {
-    kbs, currentKB, pages, sources, currentPage, loading, error,
+    kbs, currentKB, sources, currentPage, loading, error,
     schemaDraft, schemaDraftLoading,
-    fetchKBs, selectKB, fetchPages, selectPage, fetchSources,
-    addSource, removeSource, fetchSchemaDraft, clearCurrent, clearSchemaDraft,
+    fetchKBs, selectKB, selectPage,
+    fetchSources, addSource, removeSource,
+    fetchSchemaDraft, clearCurrent, clearSchemaDraft,
   }
 })

@@ -135,3 +135,4 @@ class CoreEvent:
     event_type: str  # "action" | "session" | "think" | "status" | "signal"
     event_name: str  # "started" | "completed" | "error" | "received" | "processed" | ...
     detail: Dict[str, Any] = field(default_factory=dict)
+    source: str = ""  # MicroAgent.name，标识事件来源

@@ -385,6 +385,34 @@ async def download_email_attachment(session_id: str, email_id: str, filename: st
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/sessions/by-agent/{agent_session_id}")
+async def get_session_by_agent_session(agent_session_id: str):
+    """Look up a user session by the agent's session_id."""
+    if not server_state.matrix_runtime:
+        raise HTTPException(status_code=503, detail="Runtime not initialized")
+    try:
+        row = await server_state.matrix_runtime.post_office.email_db.get_user_session_by_agent_session(
+            agent_session_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {
+            "success": True,
+            "session": {
+                "session_id": row["user_session_id"],
+                "agent_name": row.get("agent_name"),
+                "agent_session_id": row.get("agent_session_id"),
+                "task_id": row.get("task_id"),
+                "subject": row.get("subject"),
+                "last_email_id": row.get("last_email_id"),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
     """Get a specific session"""

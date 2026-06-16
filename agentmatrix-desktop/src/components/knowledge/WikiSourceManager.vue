@@ -1,25 +1,25 @@
 <script setup>
 import { ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import MIcon from '@/components/icons/MIcon.vue'
 
 const knowledgeStore = useKnowledgeStore()
 
-const newPath = ref('')
-const newDescription = ref('')
 const adding = ref(false)
 const error = ref(null)
 
 async function handleAdd() {
-  if (!newPath.value.trim()) return
-
   adding.value = true
   error.value = null
 
   try {
-    await knowledgeStore.addSource(newPath.value, newDescription.value)
-    newPath.value = ''
-    newDescription.value = ''
+    const path = await invoke('select_directory')
+    if (!path) {
+      adding.value = false
+      return
+    }
+    await knowledgeStore.addSource(path)
   } catch (e) {
     error.value = e.message || '添加失败'
   } finally {
@@ -40,25 +40,10 @@ async function handleDelete(source) {
 
 <template>
   <div class="source-mgr">
-    <div class="source-mgr__add">
-      <input
-        v-model="newPath"
-        type="text"
-        placeholder="源目录路径（支持 ~）"
-        :disabled="adding"
-        @keyup.enter="handleAdd"
-      />
-      <input
-        v-model="newDescription"
-        type="text"
-        placeholder="描述（可选）"
-        :disabled="adding"
-        @keyup.enter="handleAdd"
-      />
-      <button class="source-mgr__add-btn" @click="handleAdd" :disabled="adding || !newPath.trim()">
-        <MIcon name="plus" />
-      </button>
-    </div>
+    <button class="source-mgr__add-btn" @click="handleAdd" :disabled="adding">
+      <MIcon name="plus" />
+      <span>添加源目录</span>
+    </button>
 
     <div v-if="error" class="source-mgr__error">{{ error }}</div>
 
@@ -88,30 +73,13 @@ async function handleDelete(source) {
   gap: var(--spacing-3);
 }
 
-.source-mgr__add {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-}
-
-.source-mgr__add input {
-  width: 100%;
-  padding: var(--spacing-2);
-  background: var(--surface-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: var(--font-xs);
-}
-
-.source-mgr__add input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
 .source-mgr__add-btn {
-  align-self: flex-end;
-  padding: var(--spacing-1) var(--spacing-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-3);
   background: var(--accent);
   color: white;
   border: none;
@@ -123,6 +91,10 @@ async function handleDelete(source) {
 .source-mgr__add-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.source-mgr__add-btn:hover:not(:disabled) {
+  opacity: 0.9;
 }
 
 .source-mgr__error {

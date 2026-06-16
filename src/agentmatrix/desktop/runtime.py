@@ -157,6 +157,7 @@ class AgentMatrix(AutoLoggerMixin):
         self.monitor_task = None
 
         self.echo(">>> 初始化世界资源...")
+        self._services: dict = {}
         self._prepare_world_resource()
         self.echo(">>> 初始化Agents...")
         self._prepare_agents()
@@ -211,6 +212,14 @@ class AgentMatrix(AutoLoggerMixin):
         """获取广播回调（给 BaseAgent 使用）"""
         return self._broadcast_message_callback
 
+    def register_service(self, service):
+        """注册 AgenticService 到 registry。"""
+        self._services[service.name] = service
+
+    def get_services(self) -> dict:
+        """返回所有已注册的 AgenticService。"""
+        return self._services
+
     def json_serializer(self, obj):
         """JSON serializer for objects not serializable by default json code"""
         try:
@@ -252,6 +261,7 @@ class AgentMatrix(AutoLoggerMixin):
         from .wiki_maintenance_service import WikiMaintenanceService
 
         self.wiki_maintenance = WikiMaintenanceService(runtime=self)
+        self.register_service(self.wiki_maintenance)
         self.echo(">>> WikiMaintenanceService Loaded.")
 
     def _prepare_agents(self):
@@ -268,6 +278,10 @@ class AgentMatrix(AutoLoggerMixin):
         # 保存 loader 以获取 llm_config（用于创建监控器）
         self.loader = loader
         self.llm_monitor = None
+
+        # 初始化 LLM 连接池（供后台 service 共享）
+        from .services.llm_pool import LLMPool
+        self.llm_pool = LLMPool(loader.llm_config, max_concurrent=3)
 
     def _start_llm_monitor(self):
         """启动 LLM 服务监控器 (Lazy模式)"""

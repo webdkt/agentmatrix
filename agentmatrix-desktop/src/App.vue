@@ -62,6 +62,7 @@ async function initializeEventListeners() {
   for (const eventName of [
     'ws:session-event', 'ws:agent-status-update', 'ws:system-status',
     'ws:new-user-session', 'ws:ui-action-result', 'ws:collab-bash-output',
+    'ws:service-event',
   ]) {
     unlistenFns.push(await listen(eventName, (event) => {
       websocketStore.handle_message(event.payload)

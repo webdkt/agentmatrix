@@ -22,6 +22,14 @@ export const sessionAPI = {
   },
 
   /**
+   * 根据 agent_session_id 反查 user session
+   * @param {string} agentSessionId - Agent 的 session ID
+   */
+  async getSessionByAgentSession(agentSessionId) {
+    return API.get(`/api/sessions/by-agent/${agentSessionId}`)
+  },
+
+  /**
    * 创建新会话
    * @param {object} data - 会话数据
    */

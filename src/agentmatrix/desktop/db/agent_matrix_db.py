@@ -484,6 +484,16 @@ class AgentMatrixDB(AutoLoggerMixin):
         await cursor.close()
         return dict(row) if row else None
 
+    async def get_user_session_by_agent_session(self, agent_session_id: str) -> Optional[dict]:
+        """Look up a user session by the agent's session_id."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM user_sessions WHERE agent_session_id = ?",
+            (agent_session_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return dict(row) if row else None
+
     async def update_check_time(self, user_session_id: str, check_time: str = None):
         """
         更新用户查看时间（用于标记已读）
