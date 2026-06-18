@@ -145,10 +145,9 @@ class MatrixPaths:
 
         Args:
             agent_name: Agent名称
-            task_id: 用户会话ID
 
         Returns:
-            Path: workspace/agent_files/{agent_name}/work_files/{task_id}/
+            Path: workspace/agent_files/{agent_name}/work_files/
         """
         return self.workspace_dir / "agent_files" / agent_name / "work_files"
 

@@ -284,14 +284,19 @@ class BasicAgent(AutoLoggerMixin, StateManagerMixin, AgentShell):
         self._event_task = asyncio.create_task(self._consume_events())
 
     async def _consume_events(self):
-        """持续消费 agent 的 event_queue（所有 MicroAgent 共享）。"""
+        """持续消费 agent 的 event_queue（所有 MicroAgent 共享）。
+
+        session_id 优先用 event 自带的（emit 时从 session_store 固化），
+        规避排空队列期间 active_session_id 被切换的竞态；event 没带时
+        回落到当前 active_session_id（向后兼容旧 emitter）。
+        """
         while True:
             try:
                 event = await self.event_queue.get()
             except asyncio.CancelledError:
                 break
 
-            session_id = self.active_session_id or "unknown"
+            session_id = event.session_id or self.active_session_id or "unknown"
             try:
                 await self._handle_core_event(event, session_id)
             except Exception as e:
