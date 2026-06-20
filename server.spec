@@ -114,6 +114,14 @@ a = Analysis(
         'PIL.Image',
         'PIL._imaging',
 
+        # PPTX generation (python-pptx + lxml)
+        'pptx',
+        'pptx.util',
+        'pptx.dml.color',
+        'pptx.enum.shapes',
+        'pptx.enum.text',
+        'pptx.oxml.xmlchemy',
+
         # Other
         'dotenv',
         'aioconsole',

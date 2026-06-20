@@ -191,40 +191,21 @@ class DesignCollabAgent(BaseAgent):
         return [design_group] + base
 
     async def export_pptx(self, **kwargs):
-        """导出 PPTX —— 读 current_task/output/export.json，调 gen-pptx CLI。
+        """导出 PPTX —— 读 current_task/output/export.json，调本地 Python exporter。
 
-        gen-pptx 来自 baoyu-design，是一个 Node + Playwright + PptxGenJS 工具，
-        需要一次性 setup（npm install + npx playwright install chromium + npm run build）。
-        CLI 位置按以下顺序解析：
-            1. 环境变量 AGENTMATRIX_GEN_PPTX_CLI（指向 cli.mjs 绝对路径）
-            2. <matrix_root>/.matrix/tools/gen-pptx/dist/cli.mjs
-            3. /Users/dkt/myprojects/others/baoyu-design/skills/baoyu-design/agents/gen-pptx/dist/cli.mjs
-               （开发环境 fallback）
+        已从外部的 Node gen-pptx CLI 迁移到内置 Python 实现
+        (skills/design_preview/pptx_export/)，复用 Playwright + python-pptx，
+        不再需要用户端 npm install。
 
         Returns:
-            dict: {ok, file?, slides?, bytes?, error?}
+            dict: {ok, file?, slides?, bytes?, flags?, warnings?, error?}
         """
-        import asyncio
         import json
-        import os
-
-        cli_path = self._resolve_gen_pptx_cli()
-        if not cli_path:
-            return {
-                "ok": False,
-                "error": (
-                    "未找到 gen-pptx CLI。一次性 setup：\n"
-                    "  cd <baoyu-design>/skills/baoyu-design/agents/gen-pptx && "
-                    "npm install && npx playwright install chromium && npm run build\n"
-                    "或设置环境变量 AGENTMATRIX_GEN_PPTX_CLI 指向 cli.mjs。"
-                ),
-            }
 
         task_id = getattr(self, "current_task_id", None)
         if not task_id:
             return {"ok": False, "error": "当前没有激活的 task / session"}
 
-        # 输出目录 & export.json
         out_dir = (
             self.runtime.paths.get_agent_work_files_dir(self.name, task_id)
             / PREVIEW_OUTPUT_SUBDIR
@@ -239,68 +220,24 @@ class DesignCollabAgent(BaseAgent):
                 ),
             }
 
-        # 拼 preview URL（gen-pptx 要求 http(s) URL，不能 file://）
+        try:
+            config = json.loads(export_json.read_text("utf-8"))
+        except Exception as e:
+            return {"ok": False, "error": f"export.json 解析失败：{e}"}
+
         preview_url = self.get_preview_url(task_id, f"{PREVIEW_OUTPUT_SUBDIR}/{PREVIEW_ENTRY_FILE}")
         if not preview_url:
             return {"ok": False, "error": "预览 server 未启动"}
 
-        pptx_out_dir = str(out_dir)
-        # 简化：直接用 "node"，依赖 PATH
-        cmd = ["node", str(cli_path),
-               "--url", preview_url,
-               "--config", str(export_json),
-               "--out", pptx_out_dir]
-
-        logger.info(f"[DesignPreview] export_pptx invoking: {' '.join(cmd)}")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=180)
-        except asyncio.TimeoutError:
-            return {"ok": False, "error": "gen-pptx 执行超时（>180s）"}
-        except FileNotFoundError:
-            return {"ok": False, "error": "未找到 node 可执行文件，请先安装 Node.js >= 18"}
-        except Exception as e:
-            return {"ok": False, "error": f"启动 gen-pptx 失败：{e}"}
-
-        stdout_text = stdout_b.decode("utf-8", errors="replace").strip()
-        stderr_text = stderr_b.decode("utf-8", errors="replace").strip()
-
-        # CLI 在 stdout 打印一行 JSON 结果
-        last_line = stdout_text.splitlines()[-1] if stdout_text else ""
-        try:
-            result = json.loads(last_line) if last_line else {}
-        except json.JSONDecodeError:
-            result = {"ok": False, "error": f"无法解析 gen-pptx 输出：{last_line[:200]}"}
-
-        if not result.get("ok"):
-            result.setdefault("error", stderr_text or f"gen-pptx 退出码 {proc.returncode}")
-        if stderr_text and proc.returncode != 0:
-            logger.warning(f"[DesignPreview] gen-pptx stderr: {stderr_text[:500]}")
-
-        return result
-
-    @staticmethod
-    def _resolve_gen_pptx_cli():
-        """按优先级解析 gen-pptx CLI 路径，找不到返回 None。"""
-        import os
-        from pathlib import Path
-
-        env_path = os.environ.get("AGENTMATRIX_GEN_PPTX_CLI")
-        if env_path and Path(env_path).exists():
-            return Path(env_path)
-
-        # 开发环境 fallback —— 直接指向 baoyu-design 源仓库
-        dev_fallback = Path(
-            "/Users/dkt/myprojects/others/baoyu-design/skills/baoyu-design/agents/gen-pptx/dist/cli.mjs"
+        from .skills.design_preview.pptx_export import export_pptx as run_export
+        logger.info(f"[DesignPreview] export_pptx (python) url={preview_url} mode={config.get('mode')}")
+        result = await run_export(
+            url=preview_url,
+            config=config,
+            out_dir=str(out_dir),
+            filename=config.get("filename"),
         )
-        if dev_fallback.exists():
-            return dev_fallback
-
-        return None
+        return result.to_dict()
 
     # ========== 预览 URL ==========
 
@@ -406,23 +343,33 @@ class _PlaywrightManager:
                 return
             if self._start_attempted:
                 raise RuntimeError(
-                    f"Playwright 之前启动失败：{self._start_error}. "
-                    "请运行 `pip install playwright && playwright install chromium`，"
-                    "或确保系统装有 Google Chrome。"
+                    "渲染引擎启动失败：未检测到 Google Chrome。\n"
+                    "请安装 Google Chrome（https://www.google.com/chrome/）后重试。"
                 )
             self._start_attempted = True
             try:
                 self._pw = await self._async_playwright.start()
                 # 优先用系统 Chrome（无需下载 Chromium），失败再 fallback
+                chrome_err = None
                 try:
                     self._browser = await self._pw.chromium.launch(channel="chrome")
                     logger.info("[DesignPreview] Playwright 已启动 (channel=chrome)")
                 except Exception as e_chrome:
+                    chrome_err = e_chrome
                     logger.warning(
                         f"[DesignPreview] 系统 Chrome 启动失败，尝试 bundled chromium: {e_chrome}"
                     )
-                    self._browser = await self._pw.chromium.launch()
-                    logger.info("[DesignPreview] Playwright 已启动 (bundled chromium)")
+                    try:
+                        self._browser = await self._pw.chromium.launch()
+                        logger.info("[DesignPreview] Playwright 已启动 (bundled chromium)")
+                    except Exception:
+                        # 两个都失败：抛出对用户友好的错误（包含 Chrome 路径线索）
+                        raise RuntimeError(
+                            "渲染引擎启动失败：未检测到 Google Chrome。\n"
+                            "请安装 Google Chrome（https://www.google.com/chrome/）后重试。"
+                        ) from chrome_err
+            except RuntimeError:
+                raise
             except Exception as e:
                 self._start_error = str(e)
                 logger.error(f"[DesignPreview] Playwright 启动失败: {e}")
@@ -445,6 +392,41 @@ class _PlaywrightManager:
         finally:
             try:
                 await page.close()
+            except Exception:
+                pass
+
+    async def new_page(self, viewport: Optional[dict] = None,
+                       device_scale_factor: float = 1.0,
+                       timeout_ms: int = 30000):
+        """在共享 browser 上开新 page，供需要自定义流程的调用方使用（如 pptx 导出）。
+
+        Caller 负责 page.close()。viewport 形如 {"width": 1280, "height": 720}。
+        """
+        await self._ensure_started()
+        ctx_kwargs = {}
+        if viewport is not None:
+            ctx_kwargs["viewport"] = viewport
+        if device_scale_factor != 1.0:
+            ctx_kwargs["device_scale_factor"] = device_scale_factor
+        # 每次新建独立 context，避免 CSS / font-face / cookie 串台
+        ctx = await self._browser.new_context(**ctx_kwargs)
+        page = await ctx.new_page()
+        page.set_default_timeout(timeout_ms)
+        # 把 ctx 也绑到 page 上，方便 close 时一并关
+        page._agentmatrix_ctx = ctx
+        return page
+
+    @staticmethod
+    async def close_page(page):
+        """关掉 new_page 出来的 page + 它的 context。"""
+        ctx = getattr(page, "_agentmatrix_ctx", None)
+        try:
+            await page.close()
+        except Exception:
+            pass
+        if ctx is not None:
+            try:
+                await ctx.close()
             except Exception:
                 pass
 

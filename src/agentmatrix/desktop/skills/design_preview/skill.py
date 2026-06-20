@@ -42,14 +42,17 @@ class Design_previewSkillMixin:
             "通知前端刷新内嵌预览，加载你刚写出的入口文件。entry_path **必填** —— "
             "前端不知道你把入口写成了什么名字，必须显式告诉它。entry_path 是相对当前 "
             "task 目录的路径，例如 'output/index.html'、'output/Landing Page.html'、"
-            "'output/prototypes/v2.html'。省略或空字符串会报错。"
+            "'output/prototypes/v2.html'。省略或空字符串会报错。\n\n"
+            "调用后会自动扫描 HTML 生成 output/export.json（PPT 导出按钮会读它）。"
+            "完全标准的 deck 结构不会提示；如果检测到 nav chrome / 动画 / 自定义字体等"
+            "需要确认的项，返回值里会列出具体要 review 什么。"
         ),
         param_infos={
             "entry_path": "预览入口文件相对路径（必填），如 'output/index.html'"
         },
     )
     async def refresh_preview(self, entry_path: str):
-        """刷新预览（fire-and-forget）。"""
+        """刷新预览（fire-and-forget）+ 自动生成 export.json baseline。"""
         if not entry_path or not str(entry_path).strip():
             return (
                 "❌ refresh_preview 必须显式提供 entry_path 参数（如 'output/index.html'）。"
@@ -70,6 +73,8 @@ class Design_previewSkillMixin:
                 f"❌ entry_path 必须是相对路径（相对当前 task 目录），收到: {entry_clean!r}。"
                 "请改成如 'output/index.html' 的形式。"
             )
+        target = None
+        task_dir = None
         if task_id and file_part:
             try:
                 task_dir = self.root_agent.runtime.paths.get_agent_work_base_dir(
@@ -113,7 +118,73 @@ class Design_previewSkillMixin:
                 "preview_port": getattr(self.root_agent, "preview_port", None),
             },
         )
+
+        # ---- 自动生成 export.json baseline（确定性字段走代码，非确定项给 agent 提示） ----
+        export_note = self._auto_gen_export_config(
+            html_path=target,
+            entry_path_rel=entry_clean,
+            task_dir=task_dir,
+        )
+
+        if export_note:
+            return f"已通知前端刷新预览到 {entry_path}\n\n{export_note}"
         return f"已通知前端刷新预览到 {entry_path}"
+
+    def _auto_gen_export_config(self, html_path, entry_path_rel: str, task_dir) -> str:
+        """调 pptx_export.auto_config 生成 baseline export.json，返回给 agent 的提示文本。
+
+        纯字符串拼装，不抛异常。任何失败都转成对 agent 友好的提示。
+        返回 '' 表示「完全确定，无需提示 agent」（tier 0）。
+        """
+        if html_path is None or task_dir is None:
+            return ""  # 路径校验环节出问题，跳过自动生成
+        try:
+            from pathlib import Path as _P
+            from .pptx_export.auto_config import analyze_html_for_export
+
+            out_dir = _P(task_dir) / "output"
+            report = analyze_html_for_export(
+                html_path=_P(html_path),
+                entry_path_rel=entry_path_rel,
+                out_dir=out_dir,
+            )
+        except Exception as e:
+            # 自动生成失败不阻塞预览，但要让 agent 知道导出按钮会报错
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "[DesignPreview] auto_config 异常: %s", e, exc_info=True
+            )
+            return (
+                f"⚠️ 自动生成 export.json 失败: {e}\n"
+                "预览正常，但 PPT 导出按钮会报错。可以让 Designer 手写 output/export.json，"
+                "或忽略（如果不需要导出 PPT）。"
+            )
+
+        # tier 0：完全确定，对 agent 静默
+        if report.tier == 0 and report.ok:
+            return ""
+
+        # tier 3：无法识别 slide 结构
+        if not report.ok:
+            return (
+                f"⚠️ 自动生成 export.json 失败：{report.error}\n\n"
+                "预览正常，但 PPT 导出按钮会报错（没有 export.json）。"
+            )
+
+        # tier 1 / 2：列出 hints
+        if not report.hints:
+            return ""
+        bullets = "\n".join(f"  - {h}" for h in report.hints)
+        path_line = (
+            f"（已生成 {report.config_path}）\n"
+            if report.config_path else "（export.json 未写盘）\n"
+        )
+        review_line = (
+            "请 review 以下几点（baseline 已给默认值，导出能跑；若不对请改 JSON 对应字段）："
+            if report.tier == 2 else
+            "提示："
+        )
+        return f"📐 PPT 导出配置已自动生成。{path_line}{review_line}\n{bullets}"
 
     @register_action(
         short_desc="向用户提问（非阻塞，答案会在下一轮作为用户消息回来）",
