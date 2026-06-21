@@ -21,6 +21,7 @@ const views = [
   { id: 'collab', icon: 'message-circle', label: 'views.collab.title' },
   { id: 'automation', icon: 'bolt', label: 'views.automation.title' },
   { id: 'knowledge', icon: 'book', label: 'views.knowledge.title' },
+  { id: 'design', icon: 'palette', label: 'views.design.title' },
   { id: 'services', icon: 'cpu', label: 'views.services.title' },
   { id: 'agents', icon: 'grid', label: 'views.agents.title' },
   { id: 'settings', icon: 'settings', label: 'views.settings.title' }

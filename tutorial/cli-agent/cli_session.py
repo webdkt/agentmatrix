@@ -4,7 +4,7 @@ CLI Session — 内存 SessionStore 实现。
 对话历史只存在内存中，退出即丢失。
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 class InMemorySessionStore:
@@ -12,6 +12,11 @@ class InMemorySessionStore:
 
     def __init__(self):
         self._messages: List[Dict] = []
+
+    @property
+    def session_id(self) -> Optional[str]:
+        # CLI 模式无 session 概念
+        return None
 
     def load_messages(self) -> List[Dict]:
         return self._messages.copy()

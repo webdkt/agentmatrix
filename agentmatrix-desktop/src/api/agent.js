@@ -70,6 +70,14 @@ export const agentAPI = {
   },
 
   /**
+   * 获取 Agent 当前执行状态（含 preview_port 等运行时附加信息）
+   * @param {string} agentName - Agent 名称
+   */
+  async getAgentStatus(agentName) {
+    return API.get(`/api/agents/${agentName}/status`)
+  },
+
+  /**
    * 在 Agent 的 container session 中执行命令
    * @param {string} agentName - Agent 名称
    * @param {string} command - 要执行的命令

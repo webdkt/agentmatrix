@@ -253,18 +253,23 @@ async def get_agent_status(agent_name: str):
         agent = server_state.matrix_runtime.agents[agent_name]
 
         if hasattr(agent, "get_current_status"):
-            return {
+            result = {
                 "success": True,
                 "agent_name": agent_name,
                 **agent.get_current_status(),
             }
         else:
-            return {
+            result = {
                 "success": True,
                 "agent_name": agent_name,
                 "message": str(getattr(agent, "status", "unknown")),
                 "timestamp": None,
             }
+        # 暴露 agent 运行时附加信息（如 DesignCollabAgent 的 preview_port）
+        preview_port = getattr(agent, "preview_port", None)
+        if preview_port:
+            result["preview_port"] = preview_port
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

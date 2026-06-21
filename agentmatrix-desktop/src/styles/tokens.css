@@ -147,6 +147,11 @@
   --font-2xl: 1.5rem;
   --font-3xl: 1.875rem;
 
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
   --font-sans: "Plus Jakarta Sans", "Noto Sans SC", "PingFang SC", "SF Pro Text", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-serif: "Plus Jakarta Sans", "Noto Sans SC", "PingFang SC", sans-serif;
   --font-mono: "JetBrains Mono", "Noto Sans SC", "SF Mono", "Menlo", monospace;

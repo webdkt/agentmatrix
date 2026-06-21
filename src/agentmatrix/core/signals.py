@@ -131,8 +131,14 @@ class CoreEvent:
 
     Core 通过 event_queue 广播发生的事件。
     Shell 消费这些事件，决定如何响应（DB 持久化、前端通知、邮件标记已读等）。
+
+    session_id 在 emit 时由 MicroAgent 从其 session_store 固化，避免消费者
+    异步排空队列时读到已被切换的 active_session_id（emit → consume 之间发生
+    session 切换的竞态）。None 表示事件不绑定特定 session（如 service 级事件
+    或 session_store 未注入）。
     """
     event_type: str  # "action" | "session" | "think" | "status" | "signal"
     event_name: str  # "started" | "completed" | "error" | "received" | "processed" | ...
     detail: Dict[str, Any] = field(default_factory=dict)
     source: str = ""  # MicroAgent.name，标识事件来源
+    session_id: Optional[str] = None  # emit 时固化；None = 不绑定 session

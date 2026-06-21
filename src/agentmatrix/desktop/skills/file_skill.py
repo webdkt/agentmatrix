@@ -28,7 +28,7 @@ class FileSkillMixin:
     """
 
     # Skill 级别元数据
-    _skill_description = """文件操作技能。注意你和其他Agent共用同一个环境，切勿直接修改他人文件。当前任务的工作目录在`~/current_task`, 临时文件放`~/current_task/tmp`, 任务输出放`~/current_task/output`. 发给他人的附件要留好copy。及时清理自己的临时文件，维护好系统的健康整洁。"""
+    _skill_description = """文件操作技能。注意你和其他Agent共用同一个环境，切勿直接修改他人文件。当前任务的工作目录在`~/current_task`（必须使用~, 绝不可使用绝对路径来访问current_task目录）, 临时文件放`~/current_task/tmp`, 任务输出放`~/current_task/output`. 发给他人的附件要留好copy。及时清理自己的临时文件，维护好系统的健康整洁。**必须记住**: 永远使用`~/current_task` 访问当前任务的工作目录，不要使用绝对路径来使用current_task目录"""
 
     _skill_usage_guide = """
 文件操作技能。注意你和其他Agent共用同一个Li文件操作技能。注意你和其他Agent共用同一个环境，切勿直接修改他人文件。当前任务的工作目录在`~/current_task`, 临时文件放`~/current_task/tmp`, 任务输出放`~/current_task/output`. 发给他人的附件要留好copy。及时清理自己的临时文件，维护好系统的健康整洁。nux环境，切勿直接修改他人文件。及时清理自己的临时文件，维护好系统的健康和整洁。
@@ -55,6 +55,12 @@ class FileSkillMixin:
             recursive: 是否递归列出子目录
         """
         container_session = self.root_agent.container_session
+
+        # 校验 current_task 绝对路径是否属于当前 agent
+        if directory is not None:
+            err = self._validate_current_task_path(directory)
+            if err:
+                return err
 
         # 默认当前目录
         work_dir = directory or "."
@@ -94,6 +100,94 @@ class FileSkillMixin:
     def _resolve_path_to_host(self, file_path: str) -> Optional[Path]:
         return self.root_agent.resolve_path_to_host(file_path)
 
+    def _agent_visible_home(self) -> Optional[str]:
+        """
+        获取 agent 在自己运行环境中实际看到的 home 目录绝对路径。
+
+        - LocalSession: agent 看到的就是宿主机路径
+          workspace/agent_files/{name}/home（通过 container_session.home_dir 取得）
+        - ContainerSession: agent 看到的是容器内路径 /data/agents/{name}/home
+          （通过 container_session.initial_workdir 取得，启动时被设为 home）
+
+        这是 agent 心目中 "~" 对应的绝对路径，用于校验它给出的绝对路径。
+        """
+        cs = getattr(self.root_agent, "container_session", None)
+        if cs is not None:
+            # LocalSession 自带 home_dir 属性
+            home = getattr(cs, "home_dir", None)
+            if home:
+                return str(home).rstrip("/")
+            # ContainerSession 没有 home_dir，但 initial_workdir 即为 home
+            iw = getattr(cs, "initial_workdir", None)
+            if iw:
+                return str(iw).rstrip("/")
+
+        # 兜底：从 runtime.paths 取宿主机 home（LocalSession 视角）
+        try:
+            runtime = getattr(self.root_agent, "runtime", None)
+            name = getattr(self.root_agent, "name", None)
+            if runtime is not None and name is not None:
+                return str(runtime.paths.get_agent_home_dir(name)).rstrip("/")
+        except Exception:
+            pass
+        return None
+
+    def _validate_current_task_path(self, file_path: str) -> Optional[str]:
+        """
+        校验绝对路径里的 current_task 段是否指向当前 agent 的正确 home。
+
+        Agent 经常误以为自己运行在宿主机用户 home 下（如 /Users/foo、/home/foo），
+        从而编造 /Users/foo/current_task/x 这类路径。本方法拦截此类错误，
+        并返回正确的访问方式提示。
+
+        Returns:
+            None : 路径合法（或不在检查范围内），放行。
+            str  : 错误信息（含正确路径），调用方应直接返回给 Agent。
+        """
+        if not file_path or not isinstance(file_path, str):
+            return None
+        # 只校验绝对路径
+        if not file_path.startswith("/"):
+            return None
+
+        # 匹配 /current_task/（带子路径）或末尾正好是 /current_task（无子路径）
+        # 用尾斜杠避免误伤 /current_tasks、/current_task_foo 等
+        sep = "/current_task/"
+        idx = file_path.find(sep)
+        if idx == -1:
+            if file_path.endswith("/current_task"):
+                idx = len(file_path) - len("/current_task")
+            else:
+                return None
+
+        expected_home = self._agent_visible_home()
+        if not expected_home:
+            # 拿不到 home 信息就不做拦截，避免误伤
+            return None
+
+        prefix = file_path[:idx]
+        if prefix == expected_home:
+            return None
+
+        # 组装正确的提示路径
+        suffix = file_path[idx + len("/current_task"):]
+        if suffix:
+            if not suffix.startswith("/"):
+                suffix = "/" + suffix
+            correct_tilde = f"~/current_task{suffix}"
+            correct_abs = f"{expected_home}/current_task{suffix}"
+        else:
+            correct_tilde = "~/current_task"
+            correct_abs = f"{expected_home}/current_task"
+
+        return (
+            f"路径错误：'{file_path}' 不是当前 agent 的 current_task 目录。\n"
+            f"你的 ~ 不是宿主机用户的 home，而是当前 agent 专属的 home：{expected_home}\n"
+            f"current_task 的正确绝对路径是：{correct_abs}\n"
+            f"请改用 '{correct_tilde}' 访问当前任务工作目录，"
+            f"绝不要使用宿主机用户 home 下的绝对路径。"
+        )
+
     @register_action(
         short_desc="读取文本文件内容[file_path, start_line=1,end_line=200]",
         description="读取普通文本文件的内容（如 .py, .md, .txt, .json, .yaml 等）。支持指定行范围（默认前200行）。不可用于设备文件、管道等特殊路径。",
@@ -120,6 +214,11 @@ class FileSkillMixin:
         # 黑名单检查：拒绝设备文件、伪文件系统等特殊路径
         if any(file_path.startswith(p) for p in self._BLOCKED_PATHS):
             return f"读取文件失败：路径 '{file_path}' 是特殊路径（设备文件/伪文件系统），不可读取。请使用普通文件路径。"
+
+        # 校验 current_task 绝对路径是否属于当前 agent
+        err = self._validate_current_task_path(file_path)
+        if err:
+            return err
 
         container_session = self.root_agent.container_session
 
@@ -192,6 +291,11 @@ class FileSkillMixin:
             mode: 写入模式，'overwrite' 覆盖或 'append' 追加（默认 overwrite）
             allow_overwrite: 是否允许覆盖已存在文件（默认 False）
         """
+        # 校验 current_task 绝对路径是否属于当前 agent
+        err = self._validate_current_task_path(file_path)
+        if err:
+            return err
+
         # 优先将路径解析为宿主路径（避免 broken pipe）
         host_path = self._resolve_path_to_host(file_path)
 
@@ -292,6 +396,12 @@ class FileSkillMixin:
             recursive: 是否递归搜索
         """
         container_session = self.root_agent.container_session
+
+        # 校验 current_task 绝对路径是否属于当前 agent
+        if directory is not None:
+            err = self._validate_current_task_path(directory)
+            if err:
+                return err
 
         # 默认当前目录
         work_dir = directory or "."
@@ -396,6 +506,11 @@ class FileSkillMixin:
             new_string: 新字符串
             use_regex: 是否使用正则表达式（默认false）
         """
+        # 校验 current_task 绝对路径是否属于当前 agent
+        err = self._validate_current_task_path(file_path)
+        if err:
+            return err
+
         host_path = self._resolve_path_to_host(file_path)
 
         if host_path:

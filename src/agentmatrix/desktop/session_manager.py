@@ -375,6 +375,10 @@ class AgentSessionStore:
         self._session = session
         self._manager = session_manager
 
+    @property
+    def session_id(self) -> str:
+        return self._session.get("session_id")
+
     def load_messages(self) -> list:
         return self._session.get("history", []).copy()
 

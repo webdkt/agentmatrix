@@ -12,6 +12,7 @@ import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
 import AutomationView from '@/components/automation/AutomationView.vue'
 import KnowledgeBaseView from '@/components/knowledge/KnowledgeBaseView.vue'
+import DesignView from '@/components/design/DesignView.vue'
 import ServicesView from '@/components/services/ServicesView.vue'
 
 const props = defineProps({
@@ -117,6 +118,11 @@ watch(() => props.currentView, (newView) => {
     <!-- Knowledge Base View -->
     <div v-else-if="currentView === 'knowledge'" class="view-container__content view-container__content--full">
       <KnowledgeBaseView />
+    </div>
+
+    <!-- Design View -->
+    <div v-else-if="currentView === 'design'" class="view-container__content view-container__content--full">
+      <DesignView />
     </div>
 
     <!-- Services View -->

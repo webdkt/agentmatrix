@@ -116,6 +116,7 @@ class MicroAgent(AutoLoggerMixin):
         self.messages: List[Dict] = []  # 对话历史
         self.run_label: Optional[str] = None  # 执行标识
         self.last_action_name: Optional[str] = None  # 记录最后执行的 action 名字
+        self._session_store = None  # execute() 入口注入；emit_event 从此读 session_id
         
 
         # ========== 压缩相关 ==========
@@ -1749,12 +1750,20 @@ class MicroAgent(AutoLoggerMixin):
         return self.messages
 
     def _emit_event(self, event_type: str, event_name: str, detail: dict = None):
-        """向 Shell 广播事件。"""
+        """向 Shell 广播事件。
+
+        session_id 从当前 session_store 固化到事件上，规避消费者排空队列时
+        active_session_id 已被切换的竞态。
+        """
+        session_id = None
+        if self._session_store is not None:
+            session_id = getattr(self._session_store, "session_id", None)
         self.event_queue.put_nowait(CoreEvent(
             event_type=event_type,
             event_name=event_name,
             detail=detail or {},
             source=self.name,
+            session_id=session_id,
         ))
 
     def _get_log_context(self) -> dict:

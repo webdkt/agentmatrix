@@ -57,10 +57,12 @@ else
     echo ""
 fi
 
-# python_dist is only needed for production builds (PyInstaller output)
-# Dev mode uses 'python server.py' directly, but tauri.conf.json glob requires the dir to exist
+# python_dist and python_standalone are only needed for production builds (PyInstaller output)
+# Dev mode uses 'python server.py' directly, but tauri.conf.json glob requires the dirs to exist
 mkdir -p "$SCRIPT_DIR/src-tauri/resources/python_dist"
 touch "$SCRIPT_DIR/src-tauri/resources/python_dist/.gitkeep" 2>/dev/null || true
+mkdir -p "$SCRIPT_DIR/src-tauri/resources/python_standalone"
+touch "$SCRIPT_DIR/src-tauri/resources/python_standalone/.gitkeep" 2>/dev/null || true
 
 # Copy template to where Tauri expects it in dev mode
 TEMPLATE_SRC="$SCRIPT_DIR/src-tauri/resources/matrix-template"
