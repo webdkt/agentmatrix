@@ -66,10 +66,13 @@ async def build_editable_pptx(
                 render_node_to_pptx(root, ctx)
             except Exception as e:
                 warnings.append(f'Slide render aborted: {e}')
-        notes = (captured.notes or '').strip()
-        if notes:
+        # R16-7: 之前 (captured.notes or '').strip() 会把首尾空白吃掉，
+        # TS build-editable.ts 是 slide.addNotes(captured.notes) 原文写入。
+        # 这里只在判断非空时 strip（避免写纯空白页），写入用原文。
+        raw_notes = captured.notes or ''
+        if raw_notes.strip():
             try:
-                adapter.addNotes(notes)
+                adapter.addNotes(raw_notes)
             except Exception as e:
                 warnings.append(f'addNotes failed: {e}')
 

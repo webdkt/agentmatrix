@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from .types import (
     CapturedSlide, FontSwap, GenPptxInput, MediaRef, ResolvedMedia,
-    SetupResult, SlideNode, SlideSpec,
+    SetupResult, SlideSpec,
 )
 
 # capture.iife.js 在包内 assets/，预构建（原项目 npm run build:page 产出）
@@ -131,7 +131,6 @@ class PptxExportDriver:
     async def capture_editable(self, spec: SlideSpec, font_swaps):
         """对应 __genpptx.captureEditable —— returns dict
         {captured: CapturedSlide, hash, imagesWaited, imagesFailed}."""
-        from .types import Rect
         raw = await _evaluate_with_timeout(
             self.page.evaluate(
                 "([s, f]) => window.__genpptx.captureEditable(s, f)",
@@ -144,13 +143,7 @@ class PptxExportDriver:
             "editable capture",
         )
         raw = raw or {}
-        slide_raw = raw.get('slide') or {}
-        root_raw = slide_raw.get('root') or {}
-        captured = CapturedSlide(
-            rect=Rect.from_dict(slide_raw.get('rect') or {}),
-            root=SlideNode.from_dict(root_raw) if root_raw else None,
-            notes=None,
-        )
+        captured = CapturedSlide.from_dict(raw.get('slide') or {})
         return {
             'captured': captured,
             'hash': int(raw.get('hash', 0) or 0),

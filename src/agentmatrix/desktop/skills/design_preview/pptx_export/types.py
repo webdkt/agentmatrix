@@ -191,12 +191,52 @@ class SlideNode:
             liIndex=d.get("liIndex"),
         )
 
+    def to_dict(self) -> dict:
+        d: Dict[str, Any] = {
+            "tag": self.tag,
+            "rect": _rect_to_dict(self.rect),
+            "style": dict(self.style),
+            "children": [c.to_dict() for c in self.children],
+        }
+        for k in ("text", "href", "imageUrl", "svg", "liIndex"):
+            v = getattr(self, k)
+            if v is not None:
+                d[k] = v
+        if self.untransformedRect is not None:
+            d["untransformedRect"] = _rect_to_dict(self.untransformedRect)
+        return d
+
+
+def _rect_to_dict(r: Rect) -> dict:
+    return {"x": r.x, "y": r.y, "w": r.w, "h": r.h}
+
 
 @dataclass
 class CapturedSlide:
     rect: Rect = field(default_factory=Rect)
     root: Optional[SlideNode] = None
     notes: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CapturedSlide":
+        # T1-6: 之前 driver.py 手动展开 {rect, root}，与同文件其他跨
+        # page.evaluate 边界的类型（SlideNode/Rect/SetupResult）不一致。
+        # 统一从 from_dict 走，消除模板代码。
+        d = d or {}
+        root_raw = d.get("root")
+        return cls(
+            rect=Rect.from_dict(d.get("rect") or {}),
+            root=SlideNode.from_dict(root_raw) if root_raw else None,
+            notes=d.get("notes"),
+        )
+
+    def to_dict(self) -> dict:
+        d: Dict[str, Any] = {"rect": _rect_to_dict(self.rect)}
+        if self.root is not None:
+            d["root"] = self.root.to_dict()
+        if self.notes is not None:
+            d["notes"] = self.notes
+        return d
 
 
 @dataclass

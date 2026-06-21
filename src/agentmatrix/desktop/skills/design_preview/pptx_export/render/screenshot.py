@@ -63,10 +63,11 @@ def build_screenshot_pptx(image_data_urls: List[str],
                 left=0, top=0,
                 width=prs.slide_width, height=prs.slide_height,
             )
-        note = notes[i].strip() if i < len(notes) and notes[i] else ""
-        if note:
+        # R17-5: 同 R16-7 —— 仅用 strip() 判空，写入保留原文（与 TS 对齐）。
+        raw_note = notes[i] if (i < len(notes) and notes[i]) else ""
+        if raw_note.strip():
             try:
-                slide.notes_slide.notes_text_frame.text = note
+                slide.notes_slide.notes_text_frame.text = raw_note
             except Exception as e:
                 warnings.append(f"addNotes slide {i + 1}: {e}")
 
