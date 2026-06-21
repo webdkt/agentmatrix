@@ -154,27 +154,31 @@ class Design_previewSkillMixin:
             _logging.getLogger(__name__).warning(
                 "[DesignPreview] auto_config 异常: %s", e, exc_info=True
             )
+            # 消息里出现了"可以让 Designer 手写 output/export.json"，必须把
+            # canonical schema 一起贴上 —— 否则 agent 凭直觉发明 canvasWidth 之类
+            # 别名，导出时报错。
             return (
                 f"⚠️ 自动生成 export.json 失败: {e}\n"
                 "预览正常，但 PPT 导出按钮会报错。可以让 Designer 手写 output/export.json，"
-                "或忽略（如果不需要导出 PPT）。"
+                f"或忽略（如果不需要导出 PPT）。{_handwrite_schema_hint()}"
             )
 
         # tier 0：完全确定，对 agent 静默
         if report.tier == 0 and report.ok:
             return ""
 
-        # tier 3：无法识别 slide 结构
+        # tier 3：无法识别 slide 结构。report.error 本身就含 "(b) 手写 export.json"
+        # 选项，所以这里必须贴 schema —— 这是最容易触发 agent 手写的路径。
         if not report.ok:
             return (
                 f"⚠️ 自动生成 export.json 失败：{report.error}\n\n"
-                "预览正常，但 PPT 导出按钮会报错（没有 export.json）。"
+                f"预览正常，但 PPT 导出按钮会报错（没有 export.json）。"
+                f"{_handwrite_schema_hint()}"
             )
 
         # tier 1 / 2：列出 hints
         if not report.hints:
             return ""
-        from .pptx_export.auto_config import EXPORT_JSON_SCHEMA_HINT
         bullets = "\n".join(f"  - {h}" for h in report.hints)
         path_line = (
             f"（已生成 {report.config_path}）\n"
@@ -185,12 +189,20 @@ class Design_previewSkillMixin:
             if report.tier == 2 else
             "提示："
         )
-        # 提示 agent「可以改 JSON」时必须把 canonical schema 一起贴上 —— 否则
-        # LLM 会用 canvasSize / googleFonts 等自然命名别名手写，导出时报错。
-        schema_block = (
-            f"\n\n若要手改 export.json，按 canonical schema 写：\n{EXPORT_JSON_SCHEMA_HINT}"
+        return (
+            f"📐 PPT 导出配置已自动生成。{path_line}{review_line}\n{bullets}"
+            f"{_handwrite_schema_hint()}"
         )
-        return f"📐 PPT 导出配置已自动生成。{path_line}{review_line}\n{bullets}{schema_block}"
+
+
+def _handwrite_schema_hint() -> str:
+    """所有「鼓励 agent 手写 export.json」的提示路径都贴这个 block。
+
+    原则：只要 hint 文案里出现"手写/改 JSON"字样，必须立刻给 canonical schema。
+    不然 LLM 没锚点，会发明 canvasWidth / googleFonts 等自然命名别名，导出报错。
+    """
+    from .pptx_export.auto_config import EXPORT_JSON_SCHEMA_HINT
+    return f"\n\n若要手写 export.json，按 canonical schema 写：\n{EXPORT_JSON_SCHEMA_HINT}"
 
     @register_action(
         short_desc="向用户提问（非阻塞，答案会在下一轮作为用户消息回来）",
