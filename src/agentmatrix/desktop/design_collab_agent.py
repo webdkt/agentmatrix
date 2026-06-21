@@ -225,7 +225,19 @@ class DesignCollabAgent(BaseAgent):
         except Exception as e:
             return {"ok": False, "error": f"export.json 解析失败：{e}"}
 
-        preview_url = self.get_preview_url(task_id, f"{PREVIEW_OUTPUT_SUBDIR}/{PREVIEW_ENTRY_FILE}")
+        # entryPath 是真实入口（由 refresh_preview / auto_config 写入 export.json），
+        # 必填字段。缺失就报错 —— 不能 fallback 到 index.html，否则 agent 用了别的文件名时
+        # 会拿到 404 页的截图当 pptx 内容。
+        entry_rel = config.get("entryPath")
+        if not entry_rel:
+            return {
+                "ok": False,
+                "error": (
+                    "export.json 缺 entryPath 字段。让 Designer Agent 用 refresh_preview "
+                    "指定入口文件（会自动生成正确的 export.json）。"
+                ),
+            }
+        preview_url = self.get_preview_url(task_id, entry_rel)
         if not preview_url:
             return {"ok": False, "error": "预览 server 未启动"}
 
