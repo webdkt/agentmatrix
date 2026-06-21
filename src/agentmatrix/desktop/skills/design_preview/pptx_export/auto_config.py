@@ -19,6 +19,22 @@ from pathlib import Path
 from typing import List, Optional
 
 
+# Canonical export.json schema 摘要 —— 在 refresh_preview 提示 agent 时引用，
+# 避免 LLM 用 canvasSize / googleFonts 等别名手写 export.json 导致导出失败。
+# 完整版见 design agent profile 的「PPT 导出」章节。
+EXPORT_JSON_SCHEMA_HINT = """\
+canonical schema（字段名必须严格匹配，不接受 canvasSize / googleFonts 等别名）:
+  width, height            # canvas px，**顶层字段**（不是 canvasSize.width）
+  slides: [{selector, showJs?, delay?}]
+  mode: "editable" | "screenshots"
+  googleFontImports: [...]  # ← 是 Imports，不是 googleFonts
+  hideSelectors: [...]      # 导出时隐藏的 selector
+  resetTransformSelector?: "deck-stage"
+  fontSwaps?: [{from, to}]
+  filename?: "my-deck.pptx"\
+"""
+
+
 # 启发式：nav chrome 候选（CSS selector / class）
 # 见到任一就在 hideSelectors 里加，并在 hint 里告诉 agent（让它 review 是否合理）
 _NAV_CANDIDATE_SELECTORS = [

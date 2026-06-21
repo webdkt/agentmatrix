@@ -174,6 +174,7 @@ class Design_previewSkillMixin:
         # tier 1 / 2：列出 hints
         if not report.hints:
             return ""
+        from .pptx_export.auto_config import EXPORT_JSON_SCHEMA_HINT
         bullets = "\n".join(f"  - {h}" for h in report.hints)
         path_line = (
             f"（已生成 {report.config_path}）\n"
@@ -184,7 +185,12 @@ class Design_previewSkillMixin:
             if report.tier == 2 else
             "提示："
         )
-        return f"📐 PPT 导出配置已自动生成。{path_line}{review_line}\n{bullets}"
+        # 提示 agent「可以改 JSON」时必须把 canonical schema 一起贴上 —— 否则
+        # LLM 会用 canvasSize / googleFonts 等自然命名别名手写，导出时报错。
+        schema_block = (
+            f"\n\n若要手改 export.json，按 canonical schema 写：\n{EXPORT_JSON_SCHEMA_HINT}"
+        )
+        return f"📐 PPT 导出配置已自动生成。{path_line}{review_line}\n{bullets}{schema_block}"
 
     @register_action(
         short_desc="向用户提问（非阻塞，答案会在下一轮作为用户消息回来）",

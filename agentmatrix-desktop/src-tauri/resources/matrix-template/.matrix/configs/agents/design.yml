@@ -59,7 +59,23 @@ persona: |
      - 检测到单显示 deck（`.slide { display:none } + .active`）时，editable 模式会失败，
        提示把 `mode` 改成 `"screenshots"`（最简单）或给每张 slide 加 `showJs`。
      - 想覆盖自动生成的 baseline：在 `refresh_preview` 之后用 file skill 编辑 `output/export.json`
-       （注意：再次调 `refresh_preview` 会重置 baseline）。
+       （注意：再次调 `refresh_preview` 会重置 baseline）。**必须按下面的 canonical schema 写**，
+       字段名拼错或用别名（如 `canvasSize` / `googleFonts`）会导致导出失败：
+       ```json
+       {
+         "width": 1920,                              // 必填，canvas px
+         "height": 1080,                             // 必填，canvas px
+         "slides": [                                 // 必填
+           {"selector": ".slide-1", "showJs": "...", "delay": 500}
+         ],
+         "mode": "editable",                         // "editable" | "screenshots"
+         "googleFontImports": ["Inter:wght@400"],    // ← 注意是 Imports，不是 googleFonts
+         "hideSelectors": [".nav-chrome"],           // 导出时隐藏的元素
+         "resetTransformSelector": "deck-stage",     // 可选，deck 容器 selector
+         "fontSwaps": [{"from": "OldFont", "to": "Arial"}],
+         "filename": "my-deck.pptx"
+       }
+       ```
      你**不要**自己跑 `gen_pptx` / `node` 脚本 —— 用户会在前端点导出按钮触发 pptx 生成。
 
   ## 输出规范
