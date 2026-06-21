@@ -37,7 +37,7 @@ async def export_pptx(url: str, config: dict, out_dir: str,
     if not url or not re.match(r"^https?://", url):
         return GenPptxResult(ok=False, error=f"url 必须是 http(s):// URL：{url!r}")
 
-    raw = config or {}
+    raw = _normalize_config(config or {})
     try:
         input_ = GenPptxInput.from_dict(raw)
     except Exception as e:
@@ -222,6 +222,40 @@ async def _run_editable(driver: PptxExportDriver, input_: GenPptxInput,
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
+
+def _normalize_config(raw: dict) -> dict:
+    """把 agent 手写的 export.json 兼容成 exporter 期望的 canonical schema。
+
+    auto_config 生成的 baseline 已经是 canonical；但 LLM 有时会无视「不要手写
+    export.json」的指示，自己发明 schema。常见的别名：
+      - canvasSize: {width, height}  → 顶层 width / height
+      - googleFonts: [...]           → googleFontImports: [...]
+      - size: {width, height}        → 顶层 width / height
+
+    只在 canonical 字段缺失时回填，已存在的字段不覆盖。
+    返回新的 dict（不修改入参），保持 _auto flag 等无关字段。
+    """
+    if not isinstance(raw, dict):
+        return raw
+    out = dict(raw)
+
+    # width / height
+    if not out.get("width") or not out.get("height"):
+        for nested_key in ("canvasSize", "size", "canvas"):
+            nested = out.get(nested_key)
+            if isinstance(nested, dict):
+                if not out.get("width") and nested.get("width"):
+                    out["width"] = nested["width"]
+                if not out.get("height") and nested.get("height"):
+                    out["height"] = nested["height"]
+                break
+
+    # googleFontImports ← googleFonts
+    if not out.get("googleFontImports") and out.get("googleFonts"):
+        out["googleFontImports"] = out["googleFonts"]
+
+    return out
+
 
 def _write_output(buf: bytes, out_dir: str, filename: Optional[str]) -> str:
     import time
