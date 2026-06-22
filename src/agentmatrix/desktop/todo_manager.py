@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 
 # 匹配 <Todo List>...</Todo List> 块
 _TODO_RE = re.compile(r'\s*<Todo List>.*?</Todo List>', re.DOTALL)
-# 匹配 <system task reminder>...</system task reminder> 块
-_TASK_REMINDER_RE = re.compile(r'\s*<system task reminder>.*?</system task reminder>', re.DOTALL)
+# 匹配 <todo-list-reminder>...</todo-list-reminder> 块
+_TASK_REMINDER_RE = re.compile(r'\s*<todo-list-reminder>.*?</todo-list-reminder>', re.DOTALL)
 
 _VALID_STATUSES = {"planned", "working", "canceled", "done"}
 _VALID_MODES = {"replace", "insert_after", "insert_before"}
@@ -262,31 +262,31 @@ class TodoManager:
         """在有 working/planned 条目时，在最后一条 user message 注入 task reminder。"""
         self._remove_all_task_reminders(micro)
 
-        working_items = []
+        working_items = []  # [(idx, item), ...]
         planned_items = []
         for idx in sorted(self._todos.keys(), key=lambda x: (0, int(x)) if x.isdigit() else (1, x)):
             entry = self._todos[idx]
             if entry["status"] == "working":
-                working_items.append(entry["item"])
+                working_items.append((idx, entry["item"]))
             elif entry["status"] == "planned":
-                planned_items.append(entry["item"])
+                planned_items.append((idx, entry["item"]))
 
         if not working_items and not planned_items:
             return
 
         lines = []
         if working_items:
-            lines.append(f"当前正在处理：{working_items[0]}")
+            idx, item = working_items[0]
+            lines.append(f"当前正在处理 todo #{idx}：{item}")
         if planned_items:
             n = len(planned_items)
-            hint = f"还有{n}项计划的Todo，下一项是{planned_items[0]}" if n > 0 else ""
-            if hint:
-                lines.append(hint)
+            next_idx, next_item = planned_items[0]
+            lines.append(f"还有 {n} 项计划的 todo，下一项是 #{next_idx}：{next_item}")
 
         if not lines:
             return
 
-        reminder = "<system task reminder>\n" + "\n".join(lines) + "\n</system task reminder>"
+        reminder = "<todo-list-reminder>\n" + "\n".join(lines) + "\n</todo-list-reminder>"
 
         # 注入到最后一条 user message
         last_user_idx = None
@@ -307,7 +307,7 @@ class TodoManager:
             if msg["role"] != "user":
                 continue
             c = msg["content"]
-            if isinstance(c, str) and "<system task reminder>" in c:
+            if isinstance(c, str) and "<todo-list-reminder>" in c:
                 msg["content"] = _TASK_REMINDER_RE.sub('', c).rstrip()
 
     # ==================== 格式化输出 ====================
