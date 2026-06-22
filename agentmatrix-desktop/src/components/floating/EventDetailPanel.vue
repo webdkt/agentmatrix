@@ -1,9 +1,9 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { marked } from 'marked'
 import { emit as tauriEmit } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import MIcon from '@/components/icons/MIcon.vue'
+import { renderMarkdown } from '@/utils/markdown'
 
 // Parse event data from URL hash
 const event = ref(null)
@@ -32,7 +32,7 @@ parseEventFromHash()
 const renderedMarkdown = computed(() => {
   if (!event.value) return ''
   const text = getFullText(event.value)
-  return marked.parse(text || '', { breaks: true })
+  return renderMarkdown(text || '')
 })
 
 function getFullText(evt) {
