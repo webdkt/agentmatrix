@@ -3,8 +3,8 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from 'vue-i18n'
-import { marked } from 'marked'
 import MIcon from '@/components/icons/MIcon.vue'
+import { renderMarkdown } from '@/utils/markdown'
 
 const { t } = useI18n()
 
@@ -42,11 +42,6 @@ const jsonContent = computed(() => {
   if (typeof raw === 'string') return raw
   return JSON.stringify(raw, null, 2)
 })
-
-function renderMarkdown(text) {
-  if (!text) return ''
-  return marked.parse(String(text))
-}
 
 function closeWindow() {
   result.value = null

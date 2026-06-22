@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
-import { marked } from 'marked'
 import MIcon from '@/components/icons/MIcon.vue'
+import { renderMarkdown } from '@/utils/markdown'
 import { useUIStore } from '@/stores/ui'
 import { useI18n } from 'vue-i18n'
 
@@ -26,7 +26,7 @@ const email = computed(() => props.emailData || {})
 const renderedBody = computed(() => {
   if (!email.value.body) return ''
   try {
-    return marked(email.value.body)
+    return renderMarkdown(email.value.body)
   } catch (error) {
     console.error('Markdown rendering error:', error)
     return email.value.body

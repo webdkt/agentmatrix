@@ -135,57 +135,114 @@ def extract_action_script_blocks(text: str) -> List[Tuple[str, str]]:
     return results
 
 
+_WRAPPER_TAGS = ("tool_call", "function_calls", "function_call")
+
+_WRAPPER_RE = re.compile(
+    r'</?(?:' + '|'.join(_WRAPPER_TAGS) + r')\b[^>]*>',
+    re.IGNORECASE,
+)
+
+
+def _format_param(param_name: str, raw_value: str) -> str:
+    """把单个参数值格式化为 action_script 片段。
+
+    多行值用 r\"\"\"...\"\"\"（与原 <function=> 转换一致），单行值用双引号。
+    """
+    param_value = raw_value.strip()
+    if '\n' in param_value:
+        escaped = param_value.replace('"""', r'\"""')
+        return f'{param_name}=r"""{escaped}"""'
+    escaped = param_value.replace('\\', '\\\\').replace('"', '\\"')
+    return f'{param_name}="{escaped}"'
+
+
+def _build_action_script(func_name: str, params_text: str) -> str:
+    return f'<action_script>\n{func_name}({params_text})\n</action_script>'
+
+
 def convert_function_blocks_to_action_script(text: str) -> str:
     """
-    将 LLM 输出中的 <function=name>...</function> 块转换为 <action_script> 格式。
+    将 LLM 输出中的类 Anthropic tool call XML 归一化为 <action_script> 格式。
 
-    LLM 有时会忽略 <action_script> 语法要求，转而使用类 Anthropic 的 function call 格式。
-    本函数将其预处理为标准格式，使后续 action 检测管道无需修改。
+    覆盖以下变体（LLM 不遵守 <action_script> 约定时的常见退化）：
+      1. <function=NAME>...</function> 配 <parameter=K>V</parameter>
+      2. <invoke name="NAME">...</invoke> 配 <parameter name="K">V</parameter>
+      3. 外层包装 <tool_call> / <function_calls> / <function_call>（纯容器，透明剥离）
 
-    示例输入:
-        <function=browser_automation.eval_js>
-        <parameter=code>
-        (() => { ... })()
+    本函数是 _run_loop 的预处理 pass，转换后下游管道（extract_action_script_blocks
+    → parse_function_calls → _align_action_params）无需修改。
+
+    示例输入 (invoke 形式):
+        <tool_call>
+        <function_calls>
+        <function_call>
+        <invoke name="file.write">
+        <parameter name="file_path">~/out.txt</parameter>
+        <parameter name="content">
+        line1
+        line2
         </parameter>
-        <parameter=tab_id>ABC123</parameter>
-        </function>
+        </invoke>
+        </function_call>
+        </function_calls>
+        </tool_call>
 
     示例输出:
         <action_script>
-        browser_automation.eval_js(code=r'''...''', tab_id="ABC123")
+        file.write(file_path="~/out.txt", content=r\"\"\"line1
+        line2\"\"\")
         </action_script>
     """
-    if '<function=' not in text:
+    if not text:
         return text
 
-    def _convert_one(match):
+    # 快速 guard：没有任何已知触发 tag 时直接返回，避免无谓 regex pass
+    triggers = ('<function=', '<invoke', '<tool_call', '<function_call', '<function_calls')
+    if not any(t in text.lower() for t in triggers):
+        return text
+
+    # Step 1: 剥离外层容器（tool_call / function_calls / function_call）
+    #         只删 tag 本身，保留内部内容。
+    text = _WRAPPER_RE.sub('', text)
+
+    # Step 2: 转换 <invoke name="...">...</invoke> 块
+    #         参数在 <parameter name="K">V</parameter> 里（Anthropic 标准）
+    def _convert_invoke(match):
         func_name = match.group(1).strip()
         body = match.group(2)
 
-        # 提取 <parameter=name>value</parameter> 对
         params = []
-        for param_match in re.finditer(
+        for pm in re.finditer(
+            r'<parameter\s+name="([^"]+)">(.*?)</parameter>', body, re.DOTALL
+        ):
+            params.append(_format_param(pm.group(1), pm.group(2)))
+
+        return _build_action_script(func_name, ', '.join(params))
+
+    text = re.sub(
+        r'<invoke\s+name="([^"]+)">(.*?)</invoke>',
+        _convert_invoke, text, flags=re.DOTALL,
+    )
+
+    # Step 3: 转换 <function=NAME>...</function> 块（旧格式，参数用 <parameter=K>V</parameter>）
+    def _convert_function(match):
+        func_name = match.group(1).strip()
+        body = match.group(2)
+
+        params = []
+        for pm in re.finditer(
             r'<parameter=(\w+)>(.*?)</parameter>', body, re.DOTALL
         ):
-            param_name = param_match.group(1)
-            param_value = param_match.group(2).strip()
+            params.append(_format_param(pm.group(1), pm.group(2)))
 
-            if '\n' in param_value:
-                # 多行值用 r"""..."""
-                escaped = param_value.replace('"""', r'\"""')
-                params.append(f'{param_name}=r"""{escaped}"""')
-            else:
-                # 单行值用双引号
-                escaped = param_value.replace('\\', '\\\\').replace('"', '\\"')
-                params.append(f'{param_name}="{escaped}"')
+        return _build_action_script(func_name, ', '.join(params))
 
-        params_str = ', '.join(params)
-        return f'<action_script>\n{func_name}({params_str})\n</action_script>'
-
-    return re.sub(
+    text = re.sub(
         r'<function=([^>]+)>(.*?)</function>',
-        _convert_one, text, flags=re.DOTALL,
+        _convert_function, text, flags=re.DOTALL,
     )
+
+    return text
 
 
 def parse_function_calls(

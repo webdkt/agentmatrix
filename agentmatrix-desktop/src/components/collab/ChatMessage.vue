@@ -79,13 +79,13 @@ const handleContentClick = async (e) => {
 
 const renderedBody = computed(() => {
   if (!['bubble-user', 'bubble-agent', 'thought'].includes(props.message.type)) return ''
-  if (props.message.type === 'thought') {
-    const body = props.message.data?.detail?.thought
-    if (!body) return ''
-    return body
-  }
-  // bubble-agent: text from chat-msg, body_preview from emails, or thought text from exit_msg upgraded thoughts
-  const body = props.message.data?.detail?.text || props.message.data?.detail?.body_preview || props.message.data?.detail?.thought
+  // 三种类型统一过 renderMarkdown：thought 内容是 agent 推理时贴的 raw 文本，
+  // 经常包含 deck.html / CSS 源码（<style> <deck-stage> 等）。直接 v-html 透传会
+  // 全局污染 app CSS（实测：Designer think 里贴的 <style>body{background:#1a1a1a}）
+  // 把整个窗口底色变黑字不可读）。renderMarkdown 会把 raw HTML escape 显示为字面。
+  const body = props.message.data?.detail?.thought
+    || props.message.data?.detail?.text
+    || props.message.data?.detail?.body_preview
   if (!body) return ''
   return renderMarkdown(body)
 })

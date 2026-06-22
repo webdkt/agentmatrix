@@ -1,9 +1,9 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { marked } from 'marked'
 import { useEmailStore } from '@/stores/email'
 import { useUIStore } from '@/stores/ui'
+import { renderMarkdown } from '@/utils/markdown'
 import { openAttachment, getAttachmentIcon } from '@/utils/attachmentHelper'
 import MIcon from '@/components/icons/MIcon.vue'
 
@@ -28,7 +28,7 @@ const uiStore = useUIStore()
 const renderedBody = computed(() => {
   if (!props.email.body) return ''
   try {
-    return marked(props.email.body)
+    return renderMarkdown(props.email.body)
   } catch (error) {
     console.error('Markdown rendering error:', error)
     return props.email.body

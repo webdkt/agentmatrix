@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { useSessionStore } from '@/stores/session'
 import { agentAPI } from '@/api/agent'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -23,6 +24,13 @@ const iframeKey = ref(0)
 // 当前预览入口（相对 task 目录的路径，如 'output/index.html'）。
 // 由 agent 调 refresh_preview(entry_path=...) 显式指定；在此之前不渲染 iframe。
 const entryPath = ref('')
+
+// welcome 屏显隐 —— 用本地 state 而不是从 currentSession 派生。
+// 原因：从 ViewSelector 进入 Design View 时，currentSession 可能仍是上次在
+// Collab View 选过的 Designer session，若用 isCurrentDesigner 控制欢迎屏会直接
+// 跳过入口。本地 state 在 onMounted 重置为 true，保证每次进 Design View 都先
+// 让用户选「新建 / 继续」。
+const showWelcome = ref(true)
 
 async function fetchPreviewPort() {
   try {
@@ -48,10 +56,57 @@ function reloadIframe() {
   iframeKey.value++
 }
 
-// 切换 session 时清空入口路径 —— 不同 task 的入口互不继承
+// 切到旧 Designer session 时，后端 agent 还没 activate（用户没发消息），
+// 不会有 refresh event 来恢复 preview 入口。这种情况下从磁盘 history.json 读
+// 上次 refresh_preview 持久化的 metadata.preview_entry_path 兜底一次。
+//
+// 时机：只在 entryPath 为空时读 —— 一旦后端 activate 回放 refresh event，
+// 或 agent 调了新的 refresh_preview，上面的 watch 会覆盖 entryPath，这里就不再回填。
+async function loadPreviewEntryFromDisk() {
+  if (entryPath.value) return  // 已有值（事件驱动设置），跳过
+  const s = currentSession.value
+  if (!s) return
+  const agentSessionId = s.agent_session_id
+  if (!agentSessionId) return
+
+  // 直接从 Tauri Rust 端拿 matrix_world_path —— 重启后 pinia config store 还没 hydrate，
+  // 但 Rust 端 config 是启动时就读好的，立即可用（参考 useTodo.js:20）
+  let worldPath
+  try {
+    const config = await invoke('get_config')
+    worldPath = config?.matrix_world_path
+  } catch (e) {
+    console.warn('[DesignView] get_config failed:', e)
+    return
+  }
+  if (!worldPath) return
+
+  const path = `${worldPath}/.matrix/sessions/${DESIGNER_AGENT}/${agentSessionId}/history.json`
+  try {
+    // 用自定义 Tauri command 读文件 —— @tauri-apps/plugin-fs 的 readFile 受 capability
+    // scope 限制（.matrix/sessions 不在 allow-read-file scope 里）。read_text_file 是
+    // 后端自定义 command，无 scope 限制（参考 useTodo.js:38 用法）
+    const text = await invoke('read_text_file', { path })
+    // 异步期间 currentSession 可能已切换（用户快速 A→B→C），或事件驱动已设置 entryPath
+    // —— 两种情况都不能填，否则会把 A 的 entry 错塞到 C 的 view
+    if (currentSession.value?.agent_session_id !== agentSessionId) return
+    if (entryPath.value) return
+    // history.json 含完整 chat history 可能很大，跳过 JSON.parse 整个对象，
+    // 直接 regex 抓 metadata.preview_entry_path 一行（json.dumps 出来的格式固定）
+    const m = text.match(/"preview_entry_path"\s*:\s*"([^"]*)"/)
+    const ep = m ? m[1] : null
+    if (ep) entryPath.value = ep
+  } catch (e) {
+    // 文件不存在 / 解析失败 → 留空，等 agent refresh_preview
+  }
+}
+
+// 切换 session 时清空 entryPath（避免上个 session 的入口残留），并触发磁盘兜底
 watch(currentSession, () => {
   entryPath.value = ''
+  if (isCurrentDesigner.value) loadPreviewEntryFromDisk()
 })
+
 
 // ---- 监听 design 事件（只处理 refresh；screenshot/question 都在后端/DesignTabsPanel 处理）----
 watch(() => sessionStore.lastSessionEvent, (evt) => {
@@ -86,7 +141,10 @@ async function handleExportPptx() {
   exporting.value = true
   exportToast.value = null
   try {
-    const result = await agentAPI.invokeAgentUIAction(DESIGNER_AGENT, 'export_pptx')
+    const result = await agentAPI.invokeAgentUIAction(DESIGNER_AGENT, 'export_pptx', {
+      entryPath: entryPath.value,
+      task_id: currentTaskId.value,
+    })
     const r = result?.result || {}
     if (r.ok) {
       exportToast.value = {
@@ -107,33 +165,54 @@ async function handleExportPptx() {
 // ---- welcome callbacks ----
 function onWelcomeContinue(session) {
   sessionStore.selectSession(session)
+  showWelcome.value = false  // 兜底：selectSession 同 session 不触发 watch
+}
+
+// 从 split view 回到 welcome 入口（「新建设计」按钮）—— 清掉 currentSession，
+// 让 isCurrentDesigner 变 false，下次再选 session 时是干净状态
+function backToWelcome() {
+  sessionStore.clearCurrentSession()
+  showWelcome.value = true
 }
 
 // ---- 生命周期 ----
 onMounted(async () => {
+  // 每次进 Design View 都强制重置到 welcome 屏（无论 currentSession 状态）
+  showWelcome.value = true
   await fetchPreviewPort()
 })
 
-// 进入 Designer session 时再 fetch 一次 —— preview_port 是 agent 在首次
-// _on_activate_session 时懒启动的，onMounted 那一刻可能还没设置。
+// 进入 Designer session 时：
+//  - 关掉 welcome 屏（用户从 welcome 里选了 session，或 sendAndWaitForSession 完成）
+//  - 顺带 fetch preview_port（agent 首次 activate 时才启动 server）
 watch(isCurrentDesigner, (cur) => {
-  if (cur && !previewPort.value) fetchPreviewPort()
+  if (cur) {
+    if (showWelcome.value) showWelcome.value = false
+    if (!previewPort.value) fetchPreviewPort()
+  }
 })
 </script>
 
 <template>
   <div class="design-view">
-    <!-- 不是 Designer session：欢迎屏（新 vs 继续）-->
+    <!-- welcome 屏（新 vs 继续）—— 显隐由本地 showWelcome 控制，不依赖 currentSession -->
     <DesignWelcome
-      v-if="!isCurrentDesigner"
+      v-if="showWelcome"
       @continue="onWelcomeContinue"
     />
 
-    <!-- 是 Designer session：split view（左 preview，右 tabs）-->
+    <!-- split view（左 preview，右 tabs） -->
     <div v-else class="design-view__split">
       <!-- Left: Preview iframe -->
       <div class="design-view__preview-panel">
         <div class="design-view__preview-header">
+          <button
+            class="design-view__new-btn"
+            @click="backToWelcome"
+            title="新建设计（回到入口）"
+          >
+            <MIcon name="plus" />
+          </button>
           <h3>预览</h3>
           <span v-if="previewUrl" class="design-view__preview-url">{{ previewUrl }}</span>
           <button
@@ -246,6 +325,25 @@ watch(isCurrentDesigner, (cur) => {
 .design-view__reload-btn:hover {
   color: var(--text-primary);
   border-color: var(--accent);
+}
+
+.design-view__new-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.design-view__new-btn:hover {
+  opacity: 0.9;
 }
 
 .design-view__export-btn {

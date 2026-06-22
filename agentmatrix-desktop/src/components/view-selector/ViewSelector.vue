@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import MIcon from '@/components/icons/MIcon.vue'
@@ -17,6 +17,20 @@ const emit = defineEmits(['view-change'])
 
 const { t } = useI18n()
 
+const isExpanded = ref(false)
+let expandTimer = null
+
+const handleMouseEnter = () => {
+  expandTimer = setTimeout(() => {
+    isExpanded.value = true
+  }, 600)
+}
+
+const handleMouseLeave = () => {
+  clearTimeout(expandTimer)
+  isExpanded.value = false
+}
+
 const views = [
   { id: 'collab', icon: 'message-circle', label: 'views.collab.title' },
   { id: 'automation', icon: 'bolt', label: 'views.automation.title' },
@@ -33,7 +47,12 @@ const handleViewClick = (viewId) => {
 </script>
 
 <template>
-  <aside class="view-selector">
+  <aside
+    class="view-selector"
+    :class="{ 'view-selector--expanded': isExpanded }"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
+  >
     <div class="view-selector__logo">
       <div class="logo-icon">
         <MIcon name="dispatch" />
@@ -78,7 +97,7 @@ const handleViewClick = (viewId) => {
   overflow: hidden;
 }
 
-.view-selector:hover {
+.view-selector--expanded {
   width: 180px;
   align-items: flex-start;
 }
@@ -127,7 +146,7 @@ const handleViewClick = (viewId) => {
   padding: 0 12px;
 }
 
-.view-selector:hover .view-selector__item {
+.view-selector--expanded .view-selector__item {
   width: 100%;
 }
 
@@ -163,7 +182,7 @@ const handleViewClick = (viewId) => {
   color: inherit;
 }
 
-.view-selector:hover .view-selector__label {
+.view-selector--expanded .view-selector__label {
   opacity: 1;
   max-width: 100px;
 }
