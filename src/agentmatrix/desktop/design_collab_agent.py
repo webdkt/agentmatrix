@@ -202,7 +202,9 @@ class DesignCollabAgent(BaseAgent):
         """
         import json
 
-        task_id = getattr(self, "current_task_id", None)
+        # task_id 优先从前端 kwargs 拿（让用户切到旧 session 立刻能导出，不必先发消息
+        # 激活 session）；fallback 到 self.current_task_id（保持兼容）
+        task_id = kwargs.get("task_id") or getattr(self, "current_task_id", None)
         if not task_id:
             return {"ok": False, "error": "当前没有激活的 task / session"}
 
@@ -225,16 +227,17 @@ class DesignCollabAgent(BaseAgent):
         except Exception as e:
             return {"ok": False, "error": f"export.json 解析失败：{e}"}
 
-        # entryPath 是真实入口（由 refresh_preview / auto_config 写入 export.json），
-        # 必填字段。缺失就报错 —— 不能 fallback 到 index.html，否则 agent 用了别的文件名时
-        # 会拿到 404 页的截图当 pptx 内容。
-        entry_rel = config.get("entryPath")
+        # entryPath 是 session 状态（前端 DesignView 持有，refresh_preview 时拿到），
+        # 由前端 export 调用传入 kwargs。export.json 里的 entryPath 仅作兼容 fallback
+        # （老配置或 auto_config 历史写入）—— 不再要求 agent 在 export.json 里写这个字段，
+        # 它不属于设计配置。
+        entry_rel = kwargs.get("entryPath") or config.get("entryPath")
         if not entry_rel:
             return {
                 "ok": False,
                 "error": (
-                    "export.json 缺 entryPath 字段。让 Designer Agent 用 refresh_preview "
-                    "指定入口文件（会自动生成正确的 export.json）。"
+                    "当前 preview 没有入口文件 —— 请先调 refresh_preview 指定要导出的页面，"
+                    "再点导出按钮。"
                 ),
             }
         preview_url = self.get_preview_url(task_id, entry_rel)

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useConfigStore } from '@/stores/config'
 import { useChatTimeline } from '@/composables/useChatTimeline'
@@ -13,6 +13,7 @@ import WhiteboardView from '@/components/collab/WhiteboardView.vue'
 import TodoView from '@/components/collab/TodoView.vue'
 import TaskFilesPanel from '@/components/collab/TaskFilesPanel.vue'
 import QuestionForm from '@/components/design/QuestionForm.vue'
+import AgentStatusIndicator from '@/components/agent/AgentStatusIndicator.vue'
 import DesignSessionList from './DesignSessionList.vue'
 
 const DESIGNER_AGENT = 'Designer'
@@ -28,6 +29,7 @@ const {
   currentSession,
   primaryAgentName,
   onScroll,
+  scrollToBottom,
   handleEmailSendStarted,
   handleEmailSendFailed,
 } = useChatTimeline({ userAgentName: () => userAgentName.value })
@@ -65,6 +67,7 @@ const activeTab = ref('chat')
 
 function switchTab(id) {
   activeTab.value = id
+  if (id === 'chat') nextTick(() => scrollToBottom())
 }
 
 // ---- Badge counts ----
@@ -208,6 +211,12 @@ function handleQuestionCancel() {
     <div class="dtp-content">
       <!-- Chat tab -->
       <div v-if="activeTab === 'chat'" class="dtp-chat">
+        <div class="dtp-chat__status">
+          <AgentStatusIndicator
+            :agent-name="currentAgentName"
+            :current-session-id="sessionId"
+          />
+        </div>
         <div ref="messagesContainer" class="dtp-chat__messages" @scroll="onScroll">
           <ChatMessage
             v-for="item in chatTimeline"
@@ -409,6 +418,13 @@ function handleQuestionCancel() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.dtp-chat__status {
+  flex-shrink: 0;
+  padding: 6px var(--spacing-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-secondary);
 }
 
 .dtp-chat__messages {

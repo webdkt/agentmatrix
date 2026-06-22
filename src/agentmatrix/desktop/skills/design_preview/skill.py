@@ -1,11 +1,12 @@
 """
 Design Preview Skill — 设计产出的预览 / 提问 / 截图协作 action。
 
-全部 **非阻塞**：每个 action emit 一个 CoreEvent 到前端即立即返回，
-结果在下一轮 think 通过现有通道自然回到 LLM：
-- refresh_preview：前端 reload 预览 iframe（无需回传）。
-- ask_user_question：前端弹表单，用户提交走 user message 通道。
-- screenshot_preview：前端截图后 POST 回后端，转 ScreenshotSignal 注入。
+- refresh_preview：emit design/refresh event → 前端 reload 预览 iframe（fire-and-forget，
+  无回传）。同时触发 auto_config 扫 HTML 生成 baseline export.json。
+- ask_user_question：emit design/question event → 前端弹表单，用户提交走 user message
+  通道，答案在下一轮对话到达。
+- screenshot_preview：**后端** headless Chrome（DesignCollabAgent._PlaywrightManager）
+  渲染当前 preview URL 截图 → 落盘 → 同步返回容器内路径，agent 在同一轮调 look(path) 查看。
 
 注意：本 Mixin 被 SKILL_REGISTRY 动态混入 MicroAgent 子类，
 action 执行时 `self` 即 MicroAgent 实例，可直接用 self._emit_event /
@@ -120,9 +121,10 @@ class Design_previewSkillMixin:
         )
 
         # ---- 自动生成 export.json baseline（确定性字段走代码，非确定项给 agent 提示） ----
+        # entryPath 不写进 export.json —— 它是 session 状态（前端 refresh_preview 持有），
+        # 由前端 export 调用传给后端
         export_note = self._auto_gen_export_config(
             html_path=target,
-            entry_path_rel=entry_clean,
             task_dir=task_dir,
         )
 
@@ -130,7 +132,7 @@ class Design_previewSkillMixin:
             return f"已通知前端刷新预览到 {entry_path}\n\n{export_note}"
         return f"已通知前端刷新预览到 {entry_path}"
 
-    def _auto_gen_export_config(self, html_path, entry_path_rel: str, task_dir) -> str:
+    def _auto_gen_export_config(self, html_path, task_dir) -> str:
         """调 pptx_export.auto_config 生成 baseline export.json，返回给 agent 的提示文本。
 
         纯字符串拼装，不抛异常。任何失败都转成对 agent 友好的提示。
@@ -145,7 +147,6 @@ class Design_previewSkillMixin:
             out_dir = _P(task_dir) / "output"
             report = analyze_html_for_export(
                 html_path=_P(html_path),
-                entry_path_rel=entry_path_rel,
                 out_dir=out_dir,
             )
         except Exception as e:
@@ -154,29 +155,26 @@ class Design_previewSkillMixin:
             _logging.getLogger(__name__).warning(
                 "[DesignPreview] auto_config 异常: %s", e, exc_info=True
             )
-            # 消息里出现了"可以让 Designer 手写 output/export.json"，必须把
-            # canonical schema 一起贴上 —— 否则 agent 凭直觉发明 canvasWidth 之类
-            # 别名，导出时报错。
             return (
                 f"⚠️ 自动生成 export.json 失败: {e}\n"
-                "预览正常，但 PPT 导出按钮会报错。可以让 Designer 手写 output/export.json，"
-                f"或忽略（如果不需要导出 PPT）。{_handwrite_schema_hint()}"
+                "预览正常，但 PPT 导出按钮会报错。可忽略（如果不需要导出 PPT），"
+                "或让 Designer 检查 HTML 结构。"
             )
 
         # tier 0：完全确定，对 agent 静默
         if report.tier == 0 and report.ok:
             return ""
 
-        # tier 3：无法识别 slide 结构。report.error 本身就含 "(b) 手写 export.json"
-        # 选项，所以这里必须贴 schema —— 这是最容易触发 agent 手写的路径。
+        # tier 3：无法识别 slide 结构。report.error 已含详细的「改 HTML 用 deck-stage」
+        # 指引 —— 不再建议 agent 手写 export.json（强约束 deck-stage 后，手写切换逻辑
+        # 不可靠，agent 凭直觉发明的 schema 也常常字段名错）。
         if not report.ok:
             return (
                 f"⚠️ 自动生成 export.json 失败：{report.error}\n\n"
                 f"预览正常，但 PPT 导出按钮会报错（没有 export.json）。"
-                f"{_handwrite_schema_hint()}"
             )
 
-        # tier 1 / 2：列出 hints
+        # tier 2：列出 hints（nav chrome / 动画 / 字体），agent 可选 review
         if not report.hints:
             return ""
         bullets = "\n".join(f"  - {h}" for h in report.hints)
@@ -184,25 +182,11 @@ class Design_previewSkillMixin:
             f"（已生成 {report.config_path}）\n"
             if report.config_path else "（export.json 未写盘）\n"
         )
-        review_line = (
-            "请 review 以下几点（baseline 已给默认值，导出能跑；若不对请改 JSON 对应字段）："
-            if report.tier == 2 else
-            "提示："
-        )
         return (
-            f"📐 PPT 导出配置已自动生成。{path_line}{review_line}\n{bullets}"
-            f"{_handwrite_schema_hint()}"
+            f"📐 PPT 导出配置已自动生成。{path_line}"
+            "请 review 以下几点（baseline 已给默认值，导出能跑；若不对请改 JSON 对应字段）：\n"
+            f"{bullets}"
         )
-
-
-def _handwrite_schema_hint() -> str:
-    """所有「鼓励 agent 手写 export.json」的提示路径都贴这个 block。
-
-    原则：只要 hint 文案里出现"手写/改 JSON"字样，必须立刻给 canonical schema。
-    不然 LLM 没锚点，会发明 canvasWidth / googleFonts 等自然命名别名，导出报错。
-    """
-    from .pptx_export.auto_config import EXPORT_JSON_SCHEMA_HINT
-    return f"\n\n若要手写 export.json，按 canonical schema 写：\n{EXPORT_JSON_SCHEMA_HINT}"
 
     @register_action(
         short_desc="向用户提问（非阻塞，答案会在下一轮作为用户消息回来）",

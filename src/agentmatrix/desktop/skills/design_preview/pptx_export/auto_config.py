@@ -80,7 +80,6 @@ class ExportReport:
 
 def analyze_html_for_export(
     html_path: Path,
-    entry_path_rel: str,
     out_dir: Path,
     filename_hint: Optional[str] = None,
 ) -> ExportReport:
@@ -88,7 +87,6 @@ def analyze_html_for_export(
 
     Args:
         html_path: 入口 HTML 的绝对文件路径（必须存在）
-        entry_path_rel: 相对 task 目录的入口路径（写进 config 的 entryPath 字段）
         out_dir: export.json 写入目录（一般是 task 的 output/）
         filename_hint: pptx 文件名建议（一般从 task title 派生）
 
@@ -117,16 +115,27 @@ def analyze_html_for_export(
     if not slides:
         report.ok = False
         report.tier = 3
-        report.error = (
-            "未识别到 slide 结构。期待以下任一约定：\n"
-            "  - <deck-stage> 元素的直接子 <section>（推荐，见 deck-stage.js 约定）\n"
-            "  - 带 [data-screen-label] 属性的元素\n"
-            "  - <section data-slide=\"...\"> 或 class=\"slide\" 元素\n"
-            "你有两个选择：\n"
-            "  (a) 改 HTML，给 slide 元素加约定结构（推荐 deck-stage > section）；\n"
-            "  (b) 手写 output/export.json，显式指定 slides[].selector 字段。"
-        )
-        # tier=3 时不写 export.json —— 保持「要么没有，要么对应当前 preview」语义
+        report.error = _diagnose_non_deck_stage(soup, html_text)
+        # tier=3 时清掉 stale export.json —— 保持「要么没有，要么对应当前 preview」
+        # 语义。之前成功跑过的 export.json 若留着，会被 export 按钮当当前 preview
+        # 的配置使用，但实际入口已换 / 已坏 → 用户点导出会拿到误导性错误。
+        _try_unlink_export_json(out_dir)
+        return report
+
+    # ---------------------------------------------------------------
+    # 1b. 验证 deck-stage 是真正的 Web Component（不是手写假的）
+    # ---------------------------------------------------------------
+    # _find_slides 只看 <deck-stage> 字面量，但 agent 可能在 HTML 里写了
+    # <deck-stage> 标签 + 内联手写 class DeckStage {...}，没调
+    # customElements.define('deck-stage', ...)。这种情况下元素是 HTMLUnknownElement，
+    # 没有 .goTo() API —— export 时 showJs 会崩。这里提前发现，让 agent 在
+    # refresh_preview 返回里就看到错误。
+    runtime_err = _verify_deck_stage_runtime(soup, html_text)
+    if runtime_err:
+        report.ok = False
+        report.tier = 3
+        report.error = runtime_err
+        _try_unlink_export_json(out_dir)
         return report
 
     # ---------------------------------------------------------------
@@ -151,13 +160,11 @@ def analyze_html_for_export(
     nav_hits = _find_nav_chrome(soup)
 
     # ---------------------------------------------------------------
-    # 6. 动画 / async 内容（启发式，可能要 agent 介入）
+    # 6. 动画 / async 内容（deck-stage 模式下动画由 [data-deck-active] gate，
+    #    capture 时当前 slide 必然 active，所以这些信号不影响 export 正确性，
+    #    仅作为给 agent 的 review hint）
     # ---------------------------------------------------------------
     animation_signals = _find_animation_signals(soup, html_text)
-
-    # 单显示 deck 检测：CSS 有 `.slide { display: none }` + `.slide.active` 模式，
-    # 默认 editable 模式会捕获失败（hidden slide 走不通），建议改 screenshots 或加 showJs
-    single_display = _detect_single_display_deck(html_text, slide_source)
 
     # ---------------------------------------------------------------
     # 7. filename（从 <title> 派生）
@@ -173,15 +180,20 @@ def analyze_html_for_export(
     # ---------------------------------------------------------------
     # 组装 config
     # ---------------------------------------------------------------
+    # deck-stage 自带的 chrome（thumbnail rail / overlay / fullscreen 按钮等）
+    # 都带 data-omelette-chrome 属性，导出时统一隐藏
+    hide = list(nav_hits)
+    if "[data-omelette-chrome]" not in hide:
+        hide.append("[data-omelette-chrome]")
+
     config = {
         "_auto": True,  # 标记：refresh_preview 自动生成（agent 手写时去掉此字段）
-        "entryPath": entry_path_rel,
         "width": width,
         "height": height,
         "mode": "editable",
         "slides": slides,
         "googleFontImports": google_imports,
-        "hideSelectors": list(nav_hits),
+        "hideSelectors": hide,
         "filename": f"{filename_hint}.pptx",
     }
     if reset_sel:
@@ -189,31 +201,12 @@ def analyze_html_for_export(
     report.config = config
 
     # ---------------------------------------------------------------
-    # tier 判定
+    # tier 判定 —— deck-stage 已经保证 export 能跑，tier 只反映 "要不要 agent review"
     # ---------------------------------------------------------------
-    fully_deterministic = (
-        slide_source in ("deck-stage", "data-screen-label")
-        and not nav_hits
-        and not animation_signals
-        and not custom_fonts_seen
-        and not single_display
-    )
-    if fully_deterministic:
+    if not nav_hits and not animation_signals and not custom_fonts_seen:
         report.tier = 0
-    elif single_display:
-        # 单显示 deck 必须 agent 介入（否则 editable 模式必崩）
+    else:
         report.tier = 2
-        report.hints.append(
-            "检测到单显示 deck 模式 (.slide { display: none } + .active) —— "
-            "默认 editable 模式导出会失败（hidden slide 捕获不到）。"
-            "两个选择：(a) 把 output/export.json 的 mode 改成 \"screenshots\"（最简单，导出为图片）；"
-            "(b) 保持 editable，给每张 slide 加 slides[N].showJs 激活该 slide "
-            "（如 `document.querySelectorAll('.slide.active').forEach(e=>e.classList.remove('active')); "
-            "document.querySelectorAll('.slide')[N].classList.add('active')`）。"
-        )
-    elif nav_hits or animation_signals or custom_fonts_seen:
-        report.tier = 2
-        # 给 agent 具体的 review 提示
         if nav_hits:
             report.hints.append(
                 f"检测到 nav chrome 候选 ({', '.join(nav_hits)}) → 默认在导出时隐藏。"
@@ -223,9 +216,10 @@ def analyze_html_for_export(
         if animation_signals:
             kinds = sorted(set(animation_signals))
             report.hints.append(
-                f"检测到动画/异步内容 ({', '.join(kinds)}) → 默认 delay=0、不执行任何 JS。"
-                "如果某张 slide 需要播放动画到终态或等待懒加载，"
-                "在 output/export.json 对应 slides[N] 里加 showJs（slide 加载后执行的 JS）或 delay（毫秒）。"
+                f"检测到动画/异步内容 ({', '.join(kinds)}) → deck-stage 下 slide 动画 "
+                "gate 在 [data-deck-active] 上，capture 时当前 slide 必然 active，"
+                "动画会播放到终态。若某张 slide 需要更长 settle，"
+                "在 output/export.json 对应 slides[N] 里加 delay（毫秒）。"
             )
         if custom_fonts_seen:
             report.hints.append(
@@ -233,13 +227,6 @@ def analyze_html_for_export(
                 "如果用户机器没装这些字体，pptx 会降级到 fallback 字体。"
                 "若要强制替换，在 output/export.json 的 fontSwaps 加 {from, to} 条目。"
             )
-    else:
-        # slide 结构勉强识别（走 .slide fallback），baseline 仍可用
-        report.tier = 1
-        report.hints.append(
-            f"slide 结构通过 {slide_source} 识别（不是推荐的 deck-stage/data-screen-label）。"
-            "导出能跑，但建议改 HTML 用约定结构以获得更稳定的 selector。"
-        )
 
     # ---------------------------------------------------------------
     # 写 export.json（先删后写，确保对应最新 preview）
@@ -270,12 +257,22 @@ def analyze_html_for_export(
 def _find_slides(soup) -> tuple[list[dict], str]:
     """返回 (slides 列表, 来源标签)。
 
-    来源优先级：
-        1. deck-stage         — <deck-stage> 的直接子 <section>
-        2. data-screen-label  — 任意带 [data-screen-label] 的元素
-        3. section.slide / [data-slide] — 兜底
+    只识别 <deck-stage> 的直接子 <section> —— 这是本环境 PPT 导出工具
+    唯一支持的 deck 结构（参考 baoyu-design export-as-pptx-editable.md）。
+
+    其他结构（data-screen-label / section.slide / section[data-slide]）一律
+    不识别，让 main flow 走 tier 3 报错路径，要求 agent 改用 deck-stage。
+
+    为什么只支持 deck-stage：
+        export 工具依赖 deck-stage 的两个约定 ——
+        (1) runtime 把 data-deck-active 属性加到当前 slide（_applyIndex）
+        (2) 公开 API goTo(N) 切换 slide（line 1944）
+        这两者结合，让 export.json 能机械生成：
+            selector = "deck-stage > [data-deck-active]"  # 所有 slide 共用
+            showJs   = "document.querySelector('deck-stage').goTo(N)"
+        agent 自写的 deck（opacity/.active/display:none 切换等）class 名
+        千变万化，无法可靠推断切换逻辑 —— 强约束 deck-stage 是唯一可行方案。
     """
-    # (a) deck-stage > section（首选约定）
     deck_stage = soup.find("deck-stage")
     if deck_stage:
         sections = [
@@ -283,50 +280,18 @@ def _find_slides(soup) -> tuple[list[dict], str]:
             if not s.get("aria-hidden", "").lower() == "true"
         ]
         if sections:
+            # 所有 slide 共享同一个 selector —— runtime 时 data-deck-active
+            # 只在当前 slide 上（_applyIndex 控制），showJs 通过 goTo(N) 切换
             return (
                 [
-                    {"selector": f"deck-stage > section:nth-child({i + 1})"}
+                    {
+                        "selector": "deck-stage > [data-deck-active]",
+                        "showJs": f"document.querySelector('deck-stage').goTo({i})",
+                    }
                     for i in range(len(sections))
                 ],
                 "deck-stage",
             )
-
-    # (b) [data-screen-label]
-    labelled = soup.select("[data-screen-label]")
-    if labelled:
-        # 用 attribute selector 顺序选 nth-of-type 不靠谱（多个不同元素混杂），
-        # 直接给每个元素一个 [data-screen-label] selector，外加 nth-of-type 索引
-        # 但不同 tag 混杂时 nth-of-type 仍可能不准 —— 给每个 label 唯一 attribute selector
-        selectors = []
-        for el in labelled:
-            lbl = el.get("data-screen-label", "").strip()
-            if lbl:
-                selectors.append({"selector": f'[data-screen-label="{lbl}"]'})
-            else:
-                # 空 label，退回 nth-of-type（弱保证）
-                idx = labelled.index(el) + 1
-                selectors.append({"selector": f'[data-screen-label]:nth-of-type({idx})'})
-        return selectors, "data-screen-label"
-
-    # (c) section[data-slide] 或 section.slide
-    by_attr = soup.select("section[data-slide]")
-    if by_attr:
-        return (
-            [
-                {"selector": f'section[data-slide]:nth-of-type({i + 1})'}
-                for i in range(len(by_attr))
-            ],
-            "section[data-slide]",
-        )
-    by_class = soup.select("section.slide")
-    if by_class:
-        return (
-            [
-                {"selector": f'section.slide:nth-of-type({i + 1})'}
-                for i in range(len(by_class))
-            ],
-            "section.slide",
-        )
 
     return [], "none"
 
@@ -497,31 +462,155 @@ def _find_animation_signals(soup, html_text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 内部：单显示 deck 检测
+# 内部：非 deck-stage deck 诊断（tier 3 报错用）
 # ---------------------------------------------------------------------------
 
-# 匹配 `.slide { display: none }` / `.slide{display:none}` / 多余空白变体
-# （含常见类名变体 .slide / section.slide / [data-screen-label]）
-_SINGLE_DISPLAY_PATTERNS = [
-    # .slide / section / [data-screen-label] 任一选择器 + display:none
-    re.compile(r'\.slide\b[^{]*\{[^}]*display\s*:\s*none', re.IGNORECASE),
-    re.compile(r'section\.slide\b[^{]*\{[^}]*display\s*:\s*none', re.IGNORECASE),
-    re.compile(r'\[data-screen-label\][^{]*\{[^}]*display\s*:\s*none', re.IGNORECASE),
-]
+def _verify_deck_stage_runtime(soup, html_text: str) -> Optional[str]:
+    """验证 <deck-stage> 是真正的 Web Component，不是手写假的。
 
+    检测三种真正的 deck-stage 加载方式：
+    1. <script src="...deck-stage.js">（外部脚本，文件名必须是 deck-stage.js）
+    2. inline customElements.define('deck-stage', ...)（inline 注册）
+    3. inline <script type="module"> 含 customElements.define('deck-stage'
 
-def _detect_single_display_deck(html_text: str, slide_source: str) -> bool:
-    """检测 deck 是否用「单 slide 显示」模式（一次只一张可见）。
+    如果 HTML 有 <deck-stage> 标签但三种都没有，说明 agent 手写了假的实现
+    （常见模式：内联 class DeckStage {...} + new DeckStage(el)，方法名常是
+    goToSlide 而非 goTo）—— 元素是 HTMLUnknownElement，没有 .goTo() API。
 
-    信号：CSS 含 `display: none` 隐藏 slide 选择器 + 有 .active / [data-active] 状态类。
-    editable 模式在这种结构下会失败 —— 应建议 screenshots 或 showJs。
+    返回 None 表示 OK，返回 str 表示错误描述（用于 tier 3 报错）。
     """
-    has_hide = any(p.search(html_text) for p in _SINGLE_DISPLAY_PATTERNS)
-    if not has_hide:
-        return False
-    # 有状态切换类才确认（避免误报纯装饰性 display:none）
-    has_active_state = bool(re.search(r'\.active\b|data-active|classList\.\w+\(\s*["\']active', html_text))
-    return has_active_state
+    # 必须先有 <deck-stage> 元素才做这个检查；否则跳过
+    if not soup.find("deck-stage"):
+        return None
+
+    # (1) 外部脚本 src 含 deck-stage.js（路径任意，文件名必须匹配）
+    for script in soup.find_all("script"):
+        src = script.get("src", "") or ""
+        # 去掉 query/hash 后比对文件名
+        src_file = src.split("?")[0].split("#")[0].rstrip("/")
+        if src_file.endswith("/deck-stage.js") or src_file == "deck-stage.js":
+            return None
+
+    # (2) / (3) inline script 含 customElements.define('deck-stage'
+    if re.search(
+        r"customElements\s*\.\s*define\s*\(\s*['\"]deck-stage['\"]",
+        html_text,
+    ):
+        return None
+
+    # 都没有 —— agent 手写了假的。生成具体诊断。
+    # 尝试猜 agent 是怎么实现的，给最针对性的修法
+    has_inline_deck_class = bool(
+        re.search(r"\bclass\s+DeckStage\b", html_text)
+    )
+    fake_hint = ""
+    if has_inline_deck_class:
+        # 进一步猜方法名（常见：goToSlide / showSlide / setCurrentSlide）
+        m = re.search(
+            r"\bclass\s+DeckStage\b[\s\S]{0,2000}?\b(go\w*Slide|show\w*Slide|set\w*Slide)\s*\(",
+            html_text,
+        )
+        if m:
+            fake_hint = (
+                f"\n\n检测到手写的 class DeckStage，方法名可能是 {m.group(1)}(N) —— "
+                "这跟 deck-stage.js 的 goTo(N) 约定不一致，export 工具用不了。"
+            )
+
+    return (
+        "检测到 <deck-stage> 标签，但 HTML 既没有 <script src=\"deck-stage.js\">，"
+        "也没有 inline customElements.define('deck-stage', ...) —— "
+        "说明 agent 手写了假的 deck-stage 实现（例如内联 class DeckStage + new DeckStage(el)），"
+        "<deck-stage> 元素其实是 HTMLUnknownElement，没有 .goTo(N) API，"
+        "export 时 document.querySelector('deck-stage').goTo(0) 会报 \"not a function\"。"
+        + fake_hint
+        +
+        "\n\n修法（二选一，推荐第一个）：\n"
+        "  (a) cp ~/starter-components/deck-stage.js ~/current_task/output/，\n"
+        "      HTML 里加 <script src=\"deck-stage.js\"></script>（vanilla JS，不是 type=\"text/babel\"），\n"
+        "      然后删掉自己写的 class DeckStage 和 new DeckStage(...) —— 真正的 Web Component\n"
+        "      会自动 upgrade 所有 <deck-stage> 元素，不需要手动 new。\n"
+        "  (b) 在 inline <script> 里加 customElements.define('deck-stage', DeckStage)，\n"
+        "      且 class 方法名必须叫 goTo(N)（不是 goToSlide）—— 但这只是凑活，\n"
+        "      你 reimplement 的缩放/键盘/thumbnail/print 逻辑多半有 bug，还是用 (a)。"
+        "\n\n改完调 refresh_preview 让 auto_config 重新扫，会自动生成对的 export.json。"
+    )
+
+
+def _try_unlink_export_json(out_dir: Path) -> None:
+    """tier 3 时清掉 stale export.json，不抛异常。"""
+    try:
+        p = out_dir / "export.json"
+        if p.exists():
+            p.unlink()
+    except Exception:
+        pass
+
+
+def _diagnose_non_deck_stage(soup, html_text: str) -> str:
+    """对没有 <deck-stage> 的 HTML 给出针对性错误信息。
+
+    检测三类常见违反约束的情况：
+    1. React/babel 渲染（slide 内容由 JS 生成，静态扫描看不到）
+    2. 手写 deck（有 section.slide / [data-screen-label] 等信号，但没 deck-stage）
+    3. 完全没有 slide 结构（landing page / 长文档等非 deck 页面）
+
+    所有情况都要求 agent 改 HTML 用 deck-stage，不兜底允许手写 export.json ——
+    因为 agent 自写切换逻辑（class 名千变万化）无法可靠 export。
+    """
+    has_babel = bool(soup.find_all("script", attrs={"type": "text/babel"}))
+    has_empty_root = bool(soup.find("div", id="root")) and not soup.find("div", id="root").get_text(strip=True)
+    has_section_slide = bool(soup.select("section.slide"))
+    has_section_data_slide = bool(soup.select("section[data-slide]"))
+    has_data_screen_label = bool(soup.select("[data-screen-label]"))
+
+    common_hint = (
+        "本环境的 PPT 导出工具只支持 deck-stage 结构（详见 ~/built-in-skills/make-a-deck.md）。"
+        "deck-stage 自带 goTo(N) API + data-deck-active 切换约定，"
+        "auto_config 才能机械生成 selector 和 showJs。\n\n"
+        "改造步骤：\n"
+        "  1. cp ~/starter-components/deck-stage.js 到 ~/current_task/output/\n"
+        "  2. HTML 里 <script src=\"deck-stage.js\"></script> 加载（vanilla JS，非 JSX）\n"
+        "  3. 把所有 slide 写成 <deck-stage width=\"1920\" height=\"1080\"> 的直接子 <section>，\n"
+        "     每个 <section data-label=\"...\"> 是一张 slide\n"
+        "  4. slide 内容写静态 HTML —— 不要用 React/babel 渲染 slide 内容，\n"
+        "     静态 HTML 用户能直接编辑、export 工具能稳定 capture\n"
+        "  5. 调 refresh_preview 让 auto_config 重新扫，会自动生成对的 export.json"
+    )
+
+    if has_babel or has_empty_root:
+        return (
+            "未识别到 <deck-stage> slide 结构。检测到 React/babel 渲染（script[type=\"text/babel\"]"
+            f"{' + 空 <div id=\"root\">' if has_empty_root else ''}）—— slide 内容由 JS 在 runtime 生成，\n"
+            "auto_config 静态扫描看不到任何 slide，export 工具也没法可靠 capture。\n\n"
+            "如果 slide 内容是静态的（文字 / 图 / 表格 / 布局），必须改成静态 HTML 写在\n"
+            "<deck-stage> 的 <section> 里 —— 这也是 make-a-deck.md 的核心约束：「能静态就静态，\n"
+            "React 仅限 slide 真正需要交互（图表动画 / live demo）时使用，且 slide 容器仍是\n"
+            "静态 <section>，交互组件嵌在内部」。\n\n"
+            + common_hint
+        )
+
+    if has_section_slide or has_section_data_slide or has_data_screen_label:
+        signals = []
+        if has_section_slide: signals.append("section.slide")
+        if has_section_data_slide: signals.append("section[data-slide]")
+        if has_data_screen_label: signals.append("[data-screen-label]")
+        return (
+            f"检测到 slide 信号 ({', '.join(signals)})，但没有 <deck-stage> 容器 —— "
+            "这是手写的 deck 结构，本环境不支持。\n\n"
+            "为什么禁止：手写 deck 的 slide 切换逻辑千变万化（.active + opacity / "
+            "display:none + .show / [data-active] / inline style 等），auto_config 无法可靠\n"
+            "推断切换 class 名和加在哪个元素。deck-stage 把这一切标准化为 goTo(N) + \n"
+            "data-deck-active，才能机械生成对的 export.json。\n\n"
+            + common_hint
+        )
+
+    return (
+        "未识别到 slide 结构 —— 这看起来不是 slide-structured deck（可能是 landing page / \n"
+        "dashboard / 长文档）。PPT 导出工具只支持 slide-structured deck，不支持任意 HTML。\n\n"
+        "两个选择：\n"
+        "  (a) 把内容重新组织成 deck-stage 结构（推荐，参考 ~/built-in-skills/make-a-deck.md）；\n"
+        "  (b) 告诉用户这个页面不是 deck，无法导出 PPT。"
+    )
 
 
 # ---------------------------------------------------------------------------
