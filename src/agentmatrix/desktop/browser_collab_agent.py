@@ -225,9 +225,6 @@ class BrowserCollabAgent(BaseAgent):
     _loaded_system_name: str = None
     _loaded_process_name: str = None
 
-    # Exit status check: skip if no actions executed since last check
-    _actions_executed_since_status_check: bool = False
-
     # ==========================================
     # Automation Spec 静态工具方法
     # ==========================================
@@ -324,18 +321,11 @@ class BrowserCollabAgent(BaseAgent):
             from .skills.browser_automation._shared import _agent_env_callbacks
             _agent_env_callbacks.pop(self.name, None)
 
-        # Reset action tracking for exit status check
-        self._actions_executed_since_status_check = False
         try:
             if self.active_micro_agent and hasattr(self.active_micro_agent, '_ensure_browser'):
                 await self.active_micro_agent._ensure_browser()
         except Exception as e:
             logger.warning(f"Auto CDP init failed (will retry in actions): {e}")
-
-    def _start_session_task(self, session: dict):
-        """Override: reset action tracking for exit status check."""
-        self._actions_executed_since_status_check = False
-        super()._start_session_task(session)
 
     def _create_micro_agent(self):
         """创建 MicroAgent，设置 automation spec loader。"""
@@ -357,7 +347,6 @@ class BrowserCollabAgent(BaseAgent):
 
     async def _on_after_action(self, action_name: str, params: dict, result):
         """Called after each micro agent action completes."""
-        self._actions_executed_since_status_check = True
         readme_dir = self._detect_readme_write(action_name, params)
         if readme_dir:
             asyncio.create_task(self._update_meta_yml(readme_dir))
@@ -610,123 +599,25 @@ class BrowserCollabAgent(BaseAgent):
         return await self._switch_work_mode("execute")
 
     # ==========================================
-    # Exit Hook — Project Status Confirmation
+    # Project Status DB Sync
     # ==========================================
 
-    _STATUS_PROMPT = (
-        "You are a bystander observing a conversation between a user and an automation agent. "
-        "Based on the conversation below, what is the most likely current project status?\n\n"
-        "Valid statuses:\n"
-        "- COMPLETED: All requested work is done successfully\n"
-        "- WAITING_FOR_USER: Agent is waiting for user input or decision\n"
-        "- IN_PROGRESS: Work is still ongoing\n"
-        "- STOPPED: Work was intentionally stopped\n"
-        "- FAILED: Work encountered an unrecoverable error\n"
-        "- UNKNOWN: Cannot determine from the conversation\n\n"
-        "Choose the status that best fits the evidence. "
-        "Only use UNKNOWN if the conversation truly provides no clue.\n\n"
-        "Respond with ONLY a JSON object: {\"status\": \"<STATUS>\"}"
-    )
+    async def _sync_project_status(self, status: str):
+        """覆写：先写 metadata（BaseAgent），再同步到 automation_tasks DB。
 
-    @staticmethod
-    def _parse_status_response(text: str) -> dict:
-        """Extract status from LLM JSON response. Follows parser contract."""
-        m = re.search(r'\{[^{}]+\}', text)
-        if not m:
-            return {"status": "error", "message": "No JSON found"}
-        try:
-            obj = json.loads(m.group())
-            status = obj.get("status", "").upper().strip()
-            valid = ("COMPLETED", "WAITING_FOR_USER", "IN_PROGRESS", "STOPPED", "FAILED", "UNKNOWN")
-            if status in valid:
-                return {"status": "success", "content": status}
-            return {"status": "error", "message": f"Invalid status: {status}"}
-        except (json.JSONDecodeError, AttributeError):
-            return {"status": "error", "message": "JSON parse failed"}
-
-    @staticmethod
-    def _format_messages_for_status(messages: list, max_count: int = 10) -> str:
-        """Format last N messages as plain text conversation."""
-        recent = messages[-max_count:] if len(messages) > max_count else messages
-        lines = []
-        for msg in recent:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if not isinstance(content, str):
-                continue
-            # Strip system tags and spec blocks for cleaner context
-            content = re.sub(r'<automation-spec>.*?</automation-spec>', '', content, flags=re.DOTALL).strip()
-            content = re.sub(r'<system-[^>]+>.*?</system-[^>]+>', '', content, flags=re.DOTALL).strip()
-            if not content:
-                continue
-            # Truncate very long messages
-            if len(content) > 500:
-                content = content[:500] + "..."
-            label = "User" if role == "user" else "Agent"
-            lines.append(f"{label}: {content}")
-        return "\n\n".join(lines)
-
-    async def _on_before_exit(self) -> bool:
-        """Override: infer project status via LLM before exiting automation sessions."""
-        # 1. Run parent check first (reply_tracker)
-        if not await super()._on_before_exit():
-            return False
-
-        # 2. Skip if no actions executed this loop — nothing to judge
-        if not self._actions_executed_since_status_check:
-            logger.debug("[StatusCheck] Skipped: no actions executed this loop")
-            return True
-
-        # 3. Check if this is an automation session
+        BaseAgent 只写 session metadata；BrowserCollabAgent 追加 DB 同步，
+        让 automation session 的状态可被外部系统（前端/编排）查询。
+        DB 无对应行（非 automation session）时静默忽略。
+        """
+        await super()._sync_project_status(status)
         session = self.current_session
         if not session:
-            return True
-
-        metadata = session.get("metadata", {})
-        system_name = metadata.get("sk_system_name")
-        process_name = metadata.get("sk_process_name")
-
-        if not system_name or not process_name:
-            logger.debug("[StatusCheck] Skipped: not an automation session")
-            return True
-
-        # 4. Infer status via LLM — fire-and-forget, 不阻塞退出
-        self._actions_executed_since_status_check = False
-        # 快照 messages，避免后台任务读到已清理的状态
-        messages_snapshot = list(self.active_micro_agent.messages)
-        session_id = session.get("session_id", "")
-        asyncio.create_task(
-            self._infer_and_write_status(system_name, process_name, session_id, metadata, messages_snapshot)
-        )
-
-        return True
-
-    async def _infer_and_write_status(
-        self, system_name: str, process_name: str,
-        session_id: str, metadata: dict, messages: list,
-    ):
-        """后台推断 project_status 并写入 metadata + DB。"""
-        logger.info(f"[StatusCheck] Inferring status for {system_name}/{process_name}...")
+            return
         try:
-            conversation = self._format_messages_for_status(messages)
-            prompt = f"{self._STATUS_PROMPT}\n\n---\n{conversation}"
-            new_status = await self.cerebellum.backend.think_with_retry(
-                initial_messages=[{"role": "user", "content": prompt}],
-                parser=self._parse_status_response,
-                max_retries=3,
-            )
-            if not new_status or new_status == "UNKNOWN":
-                logger.info(f"[StatusCheck] Skipped: {new_status}")
-                return
-
-            logger.info(f"[StatusCheck] Inferred: {new_status}")
-            metadata["project_status"] = new_status
-
-            try:
-                db = self.runtime.post_office.email_db
-                await db.update_automation_task_status(session_id, new_status)
-                logger.info(f"[StatusCheck] DB updated: {new_status}")
-            except Exception as e:
-                logger.warning(f"[StatusCheck] DB sync failed: {e}")
+            db = self.runtime.post_office.email_db
+            session_id = session.get("session_id", "")
+            updated = await db.update_automation_task_status(session_id, status)
+            if not updated:
+                logger.debug(f"[StatusSync] No automation_task row for session {session_id}")
         except Exception as e:
-            logger.warning(f"[StatusCheck] Inference failed: {e}")
+            logger.warning(f"[StatusSync] DB sync failed: {e}")

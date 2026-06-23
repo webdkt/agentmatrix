@@ -16,7 +16,7 @@ import ToastContainer from '@/components/settings/toast/ToastContainer.vue'
 import { configAPI } from '@/api/config'
 
 const windowLabel = getCurrentWebviewWindow().label
-const currentView = ref('collab')
+const currentView = ref('home')
 const backendStore = useBackendStore()
 const configStore = useConfigStore()
 const sessionStore = useSessionStore()

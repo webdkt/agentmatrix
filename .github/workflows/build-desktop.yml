@@ -63,11 +63,10 @@ jobs:
         run: |
           PYTHON_URL="https://github.com/indygreg/python-build-standalone/releases/download/${{ env.PYTHON_STANDALONE_RELEASE }}/cpython-${{ env.PYTHON_STANDALONE_VERSION }}-aarch64-apple-darwin-install_only_stripped.tar.gz"
           echo "Downloading: $PYTHON_URL"
-          curl -L -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
-          mkdir -p /tmp/python-standalone
-          tar xzf /tmp/python-standalone.tar.gz -C /tmp/python-standalone
-          # Copy the python directory to resources (install_only tarballs extract to python/)
-          cp -r /tmp/python-standalone/python agentmatrix-desktop/src-tauri/resources/python_standalone
+          curl -fSL -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
+          # install_only tarballs extract to python/, strip that prefix straight into resources
+          mkdir -p agentmatrix-desktop/src-tauri/resources/python_standalone
+          tar xzf /tmp/python-standalone.tar.gz -C agentmatrix-desktop/src-tauri/resources/python_standalone --strip-components=1
           echo "=== Standalone Python ==="
           ls -lh agentmatrix-desktop/src-tauri/resources/python_standalone/bin/python3
           du -sh agentmatrix-desktop/src-tauri/resources/python_standalone
@@ -163,11 +162,10 @@ jobs:
         run: |
           PYTHON_URL="https://github.com/indygreg/python-build-standalone/releases/download/${{ env.PYTHON_STANDALONE_RELEASE }}/cpython-${{ env.PYTHON_STANDALONE_VERSION }}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
           echo "Downloading: $PYTHON_URL"
-          curl -L -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
-          mkdir -p /tmp/python-standalone
-          tar xzf /tmp/python-standalone.tar.gz -C /tmp/python-standalone
-          # Copy the python directory to resources (install_only tarballs extract to python/)
-          cp -r /tmp/python-standalone/python agentmatrix-desktop/src-tauri/resources/python_standalone
+          curl -fSL -o /tmp/python-standalone.tar.gz "$PYTHON_URL"
+          # install_only tarballs extract to python/, strip that prefix straight into resources
+          mkdir -p agentmatrix-desktop/src-tauri/resources/python_standalone
+          tar xzf /tmp/python-standalone.tar.gz -C agentmatrix-desktop/src-tauri/resources/python_standalone --strip-components=1
           echo "=== Standalone Python ==="
           ls -lh agentmatrix-desktop/src-tauri/resources/python_standalone/python.exe
           du -sh agentmatrix-desktop/src-tauri/resources/python_standalone

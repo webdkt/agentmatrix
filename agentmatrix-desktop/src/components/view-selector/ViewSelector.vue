@@ -32,6 +32,7 @@ const handleMouseLeave = () => {
 }
 
 const views = [
+  { id: 'home', icon: 'home', label: 'views.home.title' },
   { id: 'collab', icon: 'message-circle', label: 'views.collab.title' },
   { id: 'automation', icon: 'bolt', label: 'views.automation.title' },
   { id: 'knowledge', icon: 'book', label: 'views.knowledge.title' },

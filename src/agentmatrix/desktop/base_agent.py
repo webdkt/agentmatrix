@@ -30,6 +30,11 @@ class AgentStatus:
     ERROR = "ERROR"
 
 
+# Todo-driven reflection & exit check 常量
+_TODO_REFLECTION_THRESHOLD = 10  # N 步未更新 todo 触发反思
+_WAIT_FOR_USER_RE = re.compile(r'<wait-for-user>(.*?)</wait-for-user>', re.DOTALL)
+
+
 
 class BaseAgent(BasicAgent):
     _log_from_attr = "name"  # 日志名字来自 self.name 属性
@@ -118,6 +123,13 @@ class BaseAgent(BasicAgent):
         self._collab_output_loop: Optional[asyncio.AbstractEventLoop] = None
         self.current_collab_file: Optional[str] = None
         self._last_deactivated_session_id: Optional[str] = None
+
+        # Todo-driven reflection & exit tracking
+        # M1: 计数器，任何 todo 写入（_change_counter 变化）清零
+        self._todo_steps_since_update = 0
+        self._last_todo_version_seen = 0
+        # M2: 签名去重，同一份 todo items 只拦截退出一次
+        self._last_reminded_m2_signature: Optional[str] = None
 
         # 记录最后一次 top-level MicroAgent 执行的 system prompt
         self.last_system_prompt = None
@@ -1174,6 +1186,15 @@ Start generating the Working Notes now. Remember: wrap your output in <working_n
 
         micro._before_think_hook = _before_think_hook
 
+        # 🆕 after-actions hook: M1 反思检查（actions 完成后、退出检查前）
+        # 放在这里而不是 _before_think_hook 的原因：
+        # 1. 能准确反映"本轮"的 todo engagement（action 执行后 _change_counter 已更新）
+        # 2. 若 M1 注入 signal → queue 非空 → 退出条件不满足 → 不走 M2，天然互斥
+        async def _after_actions_hook():
+            await self._check_todo_reflection(micro)
+
+        micro._after_actions_hook = _after_actions_hook
+
         return micro
 
     def _assemble_system_prompt(self, micro_agent: MicroAgent) -> str:
@@ -1361,29 +1382,64 @@ Start generating the Working Notes now. Remember: wrap your output in <working_n
             if not info.get("replied", True) and p != user_name
         ]
 
-        if not unreplied:
-            return True  # 没有未回复，允许退出
+        if unreplied:
+            # 清理历史中已有的 reply-reminder 消息块
+            self._purge_reply_reminders()
 
-        # 清理历史中已有的 reply-reminder 消息块
-        self._purge_reply_reminders()
+            names = "、".join(p for p, _ in unreplied)
+            reminder_text = (
+                f"你还没有回复 {names} 的邮件。"
+                f"如需回复请使用 send_internal_mail，如无需回复请忽略本消息。"
+            )
+            wrapped = f"<{self._REPLY_REMINDER_TAG}>\n{reminder_text}\n</{self._REPLY_REMINDER_TAG}>"
+            reminder = TextSignal(
+                text=wrapped,
+                type_name="reply_reminder",
+            )
+            # 先标记为已提醒，防止无限循环
+            for _, info in unreplied:
+                info["replied"] = True
 
-        names = "、".join(p for p, _ in unreplied)
+            self.active_micro_agent.signal_queue.put_nowait(reminder)
+            self.logger.info(f"Injected reply reminder for: {names}")
+            return False  # 注入了信号，阻止退出，让 loop 继续
+
+        # ========== 🆕 M2: Todo 退出检查 ==========
+        todos = self.todo_manager.data
+        if not todos:
+            return True  # 无 todo，直接放行（不写 status）
+
+        if not self._has_open_todos():
+            # 全部完成 → 推导并写 status
+            await self._derive_and_sync_status()
+            return True
+
+        # 有 open todo — 检查签名
+        sig = self._compute_todo_signature()
+        if sig == self._last_reminded_m2_signature:
+            # 已提醒过此签名 — 解析 <wait-for-user>，推导 status，放行
+            wait_content = self._parse_wait_for_user_tag()
+            if wait_content:
+                await self._sync_project_status("WAITING_FOR_USER")
+            else:
+                await self._derive_and_sync_status()
+            return True
+
+        # 首次提醒此签名 — 注入 reminder，阻止退出
+        self._last_reminded_m2_signature = sig
         reminder_text = (
-            f"你还没有回复 {names} 的邮件。"
-            f"如需回复请使用 send_internal_mail，如无需回复请忽略本消息。"
+            "本次工作即将结束。请对当前 todo list 做最后对齐：\n"
+            "- 已完成的 todo → 更新状态为 done\n"
+            "- 还需要继续处理 → 继续执行\n"
+            "- 在等待用户反馈或输入 → 输出 `<wait-for-user>等待的内容</wait-for-user>`\n"
+            "- 其他情况 → 简要说明"
         )
-        wrapped = f"<{self._REPLY_REMINDER_TAG}>\n{reminder_text}\n</{self._REPLY_REMINDER_TAG}>"
-        reminder = TextSignal(
-            text=wrapped,
-            type_name="reply_reminder",
-        )
-        # 先标记为已提醒，防止无限循环
-        for _, info in unreplied:
-            info["replied"] = True
-
-        self.active_micro_agent.signal_queue.put_nowait(reminder)
-        self.logger.info(f"Injected reply reminder for: {names}")
-        return False  # 注入了信号，阻止退出，让 loop 继续
+        self.active_micro_agent.signal_queue.put_nowait(TextSignal(
+            text=reminder_text,
+            type_name="todo_exit_reminder",
+        ))
+        self.logger.info("[M2] Injected todo exit reminder, blocking exit")
+        return False
 
     def _purge_reply_reminders(self):
         """从 user messages 中移除所有 <system-auto-reply-reminder> 块。
@@ -1413,6 +1469,134 @@ Start generating the Working Notes now. Remember: wrap your output in <working_n
                         item["text"] = cleaned if cleaned else "continue"
 
     # _run_session, _deactivate_session — 由 BasicAgent 提供
+
+    async def _route_signal(self, signal):
+        """Desktop 层覆写：用户发消息时自动回退 WAITING_FOR_USER 状态。
+
+        用户 Email 进入时，若当前 project_status 为 WAITING_FOR_USER，
+        自动回退为 IN_PROGRESS（用户已经回来了，不再"等待"）。
+        """
+        is_user_msg = (
+            isinstance(signal, Email)
+            and self.runtime
+            and signal.sender == self.runtime.get_user_agent_name()
+        )
+        if is_user_msg:
+            session = self.current_session
+            if session:
+                metadata = session.get("metadata", {})
+                if metadata.get("project_status") == "WAITING_FOR_USER":
+                    await self._sync_project_status("IN_PROGRESS")
+
+        await super()._route_signal(signal)
+
+    # ==================== 🆕 Todo-driven Reflection & Exit Check ====================
+
+    def _compute_todo_signature(self) -> str:
+        """计算 todo 签名（仅 item 文本集合，不含 status）。
+
+        用于 M2 去重：同一份 items 只拦截退出一次。
+        """
+        import hashlib
+        items = sorted(
+            t.get("item", "")
+            for t in self.todo_manager.data.values()
+        )
+        return hashlib.md5(json.dumps(items, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def _has_open_todos(self) -> bool:
+        """是否存在未完成的 todo（status in planned/working）。"""
+        return any(
+            t.get("status") in ("planned", "working")
+            for t in self.todo_manager.data.values()
+        )
+
+    async def _sync_project_status(self, status: str):
+        """写入 project_status 到 session metadata。
+
+        BaseAgent 基础实现只写 metadata，不涉及 DB。
+        子类（如 BrowserCollabAgent）可覆写此方法追加 DB 同步。
+        """
+        session = self.current_session
+        if not session:
+            return
+        metadata = session.setdefault("metadata", {})
+        metadata["project_status"] = status
+
+    async def _derive_and_sync_status(self, override_status: str = None):
+        """从 todo 状态推导 project_status 并写入。
+
+        推导规则：
+          - 全 done/canceled → COMPLETED
+          - 有 working → IN_PROGRESS
+          - 仅有 planned → IN_PROGRESS
+        （无 todo 的情况由 M2 提前 short-circuit，不会走到这里）
+        """
+        if override_status:
+            await self._sync_project_status(override_status)
+            return
+
+        todos = self.todo_manager.data
+        statuses = {t.get("status") for t in todos.values()}
+        if statuses <= {"done", "canceled"}:
+            status = "COMPLETED"
+        elif "working" in statuses:
+            status = "IN_PROGRESS"
+        else:
+            status = "IN_PROGRESS"  # 仅有 planned
+        await self._sync_project_status(status)
+
+    def _parse_wait_for_user_tag(self) -> Optional[str]:
+        """从最后一条 assistant message 解析 <wait-for-user> tag。
+
+        M2 第二次调用时，最后一条 assistant message 一定是对 M2 reminder 的回应
+        （M1 若触发会阻止退出，M2 不会被第二次调用）。
+        """
+        micro = self.active_micro_agent
+        if not micro or not micro.messages:
+            return None
+        for msg in reversed(micro.messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                m = _WAIT_FOR_USER_RE.search(content)
+                if m:
+                    return m.group(1).strip()
+            return None  # 只看最后一条 assistant message
+        return None
+
+    async def _check_todo_reflection(self, micro):
+        """M1: 周期性反思。N 步未更新 todo → 注入反思 signal。
+
+        无签名去重，触发后清零，再过 N 步可再次触发。
+        不检查 todo 是否存在/是否有 open 项——长时间不碰 todo 本身就是信号。
+        """
+        # 更新计数器
+        current_version = self.todo_manager._change_counter
+        if current_version != self._last_todo_version_seen:
+            self._last_todo_version_seen = current_version
+            self._todo_steps_since_update = 0
+        else:
+            self._todo_steps_since_update += 1
+
+        if self._todo_steps_since_update < _TODO_REFLECTION_THRESHOLD:
+            return
+
+        # 触发反思 + 清零
+        self._todo_steps_since_update = 0
+        reflection_text = (
+            "【反思时间】请暂停一下，回顾当前目标：\n"
+            "- 我们最初的目标是什么？现在在做什么？\n"
+            "- 对照 todo list 和 whiteboard，我们是否在正确的轨道上？\n"
+            "- 如果方向正确，请继续；如果需要调整，请及时更新 todo 或修正方向。"
+        )
+        from ..core.signals import TextSignal
+        micro.signal_queue.put_nowait(TextSignal(
+            text=reflection_text,
+            type_name="todo_reflection",
+        ))
+        self.logger.info("[M1] Injected todo reflection signal")
 
     async def _history_worker(self):
         """

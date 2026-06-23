@@ -61,7 +61,7 @@ watch(() => whiteboard.version.value, (v) => {
   if (v > 0 && activeTab.value !== 'whiteboard') activeTab.value = 'whiteboard'
 })
 watch(() => todo.version.value, (v) => {
-  if (v > 0 && activeTab.value !== 'todo') activeTab.value = 'todo'
+  if (v > 0 && todoCount.value > 0 && activeTab.value !== 'todo') activeTab.value = 'todo'
 })
 
 const entryCount = computed(() => {

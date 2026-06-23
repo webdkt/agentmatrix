@@ -144,6 +144,7 @@ class MicroAgent(AutoLoggerMixin):
         self._before_exit_hook = None  # Shell 层注入的退出前回调
         self._before_action_hook = None  # (action_name, params, action_label) -> None or False to skip
         self._after_action_hook = None   # (action_name, params, result) -> None
+        self._after_actions_hook = None  # Shell 层注入的 actions 完成后回调（退出检查前）
         self._should_exit: bool = False  # action 设置此 flag 触发退出
 
         # 日志
@@ -1135,6 +1136,14 @@ class MicroAgent(AutoLoggerMixin):
                         await asyncio.sleep(settle_window)
                         if len(self._running_actions) >= prev_count:
                             break  # 数量没减少（有慢 action 在跑），进入下一轮
+
+                # Hook: actions 完成后、退出检查前（Shell 层注入 M1 反思等逻辑）
+                # 若注入 signal → queue 非空 → 下方退出条件不满足 → 天然不走 M2
+                if hasattr(self, '_after_actions_hook') and self._after_actions_hook:
+                    try:
+                        await self._after_actions_hook()
+                    except Exception as e:
+                        self.logger.debug(f"_after_actions_hook error: {e}")
 
                 # 5. 检查 _should_exit flag（action 设置此 flag 触发退出）
                 if getattr(self, '_should_exit', False):

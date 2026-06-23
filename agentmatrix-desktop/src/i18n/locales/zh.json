@@ -36,6 +36,15 @@
     "initializing": "正在初始化矩阵..."
   },
   "views": {
+    "home": {
+      "title": "首页",
+      "subtitle": {
+        "collab": "与智能体协作对话",
+        "automation": "搭建并运行自动化流程",
+        "knowledge": "文档与记忆库",
+        "design": "设计工坊"
+      }
+    },
     "collab": {
       "title": "协作",
       "icon": "ti-message-circle"
