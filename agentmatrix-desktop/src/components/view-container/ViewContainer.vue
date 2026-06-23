@@ -11,6 +11,7 @@ import AgentSessionPanel from '@/components/collab/AgentSessionPanel.vue'
 import SettingsView from '@/components/settings/SettingsView.vue'
 import AgentsView from '@/components/agents/AgentsView.vue'
 import AutomationView from '@/components/automation/AutomationView.vue'
+import HomeView from '@/components/home/HomeView.vue'
 import KnowledgeBaseView from '@/components/knowledge/KnowledgeBaseView.vue'
 import DesignView from '@/components/design/DesignView.vue'
 import ServicesView from '@/components/services/ServicesView.vue'
@@ -92,8 +93,13 @@ watch(() => props.currentView, (newView) => {
 
 <template>
   <main class="view-container">
+    <!-- Home View -->
+    <div v-if="currentView === 'home'" class="view-container__content view-container__content--full">
+      <HomeView @view-change="handleViewChange" />
+    </div>
+
     <!-- Collab View -->
-    <div v-if="currentView === 'collab'" class="view-container__content">
+    <div v-else-if="currentView === 'collab'" class="view-container__content">
       <KeepAlive>
         <SessionList mode="collab" />
       </KeepAlive>

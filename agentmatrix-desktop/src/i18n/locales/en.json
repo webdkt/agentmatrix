@@ -36,6 +36,15 @@
     "initializing": "Initializing matrix..."
   },
   "views": {
+    "home": {
+      "title": "Home",
+      "subtitle": {
+        "collab": "Chat with your agents",
+        "automation": "Build and run workflows",
+        "knowledge": "Documents & memory",
+        "design": "Design workspace"
+      }
+    },
     "collab": {
       "title": "Collab",
       "icon": "ti-message-circle"
